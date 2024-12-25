@@ -3,112 +3,135 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
 
+
+#[derive(Clone)]
+#[derive(Debug)]
 enum InningKind { Top, Bottom }
+const MAX_INNING: i32 = 9;
 const MAX_OUT: i32 = 3;
+const HIT_TEXT: &str = "Hit!";
+const OUT_TEXT: &str = "Out!";
+const SPACE_TEXT: &str = " ";
 
 fn main() {
-    let _avg :f64 = 0.45;
-    let mut inning_count = 0;
-    let mut inning_kind: InningKind  = InningKind::Bottom;
-    let mut is_in_game= true;
-    let mut top_innings: Vec<Inning> = Vec::new();
-    let mut bottom_innings: Vec<Inning> = Vec::new();
-
+    let _avg :f64 = 0.4;
+    let mut _inning_kind = InningKind::Bottom;
+    let mut _is_in_game= true;
+    let mut _top_innings: Vec<Inning> = Vec::new();
+    let mut _bottom_innings: Vec<Inning> = Vec::new();
+    let mut _top_team_name = "Team A";
+    let mut _bottom_team_name = "Team B";
+    let mut _top_total_score = 0;
+    let mut _bottom_total_score = 0;
+    let mut _top_scoreboard = String::from("");
+    let mut _bottom_scoreboard = String::from("");
     
-    let mut _batting_first_scores: Vec<i32> = Vec::new();
-    let mut _field_first_scores: Vec<i32> = Vec::new();
-    
-    let mut inning_seq = 0;
-
+    let mut _inning_seq = 1;
     let mut rng = rand::thread_rng();
-    _batting_first_scores.push(0);
-    _field_first_scores.push(0);
-    //let mut _current_scores: Vec<i32> = _batting_first_scores;
 
-    while is_in_game {
+    _top_scoreboard = shape_scoreboard_text(_top_team_name, _top_innings.clone(), SPACE_TEXT, _top_total_score);
+    _bottom_scoreboard = shape_scoreboard_text(_bottom_team_name, _bottom_innings.clone(), SPACE_TEXT, _bottom_total_score);
 
-        if matches!(inning_kind, InningKind::Top) {
-            inning_kind = InningKind::Bottom;
+    while _is_in_game {
+
+        if matches!(_inning_kind, InningKind::Top) {
+            _inning_kind = InningKind::Bottom;
         } else {
-            inning_kind = InningKind::Top;
-            inning_seq += 1;
+            _inning_kind = InningKind::Top;
         }
+        
+        let mut _inning = Inning {
+             kind: _inning_kind.clone(),
+             seq: _inning_seq,
+             counts: Vec::new(),
+             score: 0
+            };
+        let mut _count_seq = 0;
+        let mut _is_first_runner= false;
+        let mut _is_second_runner= false;
+        let mut _is_third_runner= false;
+        let mut _batting_result = "";
+        let mut _out_count = 0;
 
-        let mut inning = Inning { kind: InningKind::Top, seq: 1, counts: Vec::new(), score: 0};
-        let mut count_seq = 0;
-        let mut is_first_runner= false;
-        let mut is_second_runner= false;
-        let mut is_third_runner= false;
-        let mut out_count = 0;
+        while _out_count < MAX_OUT {
 
-        while out_count < MAX_OUT {
-
-            count_seq += 1;
-            let mut count = Count {
-                 seq: count_seq,
-                is_first_runner: is_first_runner,
-                is_second_runner: is_second_runner,
-                is_third_runner: is_third_runner,
-                out: out_count,
+            _count_seq += 1;
+            let mut _count = Count {
+                seq: _count_seq,
+                is_first_runner: _is_first_runner,
+                is_second_runner: _is_second_runner,
+                is_third_runner: _is_third_runner,
+                out: _out_count,
             };
             let trial: f64 = rng.gen();
-            println!("Trial: {trial}");
+            //println!("Trial: {trial}");
     
+            // In case of single hit.
             if _avg > trial {
-                println!("Hit!");
+                _batting_result = HIT_TEXT;
     
-                if is_third_runner {
-                    _batting_first_scores[0] = _batting_first_scores[0] + 1;
+                if _is_third_runner {
+                    _inning.score += 1;
+                    if matches!(_inning_kind, InningKind::Top) {
+                        _top_total_score += 1;
+                    } else {
+                        _bottom_total_score += 1;
+                    }
                 }
-                if is_second_runner {
-                    is_third_runner = true;
+                if _is_second_runner {
+                    _is_third_runner = true;
                 }
-                if is_first_runner {
-                    is_second_runner = true;
+                if _is_first_runner {
+                    _is_second_runner = true;
                 }
-                is_first_runner = true;
+                _is_first_runner = true;
                 
             } else {
-                println!("Out!");
-                if out_count < MAX_OUT {
-                    out_count += 1;
+                _batting_result = OUT_TEXT;
+                if _out_count < MAX_OUT {
+                    _out_count += 1;
                 }
             }
-        
-            println!("Score: {}-{}", _batting_first_scores[0], _field_first_scores[0]);
-            println!("  <{}>", runner_text(is_second_runner));
-            println!("<{}> <{}>", runner_text(is_third_runner), runner_text(is_first_runner));
+
+            _count.is_first_runner = _is_first_runner;
+            _count.is_second_runner = _is_second_runner;
+            _count.is_third_runner = _is_third_runner;
+            _count.out = _out_count;
+            _inning.counts.push(_count);
+
+            let _inning_kind_text: String = format!("{:?}", _inning_kind);
+            println!("Sequence:{}({})-{}", _inning_seq, display_innning_kind(_inning_kind.clone()), _count_seq);
+
+            if matches!(_inning_kind, InningKind::Top) {
+                _top_scoreboard = shape_scoreboard_text(_top_team_name, _top_innings.clone(), &_top_total_score.to_string(), _top_total_score);
+            } else {
+                _bottom_scoreboard = shape_scoreboard_text(_bottom_team_name, _bottom_innings.clone(), &_bottom_total_score.to_string(), _bottom_total_score);
+            }
+            println!("{_top_scoreboard}");
+            println!("{_bottom_scoreboard}");
+            println!("  <{}>", runner_text(_is_second_runner));
+            println!("<{}> <{}>", runner_text(_is_third_runner), runner_text(_is_first_runner));
             println!("  <H>");
-            println!("Out Count: {out_count}");
+            println!("Batting Result: {_batting_result}");
+            println!("Out Count: {_out_count}");
+            println!("---");
         }
 
-
-
-
-
-
-
-
-        top_innings.push(inning);
-
-
-        if inning_count == 9 {
-            
+        if matches!(_inning_kind, InningKind::Top) {
+            _top_innings.push(_inning);
+            if _inning_seq >= MAX_INNING && _bottom_total_score > _top_total_score {
+                _is_in_game = false;
+            }
+        } else {
+            if _inning_seq >= MAX_INNING && _bottom_total_score != _top_total_score {
+                _is_in_game = false;
+            } else {
+                _bottom_innings.push(_inning);
+                _inning_seq += 1;
+            }   
         }
-
-        is_in_game = false;
-        
     } 
            
-}
-
-fn process_inning(inning: Inning) -> Inning {
-
-    inning
-
-
-
-    //false
 }
 
 fn runner_text(runner: bool) -> &'static str {
@@ -119,6 +142,38 @@ fn runner_text(runner: bool) -> &'static str {
     }
 }
 
+fn shape_scoreboard_text(team: &str, innings: Vec<Inning>, score: &str, total_score: i32) -> String {
+    let mut _scoreboard_text = String::from("");
+
+    for inning in innings.iter() {
+        _scoreboard_text.push_str(inning.score.to_string().as_str());
+    }
+
+    _scoreboard_text.push_str(score);
+
+    let _scoreboard_text_length: i32 = _scoreboard_text.chars().count() as i32;
+
+    if _scoreboard_text_length <= MAX_INNING {
+        for _ in 0..(MAX_INNING - _scoreboard_text_length) {
+            _scoreboard_text.push_str(SPACE_TEXT);
+        }
+    }
+
+    _scoreboard_text.insert_str(0,":");
+    _scoreboard_text.insert_str(0, team);
+    _scoreboard_text.push_str(SPACE_TEXT);
+    _scoreboard_text.push_str(total_score.to_string().as_str());
+    _scoreboard_text
+}
+
+fn display_innning_kind(inning_kind: InningKind) -> &'static str {
+    match inning_kind {
+        InningKind::Top => "Top",
+        InningKind::Bottom => "Bottom",
+    }
+}
+
+#[derive(Clone)]
 struct Inning {
     kind: InningKind,
     seq: i32,
@@ -126,6 +181,7 @@ struct Inning {
     score: i32,
 }
 
+#[derive(Clone)]
 struct Count {
     seq: i32,
     is_first_runner: bool,
