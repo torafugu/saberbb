@@ -4,18 +4,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
 
-#[derive(Clone)]
-enum InningKind { Top, Bottom }
-#[derive(Clone)]
-enum BattingResult { Hit, Out }
-impl fmt::Display for BattingResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            BattingResult::Hit => write!(f, "Hit"),
-            BattingResult::Out => write!(f, "Out"),
-        }
-    }
-}
 const MAX_INNING: i32 = 9;
 const MAX_OUT: i32 = 3;
 const HIT_TEXT: &str = "Hit!";
@@ -28,6 +16,19 @@ const WALK_OFF_TEXT: &str = "x";
 const RUNNER_TEXT: &str = "R";
 const NO_RUNNER_TEXT: &str = "-";
 const LINE_SEPARATOR_TEXT: &str = "---";
+#[derive(Clone)]
+enum InningKind { Top, Bottom }
+#[derive(Clone)]
+enum BattingResult { Hit, Out }
+impl fmt::Display for BattingResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BattingResult::Hit => write!(f, "{HIT_TEXT}"),
+            BattingResult::Out => write!(f, "{OUT_TEXT}"),
+        }
+    }
+}
+
 fn main() {
     let mut _batter_avg :f64 = 0.4;
     let mut _inning_kind = InningKind::Bottom;
