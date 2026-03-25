@@ -17,14 +17,14 @@ impl Team {
 #[derive(Clone)]
 pub struct Batter {
     name: String,
-    order: i8,
+    pub average: f32,
 }
 
 impl Batter {
-    pub fn new(name: &str, order: i8) -> Batter {
+    pub fn new(name: &str, average: f32) -> Batter {
         Batter {
             name: name.to_string(),
-            order: order,
+            average: average,
         }
     }
 
@@ -32,7 +32,7 @@ impl Batter {
         &self.name
     }
 
-    pub fn order(&self) -> &i8 {
-        &self.order
+    pub fn average(&self) -> f32 {
+        self.average
     }
 }

@@ -40,7 +40,6 @@ impl fmt::Display for BattingResult {
 }
 
 fn main() {
-    let mut _batter_avg: f64 = 0.4;
     let mut _inning_kind = InningType::Bottom;
     let mut _is_in_game = true;
     let mut _top_innings: Vec<Inning> = Vec::new();
@@ -48,25 +47,25 @@ fn main() {
 
     let _top_team = Team::new("AAA");
     let _bottom_team = Team::new("BBB");
-    let _top_batter1: Batter = Batter::new("Top batter 1", 1);
-    let _top_batter2: Batter = Batter::new("Top batter 2", 2);
-    let _top_batter3: Batter = Batter::new("Top batter 3", 3);
-    let _top_batter4: Batter = Batter::new("Top batter 4", 4);
-    let _top_batter5: Batter = Batter::new("Top batter 5", 5);
-    let _top_batter6: Batter = Batter::new("Top batter 6", 6);
-    let _top_batter7: Batter = Batter::new("Top batter 7", 7);
-    let _top_batter8: Batter = Batter::new("Top batter 8", 8);
-    let _top_batter9: Batter = Batter::new("Top batter 9", 9);
+    let _top_batter1: Batter = Batter::new("Top batter 1", 0.35);
+    let _top_batter2: Batter = Batter::new("Top batter 2", 0.35);
+    let _top_batter3: Batter = Batter::new("Top batter 3", 0.35);
+    let _top_batter4: Batter = Batter::new("Top batter 4", 0.35);
+    let _top_batter5: Batter = Batter::new("Top batter 5", 0.35);
+    let _top_batter6: Batter = Batter::new("Top batter 6", 0.35);
+    let _top_batter7: Batter = Batter::new("Top batter 7", 0.35);
+    let _top_batter8: Batter = Batter::new("Top batter 8", 0.35);
+    let _top_batter9: Batter = Batter::new("Top batter 9", 0.35);
     let mut _current_top_batter_order: i8 = 0;
-    let _bottom_batter1: Batter = Batter::new("Bottom batter 1", 1);
-    let _bottom_batter2: Batter = Batter::new("Bottom batter 2", 2);
-    let _bottom_batter3: Batter = Batter::new("Bottom batter 3", 3);
-    let _bottom_batter4: Batter = Batter::new("Bottom batter 4", 4);
-    let _bottom_batter5: Batter = Batter::new("Bottom batter 5", 5);
-    let _bottom_batter6: Batter = Batter::new("Bottom batter 6", 6);
-    let _bottom_batter7: Batter = Batter::new("Bottom batter 7", 7);
-    let _bottom_batter8: Batter = Batter::new("Bottom batter 8", 8);
-    let _bottom_batter9: Batter = Batter::new("Bottom batter 9", 9);
+    let _bottom_batter1: Batter = Batter::new("Bottom batter 1", 0.35);
+    let _bottom_batter2: Batter = Batter::new("Bottom batter 2", 0.35);
+    let _bottom_batter3: Batter = Batter::new("Bottom batter 3", 0.35);
+    let _bottom_batter4: Batter = Batter::new("Bottom batter 4", 0.35);
+    let _bottom_batter5: Batter = Batter::new("Bottom batter 5", 0.35);
+    let _bottom_batter6: Batter = Batter::new("Bottom batter 6", 0.35);
+    let _bottom_batter7: Batter = Batter::new("Bottom batter 7", 0.35);
+    let _bottom_batter8: Batter = Batter::new("Bottom batter 8", 0.35);
+    let _bottom_batter9: Batter = Batter::new("Bottom batter 9", 0.35);
     let mut _current_bottom_batter_order: i8 = 0;
 
     let mut _top_total_score = 0;
@@ -80,13 +79,9 @@ fn main() {
     while _is_in_game {
         if matches!(_inning_kind, InningType::Bottom) {
             _inning_kind = InningType::Top;
-            _batter_avg = 0.0;
         } else {
             _inning_kind = InningType::Bottom;
-            _batter_avg = 0.0;
-            if _inning_seq >= 9 {
-                _batter_avg = 1.0;
-            }
+            if _inning_seq >= 9 {}
         }
 
         let mut _inning = Inning {
@@ -157,10 +152,10 @@ fn main() {
                 score: 0,
                 out: _out_count,
             };
-            let trial: f64 = rng.gen();
+            let trial: f32 = rng.gen();
 
             // In case of single hit.
-            if _batter_avg > trial {
+            if _count.batter.average() > trial {
                 _batting_result = HIT_TEXT;
                 _count.result = BattingResult::Hit;
 
