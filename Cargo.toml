@@ -1,7 +1,12 @@
 [package]
-name = "statbbtest"
+name = "statbb"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-rand = "0.8.5"
+anyhow = "1.0"
+directories = "6.0"
+rand = "0.10.1"
+rusqlite = { version = "0.39", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_rusqlite = "0.42.0"
