@@ -1,6 +1,8 @@
-Inning:1(Top) Count:1
-AAA:0         0
-BBB:          0
+inning:1(Top)
+---
+count.seq:1
+AAA:0 0
+BBB:  0
   <->
 <-> <R>
   <H>
@@ -10,9 +12,9 @@ Batter: Top batter 1
  SLG: .394
 Batting Result: Single Hit!
 ---
-Inning:1(Top) Count:2
-AAA:0         0
-BBB:          0
+count.seq:2
+AAA:0 0
+BBB:  0
   <R>
 <-> <R>
   <H>
@@ -22,9 +24,9 @@ Batter: Top batter 2
  SLG: .378
 Batting Result: Single Hit!
 ---
-Inning:1(Top) Count:3
-AAA:0         0
-BBB:          0
+count.seq:3
+AAA:0 0
+BBB:  0
   <R>
 <R> <R>
   <H>
@@ -34,97 +36,47 @@ Batter: Top batter 3
  SLG: .472
 Batting Result: Single Hit!
 ---
-Inning:1(Top) Count:4
-AAA:1         1
-BBB:          0
-  <R>
-<R> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 4
- BA : .300
- SLG: .483
-Batting Result: Single Hit!
-Scored: 1
----
-Inning:1(Top) Count:5
-AAA:2         2
-BBB:          0
-  <R>
-<R> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 5
- BA : .298
- SLG: .478
-Batting Result: Single Hit!
-Scored: 1
----
-Inning:1(Top) Count:6
-AAA:3         3
-BBB:          0
-  <R>
-<R> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 6
- BA : .257
- SLG: .437
-Batting Result: Single Hit!
-Scored: 1
----
-Inning:1(Top) Count:7
-AAA:4         4
-BBB:          0
-  <R>
-<R> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 7
- BA : .263
- SLG: .406
-Batting Result: Single Hit!
-Scored: 1
----
-Inning:1(Top) Count:8
-AAA:4         4
-BBB:          0
+count.seq:4
+AAA:0 0
+BBB:  0
   <R>
 <R> <R>
   <H>
 Out Count: 1
-Batter: Top batter 8
- BA : .232
- SLG: .394
+Batter: Top batter 4
+ BA : .300
+ SLG: .483
 Batting Result: Out!
 ---
-Inning:1(Top) Count:9
-AAA:4         4
-BBB:          0
+count.seq:5
+AAA:0 0
+BBB:  0
   <R>
 <R> <R>
   <H>
 Out Count: 2
-Batter: Top batter 9
- BA : .228
- SLG: .358
+Batter: Top batter 5
+ BA : .298
+ SLG: .478
 Batting Result: Out!
 ---
-Inning:1(Top) Count:10
-AAA:4         4
-BBB:          0
+count.seq:6
+AAA:0 0
+BBB:  0
   <R>
 <R> <R>
   <H>
 Out Count: 3
-Batter: Top batter 1
- BA : .288
- SLG: .394
+Batter: Top batter 6
+ BA : .257
+ SLG: .437
 Batting Result: Out!
 ---
-Inning:1(Bottom) Count:1
-AAA:4         4
-BBB:0         0
+inning:1(Bottom)
+---
+count.seq:1
+AAA:0 0
+BBB:0 0
   <->
 <-> <->
   <H>
@@ -134,9 +86,700 @@ Batter: Bottom batter 1
  SLG: .378
 Batting Result: Out!
 ---
-Inning:1(Bottom) Count:2
-AAA:4         4
-BBB:0         0
+count.seq:2
+AAA:0 0
+BBB:0 0
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Bottom batter 2
+ BA : .290
+ SLG: .389
+Batting Result: Out!
+---
+count.seq:3
+AAA:0 0
+BBB:0 0
+  <->
+<-> <->
+  <H>
+Out Count: 3
+Batter: Bottom batter 3
+ BA : .292
+ SLG: .483
+Batting Result: Out!
+---
+inning:2(Top)
+---
+count.seq:1
+AAA:00 0
+BBB:0  0
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 7
+ BA : .263
+ SLG: .406
+Batting Result: Out!
+---
+count.seq:2
+AAA:00 0
+BBB:0  0
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Top batter 8
+ BA : .232
+ SLG: .394
+Batting Result: Out!
+---
+count.seq:3
+AAA:00 0
+BBB:0  0
+  <->
+<-> <->
+  <H>
+Out Count: 3
+Batter: Top batter 9
+ BA : .228
+ SLG: .358
+Batting Result: Out!
+---
+inning:2(Bottom)
+---
+count.seq:1
+AAA:00 0
+BBB:00 0
+  <->
+<-> <->
+  <H>
+Out Count: 0
+Batter: Bottom batter 4
+ BA : .296
+ SLG: .501
+Batting Result: Home Run!
+Scored: 1
+---
+count.seq:2
+AAA:00 0
+BBB:00 0
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Bottom batter 5
+ BA : .266
+ SLG: .488
+Batting Result: Out!
+---
+count.seq:3
+AAA:00 0
+BBB:00 0
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Bottom batter 6
+ BA : .245
+ SLG: .413
+Batting Result: Out!
+---
+count.seq:4
+AAA:00 0
+BBB:00 0
+  <->
+<-> <->
+  <H>
+Out Count: 3
+Batter: Bottom batter 7
+ BA : .237
+ SLG: .419
+Batting Result: Out!
+---
+inning:3(Top)
+---
+count.seq:1
+AAA:000 0
+BBB:01  1
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 1
+ BA : .288
+ SLG: .394
+Batting Result: Out!
+---
+count.seq:2
+AAA:000 0
+BBB:01  1
+  <->
+<-> <R>
+  <H>
+Out Count: 1
+Batter: Top batter 2
+ BA : .292
+ SLG: .378
+Batting Result: Single Hit!
+---
+count.seq:3
+AAA:000 0
+BBB:01  1
+  <->
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Top batter 3
+ BA : .296
+ SLG: .472
+Batting Result: Out!
+---
+count.seq:4
+AAA:000 0
+BBB:01  1
+  <R>
+<R> <->
+  <H>
+Out Count: 2
+Batter: Top batter 4
+ BA : .300
+ SLG: .483
+Batting Result: Double!
+---
+count.seq:5
+AAA:000 0
+BBB:01  1
+  <R>
+<R> <->
+  <H>
+Out Count: 3
+Batter: Top batter 5
+ BA : .298
+ SLG: .478
+Batting Result: Out!
+---
+inning:3(Bottom)
+---
+count.seq:1
+AAA:000 0
+BBB:010 1
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Bottom batter 8
+ BA : .226
+ SLG: .406
+Batting Result: Out!
+---
+count.seq:2
+AAA:000 0
+BBB:010 1
+  <->
+<-> <R>
+  <H>
+Out Count: 1
+Batter: Bottom batter 9
+ BA : .224
+ SLG: .400
+Batting Result: Single Hit!
+---
+count.seq:3
+AAA:000 0
+BBB:010 1
+  <->
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Bottom batter 1
+ BA : .285
+ SLG: .378
+Batting Result: Out!
+---
+count.seq:4
+AAA:000 0
+BBB:010 1
+  <R>
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Bottom batter 2
+ BA : .290
+ SLG: .389
+Batting Result: Single Hit!
+---
+count.seq:5
+AAA:000 0
+BBB:010 1
+  <R>
+<R> <->
+  <H>
+Out Count: 2
+Batter: Bottom batter 3
+ BA : .292
+ SLG: .483
+Batting Result: Double!
+Scored: 1
+---
+count.seq:6
+AAA:000 0
+BBB:010 1
+  <R>
+<R> <->
+  <H>
+Out Count: 3
+Batter: Bottom batter 4
+ BA : .296
+ SLG: .501
+Batting Result: Out!
+---
+inning:4(Top)
+---
+count.seq:1
+AAA:0000 0
+BBB:011  2
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 6
+ BA : .257
+ SLG: .437
+Batting Result: Out!
+---
+count.seq:2
+AAA:0000 0
+BBB:011  2
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Top batter 7
+ BA : .263
+ SLG: .406
+Batting Result: Out!
+---
+count.seq:3
+AAA:0000 0
+BBB:011  2
+  <R>
+<-> <->
+  <H>
+Out Count: 2
+Batter: Top batter 8
+ BA : .232
+ SLG: .394
+Batting Result: Double!
+---
+count.seq:4
+AAA:0002 0
+BBB:011  2
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Top batter 9
+ BA : .228
+ SLG: .358
+Batting Result: Home Run!
+Scored: 2
+---
+count.seq:5
+AAA:0002 0
+BBB:011  2
+  <->
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Top batter 1
+ BA : .288
+ SLG: .394
+Batting Result: Single Hit!
+---
+count.seq:6
+AAA:0002 0
+BBB:011  2
+  <->
+<-> <R>
+  <H>
+Out Count: 3
+Batter: Top batter 2
+ BA : .292
+ SLG: .378
+Batting Result: Out!
+---
+inning:4(Bottom)
+---
+count.seq:1
+AAA:0002 2
+BBB:0110 2
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Bottom batter 5
+ BA : .266
+ SLG: .488
+Batting Result: Out!
+---
+count.seq:2
+AAA:0002 2
+BBB:0110 2
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Bottom batter 6
+ BA : .245
+ SLG: .413
+Batting Result: Home Run!
+Scored: 1
+---
+count.seq:3
+AAA:0002 2
+BBB:0110 2
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Bottom batter 7
+ BA : .237
+ SLG: .419
+Batting Result: Out!
+---
+count.seq:4
+AAA:0002 2
+BBB:0110 2
+  <->
+<-> <->
+  <H>
+Out Count: 3
+Batter: Bottom batter 8
+ BA : .226
+ SLG: .406
+Batting Result: Out!
+---
+inning:5(Top)
+---
+count.seq:1
+AAA:00020 2
+BBB:0111  3
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 3
+ BA : .296
+ SLG: .472
+Batting Result: Out!
+---
+count.seq:2
+AAA:00020 2
+BBB:0111  3
+  <->
+<-> <R>
+  <H>
+Out Count: 1
+Batter: Top batter 4
+ BA : .300
+ SLG: .483
+Batting Result: Single Hit!
+---
+count.seq:3
+AAA:00020 2
+BBB:0111  3
+  <->
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Top batter 5
+ BA : .298
+ SLG: .478
+Batting Result: Out!
+---
+count.seq:4
+AAA:00020 2
+BBB:0111  3
+  <->
+<-> <R>
+  <H>
+Out Count: 3
+Batter: Top batter 6
+ BA : .257
+ SLG: .437
+Batting Result: Out!
+---
+inning:5(Bottom)
+---
+count.seq:1
+AAA:00020 2
+BBB:01110 3
+  <->
+<-> <R>
+  <H>
+Out Count: 0
+Batter: Bottom batter 9
+ BA : .224
+ SLG: .400
+Batting Result: Single Hit!
+---
+count.seq:2
+AAA:00020 2
+BBB:01110 3
+  <->
+<-> <R>
+  <H>
+Out Count: 1
+Batter: Bottom batter 1
+ BA : .285
+ SLG: .378
+Batting Result: Out!
+---
+count.seq:3
+AAA:00020 2
+BBB:01110 3
+  <->
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Bottom batter 2
+ BA : .290
+ SLG: .389
+Batting Result: Out!
+---
+count.seq:4
+AAA:00020 2
+BBB:01110 3
+  <->
+<-> <R>
+  <H>
+Out Count: 3
+Batter: Bottom batter 3
+ BA : .292
+ SLG: .483
+Batting Result: Out!
+---
+inning:6(Top)
+---
+count.seq:1
+AAA:000200 2
+BBB:01110  3
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 7
+ BA : .263
+ SLG: .406
+Batting Result: Out!
+---
+count.seq:2
+AAA:000200 2
+BBB:01110  3
+  <->
+<-> <->
+  <H>
+Out Count: 2
+Batter: Top batter 8
+ BA : .232
+ SLG: .394
+Batting Result: Out!
+---
+count.seq:3
+AAA:000200 2
+BBB:01110  3
+  <->
+<-> <->
+  <H>
+Out Count: 3
+Batter: Top batter 9
+ BA : .228
+ SLG: .358
+Batting Result: Out!
+---
+inning:6(Bottom)
+---
+count.seq:1
+AAA:000200 2
+BBB:011100 3
+  <R>
+<-> <->
+  <H>
+Out Count: 0
+Batter: Bottom batter 4
+ BA : .296
+ SLG: .501
+Batting Result: Double!
+---
+count.seq:2
+AAA:000200 2
+BBB:011100 3
+  <R>
+<-> <->
+  <H>
+Out Count: 0
+Batter: Bottom batter 5
+ BA : .266
+ SLG: .488
+Batting Result: Double!
+Scored: 1
+---
+count.seq:3
+AAA:000200 2
+BBB:011100 3
+  <->
+<R> <R>
+  <H>
+Out Count: 0
+Batter: Bottom batter 6
+ BA : .245
+ SLG: .413
+Batting Result: Single Hit!
+---
+count.seq:4
+AAA:000200 2
+BBB:011100 3
+  <->
+<R> <R>
+  <H>
+Out Count: 1
+Batter: Bottom batter 7
+ BA : .237
+ SLG: .419
+Batting Result: Out!
+---
+count.seq:5
+AAA:000200 2
+BBB:011100 3
+  <->
+<R> <R>
+  <H>
+Out Count: 2
+Batter: Bottom batter 8
+ BA : .226
+ SLG: .406
+Batting Result: Out!
+---
+count.seq:6
+AAA:000200 2
+BBB:011100 3
+  <->
+<R> <R>
+  <H>
+Out Count: 3
+Batter: Bottom batter 9
+ BA : .224
+ SLG: .400
+Batting Result: Out!
+---
+inning:7(Top)
+---
+count.seq:1
+AAA:0002000 2
+BBB:011101  4
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 1
+ BA : .288
+ SLG: .394
+Batting Result: Out!
+---
+count.seq:2
+AAA:0002000 2
+BBB:011101  4
+  <R>
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 2
+ BA : .292
+ SLG: .378
+Batting Result: Double!
+---
+count.seq:3
+AAA:0002000 2
+BBB:011101  4
+  <->
+<R> <R>
+  <H>
+Out Count: 1
+Batter: Top batter 3
+ BA : .296
+ SLG: .472
+Batting Result: Single Hit!
+---
+count.seq:4
+AAA:0002000 2
+BBB:011101  4
+  <->
+<R> <R>
+  <H>
+Out Count: 2
+Batter: Top batter 4
+ BA : .300
+ SLG: .483
+Batting Result: Out!
+---
+count.seq:5
+AAA:0002001 2
+BBB:011101  4
+  <R>
+<-> <R>
+  <H>
+Out Count: 2
+Batter: Top batter 5
+ BA : .298
+ SLG: .478
+Batting Result: Single Hit!
+Scored: 1
+---
+count.seq:6
+AAA:0002002 2
+BBB:011101  4
+  <R>
+<R> <->
+  <H>
+Out Count: 2
+Batter: Top batter 6
+ BA : .257
+ SLG: .437
+Batting Result: Double!
+Scored: 1
+---
+count.seq:7
+AAA:0002002 2
+BBB:011101  4
+  <R>
+<R> <->
+  <H>
+Out Count: 3
+Batter: Top batter 7
+ BA : .263
+ SLG: .406
+Batting Result: Out!
+---
+inning:7(Bottom)
+---
+count.seq:1
+AAA:0002002 4
+BBB:0111010 4
+  <->
+<-> <R>
+  <H>
+Out Count: 0
+Batter: Bottom batter 1
+ BA : .285
+ SLG: .378
+Batting Result: Single Hit!
+---
+count.seq:2
+AAA:0002002 4
+BBB:0111010 4
   <->
 <-> <R>
   <H>
@@ -144,11 +787,11 @@ Out Count: 1
 Batter: Bottom batter 2
  BA : .290
  SLG: .389
-Batting Result: Single Hit!
+Batting Result: Out!
 ---
-Inning:1(Bottom) Count:3
-AAA:4         4
-BBB:0         0
+count.seq:3
+AAA:0002002 4
+BBB:0111010 4
   <R>
 <-> <R>
   <H>
@@ -158,9 +801,9 @@ Batter: Bottom batter 3
  SLG: .483
 Batting Result: Single Hit!
 ---
-Inning:1(Bottom) Count:4
-AAA:4         4
-BBB:0         0
+count.seq:4
+AAA:0002002 4
+BBB:0111010 4
   <R>
 <R> <R>
   <H>
@@ -170,880 +813,163 @@ Batter: Bottom batter 4
  SLG: .501
 Batting Result: Single Hit!
 ---
-Inning:1(Bottom) Count:5
-AAA:4         4
-BBB:0         0
+count.seq:5
+AAA:0002002 4
+BBB:0111010 4
   <R>
 <R> <R>
   <H>
-Out Count: 2
+Out Count: 1
 Batter: Bottom batter 5
  BA : .266
  SLG: .488
-Batting Result: Out!
+Batting Result: Single Hit!
+Scored: 1
 ---
-Inning:1(Bottom) Count:6
-AAA:4         4
-BBB:0         0
+count.seq:6
+AAA:0002002 4
+BBB:0111010 4
   <R>
-<R> <R>
+<R> <->
   <H>
-Out Count: 3
+Out Count: 1
 Batter: Bottom batter 6
  BA : .245
  SLG: .413
+Batting Result: Double!
+Scored: 2
+---
+count.seq:7
+AAA:0002002 4
+BBB:0111010 4
+  <R>
+<-> <->
+  <H>
+Out Count: 1
+Batter: Bottom batter 7
+ BA : .237
+ SLG: .419
+Batting Result: Double!
+Scored: 2
+---
+count.seq:8
+AAA:0002002 4
+BBB:0111010 4
+  <R>
+<-> <->
+  <H>
+Out Count: 2
+Batter: Bottom batter 8
+ BA : .226
+ SLG: .406
 Batting Result: Out!
 ---
-Inning:2(Top) Count:1
-AAA:40        4
-BBB:0         0
+count.seq:9
+AAA:0002002 4
+BBB:0111010 4
+  <->
+<R> <R>
+  <H>
+Out Count: 2
+Batter: Bottom batter 9
+ BA : .224
+ SLG: .400
+Batting Result: Single Hit!
+---
+count.seq:10
+AAA:0002002 4
+BBB:0111010 4
+  <->
+<R> <R>
+  <H>
+Out Count: 3
+Batter: Bottom batter 1
+ BA : .285
+ SLG: .378
+Batting Result: Out!
+---
+inning:8(Top)
+---
+count.seq:1
+AAA:00020020 4
+BBB:0111015  9
   <->
 <-> <R>
   <H>
 Out Count: 0
-Batter: Top batter 2
- BA : .292
- SLG: .378
+Batter: Top batter 8
+ BA : .232
+ SLG: .394
 Batting Result: Single Hit!
 ---
-Inning:2(Top) Count:2
-AAA:40        4
-BBB:0         0
+count.seq:2
+AAA:00020020 4
+BBB:0111015  9
   <R>
 <-> <R>
   <H>
 Out Count: 0
+Batter: Top batter 9
+ BA : .228
+ SLG: .358
+Batting Result: Single Hit!
+---
+count.seq:3
+AAA:00020020 4
+BBB:0111015  9
+  <R>
+<-> <R>
+  <H>
+Out Count: 1
+Batter: Top batter 1
+ BA : .288
+ SLG: .394
+Batting Result: Out!
+---
+count.seq:4
+AAA:00020021 4
+BBB:0111015  9
+  <R>
+<R> <->
+  <H>
+Out Count: 1
+Batter: Top batter 2
+ BA : .292
+ SLG: .378
+Batting Result: Double!
+Scored: 1
+---
+count.seq:5
+AAA:00020022 4
+BBB:0111015  9
+  <->
+<R> <R>
+  <H>
+Out Count: 1
 Batter: Top batter 3
  BA : .296
  SLG: .472
 Batting Result: Single Hit!
+Scored: 1
 ---
-Inning:2(Top) Count:3
-AAA:43        7
-BBB:0         0
+count.seq:6
+AAA:00020025 4
+BBB:0111015  9
   <->
 <-> <->
   <H>
-Out Count: 0
+Out Count: 1
 Batter: Top batter 4
  BA : .300
  SLG: .483
 Batting Result: Home Run!
 Scored: 3
 ---
-Inning:2(Top) Count:4
-AAA:43        7
-BBB:0         0
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 5
- BA : .298
- SLG: .478
-Batting Result: Single Hit!
----
-Inning:2(Top) Count:5
-AAA:43        7
-BBB:0         0
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 6
- BA : .257
- SLG: .437
-Batting Result: Out!
----
-Inning:2(Top) Count:6
-AAA:43        7
-BBB:0         0
-  <R>
-<R> <->
-  <H>
-Out Count: 1
-Batter: Top batter 7
- BA : .263
- SLG: .406
-Batting Result: Double!
----
-Inning:2(Top) Count:7
-AAA:43        7
-BBB:0         0
-  <R>
-<R> <->
-  <H>
-Out Count: 2
-Batter: Top batter 8
- BA : .232
- SLG: .394
-Batting Result: Out!
----
-Inning:2(Top) Count:8
-AAA:43        7
-BBB:0         0
-  <R>
-<R> <->
-  <H>
-Out Count: 3
-Batter: Top batter 9
- BA : .228
- SLG: .358
-Batting Result: Out!
----
-Inning:2(Bottom) Count:1
-AAA:43        7
-BBB:00        0
+count.seq:7
+AAA:00020025 4
+BBB:0111015  9
   <->
 <-> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 7
- BA : .237
- SLG: .419
-Batting Result: Out!
----
-Inning:2(Bottom) Count:2
-AAA:43        7
-BBB:00        0
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 8
- BA : .226
- SLG: .406
-Batting Result: Out!
----
-Inning:2(Bottom) Count:3
-AAA:43        7
-BBB:00        0
-  <R>
-<-> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 9
- BA : .224
- SLG: .400
-Batting Result: Double!
----
-Inning:2(Bottom) Count:4
-AAA:43        7
-BBB:00        0
-  <R>
-<-> <->
-  <H>
-Out Count: 3
-Batter: Bottom batter 1
- BA : .285
- SLG: .378
-Batting Result: Out!
----
-Inning:3(Top) Count:1
-AAA:430       7
-BBB:00        0
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 1
- BA : .288
- SLG: .394
-Batting Result: Single Hit!
----
-Inning:3(Top) Count:2
-AAA:430       7
-BBB:00        0
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 2
- BA : .292
- SLG: .378
-Batting Result: Out!
----
-Inning:3(Top) Count:3
-AAA:430       7
-BBB:00        0
-  <R>
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 3
- BA : .296
- SLG: .472
-Batting Result: Single Hit!
----
-Inning:3(Top) Count:4
-AAA:430       7
-BBB:00        0
-  <R>
-<-> <R>
-  <H>
-Out Count: 2
-Batter: Top batter 4
- BA : .300
- SLG: .483
-Batting Result: Out!
----
-Inning:3(Top) Count:5
-AAA:430       7
-BBB:00        0
-  <R>
-<R> <R>
-  <H>
-Out Count: 2
-Batter: Top batter 5
- BA : .298
- SLG: .478
-Batting Result: Single Hit!
----
-Inning:3(Top) Count:6
-AAA:434       11
-BBB:00        0
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Top batter 6
- BA : .257
- SLG: .437
-Batting Result: Home Run!
-Scored: 4
----
-Inning:3(Top) Count:7
-AAA:434       11
-BBB:00        0
-  <->
-<-> <->
-  <H>
-Out Count: 3
-Batter: Top batter 7
- BA : .263
- SLG: .406
-Batting Result: Out!
----
-Inning:3(Bottom) Count:1
-AAA:434       11
-BBB:000       0
-  <->
-<-> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 2
- BA : .290
- SLG: .389
-Batting Result: Out!
----
-Inning:3(Bottom) Count:2
-AAA:434       11
-BBB:000       0
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Bottom batter 3
- BA : .292
- SLG: .483
-Batting Result: Single Hit!
----
-Inning:3(Bottom) Count:3
-AAA:434       11
-BBB:000       0
-  <R>
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Bottom batter 4
- BA : .296
- SLG: .501
-Batting Result: Single Hit!
----
-Inning:3(Bottom) Count:4
-AAA:434       11
-BBB:000       0
-  <R>
-<-> <R>
-  <H>
-Out Count: 2
-Batter: Bottom batter 5
- BA : .266
- SLG: .488
-Batting Result: Out!
----
-Inning:3(Bottom) Count:5
-AAA:434       11
-BBB:000       0
-  <R>
-<-> <R>
-  <H>
-Out Count: 3
-Batter: Bottom batter 6
- BA : .245
- SLG: .413
-Batting Result: Out!
----
-Inning:4(Top) Count:1
-AAA:4340      11
-BBB:000       0
-  <->
-<-> <->
-  <H>
-Out Count: 1
-Batter: Top batter 8
- BA : .232
- SLG: .394
-Batting Result: Out!
----
-Inning:4(Top) Count:2
-AAA:4340      11
-BBB:000       0
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Top batter 9
- BA : .228
- SLG: .358
-Batting Result: Out!
----
-Inning:4(Top) Count:3
-AAA:4340      11
-BBB:000       0
-  <->
-<-> <->
-  <H>
-Out Count: 3
-Batter: Top batter 1
- BA : .288
- SLG: .394
-Batting Result: Out!
----
-Inning:4(Bottom) Count:1
-AAA:4340      11
-BBB:0000      0
-  <R>
-<-> <->
-  <H>
-Out Count: 0
-Batter: Bottom batter 7
- BA : .237
- SLG: .419
-Batting Result: Double!
----
-Inning:4(Bottom) Count:2
-AAA:4340      11
-BBB:0000      0
-  <R>
-<-> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 8
- BA : .226
- SLG: .406
-Batting Result: Out!
----
-Inning:4(Bottom) Count:3
-AAA:4340      11
-BBB:0000      0
-  <R>
-<-> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 9
- BA : .224
- SLG: .400
-Batting Result: Out!
----
-Inning:4(Bottom) Count:4
-AAA:4340      11
-BBB:0000      0
-  <->
-<R> <R>
-  <H>
-Out Count: 2
-Batter: Bottom batter 1
- BA : .285
- SLG: .378
-Batting Result: Single Hit!
----
-Inning:4(Bottom) Count:5
-AAA:4340      11
-BBB:0000      0
-  <->
-<R> <R>
-  <H>
-Out Count: 3
-Batter: Bottom batter 2
- BA : .290
- SLG: .389
-Batting Result: Out!
----
-Inning:5(Top) Count:1
-AAA:43400     11
-BBB:0000      0
-  <->
-<-> <->
-  <H>
-Out Count: 1
-Batter: Top batter 2
- BA : .292
- SLG: .378
-Batting Result: Out!
----
-Inning:5(Top) Count:2
-AAA:43400     11
-BBB:0000      0
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Top batter 3
- BA : .296
- SLG: .472
-Batting Result: Out!
----
-Inning:5(Top) Count:3
-AAA:43400     11
-BBB:0000      0
-  <->
-<R> <->
-  <H>
-Out Count: 2
-Batter: Top batter 4
- BA : .300
- SLG: .483
-Batting Result: Triple!
----
-Inning:5(Top) Count:4
-AAA:43400     11
-BBB:0000      0
-  <->
-<R> <->
-  <H>
-Out Count: 3
-Batter: Top batter 5
- BA : .298
- SLG: .478
-Batting Result: Out!
----
-Inning:5(Bottom) Count:1
-AAA:43400     11
-BBB:00000     0
-  <->
-<-> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 3
- BA : .292
- SLG: .483
-Batting Result: Out!
----
-Inning:5(Bottom) Count:2
-AAA:43400     11
-BBB:00000     0
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 4
- BA : .296
- SLG: .501
-Batting Result: Out!
----
-Inning:5(Bottom) Count:3
-AAA:43400     11
-BBB:00000     0
-  <->
-<-> <->
-  <H>
-Out Count: 3
-Batter: Bottom batter 5
- BA : .266
- SLG: .488
-Batting Result: Out!
----
-Inning:6(Top) Count:1
-AAA:434000    11
-BBB:00000     0
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 6
- BA : .257
- SLG: .437
-Batting Result: Single Hit!
----
-Inning:6(Top) Count:2
-AAA:434000    11
-BBB:00000     0
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 7
- BA : .263
- SLG: .406
-Batting Result: Out!
----
-Inning:6(Top) Count:3
-AAA:434000    11
-BBB:00000     0
-  <R>
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 8
- BA : .232
- SLG: .394
-Batting Result: Single Hit!
----
-Inning:6(Top) Count:4
-AAA:434000    11
-BBB:00000     0
-  <R>
-<R> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 9
- BA : .228
- SLG: .358
-Batting Result: Single Hit!
----
-Inning:6(Top) Count:5
-AAA:434002    13
-BBB:00000     0
-  <R>
-<R> <->
-  <H>
-Out Count: 1
-Batter: Top batter 1
- BA : .288
- SLG: .394
-Batting Result: Double!
-Scored: 2
----
-Inning:6(Top) Count:6
-AAA:434002    13
-BBB:00000     0
-  <R>
-<R> <->
-  <H>
-Out Count: 2
-Batter: Top batter 2
- BA : .292
- SLG: .378
-Batting Result: Out!
----
-Inning:6(Top) Count:7
-AAA:434002    13
-BBB:00000     0
-  <R>
-<R> <->
-  <H>
-Out Count: 3
-Batter: Top batter 3
- BA : .296
- SLG: .472
-Batting Result: Out!
----
-Inning:6(Bottom) Count:1
-AAA:434002    13
-BBB:000000    0
-  <->
-<-> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 6
- BA : .245
- SLG: .413
-Batting Result: Out!
----
-Inning:6(Bottom) Count:2
-AAA:434002    13
-BBB:000000    0
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 7
- BA : .237
- SLG: .419
-Batting Result: Out!
----
-Inning:6(Bottom) Count:3
-AAA:434002    13
-BBB:000000    0
-  <->
-<-> <->
-  <H>
-Out Count: 3
-Batter: Bottom batter 8
- BA : .226
- SLG: .406
-Batting Result: Out!
----
-Inning:7(Top) Count:1
-AAA:4340020   13
-BBB:000000    0
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 4
- BA : .300
- SLG: .483
-Batting Result: Single Hit!
----
-Inning:7(Top) Count:2
-AAA:4340020   13
-BBB:000000    0
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 5
- BA : .298
- SLG: .478
-Batting Result: Out!
----
-Inning:7(Top) Count:3
-AAA:4340020   13
-BBB:000000    0
-  <->
-<-> <R>
-  <H>
-Out Count: 2
-Batter: Top batter 6
- BA : .257
- SLG: .437
-Batting Result: Out!
----
-Inning:7(Top) Count:4
-AAA:4340020   13
-BBB:000000    0
-  <->
-<-> <R>
-  <H>
-Out Count: 3
-Batter: Top batter 7
- BA : .263
- SLG: .406
-Batting Result: Out!
----
-Inning:7(Bottom) Count:1
-AAA:4340020   13
-BBB:0000000   0
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Bottom batter 9
- BA : .224
- SLG: .400
-Batting Result: Single Hit!
----
-Inning:7(Bottom) Count:2
-AAA:4340020   13
-BBB:0000000   0
-  <R>
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Bottom batter 1
- BA : .285
- SLG: .378
-Batting Result: Single Hit!
----
-Inning:7(Bottom) Count:3
-AAA:4340020   13
-BBB:0000000   0
-  <R>
-<R> <R>
-  <H>
-Out Count: 0
-Batter: Bottom batter 2
- BA : .290
- SLG: .389
-Batting Result: Single Hit!
----
-Inning:7(Bottom) Count:4
-AAA:4340020   13
-BBB:0000001   1
-  <R>
-<R> <R>
-  <H>
-Out Count: 0
-Batter: Bottom batter 3
- BA : .292
- SLG: .483
-Batting Result: Single Hit!
-Scored: 1
----
-Inning:7(Bottom) Count:5
-AAA:4340020   13
-BBB:0000001   1
-  <R>
-<R> <R>
-  <H>
-Out Count: 1
-Batter: Bottom batter 4
- BA : .296
- SLG: .501
-Batting Result: Out!
----
-Inning:7(Bottom) Count:6
-AAA:4340020   13
-BBB:0000003   3
-  <R>
-<R> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 5
- BA : .266
- SLG: .488
-Batting Result: Double!
-Scored: 2
----
-Inning:7(Bottom) Count:7
-AAA:4340020   13
-BBB:0000003   3
-  <R>
-<R> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 6
- BA : .245
- SLG: .413
-Batting Result: Out!
----
-Inning:7(Bottom) Count:8
-AAA:4340020   13
-BBB:0000003   3
-  <R>
-<R> <->
-  <H>
-Out Count: 3
-Batter: Bottom batter 7
- BA : .237
- SLG: .419
-Batting Result: Out!
----
-Inning:8(Top) Count:1
-AAA:43400200  13
-BBB:0000003   3
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 8
- BA : .232
- SLG: .394
-Batting Result: Single Hit!
----
-Inning:8(Top) Count:2
-AAA:43400200  13
-BBB:0000003   3
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 9
- BA : .228
- SLG: .358
-Batting Result: Out!
----
-Inning:8(Top) Count:3
-AAA:43400200  13
-BBB:0000003   3
-  <->
-<-> <R>
-  <H>
-Out Count: 2
-Batter: Top batter 1
- BA : .288
- SLG: .394
-Batting Result: Out!
----
-Inning:8(Top) Count:4
-AAA:43400200  13
-BBB:0000003   3
-  <->
-<-> <R>
-  <H>
-Out Count: 3
-Batter: Top batter 2
- BA : .292
- SLG: .378
-Batting Result: Out!
----
-Inning:8(Bottom) Count:1
-AAA:43400200  13
-BBB:00000030  3
-  <->
-<-> <->
-  <H>
-Out Count: 1
-Batter: Bottom batter 8
- BA : .226
- SLG: .406
-Batting Result: Out!
----
-Inning:8(Bottom) Count:2
-AAA:43400200  13
-BBB:00000030  3
-  <->
-<-> <->
-  <H>
-Out Count: 2
-Batter: Bottom batter 9
- BA : .224
- SLG: .400
-Batting Result: Out!
----
-Inning:8(Bottom) Count:3
-AAA:43400200  13
-BBB:00000030  3
-  <->
-<-> <->
-  <H>
-Out Count: 3
-Batter: Bottom batter 1
- BA : .285
- SLG: .378
-Batting Result: Out!
----
-Inning:9(Top) Count:1
-AAA:434002000 13
-BBB:00000030  3
-  <->
-<-> <R>
-  <H>
-Out Count: 0
-Batter: Top batter 3
- BA : .296
- SLG: .472
-Batting Result: Single Hit!
----
-Inning:9(Top) Count:2
-AAA:434002000 13
-BBB:00000030  3
-  <->
-<-> <R>
-  <H>
-Out Count: 1
-Batter: Top batter 4
- BA : .300
- SLG: .483
-Batting Result: Out!
----
-Inning:9(Top) Count:3
-AAA:434002000 13
-BBB:00000030  3
-  <->
-<-> <R>
   <H>
 Out Count: 2
 Batter: Top batter 5
@@ -1051,11 +977,11 @@ Batter: Top batter 5
  SLG: .478
 Batting Result: Out!
 ---
-Inning:9(Top) Count:4
-AAA:434002000 13
-BBB:00000030  3
+count.seq:8
+AAA:00020025 4
+BBB:0111015  9
   <->
-<-> <R>
+<-> <->
   <H>
 Out Count: 3
 Batter: Top batter 6
@@ -1063,9 +989,11 @@ Batter: Top batter 6
  SLG: .437
 Batting Result: Out!
 ---
-Inning:9(Bottom) Count:1
-AAA:434002000 13
-BBB:000000300 3
+inning:8(Bottom)
+---
+count.seq:1
+AAA:00020025 9
+BBB:01110150 9
   <->
 <-> <R>
   <H>
@@ -1075,116 +1003,125 @@ Batter: Bottom batter 2
  SLG: .389
 Batting Result: Single Hit!
 ---
-Inning:9(Bottom) Count:2
-AAA:434002000 13
-BBB:000000300 3
-  <R>
-<R> <->
+count.seq:2
+AAA:00020025 9
+BBB:01110150 9
+  <->
+<-> <R>
   <H>
-Out Count: 0
+Out Count: 1
 Batter: Bottom batter 3
  BA : .292
  SLG: .483
-Batting Result: Double!
+Batting Result: Out!
 ---
-Inning:9(Bottom) Count:3
-AAA:434002000 13
-BBB:000000301 4
+count.seq:3
+AAA:00020025 9
+BBB:01110150 9
   <->
-<R> <R>
+<-> <R>
   <H>
-Out Count: 0
+Out Count: 2
 Batter: Bottom batter 4
  BA : .296
  SLG: .501
-Batting Result: Single Hit!
-Scored: 1
+Batting Result: Out!
 ---
-Inning:9(Bottom) Count:4
-AAA:434002000 13
-BBB:000000304 7
+count.seq:4
+AAA:00020025 9
+BBB:01110150 9
   <->
 <-> <->
   <H>
-Out Count: 0
+Out Count: 2
 Batter: Bottom batter 5
  BA : .266
  SLG: .488
 Batting Result: Home Run!
-Scored: 3
+Scored: 2
 ---
-Inning:9(Bottom) Count:5
-AAA:434002000 13
-BBB:000000304 7
+count.seq:5
+AAA:00020025 9
+BBB:01110150 9
   <->
 <-> <->
   <H>
-Out Count: 1
+Out Count: 3
 Batter: Bottom batter 6
  BA : .245
  SLG: .413
 Batting Result: Out!
 ---
-Inning:9(Bottom) Count:6
-AAA:434002000 13
-BBB:000000304 7
+inning:9(Top)
+---
+count.seq:1
+AAA:000200250 9
+BBB:01110152x 11
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 7
+ BA : .263
+ SLG: .406
+Batting Result: Out!
+---
+count.seq:2
+AAA:000200251 9
+BBB:01110152x 11
+  <->
+<-> <->
+  <H>
+Out Count: 1
+Batter: Top batter 8
+ BA : .232
+ SLG: .394
+Batting Result: Home Run!
+Scored: 1
+---
+count.seq:3
+AAA:000200251 9
+BBB:01110152x 11
   <->
 <-> <->
   <H>
 Out Count: 2
-Batter: Bottom batter 7
- BA : .237
- SLG: .419
+Batter: Top batter 9
+ BA : .228
+ SLG: .358
 Batting Result: Out!
 ---
-Inning:9(Bottom) Count:7
-AAA:434002000 13
-BBB:000000304 7
+count.seq:4
+AAA:000200251 9
+BBB:01110152x 11
   <->
-<-> <R>
-  <H>
-Out Count: 2
-Batter: Bottom batter 8
- BA : .226
- SLG: .406
-Batting Result: Single Hit!
----
-Inning:9(Bottom) Count:8
-AAA:434002000 13
-BBB:000000304 7
-  <->
-<-> <R>
+<-> <->
   <H>
 Out Count: 3
-Batter: Bottom batter 9
- BA : .224
- SLG: .400
+Batter: Top batter 1
+ BA : .288
+ SLG: .394
 Batting Result: Out!
 ---
-Game Set!
-AAA:434002000 13
-BBB:000000304 7
-
 Batting Results:
 AAA
-Top batter 1: Single Hit! Out! Single Hit! Out! Double! Out!
-Top batter 2: Single Hit! Single Hit! Out! Out! Out! Out!
-Top batter 3: Single Hit! Single Hit! Single Hit! Out! Out! Single Hit!
-Top batter 4: Single Hit! Home Run! Out! Triple! Single Hit! Out!
-Top batter 5: Single Hit! Single Hit! Single Hit! Out! Out! Out!
-Top batter 6: Single Hit! Out! Home Run! Single Hit! Out! Out!
-Top batter 7: Single Hit! Double! Out! Out! Out! Out!
-Top batter 8: Out! Out! Out! Single Hit! Single Hit!
-Top batter 9: Out! Out! Out! Single Hit! Out!
+Top batter 1: Single Hit! Out! Single Hit! Out! Out! Out!
+Top batter 2: Single Hit! Single Hit! Out! Double! Double!
+Top batter 3: Single Hit! Out! Out! Single Hit! Single Hit!
+Top batter 4: Out! Double! Single Hit! Out! Home Run!
+Top batter 5: Out! Out! Out! Single Hit! Out!
+Top batter 6: Out! Out! Out! Double! Out!
+Top batter 7: Out! Out! Out! Out! Out!
+Top batter 8: Out! Double! Out! Single Hit! Home Run!
+Top batter 9: Out! Home Run! Out! Single Hit! Out!
 
 BBB
-Bottom batter 1: Out! Out! Single Hit! Single Hit! Out!
-Bottom batter 2: Single Hit! Out! Out! Single Hit! Single Hit!
-Bottom batter 3: Single Hit! Single Hit! Out! Single Hit! Double!
-Bottom batter 4: Single Hit! Single Hit! Out! Out! Single Hit!
-Bottom batter 5: Out! Out! Out! Double! Home Run!
-Bottom batter 6: Out! Out! Out! Out! Out!
-Bottom batter 7: Out! Double! Out! Out! Out!
-Bottom batter 8: Out! Out! Out! Out! Single Hit!
-Bottom batter 9: Double! Out! Single Hit! Out! Out!
-DB file is here: "/Users/yoshi/Library/Application Support/jp.cosmi.statbb/statbb.db"
+Bottom batter 1: Out! Out! Out! Single Hit! Out!
+Bottom batter 2: Out! Single Hit! Out! Out! Single Hit!
+Bottom batter 3: Out! Double! Out! Single Hit! Out!
+Bottom batter 4: Home Run! Out! Double! Single Hit! Out!
+Bottom batter 5: Out! Out! Double! Single Hit! Home Run!
+Bottom batter 6: Out! Home Run! Single Hit! Double! Out!
+Bottom batter 7: Out! Out! Out! Double!
+Bottom batter 8: Out! Out! Out! Out!
+Bottom batter 9: Single Hit! Single Hit! Out! Single Hit!

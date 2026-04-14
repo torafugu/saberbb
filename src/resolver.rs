@@ -1,11 +1,6 @@
 use super::shared::player::Batter;
 use super::shared::types::BattingResult;
-// use rand::Rng;
 use std::sync::Arc;
-
-// struct BattingResolver {
-
-// }
 
 pub fn batting_resolve(batter: Arc<Batter>) -> BattingResult {
     // let rng = rand::rng().gen<f64>();

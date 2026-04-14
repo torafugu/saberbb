@@ -1,38 +1,25 @@
-use super::player::Batter;
-
 use std::fmt;
-use std::sync::Arc;
 
 const SINGLE_TEXT: &str = "Single Hit!";
 const DOUBLE_TEXT: &str = "Double!";
 const TRIPLE_TEXT: &str = "Triple!";
 const HOME_RUN_TEXT: &str = "Home Run!";
 const OUT_TEXT: &str = "Out!";
+const INNING_TOP_TEXT: &str = "Top";
+const INNING_BOTTOM_TEXT: &str = "Bottom";
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum InningType {
-    Top,
-    Bottom,
+    TOP,
+    BOTTOM,
 }
-
-#[derive(Clone)]
-pub struct Inning {
-    //pub tb: InningType,
-    //pub seq: i8,
-    pub counts: Vec<Count>,
-    pub score: i8,
-}
-
-#[derive(Clone)]
-pub struct Count {
-    pub seq: i32,
-    pub is_first_runner: bool,
-    pub is_second_runner: bool,
-    pub is_third_runner: bool,
-    pub batter: Arc<Batter>,
-    pub result: BattingResult,
-    pub score: i8,
-    pub out: i8,
+impl fmt::Display for InningType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            InningType::TOP => write!(f, "{INNING_TOP_TEXT}"),
+            InningType::BOTTOM => write!(f, "{INNING_BOTTOM_TEXT}"),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

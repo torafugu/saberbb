@@ -1,18 +1,17 @@
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Team {
-    name: Arc<str>,
+    pub id: i16,
+    pub name: Arc<str>,
 }
 
 impl Team {
-    pub fn new(name: &str) -> Team {
+    pub fn new(id: i16, name: &str) -> Team {
         Team {
+            id: id,
             name: Arc::from(name),
         }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
     }
 }
