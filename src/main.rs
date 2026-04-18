@@ -1,17 +1,22 @@
 mod presenter;
 mod repository;
 mod resolver;
+mod scheduler;
 mod shared;
 
+use chrono::{Duration, NaiveDate};
+use clap::Parser;
 use presenter::display_batting_results;
+use presenter::display_game_processed;
 use presenter::display_game_result;
-use repository::ERROR_LOAD_GAME_MANAGER;
+use repository::ERROR_LOAD_GAME;
 use repository::ERROR_SAVE_GAME;
-use repository::ERROR_SAVE_GAME_MANAGER;
-use repository::load_game_manager;
+use repository::load_game;
 use repository::save_game;
-use repository::save_game_manager;
 use resolver::batting_resolve;
+use scheduler::SGame;
+use scheduler::STeam;
+use scheduler::generate_schedule;
 use shared::game::Count;
 use shared::game::Game;
 use shared::game::Inning;
@@ -22,11 +27,74 @@ use shared::team::Team;
 use shared::types::BattingResult;
 use shared::types::InningType;
 use shared::utils::next_tb;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::shared::game::GameManager;
-
 fn main() {
+    let args = Args::parse();
+
+    // Game Display Mode
+    if let Some(p) = args.display {
+        display(p);
+    } else {
+        println!("No games diplayed.");
+    }
+
+    // Game Process Mode
+    if let Some(p) = args.process {
+        process(p);
+    } else {
+        println!("No games processed.");
+    }
+
+    // Game Schedule Generate Mode
+    if let Some(p) = args.schedule {
+        schedule(p);
+    } else {
+        println!("No games scheduled.");
+    }
+}
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Proess games
+    #[arg(short, long)]
+    process: Option<i8>,
+
+    /// Display game result
+    #[arg(short, long)]
+    display: Option<i32>,
+
+    /// Schedule games
+    #[arg(short, long)]
+    schedule: Option<i32>,
+}
+
+fn display(seq: i32) {
+    let load_game_res: Result<Game, _> = load_game(seq);
+    match load_game_res {
+        Ok(game) => {
+            display_game_result(&game);
+            display_batting_results(&game);
+        }
+        Err(e) => {
+            eprintln!("{}:{}", ERROR_LOAD_GAME, e);
+        }
+    }
+}
+fn schedule(season: i32) {
+    println!("Games of season {} scheduled.", season);
+
+    let start = NaiveDate::from_ymd_opt(2026, 3, 27).unwrap();
+    let schedule = generate_schedule(start, 140);
+
+    for game in schedule.iter().take(140) {
+        println!("{:?}: {:?} vs {:?}", game.date, game.home, game.away);
+    }
+}
+
+fn process(num_of_games: i8) {
     let mut _is_in_game: bool = true;
     let mut _inning_seq: i8 = 1;
     let mut _inning_tb: InningType = InningType::TOP;
@@ -34,40 +102,42 @@ fn main() {
     let mut _bottom_total_score: i8 = 0;
     let mut _top_batter_order: usize = 1;
     let mut _bottom_batter_order: usize = 1;
-    let mut _game_manager: GameManager = GameManager {
-        season: 1,
-        phase: 2,
-    };
+    // let mut _game_manager: GameManager = GameManager {
+    //     season: 1,
+    //     phase: 2,
+    // };
 
     // Divide whether persistent or temporary
+    // Get the latest game id
+    // Set Starting members
 
     let mut _game: Game = Game {
         seq: 1,
         top_team: Team::new(1, "AAA"),
         bottom_team: Team::new(2, "BBB"),
         innings: Vec::new(),
-        top_batters: [
-            Batter::new("Top batter 1", 1.0, -0.5),
-            Batter::new("Top batter 2", 1.2, -0.8),
-            Batter::new("Top batter 3", 1.4, 0.8),
-            Batter::new("Top batter 4", 1.6, 1.0),
-            Batter::new("Top batter 5", 1.5, 0.9),
-            Batter::new("Top batter 6", -0.1, 0.2),
-            Batter::new("Top batter 7", 0.1, -0.3),
-            Batter::new("Top batter 8", -1.0, -0.5),
-            Batter::new("Top batter 9", -1.2, -1.2),
-        ],
-        bottom_batters: [
-            Batter::new("Bottom batter 1", 0.9, -0.8),
-            Batter::new("Bottom batter 2", 1.1, -0.6),
-            Batter::new("Bottom batter 3", 1.2, 1.0),
-            Batter::new("Bottom batter 4", 1.4, 1.4),
-            Batter::new("Bottom batter 5", 0.2, 1.1),
-            Batter::new("Bottom batter 6", -0.5, -0.2),
-            Batter::new("Bottom batter 7", -0.8, -0.1),
-            Batter::new("Bottom batter 8", -1.3, -0.3),
-            Batter::new("Bottom batter 9", -1.4, -0.4),
-        ],
+        top_batters: Vec::from([
+            Batter::new(1, "Top batter 1", 1.0, -0.5),
+            Batter::new(2, "Top batter 2", 1.2, -0.8),
+            Batter::new(3, "Top batter 3", 1.4, 0.8),
+            Batter::new(4, "Top batter 4", 1.6, 1.0),
+            Batter::new(5, "Top batter 5", 1.5, 0.9),
+            Batter::new(6, "Top batter 6", -0.1, 0.2),
+            Batter::new(7, "Top batter 7", 0.1, -0.3),
+            Batter::new(8, "Top batter 8", -1.0, -0.5),
+            Batter::new(9, "Top batter 9", -1.2, -1.2),
+        ]),
+        bottom_batters: Vec::from([
+            Batter::new(10, "Bottom batter 1", 0.9, -0.8),
+            Batter::new(11, "Bottom batter 2", 1.1, -0.6),
+            Batter::new(12, "Bottom batter 3", 1.2, 1.0),
+            Batter::new(13, "Bottom batter 4", 1.4, 1.4),
+            Batter::new(14, "Bottom batter 5", 0.2, 1.1),
+            Batter::new(15, "Bottom batter 6", -0.5, -0.2),
+            Batter::new(16, "Bottom batter 7", -0.8, -0.1),
+            Batter::new(17, "Bottom batter 8", -1.3, -0.3),
+            Batter::new(18, "Bottom batter 9", -1.4, -0.4),
+        ]),
     };
 
     // loop for an innning
@@ -232,18 +302,8 @@ fn main() {
         _inning_tb = next_tb(_inning_tb);
     }
 
-    display_game_result(&_game);
-    display_batting_results(&_game);
-
     if let Err(e) = save_game(&_game) {
         eprintln!("{}:{}", ERROR_SAVE_GAME, e);
     }
-
-    // let load_game_manage_res: Result<GameManager, _> = load_game_manager();
-    // match load_game_manage_res {
-    //     Ok(manager) => {}
-    //     Err(e) => {
-    //         eprintln!("{}", ERROR_LOAD_GAME_MANAGER);
-    //     }
-    // }
+    display_game_processed(num_of_games);
 }

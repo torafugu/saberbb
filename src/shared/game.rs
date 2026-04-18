@@ -4,11 +4,13 @@ use super::types::BattingResult;
 use super::types::InningType;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use strum::{Display, EnumString};
 
 pub const MAX_INNING: i8 = 9;
 pub const MAX_OUT: i8 = 3;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Display, EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum GameType {
     EXHIBITION,
     REGULAR,
@@ -18,15 +20,15 @@ pub enum GameType {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameManager {
     pub season: i16,
-    pub phase: i16,
+    pub date: i16,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameSchedule {
     pub season: i16,
-    pub phase: i16,
-    pub top_team: Team,
-    pub bottom_team: Team,
+    pub seq: i16,
+    pub away_team: Team,
+    pub home_team: Team,
     pub game_type: GameType,
 }
 
@@ -36,8 +38,8 @@ pub struct Game {
     pub top_team: Team,
     pub bottom_team: Team,
     pub innings: Vec<Inning>,
-    pub top_batters: [Batter; 9],
-    pub bottom_batters: [Batter; 9],
+    pub top_batters: Vec<Batter>,
+    pub bottom_batters: Vec<Batter>,
 }
 impl Game {
     pub fn add_inning(&mut self, inning: Inning) {

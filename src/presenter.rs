@@ -8,7 +8,10 @@ const NO_RUNNER_TEXT: &str = "-";
 const SPACE_TEXT: &str = " ";
 const SEPARATOR_TEXT: &str = ":";
 const WALK_OFF_TEXT: &str = "x";
-const GAME_SET_TEXT: &str = "Game Set!";
+
+pub fn display_game_processed(num_of_games: i8) {
+    println!("{} games processed.", num_of_games);
+}
 
 pub fn display_game_result(game: &Game) {
     let mut _top_innnings = game.top_team.name.to_string();

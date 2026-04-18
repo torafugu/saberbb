@@ -1,14 +1,16 @@
 use std::fmt;
+use strum::{Display, EnumString};
 
-const SINGLE_TEXT: &str = "Single Hit!";
-const DOUBLE_TEXT: &str = "Double!";
-const TRIPLE_TEXT: &str = "Triple!";
-const HOME_RUN_TEXT: &str = "Home Run!";
-const OUT_TEXT: &str = "Out!";
+const SINGLE_TEXT: &str = "Single";
+const DOUBLE_TEXT: &str = "Double";
+const TRIPLE_TEXT: &str = "Triple";
+const HOME_RUN_TEXT: &str = "HomeRun";
+const OUT_TEXT: &str = "Out";
 const INNING_TOP_TEXT: &str = "Top";
 const INNING_BOTTOM_TEXT: &str = "Bottom";
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString)]
+#[strum(ascii_case_insensitive)]
 pub enum InningType {
     TOP,
     BOTTOM,
@@ -22,7 +24,8 @@ impl fmt::Display for InningType {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, EnumString)]
+#[strum(ascii_case_insensitive)]
 pub enum BattingResult {
     SINGLE,
     DOUBLE,

@@ -9,14 +9,16 @@ const DUMMY_BATTER_TEXT: &str = "Dummy Batter";
 
 #[derive(Clone)]
 pub struct Batter {
+    pub id: i32,
     pub name: Arc<str>,
     pub mod_ba: f64,
     pub mod_slg: f64,
 }
 
 impl Batter {
-    pub fn new(name: &str, mod_ba: f64, mod_slg: f64) -> Batter {
+    pub fn new(id: i32, name: &str, mod_ba: f64, mod_slg: f64) -> Batter {
         Batter {
+            id: id,
             name: Arc::from(name),
             mod_ba: mod_ba,
             mod_slg: mod_slg,
@@ -40,6 +42,7 @@ impl Batter {
 impl Default for Batter {
     fn default() -> Self {
         Self {
+            id: 0,
             name: Arc::from(DUMMY_BATTER_TEXT),
             mod_ba: 0.0,
             mod_slg: 0.0,
