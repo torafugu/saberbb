@@ -2,12 +2,14 @@ use super::player::Batter;
 use super::team::Team;
 use super::types::BattingResult;
 use super::types::InningType;
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use strum::{Display, EnumString};
 
 pub const MAX_INNING: i8 = 9;
 pub const MAX_OUT: i8 = 3;
+pub const TOTAL_GAMES: i16 = 140;
 
 #[derive(Serialize, Deserialize, Debug, Display, EnumString)]
 #[strum(serialize_all = "snake_case")]
@@ -18,14 +20,21 @@ pub enum GameType {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct GameManager {
+pub struct GameSeason {
     pub season: i16,
-    pub date: i16,
+    pub start_date: NaiveDate,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GameRound {
+    pub season: i16,
+    pub seq: i16,
+    pub date: NaiveDate,
+    pub game_schedules: Vec<GameSchedule>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameSchedule {
-    pub season: i16,
     pub seq: i16,
     pub away_team: Team,
     pub home_team: Team,

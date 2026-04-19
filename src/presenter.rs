@@ -13,6 +13,10 @@ pub fn display_game_processed(num_of_games: i8) {
     println!("{} games processed.", num_of_games);
 }
 
+pub fn display_game_scheduled(season: i16) {
+    println!("Season:{} game scheduled.", season);
+}
+
 pub fn display_game_result(game: &Game) {
     let mut _top_innnings = game.top_team.name.to_string();
     let mut _bottom_innings = game.bottom_team.name.to_string();

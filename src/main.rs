@@ -4,30 +4,26 @@ mod resolver;
 mod scheduler;
 mod shared;
 
-use chrono::{Duration, NaiveDate};
 use clap::Parser;
-use presenter::display_batting_results;
-use presenter::display_game_processed;
-use presenter::display_game_result;
-use repository::ERROR_LOAD_GAME;
-use repository::ERROR_SAVE_GAME;
-use repository::load_game;
-use repository::save_game;
+use presenter::{
+    display_batting_results, display_game_processed, display_game_result, display_game_scheduled,
+};
+use repository::constatns_repository::{ERROR_LOAD_GAME_SEASON, get_game_season};
+use repository::game_repository::ERROR_LOAD_GAME;
+use repository::game_repository::{ERROR_SAVE_GAME, load_game, save_game};
+use repository::schedule_repository::{ERROR_SAVE_GAME_ROUNDS, save_game_rounds};
+use repository::team_repository::{ERROR_LOAD_ALL_LEAGUE, load_all_leagus};
 use resolver::batting_resolve;
-use scheduler::SGame;
-use scheduler::STeam;
-use scheduler::generate_schedule;
+use scheduler::schedule_season;
 use shared::game::Count;
 use shared::game::Game;
 use shared::game::Inning;
 use shared::game::MAX_INNING;
 use shared::game::MAX_OUT;
 use shared::player::Batter;
-use shared::team::Team;
-use shared::types::BattingResult;
-use shared::types::InningType;
+use shared::team::{League, Team};
+use shared::types::{BattingResult, InningType};
 use shared::utils::next_tb;
-use std::collections::VecDeque;
 use std::sync::Arc;
 
 fn main() {
@@ -68,7 +64,7 @@ struct Args {
 
     /// Schedule games
     #[arg(short, long)]
-    schedule: Option<i32>,
+    schedule: Option<i8>,
 }
 
 fn display(seq: i32) {
@@ -83,14 +79,30 @@ fn display(seq: i32) {
         }
     }
 }
-fn schedule(season: i32) {
-    println!("Games of season {} scheduled.", season);
-
-    let start = NaiveDate::from_ymd_opt(2026, 3, 27).unwrap();
-    let schedule = generate_schedule(start, 140);
-
-    for game in schedule.iter().take(140) {
-        println!("{:?}: {:?} vs {:?}", game.date, game.home, game.away);
+fn schedule(_num_of_season: i8) {
+    let game_seaon_res = get_game_season();
+    match game_seaon_res {
+        Ok(game_seaon) => {
+            let leagues_res: Result<Vec<League>, _> = load_all_leagus();
+            match leagues_res {
+                Ok(leagues) => {
+                    for league in leagues {
+                        let rounds =
+                            schedule_season(game_seaon.season, game_seaon.start_date, &league);
+                        if let Err(e) = save_game_rounds(rounds) {
+                            eprintln!("{}:{}", ERROR_SAVE_GAME_ROUNDS, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}:{}", ERROR_LOAD_ALL_LEAGUE, e);
+                }
+            }
+            display_game_scheduled(game_seaon.season);
+        }
+        Err(e) => {
+            eprintln!("{}:{}", ERROR_LOAD_GAME_SEASON, e);
+        }
     }
 }
 
@@ -102,14 +114,6 @@ fn process(num_of_games: i8) {
     let mut _bottom_total_score: i8 = 0;
     let mut _top_batter_order: usize = 1;
     let mut _bottom_batter_order: usize = 1;
-    // let mut _game_manager: GameManager = GameManager {
-    //     season: 1,
-    //     phase: 2,
-    // };
-
-    // Divide whether persistent or temporary
-    // Get the latest game id
-    // Set Starting members
 
     let mut _game: Game = Game {
         seq: 1,

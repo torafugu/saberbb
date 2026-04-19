@@ -1,5 +1,5 @@
 use std::fmt;
-use strum::{Display, EnumString};
+use strum::EnumString;
 
 const SINGLE_TEXT: &str = "Single";
 const DOUBLE_TEXT: &str = "Double";
