@@ -1,13 +1,11 @@
-use crate::shared::team::League;
-use crate::shared::team::Team;
+use crate::domains::team::League;
+use crate::domains::team::Team;
 
 use super::persistence_config::get_db_conn;
 use anyhow::Result;
 use rusqlite::params;
 
-pub const ERROR_LOAD_ALL_LEAGUE: &str = "An error occurred in load_all_leagus()";
-
-pub fn load_all_leagus() -> Result<Vec<League>> {
+pub fn load_all_leagues() -> Result<Vec<League>> {
     let conn = get_db_conn()?;
 
     let mut stmt_league = conn.prepare("SELECT id, name FROM league ORDER BY id")?;

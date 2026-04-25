@@ -1,4 +1,5 @@
 use super::utils;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
@@ -7,7 +8,7 @@ const BATTING_MIN_SLG: f64 = 0.3;
 const BATTING_MAX_SLG: f64 = 0.55;
 const DUMMY_BATTER_TEXT: &str = "Dummy Batter";
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Batter {
     pub id: i32,
     pub name: Arc<str>,

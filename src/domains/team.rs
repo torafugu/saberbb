@@ -13,12 +13,3 @@ pub struct Team {
     pub id: i16,
     pub name: Arc<str>,
 }
-
-impl Team {
-    pub fn new(id: i16, name: &str) -> Team {
-        Team {
-            id: id,
-            name: Arc::from(name),
-        }
-    }
-}

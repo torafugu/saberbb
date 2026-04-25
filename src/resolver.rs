@@ -1,5 +1,5 @@
-use super::shared::player::Batter;
-use super::shared::types::BattingResult;
+use super::domains::player::Batter;
+use super::domains::types::BattingResult;
 use std::sync::Arc;
 
 pub fn batting_resolve(batter: Arc<Batter>) -> BattingResult {

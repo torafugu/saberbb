@@ -4,25 +4,41 @@ use super::types::BattingResult;
 use super::types::InningType;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
-use strum::{Display, EnumString};
+use strum::EnumString;
 
 pub const MAX_INNING: i8 = 9;
 pub const MAX_OUT: i8 = 3;
 pub const TOTAL_GAMES: i16 = 140;
+const EXHIBITION: &str = "Exhibition";
+const REGULAR: &str = "Regular";
+const POSTSEASON: &str = "postseason";
 
-#[derive(Serialize, Deserialize, Debug, Display, EnumString)]
-#[strum(serialize_all = "snake_case")]
+#[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
+#[strum(ascii_case_insensitive)]
 pub enum GameType {
     EXHIBITION,
     REGULAR,
     POSTSEASON,
 }
+impl fmt::Display for GameType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            GameType::EXHIBITION => write!(f, "{EXHIBITION}"),
+            GameType::REGULAR => write!(f, "{REGULAR}"),
+            GameType::POSTSEASON => write!(f, "{POSTSEASON}"),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameSeason {
-    pub season: i16,
+    pub start_season: i16,
     pub start_date: NaiveDate,
+    pub current_season: i16,
+    pub current_round_seq: i16,
+    pub scheduled_season: i16,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -30,33 +46,22 @@ pub struct GameRound {
     pub season: i16,
     pub seq: i16,
     pub date: NaiveDate,
-    pub game_schedules: Vec<GameSchedule>,
+    pub games: Vec<Game>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GameSchedule {
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Game {
     pub seq: i16,
+    pub date: NaiveDate,
     pub away_team: Team,
     pub home_team: Team,
     pub game_type: GameType,
-}
-
-#[derive(Clone)]
-pub struct Game {
-    pub seq: i32,
-    pub top_team: Team,
-    pub bottom_team: Team,
     pub innings: Vec<Inning>,
-    pub top_batters: Vec<Batter>,
-    pub bottom_batters: Vec<Batter>,
-}
-impl Game {
-    pub fn add_inning(&mut self, inning: Inning) {
-        self.innings.push(inning);
-    }
+    pub away_batters: Vec<Batter>,
+    pub home_batters: Vec<Batter>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Inning {
     pub tb: InningType,
     pub seq: i8,
@@ -64,7 +69,7 @@ pub struct Inning {
     pub point: i8,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Count {
     pub seq: i32,
     pub is_first_runner: bool,

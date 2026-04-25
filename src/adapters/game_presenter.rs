@@ -1,5 +1,5 @@
-use super::shared::game::Game;
-use super::shared::types::InningType;
+use crate::domains::game::Game;
+use crate::domains::types::InningType;
 use std::collections::BTreeMap;
 
 const LINE_SEPARATOR_TEXT: &str = "---";
@@ -9,18 +9,22 @@ const SPACE_TEXT: &str = " ";
 const SEPARATOR_TEXT: &str = ":";
 const WALK_OFF_TEXT: &str = "x";
 
-pub fn display_game_processed(num_of_games: i8) {
-    println!("{} games processed.", num_of_games);
+pub fn display_rounds_processed(num_of_rounds: i8) {
+    println!("{} rounds processed.", num_of_rounds);
 }
 
-pub fn display_game_scheduled(season: i16) {
-    println!("Season:{} game scheduled.", season);
+pub fn display_no_round_processed() {
+    println!("No round processed.");
+}
+
+pub fn display_no_games() {
+    println!("No games displayed.");
 }
 
 pub fn display_game_result(game: &Game) {
-    let mut _top_innnings = game.top_team.name.to_string();
-    let mut _bottom_innings = game.bottom_team.name.to_string();
-    _top_innnings.push_str(SEPARATOR_TEXT);
+    let mut _top_innings = game.away_team.name.to_string();
+    let mut _bottom_innings = game.home_team.name.to_string();
+    _top_innings.push_str(SEPARATOR_TEXT);
     _bottom_innings.push_str(SEPARATOR_TEXT);
 
     let mut _top_total_score: i8 = 0;
@@ -37,7 +41,7 @@ pub fn display_game_result(game: &Game) {
         for count in inning.counts.iter() {
             println!("count.seq:{}", count.seq);
 
-            let mut _top_scoreboard = _top_innnings.clone();
+            let mut _top_scoreboard = _top_innings.clone();
             let mut _bottom_scoreboard = _bottom_innings.clone();
 
             if inning.tb == InningType::TOP {
@@ -45,7 +49,7 @@ pub fn display_game_result(game: &Game) {
                 _top_scoreboard.push_str(&_top_inning_score.to_string());
             } else {
                 _bottom_inning_score += count.point;
-                _bottom_scoreboard.push_str(&_top_inning_score.to_string());
+                _bottom_scoreboard.push_str(&_bottom_inning_score.to_string());
             }
 
             _top_scoreboard.push_str(SPACE_TEXT);
@@ -85,7 +89,7 @@ pub fn display_game_result(game: &Game) {
         }
 
         if inning.tb == InningType::TOP {
-            _top_innnings.push_str(&inning.point.to_string());
+            _top_innings.push_str(&inning.point.to_string());
             _top_total_score += &inning.point;
         } else {
             _bottom_innings.push_str(&inning.point.to_string());
@@ -101,7 +105,7 @@ fn display_runner(runner: bool) -> &'static str {
 
 pub fn display_batting_results(game: &Game) {
     println!("Batting Results:");
-    println!("{}", game.top_team.name.to_string());
+    println!("{}", game.away_team.name.to_string());
 
     let mut _top_results: BTreeMap<String, String> = BTreeMap::new();
     let mut _bottom_results: BTreeMap<String, String> = BTreeMap::new();
@@ -133,9 +137,11 @@ pub fn display_batting_results(game: &Game) {
     }
 
     println!("");
-    println!("{}", game.bottom_team.name.to_string());
+    println!("{}", game.home_team.name.to_string());
 
     for (key, value) in &_bottom_results {
         println!("{}: {}", key, value);
     }
+    println!("{LINE_SEPARATOR_TEXT}");
+    println!("{LINE_SEPARATOR_TEXT}");
 }

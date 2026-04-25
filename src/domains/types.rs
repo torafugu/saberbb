@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum::EnumString;
 
@@ -9,7 +10,7 @@ const OUT_TEXT: &str = "Out";
 const INNING_TOP_TEXT: &str = "Top";
 const INNING_BOTTOM_TEXT: &str = "Bottom";
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString, Serialize, Deserialize, Debug)]
 #[strum(ascii_case_insensitive)]
 pub enum InningType {
     TOP,
@@ -24,7 +25,7 @@ impl fmt::Display for InningType {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, EnumString)]
+#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug)]
 #[strum(ascii_case_insensitive)]
 pub enum BattingResult {
     SINGLE,
