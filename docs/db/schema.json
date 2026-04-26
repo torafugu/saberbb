@@ -2,39 +2,6 @@
   "name": "statbb.db",
   "tables": [
     {
-      "name": "game",
-      "type": "table",
-      "columns": [
-        {
-          "name": "seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "top_team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "bottom_team_id",
-          "type": "INTEGER",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq)",
-          "table": "game",
-          "columns": [
-            "seq"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE game (\n            seq INTEGER PRIMARY KEY,\n            top_team_id INTEGER NOT NULL,\n            bottom_team_id INTEGER NOT NULL\n        )"
-    },
-    {
       "name": "batter",
       "type": "table",
       "columns": [
@@ -76,213 +43,6 @@
         }
       ],
       "def": "CREATE TABLE batter (\nid INTEGER PRIMARY KEY AUTOINCREMENT, \nteam_id INTEGER NOT NULL,\nname TEXT NOT NULL, \nmod_ba  REAL NOT NULL, \nmod_slg REAL NOT NULL)"
-    },
-    {
-      "name": "inning",
-      "type": "table",
-      "columns": [
-        {
-          "name": "seq",
-          "type": "INTEGERY",
-          "nullable": true
-        },
-        {
-          "name": "game_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "point",
-          "type": "INTEGER",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_inning_1",
-          "def": "PRIMARY KEY (seq, game_seq, tb)",
-          "table": "inning",
-          "columns": [
-            "seq",
-            "game_seq",
-            "tb"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq)",
-          "table": "inning",
-          "columns": [
-            "seq"
-          ]
-        },
-        {
-          "name": "game_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_seq)",
-          "table": "inning",
-          "columns": [
-            "game_seq"
-          ]
-        },
-        {
-          "name": "tb",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (tb)",
-          "table": "inning",
-          "columns": [
-            "tb"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_inning_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq, game_seq, tb)",
-          "table": "inning",
-          "columns": [
-            "seq",
-            "game_seq",
-            "tb"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE inning (\n            seq INTEGERY,\n            game_seq INTEGER,\n            tb TEXT,\n            point INTEGER NOT NULL,\n            PRIMARY KEY (seq, game_seq, tb)\n        )"
-    },
-    {
-      "name": "count",
-      "type": "table",
-      "columns": [
-        {
-          "name": "seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "game_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "is_first_runner",
-          "type": "BOOLEAN",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "is_second_runner",
-          "type": "BOOLEAN",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "is_third_runner",
-          "type": "BOOLEAN",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "batter_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "result",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "point",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "out",
-          "type": "INTEGER",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_count_1",
-          "def": "PRIMARY KEY (seq, inning_seq, inning_tb, game_seq)",
-          "table": "count",
-          "columns": [
-            "seq",
-            "inning_seq",
-            "inning_tb",
-            "game_seq"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq)",
-          "table": "count",
-          "columns": [
-            "seq"
-          ]
-        },
-        {
-          "name": "inning_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_seq)",
-          "table": "count",
-          "columns": [
-            "inning_seq"
-          ]
-        },
-        {
-          "name": "inning_tb",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_tb)",
-          "table": "count",
-          "columns": [
-            "inning_tb"
-          ]
-        },
-        {
-          "name": "game_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_seq)",
-          "table": "count",
-          "columns": [
-            "game_seq"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_count_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq, inning_seq, inning_tb, game_seq)",
-          "table": "count",
-          "columns": [
-            "seq",
-            "inning_seq",
-            "inning_tb",
-            "game_seq"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE count (\n            seq INTEGER,\n            inning_seq INTEGER,\n            inning_tb TEXT,\n            game_seq INTEGER,\n            is_first_runner BOOLEAN NOT NULL DEFAULT 0, \n            is_second_runner BOOLEAN NOT NULL DEFAULT 0, \n            is_third_runner BOOLEAN NOT NULL DEFAULT 0, \n            batter_id INTEGER,\n            result TEXT NOT NULL,\n            point INTEGER NOT NULL,\n            out INTEGER NOT NULL,\n            PRIMARY KEY (seq, inning_seq, inning_tb, game_seq)\n        )"
     },
     {
       "name": "team",
@@ -378,117 +138,6 @@
       "def": "CREATE TABLE game_season (\n    start_season INTEGER NOT NULL,\n    start_date TEXT NOT NULL,\n    current_season INTEGER NOT NULL,\n    current_round_seq INTEGER NOT NULL,\n    scheduled_season INTEGER NOT NULL\n)"
     },
     {
-      "name": "game_schedule",
-      "type": "table",
-      "columns": [
-        {
-          "name": "game_round_season",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "game_round_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "away_team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "home_team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "game_type",
-          "type": "TEXT",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_game_schedule_1",
-          "def": "PRIMARY KEY (game_round_season, game_round_seq, seq, away_team_id, home_team_id)",
-          "table": "game_schedule",
-          "columns": [
-            "game_round_season",
-            "game_round_seq",
-            "seq",
-            "away_team_id",
-            "home_team_id"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "game_round_season",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_round_season)",
-          "table": "game_schedule",
-          "columns": [
-            "game_round_season"
-          ]
-        },
-        {
-          "name": "game_round_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_round_seq)",
-          "table": "game_schedule",
-          "columns": [
-            "game_round_seq"
-          ]
-        },
-        {
-          "name": "seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq)",
-          "table": "game_schedule",
-          "columns": [
-            "seq"
-          ]
-        },
-        {
-          "name": "away_team_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (away_team_id)",
-          "table": "game_schedule",
-          "columns": [
-            "away_team_id"
-          ]
-        },
-        {
-          "name": "home_team_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (home_team_id)",
-          "table": "game_schedule",
-          "columns": [
-            "home_team_id"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_game_schedule_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_round_season, game_round_seq, seq, away_team_id, home_team_id)",
-          "table": "game_schedule",
-          "columns": [
-            "game_round_season",
-            "game_round_seq",
-            "seq",
-            "away_team_id",
-            "home_team_id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE game_schedule (\n    game_round_season INTEGER,\n    game_round_seq INTEGER,\n    seq INTEGER,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    PRIMARY KEY (\n        game_round_season,\n        game_round_seq,\n        seq,\n        away_team_id,\n        home_team_id\n    )\n)"
-    },
-    {
       "name": "game_round",
       "type": "table",
       "columns": [
@@ -550,6 +199,393 @@
         }
       ],
       "def": "CREATE TABLE game_round (\n    season INTEGER,\n    seq INTEGER,\n    date TEXT NOT NULL,\n    PRIMARY KEY (season, seq)\n)"
+    },
+    {
+      "name": "inning",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_round_season",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "game_round_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "game_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "tb",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "point",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_inning_1",
+          "def": "PRIMARY KEY (game_round_season, game_round_seq, game_seq, seq, tb)",
+          "table": "inning",
+          "columns": [
+            "game_round_season",
+            "game_round_seq",
+            "game_seq",
+            "seq",
+            "tb"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_round_season",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_season)",
+          "table": "inning",
+          "columns": [
+            "game_round_season"
+          ]
+        },
+        {
+          "name": "game_round_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_seq)",
+          "table": "inning",
+          "columns": [
+            "game_round_seq"
+          ]
+        },
+        {
+          "name": "game_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_seq)",
+          "table": "inning",
+          "columns": [
+            "game_seq"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "inning",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "tb",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (tb)",
+          "table": "inning",
+          "columns": [
+            "tb"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_inning_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_season, game_round_seq, game_seq, seq, tb)",
+          "table": "inning",
+          "columns": [
+            "game_round_season",
+            "game_round_seq",
+            "game_seq",
+            "seq",
+            "tb"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE inning (\n    game_round_season INTEGER,\n    game_round_seq INTEGER,\n    game_seq INTEGER,\n    seq INTEGER,\n    tb TEXT,\n    point INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_round_season,\n        game_round_seq,\n        game_seq,\n        seq,\n        tb\n    )\n)"
+    },
+    {
+      "name": "count",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_round_season",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "game_round_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "game_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_tb",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "is_first_runner",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "is_second_runner",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "is_third_runner",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "batter_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "result",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "point",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "out",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_count_1",
+          "def": "PRIMARY KEY (game_round_season, game_round_seq, game_seq, inning_seq, inning_tb, seq)",
+          "table": "count",
+          "columns": [
+            "game_round_season",
+            "game_round_seq",
+            "game_seq",
+            "inning_seq",
+            "inning_tb",
+            "seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_round_season",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_season)",
+          "table": "count",
+          "columns": [
+            "game_round_season"
+          ]
+        },
+        {
+          "name": "game_round_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_seq)",
+          "table": "count",
+          "columns": [
+            "game_round_seq"
+          ]
+        },
+        {
+          "name": "game_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_seq)",
+          "table": "count",
+          "columns": [
+            "game_seq"
+          ]
+        },
+        {
+          "name": "inning_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_seq)",
+          "table": "count",
+          "columns": [
+            "inning_seq"
+          ]
+        },
+        {
+          "name": "inning_tb",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_tb)",
+          "table": "count",
+          "columns": [
+            "inning_tb"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "count",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_count_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_season, game_round_seq, game_seq, inning_seq, inning_tb, seq)",
+          "table": "count",
+          "columns": [
+            "game_round_season",
+            "game_round_seq",
+            "game_seq",
+            "inning_seq",
+            "inning_tb",
+            "seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE count (\n    game_round_season INTEGER,\n    game_round_seq INTEGER,\n    game_seq INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    is_first_runner BOOLEAN NOT NULL DEFAULT 0,\n    is_second_runner BOOLEAN NOT NULL DEFAULT 0,\n    is_third_runner BOOLEAN NOT NULL DEFAULT 0,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    point INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_round_season,\n        game_round_seq,\n        game_seq,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
+    },
+    {
+      "name": "game",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_round_season",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "game_round_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "date",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "away_team_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "home_team_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "game_type",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_game_1",
+          "def": "PRIMARY KEY (game_round_season, game_round_seq, seq, away_team_id, home_team_id)",
+          "table": "game",
+          "columns": [
+            "game_round_season",
+            "game_round_seq",
+            "seq",
+            "away_team_id",
+            "home_team_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_round_season",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_season)",
+          "table": "game",
+          "columns": [
+            "game_round_season"
+          ]
+        },
+        {
+          "name": "game_round_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_seq)",
+          "table": "game",
+          "columns": [
+            "game_round_seq"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "game",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "away_team_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (away_team_id)",
+          "table": "game",
+          "columns": [
+            "away_team_id"
+          ]
+        },
+        {
+          "name": "home_team_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (home_team_id)",
+          "table": "game",
+          "columns": [
+            "home_team_id"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_game_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_round_season, game_round_seq, seq, away_team_id, home_team_id)",
+          "table": "game",
+          "columns": [
+            "game_round_season",
+            "game_round_seq",
+            "seq",
+            "away_team_id",
+            "home_team_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE game (\n    game_round_season INTEGER,\n    game_round_seq INTEGER,\n    seq INTEGER,\n    date TEXT NOT NULL,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    PRIMARY KEY (\n        game_round_season,\n        game_round_seq,\n        seq,\n        away_team_id,\n        home_team_id\n    )\n)"
     }
   ],
   "driver": {

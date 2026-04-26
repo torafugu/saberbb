@@ -1,5 +1,10 @@
 use crate::domains::game::Game;
 use crate::domains::types::InningType;
+use crate::repositories::game_repository::{
+    load_last_games, load_processed_rounds, load_processed_seasons,
+};
+use crate::t;
+use inquire::Select;
 use std::collections::BTreeMap;
 
 const LINE_SEPARATOR_TEXT: &str = "---";
@@ -9,16 +14,64 @@ const SPACE_TEXT: &str = " ";
 const SEPARATOR_TEXT: &str = ":";
 const WALK_OFF_TEXT: &str = "x";
 
-pub fn display_rounds_processed(num_of_rounds: i8) {
+pub fn display_game_rounds_processed(num_of_rounds: i8) {
     println!("{} rounds processed.", num_of_rounds);
 }
 
-pub fn display_no_round_processed() {
-    println!("No round processed.");
-}
+// pub fn display_select_round() {
+//     let load_processed_rounds_res = load_processed_rounds();
+//     match load_processed_rounds_res {
+//         Ok(processed_seasons) => {
+//             let selection = Select::new(&t!("select_season"), processed_seasons)
+//                 .with_help_message(&t!("help_message"))
+//                 .prompt();
 
-pub fn display_no_games() {
-    println!("No games displayed.");
+//             match selection {
+//                 Ok(season) => {
+//                     println!("Season:{}", season);
+//                 }
+//                 Err(_) => {
+//                     println!("{}", t!("interrupted"));
+//                     std::process::exit(1);
+//                 }
+//             }
+//         }
+//         Err(e) => {
+//             eprintln!(
+//                 "{}:{}",
+//                 t!("error", "function" => "load_processed_seasons"),
+//                 e
+//             );
+//         }
+//     }
+// }
+
+pub fn display_select_season() {
+    let load_processed_seasons_res = load_processed_seasons();
+    match load_processed_seasons_res {
+        Ok(processed_seasons) => {
+            let selection = Select::new(&t!("select_season"), processed_seasons)
+                .with_help_message(&t!("help_message"))
+                .prompt();
+
+            match selection {
+                Ok(season) => {
+                    println!("Season:{}", season);
+                }
+                Err(_) => {
+                    println!("{}", t!("interrupted"));
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "{}:{}",
+                t!("error", "function" => "load_processed_seasons"),
+                e
+            );
+        }
+    }
 }
 
 pub fn display_game_result(game: &Game) {

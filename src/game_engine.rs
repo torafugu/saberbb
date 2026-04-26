@@ -4,16 +4,14 @@ use crate::domains::player::Batter;
 use crate::domains::types::{BattingResult, InningType};
 use crate::domains::utils::next_tb;
 use crate::resolver::batting_resolve;
+use crate::t;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
-pub const ERROR_LOAD_GAME_ROUND_TO_PROCESS: &str =
-    "An error occurred in load_game_round_to_process()";
-pub const ERROR_SAVE_GAME_ROUND: &str = "An error occurred in save_game_round()";
-
 pub fn process_game() -> Result<()> {
     // 1. Get game round to process
-    let mut game_round = load_game_round_to_process().context(ERROR_LOAD_GAME_ROUND_TO_PROCESS)?;
+    let mut game_round = load_game_round_to_process()
+        .context(t!("error", "function" => "load_game_round_to_process"))?;
 
     // 2. Procees games in the game round
     for game in game_round.games.iter_mut() {
@@ -212,7 +210,7 @@ pub fn process_game() -> Result<()> {
     }
 
     if let Err(e) = save_game_round(&game_round) {
-        eprintln!("{}:{}", ERROR_SAVE_GAME_ROUND, e);
+        eprintln!("{}:{}", t!("error", "function" => "save_game_round"), e);
     }
 
     Ok(())

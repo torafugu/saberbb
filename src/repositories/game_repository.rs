@@ -3,13 +3,11 @@ use crate::domains::game::{Count, Game, GameRound, GameSeason, GameType, Inning}
 use crate::domains::player::Batter;
 use crate::domains::team::Team;
 use crate::domains::types::{BattingResult, InningType};
+use crate::t;
 use anyhow::{Context, Result};
 use rusqlite::params;
 use rusqlite::types::{FromSql, FromSqlResult, ValueRef};
 use std::sync::Arc;
-
-pub const ERROR_LOAD_GAME: &str = "An error occurred in load_game()";
-const ERROR_PARSE: &str = "Parse error for";
 
 const SELECT_BATTER_SQL: &str = "SELECT id, name, mod_ba, mod_slg FROM batter WHERE team_id = ?1";
 
@@ -19,7 +17,7 @@ impl FromSql for SqlGameType {
         let gt = value.as_str()?;
 
         gt.parse::<GameType>().map(SqlGameType).map_err(|e| {
-            eprintln!("{} {}: {:?}", ERROR_PARSE, gt, e);
+            eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
             rusqlite::types::FromSqlError::InvalidType
         })
     }
@@ -31,7 +29,7 @@ impl FromSql for SqlInningType {
         let tb = value.as_str()?;
 
         tb.parse::<InningType>().map(SqlInningType).map_err(|e| {
-            eprintln!("{} {}: {:?}", ERROR_PARSE, tb, e);
+            eprintln!("{} {}: {:?}", t!("error_parse"), tb, e);
             rusqlite::types::FromSqlError::InvalidType
         })
     }
@@ -45,10 +43,44 @@ impl FromSql for SqlBattingResult {
         br.parse::<BattingResult>()
             .map(SqlBattingResult)
             .map_err(|e| {
-                eprintln!("{} {}: {:?}", ERROR_PARSE, br, e);
+                eprintln!("{} {}: {:?}", t!("error_parse"), br, e);
                 rusqlite::types::FromSqlError::InvalidType
             })
     }
+}
+
+pub fn load_processed_rounds() -> Result<Vec<GameRound>> {
+    let conn = get_db_conn()?;
+
+    let mut stmt = conn.prepare(
+        "SELECT season, seq, date FROM game_round, game_season WHERE season = 2026 AND current_round_seq >= seq ORDER BY seq DESC",
+    )?;
+    let season_iter = stmt.query_map([], |row| {
+        Ok(GameRound {
+            season: row.get("season")?,
+            seq: row.get("seq")?,
+            date: row.get("date")?,
+            games: Vec::new(),
+        })
+    })?;
+
+    let processed_game_rounds: Vec<GameRound> = season_iter.collect::<Result<Vec<_>, _>>()?;
+    Ok(processed_game_rounds)
+}
+
+pub fn load_processed_seasons() -> Result<Vec<i16>> {
+    let conn = get_db_conn()?;
+
+    let mut stmt = conn.prepare(
+        "select season from game_round, game_season WHERE current_season >= season group by season",
+    )?;
+    let season_iter = stmt.query_map([], |row| {
+        let s: i16 = row.get("season")?;
+        Ok(s)
+    })?;
+
+    let processed_seasons: Vec<i16> = season_iter.collect::<Result<Vec<_>, _>>()?;
+    Ok(processed_seasons)
 }
 
 pub fn load_game_season() -> Result<GameSeason> {
@@ -92,7 +124,7 @@ pub fn load_game_round_to_process() -> Result<GameRound> {
         },
     )?;
 
-    game_round.games = load_games(&game_round).context(ERROR_LOAD_GAME)?;
+    game_round.games = load_games(&game_round).context(t!("error", "function" => "load_games"))?;
     Ok(game_round)
 }
 
@@ -114,7 +146,7 @@ pub fn load_last_games() -> Result<Vec<Game>> {
         },
     )?;
 
-    let mut games = load_games(&game_round).context(ERROR_LOAD_GAME)?;
+    let mut games = load_games(&game_round).context(t!("error", "function" => "load_games"))?;
     for game in games.iter_mut() {
         let mut stmt_away_batter = conn.prepare(SELECT_BATTER_SQL)?;
         let away_batter_iter = stmt_away_batter.query_map([game.away_team.id], |row| {

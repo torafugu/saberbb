@@ -3,24 +3,19 @@ use crate::domains::{game::Game, game::GameRound, game::GameType};
 use crate::repositories::game_repository::{load_game_season, update_scheduled_season};
 use crate::repositories::schedule_repository::save_scheduled_game_rounds;
 use crate::repositories::team_repository::load_all_leagues;
+use crate::t;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-pub const ERROR_LOAD_ALL_LEAGUE: &str = "An error occurred in load_all_leagus()";
-pub const ERROR_LOAD_GAME_SEASON: &str = "An error occurred in load_game_season()";
-pub const ERROR_SAVE_SCHEDULED_GAME_ROUNDS: &str =
-    "An error occurred in save_scheduled_game_rounds()";
-pub const ERROR_UPDATE_SCHEDULED_SEASON: &str = "An error occurred in update_scheduled_season()";
-
 pub fn schedule_season() -> Result<()> {
     // 1. load the scheduled game season
-    let game_season = load_game_season().context(ERROR_LOAD_GAME_SEASON)?;
+    let game_season = load_game_season().context(t!("error", "function" => "load_game_season"))?;
     let current_season = game_season.scheduled_season + 1;
 
     // 2. load all leagues to schedule
-    let leagues = load_all_leagues().context(ERROR_LOAD_ALL_LEAGUE)?;
+    let leagues = load_all_leagues().context(t!("error", "function" => "load_all_leagues"))?;
 
     for league in leagues {
         let mut dequed_teams = VecDeque::from(league.teams.clone());
@@ -104,8 +99,10 @@ pub fn schedule_season() -> Result<()> {
             round_count += 1;
         }
 
-        save_scheduled_game_rounds(game_rounds).context(ERROR_SAVE_SCHEDULED_GAME_ROUNDS)?;
-        update_scheduled_season(current_season).context(ERROR_UPDATE_SCHEDULED_SEASON)?;
+        save_scheduled_game_rounds(game_rounds)
+            .context(t!("error", "function" => "save_scheduled_game_rounds"))?;
+        update_scheduled_season(current_season)
+            .context(t!("error", "function" => "update_scheduled_season"))?;
     }
 
     Ok(())

@@ -1,31 +1,46 @@
 mod adapters;
 mod domains;
 mod game_engine;
+mod i18n;
 mod repositories;
 mod resolver;
 mod scheduler;
 
 use adapters::game_presenter::{
-    display_batting_results, display_game_result, display_no_games, display_no_round_processed,
-    display_rounds_processed,
+    display_batting_results, display_game_result, display_game_rounds_processed,
 };
-use adapters::schedule_presenter::{
-    display_game_seasons_scheduled, display_no_game_season_scheduled,
-};
+use adapters::menu_presenter::display_menu;
+use adapters::schedule_presenter::display_game_seasons_scheduled;
 use clap::Parser;
 use game_engine::process_game;
-use repositories::game_repository::load_last_games;
+use i18n::I18nManager;
+use repositories::game_repository::{load_last_games, load_processed_seasons};
 use scheduler::schedule_season;
+use serde::{Deserialize, Serialize};
 
-pub const ERROR_SCHEDULED_SEASON: &str = "An error occurred in schedule_season()";
-pub const ERROR_PROCESS_GAME: &str = "An error occurred in process_game()";
-pub const ERROR_LOAD_LAST_GAME: &str = "An error occurred in load_last_games()";
+#[derive(Serialize, Deserialize, Debug)]
+struct AppConfig {
+    version: u8,
+    language: String,
+}
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            language: String::from("en-US"),
+        }
+    }
+}
 
 fn main() {
+    // load default-config.toml and initialize I18nManager
+    let cfg: AppConfig = confy::load::<AppConfig>("statbb", None).unwrap_or_default();
+    I18nManager::init(&cfg.language);
+
     let args = Args::parse();
 
-    // Game Display Mode
-    if let Some(_p) = args.display {
+    // Game Display Mode　(Show the laest game result)
+    if args.display {
         let load_games_res = load_last_games();
         match load_games_res {
             Ok(games) => {
@@ -35,35 +50,48 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("{}:{}", ERROR_LOAD_LAST_GAME, e);
+                eprintln!("{}:{}", t!("error", "function" => "load_last_games"), e);
             }
         }
-    } else {
-        display_no_games();
     }
 
     // Game Process Mode
     if let Some(num_of_rounds) = args.process {
         for _ in 0..num_of_rounds {
             if let Err(e) = process_game() {
-                eprintln!("{}:{}", ERROR_PROCESS_GAME, e);
+                eprintln!("{}:{}", t!("error", "function" => "process_game"), e);
             }
         }
-        display_rounds_processed(num_of_rounds);
-    } else {
-        display_no_round_processed();
+        display_game_rounds_processed(num_of_rounds);
     }
 
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
         for _ in 0..num_of_schedules {
             if let Err(e) = schedule_season() {
-                eprintln!("{}:{}", ERROR_SCHEDULED_SEASON, e);
+                eprintln!("{}:{}", t!("error", "function" => "schedule_season"), e);
             }
         }
         display_game_seasons_scheduled(num_of_schedules);
-    } else {
-        display_no_game_season_scheduled();
+    }
+
+    // Game Display Mode　(Show the game result interactively)
+    if args.menu {
+        display_menu();
+
+        // let load_processed_seasons_res = load_processed_seasons();
+        // match load_processed_seasons_res {
+        //     Ok(processed_seasons) => {
+        //         display_select_season(processed_seasons);
+        //     }
+        //     Err(e) => {
+        //         eprintln!(
+        //             "{}:{}",
+        //             t!("error", "function" => "load_processed_seasons"),
+        //             e
+        //         );
+        //     }
+        // }
     }
 }
 
@@ -74,9 +102,13 @@ struct Args {
     #[arg(short, long)]
     process: Option<i8>,
 
-    /// Display game result
+    /// Display the last game result
     #[arg(short, long)]
-    display: Option<i32>,
+    display: bool,
+
+    /// View game result interactively
+    #[arg(short, long)]
+    menu: bool,
 
     /// Schedule games
     #[arg(short, long)]

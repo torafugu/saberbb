@@ -1,0 +1,3 @@
+DROP TABLE league;
+
+CREATE TABLE league (id INTEGER PRIMARY KEY, name TEXT NOT NULL);

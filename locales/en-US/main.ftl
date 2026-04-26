@@ -1,0 +1,10 @@
+error = An error occurred in {$function}()
+error_no_data_dir = The data directory is not found.
+error_parse = Parse error for
+select_season = Please select the season to show.
+interrupted = This process was interrupted by Ctrl + C.
+help_message = ↑↓ to move, enter to select, type to filter
+main_menu = Main Menu
+view_game_result_this_season = View Game Result of this season
+view_game_result_past_seasons = View Game Result of past seasons
+exit = Exit

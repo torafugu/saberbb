@@ -13,3 +13,9 @@ serde_rusqlite = "0.42.0"
 strum = { version = "0.28.0", features = ["derive"] }
 clap = { version = "4.6.1", features = ["derive"] }
 chrono = { version = "0.4.44", features = ["serde"] }
+inquire = "0.9.4"
+fluent-templates = "0.14.0"
+unic-langid = "0.9"
+confy = "2.0.0"
+console = "0.16.3"
+dialoguer = "0.12.0"

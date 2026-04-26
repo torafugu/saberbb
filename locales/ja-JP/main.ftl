@@ -1,0 +1,11 @@
+error = {$function}() でエラーが発生しました。
+error_no_data_dir = ディレクトリが見つかりませんでした。
+error_parse = パースエラー 
+select_season = 表示するシーズンを選択してください。
+interrupted = この処理は Ctrl + C で中断されました。
+help_message = ↑↓:移動 / Enter:確定 / 文字入力:絞り込み
+main_menu = メインメニュー
+view_game_result = 試合結果の確認
+view_game_result_this_season = 今季の試合結果の確認
+view_game_result_past_seasons = 過去の試合結果の確認
+exit = 終了

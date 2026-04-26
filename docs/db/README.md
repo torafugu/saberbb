@@ -2,17 +2,16 @@
 
 ## Tables
 
-| Name                              | Columns | Comment | Type  |
-| --------------------------------- | ------- | ------- | ----- |
-| [game](game.md)                   | 3       |         | table |
-| [batter](batter.md)               | 5       |         | table |
-| [inning](inning.md)               | 4       |         | table |
-| [count](count.md)                 | 11      |         | table |
-| [team](team.md)                   | 3       |         | table |
-| [league](league.md)               | 2       |         | table |
-| [game_season](game_season.md)     | 5       |         | table |
-| [game_schedule](game_schedule.md) | 6       |         | table |
-| [game_round](game_round.md)       | 3       |         | table |
+| Name                          | Columns | Comment | Type  |
+| ----------------------------- | ------- | ------- | ----- |
+| [batter](batter.md)           | 5       |         | table |
+| [team](team.md)               | 3       |         | table |
+| [league](league.md)           | 2       |         | table |
+| [game_season](game_season.md) | 5       |         | table |
+| [game_round](game_round.md)   | 3       |         | table |
+| [inning](inning.md)           | 6       |         | table |
+| [count](count.md)             | 13      |         | table |
+| [game](game.md)               | 7       |         | table |
 
 ## Relations
 

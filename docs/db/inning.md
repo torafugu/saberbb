@@ -7,39 +7,51 @@
 
 ```sql
 CREATE TABLE inning (
-            seq INTEGERY,
-            game_seq INTEGER,
-            tb TEXT,
-            point INTEGER NOT NULL,
-            PRIMARY KEY (seq, game_seq, tb)
-        )
+    game_round_season INTEGER,
+    game_round_seq INTEGER,
+    game_seq INTEGER,
+    seq INTEGER,
+    tb TEXT,
+    point INTEGER NOT NULL,
+    PRIMARY KEY (
+        game_round_season,
+        game_round_seq,
+        game_seq,
+        seq,
+        tb
+    )
+)
 ```
 
 </details>
 
 ## Columns
 
-| Name     | Type     | Default | Nullable | Children | Parents | Comment |
-| -------- | -------- | ------- | -------- | -------- | ------- | ------- |
-| seq      | INTEGERY |         | true     |          |         |         |
-| game_seq | INTEGER  |         | true     |          |         |         |
-| tb       | TEXT     |         | true     |          |         |         |
-| point    | INTEGER  |         | false    |          |         |         |
+| Name              | Type    | Default | Nullable | Children | Parents | Comment |
+| ----------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_round_season | INTEGER |         | true     |          |         |         |
+| game_round_seq    | INTEGER |         | true     |          |         |         |
+| game_seq          | INTEGER |         | true     |          |         |         |
+| seq               | INTEGER |         | true     |          |         |         |
+| tb                | TEXT    |         | true     |          |         |         |
+| point             | INTEGER |         | false    |          |         |         |
 
 ## Constraints
 
-| Name                      | Type        | Definition                      |
-| ------------------------- | ----------- | ------------------------------- |
-| seq                       | PRIMARY KEY | PRIMARY KEY (seq)               |
-| game_seq                  | PRIMARY KEY | PRIMARY KEY (game_seq)          |
-| tb                        | PRIMARY KEY | PRIMARY KEY (tb)                |
-| sqlite_autoindex_inning_1 | PRIMARY KEY | PRIMARY KEY (seq, game_seq, tb) |
+| Name                      | Type        | Definition                                                         |
+| ------------------------- | ----------- | ------------------------------------------------------------------ |
+| game_round_season         | PRIMARY KEY | PRIMARY KEY (game_round_season)                                    |
+| game_round_seq            | PRIMARY KEY | PRIMARY KEY (game_round_seq)                                       |
+| game_seq                  | PRIMARY KEY | PRIMARY KEY (game_seq)                                             |
+| seq                       | PRIMARY KEY | PRIMARY KEY (seq)                                                  |
+| tb                        | PRIMARY KEY | PRIMARY KEY (tb)                                                   |
+| sqlite_autoindex_inning_1 | PRIMARY KEY | PRIMARY KEY (game_round_season, game_round_seq, game_seq, seq, tb) |
 
 ## Indexes
 
-| Name                      | Definition                      |
-| ------------------------- | ------------------------------- |
-| sqlite_autoindex_inning_1 | PRIMARY KEY (seq, game_seq, tb) |
+| Name                      | Definition                                                         |
+| ------------------------- | ------------------------------------------------------------------ |
+| sqlite_autoindex_inning_1 | PRIMARY KEY (game_round_season, game_round_seq, game_seq, seq, tb) |
 
 ## Relations
 
