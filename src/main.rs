@@ -6,15 +6,12 @@ mod repositories;
 mod resolver;
 mod scheduler;
 
-use adapters::game_presenter::{
-    display_batting_results, display_game_result, display_game_rounds_processed,
-};
-use adapters::menu_presenter::display_menu;
+use adapters::game_presenter::display_game_rounds_processed;
 use adapters::schedule_presenter::display_game_seasons_scheduled;
+use adapters::topmenu_presenter::display_menu;
 use clap::Parser;
 use game_engine::process_game;
 use i18n::I18nManager;
-use repositories::game_repository::{load_last_games, load_processed_seasons};
 use scheduler::schedule_season;
 use serde::{Deserialize, Serialize};
 
@@ -39,22 +36,6 @@ fn main() {
 
     let args = Args::parse();
 
-    // Game Display Mode　(Show the laest game result)
-    if args.display {
-        let load_games_res = load_last_games();
-        match load_games_res {
-            Ok(games) => {
-                for game in games.iter() {
-                    display_game_result(&game);
-                    display_batting_results(&game);
-                }
-            }
-            Err(e) => {
-                eprintln!("{}:{}", t!("error", "function" => "load_last_games"), e);
-            }
-        }
-    }
-
     // Game Process Mode
     if let Some(num_of_rounds) = args.process {
         for _ in 0..num_of_rounds {
@@ -78,20 +59,6 @@ fn main() {
     // Game Display Mode　(Show the game result interactively)
     if args.menu {
         display_menu();
-
-        // let load_processed_seasons_res = load_processed_seasons();
-        // match load_processed_seasons_res {
-        //     Ok(processed_seasons) => {
-        //         display_select_season(processed_seasons);
-        //     }
-        //     Err(e) => {
-        //         eprintln!(
-        //             "{}:{}",
-        //             t!("error", "function" => "load_processed_seasons"),
-        //             e
-        //         );
-        //     }
-        // }
     }
 }
 

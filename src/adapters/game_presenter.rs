@@ -1,8 +1,7 @@
+use super::menu_component::MenuItem;
 use crate::domains::game::Game;
 use crate::domains::types::InningType;
-use crate::repositories::game_repository::{
-    load_last_games, load_processed_rounds, load_processed_seasons,
-};
+use crate::repositories::game_repository::{load_processed_games, load_processed_seasons};
 use crate::t;
 use inquire::Select;
 use std::collections::BTreeMap;
@@ -18,33 +17,59 @@ pub fn display_game_rounds_processed(num_of_rounds: i8) {
     println!("{} rounds processed.", num_of_rounds);
 }
 
-// pub fn display_select_round() {
-//     let load_processed_rounds_res = load_processed_rounds();
-//     match load_processed_rounds_res {
-//         Ok(processed_seasons) => {
-//             let selection = Select::new(&t!("select_season"), processed_seasons)
-//                 .with_help_message(&t!("help_message"))
-//                 .prompt();
+pub fn display_select_game(season: i16) {
+    let game_rounds_res = load_processed_games(season);
+    match game_rounds_res {
+        Ok(games) => {
+            let menu_items: Vec<MenuItem<Game>> = games
+                .into_iter()
+                .map(
+                    |Game {
+                         seq,
+                         date,
+                         away_team,
+                         home_team,
+                         game_type,
+                         innings,
+                         away_batters,
+                         home_batters,
+                     }| {
+                        let label =
+                            format!("[{}] {} vs {})", date, away_team.name, home_team.name,);
 
-//             match selection {
-//                 Ok(season) => {
-//                     println!("Season:{}", season);
-//                 }
-//                 Err(_) => {
-//                     println!("{}", t!("interrupted"));
-//                     std::process::exit(1);
-//                 }
-//             }
-//         }
-//         Err(e) => {
-//             eprintln!(
-//                 "{}:{}",
-//                 t!("error", "function" => "load_processed_seasons"),
-//                 e
-//             );
-//         }
-//     }
-// }
+                        MenuItem {
+                            label,
+                            value: Game {
+                                seq,
+                                date,
+                                away_team,
+                                home_team,
+                                game_type,
+                                innings,
+                                away_batters,
+                                home_batters,
+                            },
+                        }
+                    },
+                )
+                .collect();
+
+            let selection = Select::new(&t!("select_game"), menu_items).prompt();
+
+            if let Ok(selected) = selection {
+                display_game_result(&selected.value);
+                display_batting_results(&selected.value);
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "{}:{}",
+                t!("error", "function" => "load_processed_rounds"),
+                e
+            );
+        }
+    }
+}
 
 pub fn display_select_season() {
     let load_processed_seasons_res = load_processed_seasons();
@@ -56,7 +81,7 @@ pub fn display_select_season() {
 
             match selection {
                 Ok(season) => {
-                    println!("Season:{}", season);
+                    display_select_game(season);
                 }
                 Err(_) => {
                     println!("{}", t!("interrupted"));

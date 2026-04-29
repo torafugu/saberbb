@@ -2,6 +2,7 @@ error = {$function}() でエラーが発生しました。
 error_no_data_dir = ディレクトリが見つかりませんでした。
 error_parse = パースエラー 
 select_season = 表示するシーズンを選択してください。
+select_game = 表示する試合を選択してください。
 interrupted = この処理は Ctrl + C で中断されました。
 help_message = ↑↓:移動 / Enter:確定 / 文字入力:絞り込み
 main_menu = メインメニュー

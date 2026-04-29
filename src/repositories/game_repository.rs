@@ -49,13 +49,15 @@ impl FromSql for SqlBattingResult {
     }
 }
 
-pub fn load_processed_rounds() -> Result<Vec<GameRound>> {
+pub fn load_processed_games(season: i16) -> Result<Vec<Game>> {
     let conn = get_db_conn()?;
 
     let mut stmt = conn.prepare(
-        "SELECT season, seq, date FROM game_round, game_season WHERE season = 2026 AND current_round_seq >= seq ORDER BY seq DESC",
+        "SELECT season, seq, date 
+            FROM game_round, game_season 
+            WHERE season = ?1 AND current_round_seq >= seq ORDER BY seq DESC",
     )?;
-    let season_iter = stmt.query_map([], |row| {
+    let game_rounds_iter = stmt.query_map([season], |row| {
         Ok(GameRound {
             season: row.get("season")?,
             seq: row.get("seq")?,
@@ -64,8 +66,16 @@ pub fn load_processed_rounds() -> Result<Vec<GameRound>> {
         })
     })?;
 
-    let processed_game_rounds: Vec<GameRound> = season_iter.collect::<Result<Vec<_>, _>>()?;
-    Ok(processed_game_rounds)
+    let processed_game_rounds: Vec<GameRound> = game_rounds_iter.collect::<Result<Vec<_>, _>>()?;
+    let mut processed_games = Vec::new();
+    for game_round in processed_game_rounds {
+        let mut _loaded_games =
+            load_games(&game_round).context(t!("error", "function" => "load_games"))?;
+        for loaded_game in _loaded_games {
+            processed_games.push(loaded_game);
+        }
+    }
+    Ok(processed_games)
 }
 
 pub fn load_processed_seasons() -> Result<Vec<i16>> {
@@ -126,118 +136,6 @@ pub fn load_game_round_to_process() -> Result<GameRound> {
 
     game_round.games = load_games(&game_round).context(t!("error", "function" => "load_games"))?;
     Ok(game_round)
-}
-
-pub fn load_last_games() -> Result<Vec<Game>> {
-    let conn = get_db_conn()?;
-
-    let game_round: GameRound = conn.query_row(
-        "SELECT season, seq, date
-                FROM game_season s, game_round r
-                WHERE s.current_season = r.season AND s.current_round_seq = r.seq + 1",
-        params![],
-        |row| {
-            Ok(GameRound {
-                season: row.get("season")?,
-                seq: row.get("seq")?,
-                date: row.get("date")?,
-                games: Vec::new(),
-            })
-        },
-    )?;
-
-    let mut games = load_games(&game_round).context(t!("error", "function" => "load_games"))?;
-    for game in games.iter_mut() {
-        let mut stmt_away_batter = conn.prepare(SELECT_BATTER_SQL)?;
-        let away_batter_iter = stmt_away_batter.query_map([game.away_team.id], |row| {
-            Ok(Batter {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                mod_ba: row.get("mod_ba")?,
-                mod_slg: row.get("mod_slg")?,
-            })
-        })?;
-
-        let mut stmt_home_batter = conn.prepare(SELECT_BATTER_SQL)?;
-        let home_batter_iter = stmt_home_batter.query_map([game.home_team.id], |row| {
-            Ok(Batter {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                mod_ba: row.get("mod_ba")?,
-                mod_slg: row.get("mod_slg")?,
-            })
-        })?;
-
-        for away_batter in away_batter_iter {
-            game.away_batters.push(away_batter?);
-        }
-
-        for home_batter in home_batter_iter {
-            game.home_batters.push(home_batter?);
-        }
-
-        let mut stmt_inning =
-            conn.prepare("SELECT seq, tb, point 
-                                FROM inning 
-                                WHERE game_round_season = ?1 AND game_round_seq = ?2 AND game_seq = ?3
-                                ORDER BY game_round_season ASC, game_round_seq ASC, game_seq ASC, seq ASC, tb DESC")?;
-        let inning_iter =
-            stmt_inning.query_map([game_round.season, game_round.seq, game.seq], |row| {
-                Ok(Inning {
-                    seq: row.get("seq")?,
-                    tb: row.get::<_, SqlInningType>("tb")?.0,
-                    counts: Vec::new(),
-                    point: row.get("point")?,
-                })
-            })?;
-
-        let mut stmt_count = conn.prepare(
-            "SELECT seq, is_first_runner, is_second_runner, is_third_runner, result, point, out, 
-                id as batter_id, name as batter_name, mod_ba as batter_ba, mod_slg as batter_slg
-                FROM count, batter 
-                WHERE count.batter_id = batter.id AND 
-                game_round_season = ?1 AND game_round_seq = ?2 AND game_seq = ?3 
-                AND inning_seq = ?4 AND inning_tb = ?5",
-        )?;
-        for inning in inning_iter {
-            let mut _inning = inning?;
-            let count_iter = stmt_count.query_map(
-                params![
-                    game_round.season,
-                    game_round.seq,
-                    game.seq,
-                    _inning.seq,
-                    _inning.tb.to_string()
-                ],
-                |row| {
-                    Ok(Count {
-                        seq: row.get("seq")?,
-                        is_first_runner: row.get("is_first_runner")?,
-                        is_second_runner: row.get("is_second_runner")?,
-                        is_third_runner: row.get("is_third_runner")?,
-                        result: row.get::<_, SqlBattingResult>("result")?.0,
-                        batter: Arc::from(Batter::new(
-                            row.get("batter_id")?,
-                            &row.get::<_, String>("batter_name")?,
-                            row.get("batter_ba")?,
-                            row.get("batter_slg")?,
-                        )),
-                        point: row.get("point")?,
-                        out: row.get("out")?,
-                    })
-                },
-            )?;
-
-            for count in count_iter {
-                _inning.counts.push(count?);
-            }
-
-            game.innings.push(_inning);
-        }
-        // games.push(game.clone());
-    }
-
-    Ok(games)
 }
 
 pub fn save_game_round(game_round: &GameRound) -> Result<()> {
@@ -315,8 +213,10 @@ pub fn save_game_round(game_round: &GameRound) -> Result<()> {
 }
 
 fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
+    // let mut games: Vec<Game> = game_round.games.clone();
+
     let conn = get_db_conn()?;
-    let mut games = Vec::new();
+    let mut games: Vec<Game> = Vec::new();
 
     let mut stmt_game = conn.prepare(
         "SELECT 
@@ -355,7 +255,94 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
     })?;
 
     for game in games_iter {
-        games.push(game?);
+        let mut _game = game?;
+        let mut stmt_away_batter = conn.prepare(SELECT_BATTER_SQL)?;
+        let away_batter_iter = stmt_away_batter.query_map([_game.away_team.id], |row| {
+            Ok(Batter {
+                id: row.get("id")?,
+                name: row.get("name")?,
+                mod_ba: row.get("mod_ba")?,
+                mod_slg: row.get("mod_slg")?,
+            })
+        })?;
+
+        let mut stmt_home_batter = conn.prepare(SELECT_BATTER_SQL)?;
+        let home_batter_iter = stmt_home_batter.query_map([_game.home_team.id], |row| {
+            Ok(Batter {
+                id: row.get("id")?,
+                name: row.get("name")?,
+                mod_ba: row.get("mod_ba")?,
+                mod_slg: row.get("mod_slg")?,
+            })
+        })?;
+
+        for away_batter in away_batter_iter {
+            _game.away_batters.push(away_batter?);
+        }
+
+        for home_batter in home_batter_iter {
+            _game.home_batters.push(home_batter?);
+        }
+
+        let mut stmt_inning =
+            conn.prepare("SELECT seq, tb, point 
+                                FROM inning 
+                                WHERE game_round_season = ?1 AND game_round_seq = ?2 AND game_seq = ?3
+                                ORDER BY game_round_season ASC, game_round_seq ASC, game_seq ASC, seq ASC, tb DESC")?;
+        let inning_iter =
+            stmt_inning.query_map([game_round.season, game_round.seq, _game.seq], |row| {
+                Ok(Inning {
+                    seq: row.get("seq")?,
+                    tb: row.get::<_, SqlInningType>("tb")?.0,
+                    counts: Vec::new(),
+                    point: row.get("point")?,
+                })
+            })?;
+
+        let mut stmt_count = conn.prepare(
+            "SELECT seq, is_first_runner, is_second_runner, is_third_runner, result, point, out, 
+                id as batter_id, name as batter_name, mod_ba as batter_ba, mod_slg as batter_slg
+                FROM count, batter 
+                WHERE count.batter_id = batter.id AND 
+                game_round_season = ?1 AND game_round_seq = ?2 AND game_seq = ?3 
+                AND inning_seq = ?4 AND inning_tb = ?5",
+        )?;
+        for inning in inning_iter {
+            let mut _inning = inning?;
+            let count_iter = stmt_count.query_map(
+                params![
+                    game_round.season,
+                    game_round.seq,
+                    _game.seq,
+                    _inning.seq,
+                    _inning.tb.to_string()
+                ],
+                |row| {
+                    Ok(Count {
+                        seq: row.get("seq")?,
+                        is_first_runner: row.get("is_first_runner")?,
+                        is_second_runner: row.get("is_second_runner")?,
+                        is_third_runner: row.get("is_third_runner")?,
+                        result: row.get::<_, SqlBattingResult>("result")?.0,
+                        batter: Arc::from(Batter::new(
+                            row.get("batter_id")?,
+                            &row.get::<_, String>("batter_name")?,
+                            row.get("batter_ba")?,
+                            row.get("batter_slg")?,
+                        )),
+                        point: row.get("point")?,
+                        out: row.get("out")?,
+                    })
+                },
+            )?;
+
+            for count in count_iter {
+                _inning.counts.push(count?);
+            }
+
+            _game.innings.push(_inning);
+        }
+        games.push(_game.clone());
     }
 
     Ok(games)

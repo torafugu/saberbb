@@ -24,15 +24,6 @@ impl fmt::Display for MenuOption {
         write!(f, "{}", label)
     }
 }
-// impl MenuOption {
-//     pub fn label(&self) -> String {
-//         match self {
-//             Self::ViewResultThisSeason => t!("view_game_result_this_season"),
-//             Self::ViewResultPastSeasons => t!("view_game_result_past_seasons"),
-//             Self::Exit => t!("exit"),
-//         }
-//     }
-// }
 
 pub fn display_menu() {
     let term = Term::stdout();
