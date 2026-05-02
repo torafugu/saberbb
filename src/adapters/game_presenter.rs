@@ -1,6 +1,6 @@
 use super::menu_component::MenuItem;
-use crate::domains::game::Game;
-use crate::domains::types::InningType;
+use crate::domain::shared::game::Game;
+use crate::domain::shared::types::InningType;
 use crate::repositories::game_repository::{load_processed_games, load_processed_seasons};
 use crate::t;
 use inquire::Select;
@@ -109,6 +109,9 @@ pub fn display_game_result(game: &Game) {
     let mut _bottom_total_score: i8 = 0;
     let mut _inning_index: usize = 1; // to compare with innings.len()
 
+    println!("game.seq:{}", game.seq);
+    println!("inning.len:{}", game.innings.len());
+
     for inning in game.innings.iter() {
         println!("inning:{}({})", inning.seq, inning.tb);
         println!("{LINE_SEPARATOR_TEXT}");
@@ -146,11 +149,11 @@ pub fn display_game_result(game: &Game) {
 
             println!("{_top_scoreboard}");
             println!("{_bottom_scoreboard}");
-            println!("  <{}>", display_runner(count.is_second_runner));
+            println!("  <{}>", display_runner(count.bases.second));
             println!(
                 "<{}> <{}>",
-                display_runner(count.is_third_runner),
-                display_runner(count.is_first_runner)
+                display_runner(count.bases.third),
+                display_runner(count.bases.first)
             );
             println!("  <H>");
             println!("Out Count: {}", count.out);

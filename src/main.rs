@@ -1,18 +1,17 @@
 mod adapters;
-mod domains;
-mod game_engine;
+mod domain;
 mod i18n;
 mod repositories;
-mod resolver;
-mod scheduler;
 
 use adapters::game_presenter::display_game_rounds_processed;
 use adapters::schedule_presenter::display_game_seasons_scheduled;
 use adapters::topmenu_presenter::display_menu;
 use clap::Parser;
-use game_engine::process_game;
+use domain::game_service::GameService;
+use domain::scheduler::schedule_season;
 use i18n::I18nManager;
-use scheduler::schedule_season;
+use repositories::game_repository::SqlGameRepository;
+use repositories::persistence_config::get_db_conn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,8 +37,13 @@ fn main() {
 
     // Game Process Mode
     if let Some(num_of_rounds) = args.process {
+        let db_repo = SqlGameRepository {
+            pool: get_db_conn().unwrap(),
+        };
+        let game_service = GameService { repo: db_repo };
+
         for _ in 0..num_of_rounds {
-            if let Err(e) = process_game() {
+            if let Err(e) = game_service.process_game() {
                 eprintln!("{}:{}", t!("error", "function" => "process_game"), e);
             }
         }

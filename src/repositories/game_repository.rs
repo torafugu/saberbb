@@ -1,12 +1,13 @@
 use super::persistence_config::get_db_conn;
-use crate::domains::game::{Count, Game, GameRound, GameSeason, GameType, Inning};
-use crate::domains::player::Batter;
-use crate::domains::team::Team;
-use crate::domains::types::{BattingResult, InningType};
+use crate::domain::game_service::GameRepository;
+use crate::domain::shared::game::{Bases, Count, Game, GameRound, GameSeason, GameType, Inning};
+use crate::domain::shared::player::Batter;
+use crate::domain::shared::team::Team;
+use crate::domain::shared::types::{BattingResult, InningType};
 use crate::t;
 use anyhow::{Context, Result};
-use rusqlite::params;
 use rusqlite::types::{FromSql, FromSqlResult, ValueRef};
+use rusqlite::{Connection, params};
 use std::sync::Arc;
 
 const SELECT_BATTER_SQL: &str = "SELECT id, name, mod_ba, mod_slg FROM batter WHERE team_id = ?1";
@@ -46,6 +47,84 @@ impl FromSql for SqlBattingResult {
                 eprintln!("{} {}: {:?}", t!("error_parse"), br, e);
                 rusqlite::types::FromSqlError::InvalidType
             })
+    }
+}
+
+pub struct SqlGameRepository {
+    pub pool: Connection,
+}
+
+impl GameRepository for SqlGameRepository {
+    fn save_game_round(&self, game_round: &GameRound) -> Result<()> {
+        for game in &game_round.games {
+            let _ = &self.pool.execute(
+            "INSERT OR REPLACE INTO game (
+                    game_round_season, game_round_seq, seq, date, away_team_id, home_team_id, game_type
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                game_round.season,
+                game_round.seq,
+                game.seq,
+                game.date,
+                game.away_team.id,
+                game.home_team.id,
+                game.game_type.to_string()
+            ],
+        )?;
+
+            for inning in game.innings.iter() {
+                let _ = &self.pool.execute(
+                    "INSERT OR REPLACE INTO inning (
+                game_round_season, game_round_seq, game_seq, seq, tb, point
+                ) VALUES (
+                 ?1, ?2, ?3, ?4,  ?5, ?6)",
+                    params![
+                        game_round.season,
+                        game_round.seq,
+                        game.seq,
+                        inning.seq,
+                        inning.tb.to_string(),
+                        inning.point
+                    ],
+                )?;
+
+                for count in inning.counts.iter() {
+                    let _ = &self.pool.execute(
+                    "INSERT OR REPLACE INTO count (
+                        game_round_season, game_round_seq, game_seq, inning_seq, inning_tb, 
+                        seq,
+                        is_first_runner, is_second_runner, is_third_runner, batter_id, result, point, out
+                        ) VALUES (
+                         ?1, ?2, ?3, ?4, ?5,
+                         ?6, 
+                         ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    params![
+                        game_round.season,
+                        game_round.seq,
+                        game.seq,
+                        inning.seq,
+                        inning.tb.to_string(),
+                        count.seq,
+                        count.bases.first,
+                        count.bases.second,
+                        count.bases.third,
+                        count.batter.id,
+                        count.result.to_string(),
+                        count.point,
+                        count.out
+                    ],
+                )?;
+                }
+            }
+        }
+
+        let _ = &self.pool.execute(
+            "UPDATE game_season SET current_round_seq = current_round_seq + 1",
+            params![],
+        )?;
+
+        Ok(())
     }
 }
 
@@ -122,7 +201,7 @@ pub fn load_game_round_to_process() -> Result<GameRound> {
     let conn = get_db_conn()?;
     let mut game_round: GameRound = conn.query_row(
         "SELECT season, seq, date FROM game_round, game_season 
-                WHERE current_season = season AND current_round_seq = seq",
+                WHERE current_season = season AND current_round_seq + 1 = seq",
         params![],
         |row| {
             Ok(GameRound {
@@ -138,83 +217,7 @@ pub fn load_game_round_to_process() -> Result<GameRound> {
     Ok(game_round)
 }
 
-pub fn save_game_round(game_round: &GameRound) -> Result<()> {
-    let conn = get_db_conn()?;
-
-    for game in &game_round.games {
-        conn.execute(
-            "INSERT OR REPLACE INTO game (
-                    game_round_season, game_round_seq, seq, date, away_team_id, home_team_id, game_type
-                ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                game_round.season,
-                game_round.seq,
-                game.seq,
-                game.date,
-                game.away_team.id,
-                game.home_team.id,
-                game.game_type.to_string()
-            ],
-        )?;
-
-        for inning in game.innings.iter() {
-            conn.execute(
-                "INSERT OR REPLACE INTO inning (
-                game_round_season, game_round_seq, game_seq, seq, tb, point
-                ) VALUES (
-                 ?1, ?2, ?3, ?4,  ?5, ?6)",
-                params![
-                    game_round.season,
-                    game_round.seq,
-                    game.seq,
-                    inning.seq,
-                    inning.tb.to_string(),
-                    inning.point
-                ],
-            )?;
-
-            for count in inning.counts.iter() {
-                conn.execute(
-                    "INSERT OR REPLACE INTO count (
-                        game_round_season, game_round_seq, game_seq, inning_seq, inning_tb, 
-                        seq,
-                        is_first_runner, is_second_runner, is_third_runner, batter_id, result, point, out
-                        ) VALUES (
-                         ?1, ?2, ?3, ?4, ?5,
-                         ?6, 
-                         ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                    params![
-                        game_round.season,
-                        game_round.seq,
-                        game.seq,
-                        inning.seq,
-                        inning.tb.to_string(),
-                        count.seq,
-                        count.is_first_runner,
-                        count.is_second_runner,
-                        count.is_third_runner,
-                        count.batter.id,
-                        count.result.to_string(),
-                        count.point,
-                        count.out
-                    ],
-                )?;
-            }
-        }
-    }
-
-    conn.execute(
-        "UPDATE game_season SET current_round_seq = current_round_seq + 1",
-        params![],
-    )?;
-
-    Ok(())
-}
-
 fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
-    // let mut games: Vec<Game> = game_round.games.clone();
-
     let conn = get_db_conn()?;
     let mut games: Vec<Game> = Vec::new();
 
@@ -232,7 +235,8 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
                 Team t_away ON g.away_team_id = t_away.id
             LEFT JOIN 
                 Team t_home ON g.home_team_id = t_home.id
-            WHERE g.game_round_season = ?1 AND g.game_round_seq = ?2",
+            WHERE g.game_round_season = ?1 AND g.game_round_seq = ?2
+            ORDER BY g.seq DESC",
     )?;
 
     let games_iter = stmt_game.query_map([game_round.season, game_round.seq], |row| {
@@ -320,9 +324,11 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
                 |row| {
                     Ok(Count {
                         seq: row.get("seq")?,
-                        is_first_runner: row.get("is_first_runner")?,
-                        is_second_runner: row.get("is_second_runner")?,
-                        is_third_runner: row.get("is_third_runner")?,
+                        bases: Bases {
+                            first: row.get("is_first_runner")?,
+                            second: row.get("is_second_runner")?,
+                            third: row.get("is_third_runner")?,
+                        },
                         result: row.get::<_, SqlBattingResult>("result")?.0,
                         batter: Arc::from(Batter::new(
                             row.get("batter_id")?,
@@ -346,4 +352,78 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
     }
 
     Ok(games)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockRepo;
+    impl GameRepository for MockRepo {
+        fn save_game_round(&self, _round: &GameRound) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_load_processed_games_success() {
+        let season = 2026;
+        let result = load_processed_games(season);
+
+        // 1. Assert the result is OK
+        assert!(result.is_ok(), "Should return Ok for valid season");
+
+        let games = result.unwrap();
+
+        // 2. Assert number of the proceessed games and the season value in the game
+        assert!(!games.is_empty(), "Games list should not be empty");
+        for game in &games {
+            assert!(game.seq > 0);
+        }
+    }
+
+    #[test]
+    fn test_load_processed_games_empty_season() {
+        let result = load_processed_games(9999); // Not exiting season 
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_load_processed_seasons_success() {
+        let result = load_processed_seasons();
+
+        // 1. Assert the result is OK
+        assert!(result.is_ok(), "Should return Ok");
+
+        let seasons = result.unwrap();
+
+        // 2. Assert number of the proceessed games and the season value in the game
+        assert!(!seasons.is_empty(), "Seasons list should not be empty");
+        for season in seasons {
+            assert!(season > 1900);
+        }
+    }
+
+    #[test]
+    fn test_load_update_scheduled_season_success() {
+        let pre_scheduled_season = load_scheduled_season().unwrap();
+        let new_scheduled_season = 2026;
+
+        let _ = update_scheduled_season(new_scheduled_season);
+
+        let post_scheduled_season = load_scheduled_season().unwrap();
+        assert_eq!(post_scheduled_season, new_scheduled_season);
+
+        let _ = update_scheduled_season(pre_scheduled_season);
+    }
+
+    fn load_scheduled_season() -> Result<i16> {
+        let res_season = get_db_conn()?.query_row(
+            "SELECT scheduled_season FROM game_season LIMIT 1",
+            params![],
+            |row| Ok(row.get("scheduled_season")?),
+        );
+        Ok(res_season?)
+    }
 }

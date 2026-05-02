@@ -9,3 +9,4 @@ main_menu = Main Menu
 view_game_result_this_season = View Game Result of this season
 view_game_result_past_seasons = View Game Result of past seasons
 exit = Exit
+game_seasons_scheduled = {$num_of_season} game seasons scheduled.

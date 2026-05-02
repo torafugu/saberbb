@@ -1,5 +1,5 @@
-use crate::domains::team::League;
-use crate::domains::team::Team;
+use crate::domain::shared::team::League;
+use crate::domain::shared::team::Team;
 
 use super::persistence_config::get_db_conn;
 use anyhow::Result;

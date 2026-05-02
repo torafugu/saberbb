@@ -1,5 +1,4 @@
-use super::domains::game::TOTAL_GAMES;
-use crate::domains::{game::Game, game::GameRound, game::GameType};
+use super::shared::game::{Game, GameRound, GameType, TOTAL_GAMES};
 use crate::repositories::game_repository::{load_game_season, update_scheduled_season};
 use crate::repositories::schedule_repository::save_scheduled_game_rounds;
 use crate::repositories::team_repository::load_all_leagues;

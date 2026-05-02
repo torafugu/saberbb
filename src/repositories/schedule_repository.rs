@@ -1,5 +1,5 @@
 use super::persistence_config::get_db_conn;
-use crate::domains::game::GameRound;
+use crate::domain::shared::game::GameRound;
 use anyhow::Result;
 use rusqlite::params;
 

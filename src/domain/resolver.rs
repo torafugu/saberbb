@@ -1,9 +1,7 @@
-use super::domains::player::Batter;
-use super::domains::types::BattingResult;
-use std::sync::Arc;
+use crate::domain::shared::player::Batter;
+use crate::domain::shared::types::BattingResult;
 
-pub fn batting_resolve(batter: Arc<Batter>) -> BattingResult {
-    // let rng = rand::rng().gen<f64>();
+pub fn batting_resolve(batter: &Batter) -> BattingResult {
     let rng: f64 = rand::random();
     let _result: BattingResult;
     // TODO : Adjust by mod_slg!

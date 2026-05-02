@@ -32,6 +32,50 @@ impl fmt::Display for GameType {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Bases {
+    pub first: bool,
+    pub second: bool,
+    pub third: bool,
+}
+
+impl Bases {
+    pub fn new() -> Self {
+        Self {
+            first: false,
+            second: false,
+            third: false,
+        }
+    }
+
+    pub fn advance(&mut self, batting_result: &BattingResult) -> i8 {
+        let mut point: i8 = 0;
+
+        match batting_result {
+            BattingResult::SINGLE => {
+                if self.third {
+                    point += 1;
+                    self.third = false;
+                }
+                if self.second {
+                    self.second = false;
+                    self.third = true;
+                }
+                if self.first {
+                    self.second = true;
+                }
+                self.first = true;
+            }
+            BattingResult::DOUBLE => {}
+            BattingResult::TRIPLE => {}
+            BattingResult::HOMERUN => {}
+            _ => {}
+        }
+
+        point
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameSeason {
     pub start_season: i16,
@@ -72,11 +116,20 @@ pub struct Inning {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Count {
     pub seq: i32,
-    pub is_first_runner: bool,
-    pub is_second_runner: bool,
-    pub is_third_runner: bool,
+    pub bases: Bases,
+    // pub is_first_runner: bool,
+    // pub is_second_runner: bool,
+    // pub is_third_runner: bool,
     pub batter: Arc<Batter>,
     pub result: BattingResult,
     pub point: i8,
     pub out: i8,
+}
+impl Count {
+    pub fn bases_advance(&mut self, batting_result: BattingResult) -> i8 {
+        let _point = self.bases.advance(&batting_result);
+        self.result = batting_result;
+        self.point = _point;
+        _point
+    }
 }

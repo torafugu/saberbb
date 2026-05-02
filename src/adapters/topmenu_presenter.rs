@@ -1,12 +1,9 @@
 use super::game_presenter::display_select_season;
 use crate::t;
 use console::Term;
-use dialoguer::theme::ColorfulTheme;
 use inquire::Select;
 use std::fmt;
 use strum::{EnumIter, IntoEnumIterator};
-// use inquire::ui::{Attributes, RenderConfig, StyleSheet};
-// use inquire::{Select, Text};
 
 #[derive(Debug, PartialEq, EnumIter)]
 pub enum MenuOption {

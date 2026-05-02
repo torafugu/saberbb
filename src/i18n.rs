@@ -40,7 +40,10 @@ impl I18nManager {
     }
 
     pub fn global() -> &'static I18nManager {
-        INSTANCE.get().expect("I18nManager is not initialized")
+        INSTANCE.get_or_init(|| {
+            let lang = langid!("en-US");
+            I18nManager { lang }
+        })
     }
 
     pub fn tr(&self, key: &str) -> String {

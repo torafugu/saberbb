@@ -10,3 +10,4 @@ view_game_result = 試合結果の確認
 view_game_result_this_season = 今季の試合結果の確認
 view_game_result_past_seasons = 過去の試合結果の確認
 exit = 終了
+game_seasons_scheduled = {$num_of_season}試合の日程が生成されました。
