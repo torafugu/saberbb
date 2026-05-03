@@ -3,13 +3,13 @@ use super::shared::game::{Bases, Count, GameRound, Inning, MAX_INNING, MAX_OUT};
 use super::shared::player::Batter;
 use super::shared::types::{BattingResult, InningType};
 use super::shared::utils::next_tb;
-use crate::repositories::game_repository::load_game_round_to_process;
 use crate::t;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
 pub trait GameRepository {
-    fn save_game_round(&self, round: &GameRound) -> Result<()>;
+    fn save_game_round(&mut self, round: &GameRound) -> Result<()>;
+    fn load_game_round_to_process(&self) -> Result<GameRound>;
 }
 
 pub struct GameService<R: GameRepository> {
@@ -17,20 +17,22 @@ pub struct GameService<R: GameRepository> {
 }
 
 impl<R: GameRepository> GameService<R> {
-    pub fn process_game(&self) -> Result<()> {
+    pub fn process_game(&mut self) -> Result<()> {
         // 1. Get game round to process
-        let mut game_round = load_game_round_to_process()
+        let mut game_round = self
+            .repo
+            .load_game_round_to_process()
             .context(t!("error", "function" => "load_game_round_to_process"))?;
 
         // 2. Procees games in the game round
         for game in game_round.games.iter_mut() {
-            let mut _is_in_game: bool = true;
-            let mut _inning_seq: i8 = 1;
-            let mut _inning_tb: InningType = InningType::TOP;
-            let mut _top_total_score: i8 = 0;
-            let mut _bottom_total_score: i8 = 0;
-            let mut _top_batter_order: usize = 1;
-            let mut _bottom_batter_order: usize = 1;
+            let mut is_in_game: bool = true;
+            let mut inning_seq: i8 = 1;
+            let mut inning_tb: InningType = InningType::TOP;
+            let mut top_total_score: i8 = 0;
+            let mut bottom_total_score: i8 = 0;
+            let mut top_batter_order: usize = 1;
+            let mut bottom_batter_order: usize = 1;
 
             game.away_batters = Vec::from([
                 Batter::new(1, "Top batter 1", 1.0, -0.5),
@@ -56,85 +58,90 @@ impl<R: GameRepository> GameService<R> {
             ]);
 
             // loop for an innning
-            while _is_in_game {
-                let mut _inning: Inning = Inning {
-                    tb: _inning_tb,
-                    seq: _inning_seq,
+            while is_in_game {
+                let mut inning: Inning = Inning {
+                    tb: inning_tb,
+                    seq: inning_seq,
                     counts: Vec::new(),
                     point: 0,
                 };
-                let mut _count_seq = 0;
-                let mut _bases = Bases::new();
-                let mut _out = 0;
+                let mut count_seq = 0;
+                let mut bases = Bases::new();
+                let mut out = 0;
 
-                while _out < MAX_OUT {
-                    _count_seq += 1;
+                while out < MAX_OUT {
+                    count_seq += 1;
 
-                    let _current_batter: &Batter;
-                    if _inning_tb == InningType::TOP {
-                        _current_batter = &game.away_batters[_top_batter_order - 1];
+                    let current_batter: &Batter;
+                    if inning_tb == InningType::TOP {
+                        current_batter = &game.away_batters[top_batter_order - 1];
                     } else {
-                        _current_batter = &game.home_batters[_bottom_batter_order - 1];
+                        current_batter = &game.home_batters[bottom_batter_order - 1];
                     }
 
-                    let mut _count = Count {
-                        seq: _count_seq,
-                        bases: Bases::new(),
-                        batter: Arc::new(_current_batter.clone()),
+                    let mut count = Count {
+                        seq: count_seq,
+                        bases: bases.clone(),
+                        batter: Arc::new(current_batter.clone()),
                         result: BattingResult::OUT,
                         point: 0,
-                        out: _out,
+                        out,
                     };
 
                     // Batting result calculation
-                    let batting_result = batting_resolve(&_count.batter);
+                    let batting_result = batting_resolve(&count.batter);
                     if batting_result == BattingResult::OUT {
-                        _out += 1;
+                        out += 1;
                     }
-                    _inning.point = _count.bases_advance(batting_result);
 
-                    if _inning_tb == InningType::TOP {
-                        _top_total_score += _count.point;
-                        if _top_batter_order == 9 {
-                            _top_batter_order = 1;
+                    count.point = bases.advance(&batting_result);
+                    inning.point += count.point;
+                    count.result = batting_result;
+
+                    // inning.point = count.bases_advance(batting_result);
+
+                    if inning_tb == InningType::TOP {
+                        top_total_score += count.point;
+                        if top_batter_order == 9 {
+                            top_batter_order = 1;
                         } else {
-                            _top_batter_order += 1;
+                            top_batter_order += 1;
                         }
                     } else {
-                        _bottom_total_score += _count.point;
-                        if _bottom_batter_order == 9 {
-                            _bottom_batter_order = 1;
+                        bottom_total_score += count.point;
+                        if bottom_batter_order == 9 {
+                            bottom_batter_order = 1;
                         } else {
-                            _bottom_batter_order += 1;
+                            bottom_batter_order += 1;
                         }
                     }
-                    _inning.counts.push(_count);
+                    inning.counts.push(count);
 
                     // Check walk-off
-                    if _inning_seq == MAX_INNING
-                        && _inning_tb == InningType::BOTTOM
-                        && _bottom_total_score > _top_total_score
+                    if inning_seq == MAX_INNING
+                        && inning_tb == InningType::BOTTOM
+                        && bottom_total_score > top_total_score
                     {
-                        _is_in_game = false;
+                        is_in_game = false;
                         break;
                     }
                 }
 
-                game.innings.push(_inning);
+                game.innings.push(inning);
 
                 // Check Game-Set
-                if _inning_seq == MAX_INNING {
-                    if _inning_tb == InningType::BOTTOM {
+                if inning_seq == MAX_INNING {
+                    if inning_tb == InningType::BOTTOM {
                         break;
-                    } else if _bottom_total_score > _top_total_score {
+                    } else if bottom_total_score > top_total_score {
                         break;
                     }
                 } else {
-                    if _inning_tb == InningType::BOTTOM {
-                        _inning_seq += 1;
+                    if inning_tb == InningType::BOTTOM {
+                        inning_seq += 1;
                     }
                 }
-                _inning_tb = next_tb(_inning_tb);
+                inning_tb = next_tb(inning_tb);
             }
         }
 

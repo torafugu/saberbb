@@ -25,12 +25,14 @@ pub fn display_select_game(season: i16) {
                 .into_iter()
                 .map(
                     |Game {
-                         seq,
+                         id,
                          date,
                          away_team,
                          home_team,
                          game_type,
                          innings,
+                         away_point,
+                         home_point,
                          away_batters,
                          home_batters,
                      }| {
@@ -40,12 +42,14 @@ pub fn display_select_game(season: i16) {
                         MenuItem {
                             label,
                             value: Game {
-                                seq,
+                                id,
                                 date,
                                 away_team,
                                 home_team,
                                 game_type,
                                 innings,
+                                away_point,
+                                home_point,
                                 away_batters,
                                 home_batters,
                             },
@@ -109,8 +113,8 @@ pub fn display_game_result(game: &Game) {
     let mut _bottom_total_score: i8 = 0;
     let mut _inning_index: usize = 1; // to compare with innings.len()
 
-    println!("game.seq:{}", game.seq);
-    println!("inning.len:{}", game.innings.len());
+    println!("game.id:{}", game.id);
+    // println!("inning.len:{}", game.innings.len());
 
     for inning in game.innings.iter() {
         println!("inning:{}({})", inning.seq, inning.tb);
@@ -225,4 +229,8 @@ pub fn display_batting_results(game: &Game) {
     }
     println!("{LINE_SEPARATOR_TEXT}");
     println!("{LINE_SEPARATOR_TEXT}");
+}
+
+pub fn display_standings() {
+    println!("Standings!");
 }

@@ -8,10 +8,11 @@ use adapters::schedule_presenter::display_game_seasons_scheduled;
 use adapters::topmenu_presenter::display_menu;
 use clap::Parser;
 use domain::game_service::GameService;
-use domain::scheduler::schedule_season;
+use domain::schedule_service::ScheduleService;
 use i18n::I18nManager;
 use repositories::game_repository::SqlGameRepository;
 use repositories::persistence_config::get_db_conn;
+use repositories::schedule_repository::SqlScheduleRepository;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -40,7 +41,7 @@ fn main() {
         let db_repo = SqlGameRepository {
             pool: get_db_conn().unwrap(),
         };
-        let game_service = GameService { repo: db_repo };
+        let mut game_service = GameService { repo: db_repo };
 
         for _ in 0..num_of_rounds {
             if let Err(e) = game_service.process_game() {
@@ -52,8 +53,12 @@ fn main() {
 
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
+        let db_repo = SqlScheduleRepository {
+            pool: get_db_conn().unwrap(),
+        };
+        let mut schedule_service = ScheduleService { repo: db_repo };
         for _ in 0..num_of_schedules {
-            if let Err(e) = schedule_season() {
+            if let Err(e) = schedule_service.schedule_season() {
                 eprintln!("{}:{}", t!("error", "function" => "schedule_season"), e);
             }
         }

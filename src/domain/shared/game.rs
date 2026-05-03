@@ -66,9 +66,49 @@ impl Bases {
                 }
                 self.first = true;
             }
-            BattingResult::DOUBLE => {}
-            BattingResult::TRIPLE => {}
-            BattingResult::HOMERUN => {}
+            BattingResult::DOUBLE => {
+                if self.third {
+                    point += 1;
+                    self.third = false;
+                }
+                if self.second {
+                    point += 1;
+                }
+                if self.first {
+                    self.first = false;
+                    self.third = true;
+                }
+                self.second = true;
+            }
+            BattingResult::TRIPLE => {
+                if self.third {
+                    point += 1;
+                }
+                if self.second {
+                    point += 1;
+                    self.second = false;
+                }
+                if self.first {
+                    point += 1;
+                    self.first = false;
+                }
+                self.third = true;
+            }
+            BattingResult::HOMERUN => {
+                if self.third {
+                    point += 1;
+                    self.third = false;
+                }
+                if self.second {
+                    point += 1;
+                    self.second = false;
+                }
+                if self.first {
+                    point += 1;
+                    self.first = false;
+                }
+                point += 1;
+            }
             _ => {}
         }
 
@@ -87,6 +127,7 @@ pub struct GameSeason {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameRound {
+    pub id: i32,
     pub season: i16,
     pub seq: i16,
     pub date: NaiveDate,
@@ -95,20 +136,22 @@ pub struct GameRound {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Game {
-    pub seq: i16,
+    pub id: i32,
     pub date: NaiveDate,
     pub away_team: Team,
     pub home_team: Team,
     pub game_type: GameType,
     pub innings: Vec<Inning>,
+    pub away_point: i16,
+    pub home_point: i16,
     pub away_batters: Vec<Batter>,
     pub home_batters: Vec<Batter>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Inning {
-    pub tb: InningType,
     pub seq: i8,
+    pub tb: InningType,
     pub counts: Vec<Count>,
     pub point: i8,
 }
@@ -117,19 +160,8 @@ pub struct Inning {
 pub struct Count {
     pub seq: i32,
     pub bases: Bases,
-    // pub is_first_runner: bool,
-    // pub is_second_runner: bool,
-    // pub is_third_runner: bool,
     pub batter: Arc<Batter>,
     pub result: BattingResult,
     pub point: i8,
     pub out: i8,
-}
-impl Count {
-    pub fn bases_advance(&mut self, batting_result: BattingResult) -> i8 {
-        let _point = self.bases.advance(&batting_result);
-        self.result = batting_result;
-        self.point = _point;
-        _point
-    }
 }

@@ -1,4 +1,4 @@
-use super::game_presenter::display_select_season;
+use super::game_presenter::{display_select_season, display_standings};
 use crate::t;
 use console::Term;
 use inquire::Select;
@@ -7,15 +7,15 @@ use strum::{EnumIter, IntoEnumIterator};
 
 #[derive(Debug, PartialEq, EnumIter)]
 pub enum MenuOption {
-    ViewResultThisSeason,
-    ViewResultPastSeasons,
+    ViewStandings,
+    ViewGameResults,
     Exit,
 }
 impl fmt::Display for MenuOption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
-            Self::ViewResultThisSeason => t!("view_game_result_this_season"),
-            Self::ViewResultPastSeasons => t!("view_game_result_past_seasons"),
+            Self::ViewStandings => t!("view_standings"),
+            Self::ViewGameResults => t!("view_game_results"),
             Self::Exit => t!("exit"),
         };
         write!(f, "{}", label)
@@ -33,12 +33,12 @@ pub fn display_menu() {
         .prompt();
 
     match selection {
-        Ok(MenuOption::ViewResultThisSeason) => {
+        Ok(MenuOption::ViewStandings) => {
             term.clear_screen().unwrap();
             // println!("Selected: {}", selection);
-            display_select_season();
+            display_standings();
         }
-        Ok(MenuOption::ViewResultPastSeasons) => {
+        Ok(MenuOption::ViewGameResults) => {
             term.clear_screen().unwrap();
             // println!("Selected: {}", selection);
             display_select_season();
