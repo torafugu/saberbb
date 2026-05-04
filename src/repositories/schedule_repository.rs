@@ -111,14 +111,15 @@ impl ScheduleRepository for SqlScheduleRepository {
             for game in game_round.games {
                 let _ = tx.execute(
                     "INSERT OR REPLACE INTO game (
-                game_round_id, id, date, away_team_id, home_team_id, game_type, away_point, home_point
+                game_round_id, id, planned_date, actual_date, away_team_id, home_team_id, game_type, away_point, home_point
                 ) VALUES (
-                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
                  )",
                     params![
                         game_round.id,
                         game.id,
-                        game.date,
+                        game.planned_date,
+                        game.actual_date,
                         game.away_team.id,
                         game.home_team.id,
                         game.game_type.to_string(),

@@ -97,7 +97,8 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                             last_game_id += 1;
                             game_round.games.push(Game {
                                 id: last_game_id,
-                                date: game_date,
+                                planned_date: game_date,
+                                actual_date: NaiveDate::parse_from_str("19000101", "%Y%m%d")?,
                                 home_team: home.clone(),
                                 away_team: away.clone(),
                                 game_type: GameType::REGULAR,

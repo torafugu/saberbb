@@ -3,8 +3,15 @@ use crate::domain::shared::game::Game;
 use crate::domain::shared::types::InningType;
 use crate::repositories::game_repository::{load_processed_games, load_processed_seasons};
 use crate::t;
+use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::{CellAlignment, Table};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
+use crossterm::{cursor, execute};
 use inquire::Select;
 use std::collections::BTreeMap;
+use std::io;
 
 const LINE_SEPARATOR_TEXT: &str = "---";
 const RUNNER_TEXT: &str = "R";
@@ -13,8 +20,97 @@ const SPACE_TEXT: &str = " ";
 const SEPARATOR_TEXT: &str = ":";
 const WALK_OFF_TEXT: &str = "x";
 
+macro_rules! rprintln {
+    ($($arg:tt)*) => {
+        let output = format!($($arg)*);
+        for line in output.lines() {
+            let _ = crossterm::execute!(
+                std::io::stdout(),
+                crossterm::cursor::MoveToColumn(0),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::UntilNewLine)
+            );
+            print!("{}\r\n", line);
+        }
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    };
+}
+
 pub fn display_game_rounds_processed(num_of_rounds: i8) {
     println!("{} rounds processed.", num_of_rounds);
+}
+
+pub fn display_game_detail(
+    game: &Game,
+    inning_seq: i8,
+    inning_tb: InningType,
+    count_id: i8,
+) -> io::Result<()> {
+    enable_raw_mode()?;
+    let mut should_redraw = true;
+    // println!("<- {} {} ->");
+    let mut stdout = io::stdout();
+
+    loop {
+        if should_redraw {
+            let mut table = Table::new();
+            execute!(stdout, cursor::MoveTo(0, 0))?;
+            rprintln!("Game.id:{}", game.id);
+            rprintln!("inning:{}({})", inning_seq, inning_tb);
+            rprintln!("{LINE_SEPARATOR_TEXT}");
+
+            let max_ining_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
+
+            let mut headers: Vec<String> = Vec::new();
+            headers.push(t!("team"));
+            for inning_num in 1..max_ining_seq + 1 {
+                headers.push(inning_num.to_string());
+            }
+            headers.push(t!("total_score"));
+
+            // for inning in &game.innings {
+            //     headers.push(inning.seq.to_string());
+            // }
+            table.set_header(headers);
+            table.add_row(vec![&game.away_team.name]);
+            table.add_row(vec![&game.home_team.name]);
+            rprintln!("{table}");
+            should_redraw = false;
+        }
+
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key_event) = event::read()? {
+                match key_event {
+                    KeyEvent {
+                        code: KeyCode::Left,
+                        ..
+                    } => {
+                        println!("前のカウント");
+                    }
+                    KeyEvent {
+                        code: KeyCode::Right,
+                        ..
+                    } => {
+                        // let _ = display_game_detail(&game, inning_seq, inning_tb, count_id);
+                        rprintln!("Redraw!");
+                        should_redraw = true;
+                    }
+                    KeyEvent {
+                        code: KeyCode::Char('c'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    }
+                    | KeyEvent {
+                        code: KeyCode::Esc, ..
+                    } => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    disable_raw_mode()?;
+    Ok(())
 }
 
 pub fn display_select_game(season: i16) {
@@ -26,7 +122,8 @@ pub fn display_select_game(season: i16) {
                 .map(
                     |Game {
                          id,
-                         date,
+                         planned_date,
+                         actual_date,
                          away_team,
                          home_team,
                          game_type,
@@ -36,14 +133,17 @@ pub fn display_select_game(season: i16) {
                          away_batters,
                          home_batters,
                      }| {
-                        let label =
-                            format!("[{}] {} vs {})", date, away_team.name, home_team.name,);
+                        let label = format!(
+                            "[{}] {} vs {})",
+                            actual_date, away_team.name, home_team.name,
+                        );
 
                         MenuItem {
                             label,
                             value: Game {
                                 id,
-                                date,
+                                planned_date,
+                                actual_date,
                                 away_team,
                                 home_team,
                                 game_type,
@@ -61,8 +161,10 @@ pub fn display_select_game(season: i16) {
             let selection = Select::new(&t!("select_game"), menu_items).prompt();
 
             if let Ok(selected) = selection {
-                display_game_result(&selected.value);
-                display_batting_results(&selected.value);
+                let _ = display_game_detail(&selected.value, 1, InningType::TOP, 1);
+
+                // display_game_result(&selected.value);
+                // display_batting_results(&selected.value);
             }
         }
         Err(e) => {
@@ -104,6 +206,7 @@ pub fn display_select_season() {
 }
 
 pub fn display_game_result(game: &Game) {
+    // TODO: load_inning, load_count
     let mut _top_innings = game.away_team.name.to_string();
     let mut _bottom_innings = game.home_team.name.to_string();
     _top_innings.push_str(SEPARATOR_TEXT);
@@ -229,8 +332,4 @@ pub fn display_batting_results(game: &Game) {
     }
     println!("{LINE_SEPARATOR_TEXT}");
     println!("{LINE_SEPARATOR_TEXT}");
-}
-
-pub fn display_standings() {
-    println!("Standings!");
 }

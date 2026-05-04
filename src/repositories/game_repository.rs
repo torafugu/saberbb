@@ -1,6 +1,6 @@
 use super::persistence_config::get_db_conn;
 use crate::domain::game_service::GameRepository;
-use crate::domain::shared::game::{Bases, Count, Game, GameRound, GameSeason, GameType, Inning};
+use crate::domain::shared::game::{Bases, Count, Game, GameRound, GameType, Inning};
 use crate::domain::shared::player::Batter;
 use crate::domain::shared::team::Team;
 use crate::domain::shared::types::{BattingResult, InningType};
@@ -83,13 +83,14 @@ impl GameRepository for SqlGameRepository {
         for game in &game_round.games {
             let _ = tx.execute(
             "INSERT OR REPLACE INTO game (
-                    game_round_id, id, date, away_team_id, home_team_id, game_type, away_point, home_point
+                    game_round_id, id, planned_date, actual_date, away_team_id, home_team_id, game_type, away_point, home_point
                 ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 game_round.id,
                 game.id,
-                game.date,
+                game.planned_date,
+                game.actual_date,
                 game.away_team.id,
                 game.home_team.id,
                 game.game_type.to_string(),
@@ -195,7 +196,8 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
     let mut stmt_game = conn.prepare(
         "SELECT 
                 g.id,
-                g.date,
+                g.planned_date,
+                g.actual_date,
                 g.away_team_id, 
                 t_away.name AS away_team_name,
                 g.home_team_id, 
@@ -215,7 +217,8 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
     let games_iter = stmt_game.query_map([game_round.id], |row| {
         Ok(Game {
             id: row.get("id")?,
-            date: row.get("date")?,
+            planned_date: row.get("planned_date")?,
+            actual_date: row.get("actual_date")?,
             away_team: Team {
                 id: row.get("away_team_id")?,
                 name: row.get("away_team_name")?,
@@ -333,7 +336,7 @@ mod tests {
                 id: 1,
                 season: 2026,
                 seq: 1,
-                date: NaiveDate::parse_from_str("20260101", "%Y%m%m")?,
+                date: NaiveDate::parse_from_str("20260101", "%Y%m%d")?,
                 games: Vec::new(),
             };
             Ok(game_round)

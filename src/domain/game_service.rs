@@ -5,6 +5,7 @@ use super::shared::types::{BattingResult, InningType};
 use super::shared::utils::next_tb;
 use crate::t;
 use anyhow::{Context, Result};
+use std::i16;
 use std::sync::Arc;
 
 pub trait GameRepository {
@@ -17,7 +18,7 @@ pub struct GameService<R: GameRepository> {
 }
 
 impl<R: GameRepository> GameService<R> {
-    pub fn process_game(&mut self) -> Result<()> {
+    pub fn process_game_round(&mut self) -> Result<()> {
         // 1. Get game round to process
         let mut game_round = self
             .repo
@@ -33,6 +34,9 @@ impl<R: GameRepository> GameService<R> {
             let mut bottom_total_score: i8 = 0;
             let mut top_batter_order: usize = 1;
             let mut bottom_batter_order: usize = 1;
+
+            // TODO: Check postponement
+            game.actual_date = game.planned_date;
 
             game.away_batters = Vec::from([
                 Batter::new(1, "Top batter 1", 1.0, -0.5),
@@ -127,6 +131,11 @@ impl<R: GameRepository> GameService<R> {
                     }
                 }
 
+                if inning_tb == InningType::BOTTOM {
+                    game.home_point += inning.point as i16;
+                } else {
+                    game.away_point += inning.point as i16;
+                }
                 game.innings.push(inning);
 
                 // Check Game-Set

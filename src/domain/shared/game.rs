@@ -137,7 +137,8 @@ pub struct GameRound {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Game {
     pub id: i32,
-    pub date: NaiveDate,
+    pub planned_date: NaiveDate,
+    pub actual_date: NaiveDate,
     pub away_team: Team,
     pub home_team: Team,
     pub game_type: GameType,

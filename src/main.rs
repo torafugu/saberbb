@@ -44,7 +44,7 @@ fn main() {
         let mut game_service = GameService { repo: db_repo };
 
         for _ in 0..num_of_rounds {
-            if let Err(e) = game_service.process_game() {
+            if let Err(e) = game_service.process_game_round() {
                 eprintln!("{}:{}", t!("error", "function" => "process_game"), e);
             }
         }
