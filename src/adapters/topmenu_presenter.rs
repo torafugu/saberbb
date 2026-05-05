@@ -1,5 +1,5 @@
-use super::game_presenter::{display_game_detail, display_select_season};
-use super::stat_presenter::display_standings;
+use super::game_presenter::display_select_season;
+use super::stat_presenter::{display_batting_stats, display_standings};
 use crate::t;
 use console::Term;
 use inquire::Select;
@@ -10,7 +10,7 @@ use strum::{EnumIter, IntoEnumIterator};
 pub enum MenuOption {
     ViewStandings,
     ViewGameResults,
-    ViewLastGameDetail,
+    ViewBattingStat,
     Exit,
 }
 impl fmt::Display for MenuOption {
@@ -18,7 +18,7 @@ impl fmt::Display for MenuOption {
         let label = match self {
             Self::ViewStandings => t!("view_standings"),
             Self::ViewGameResults => t!("view_game_results"),
-            Self::ViewLastGameDetail => t!("view_last_game_detail"),
+            Self::ViewBattingStat => t!("view_batting_stat"),
             Self::Exit => t!("exit"),
         };
         write!(f, "{}", label)
@@ -44,9 +44,9 @@ pub fn display_menu() {
             term.clear_screen().unwrap();
             display_select_season();
         }
-        Ok(MenuOption::ViewLastGameDetail) => {
+        Ok(MenuOption::ViewBattingStat) => {
             term.clear_screen().unwrap();
-            // display_game_detail();
+            display_batting_stats();
         }
         Ok(MenuOption::Exit) => std::process::exit(0),
         Err(_) => std::process::exit(0),

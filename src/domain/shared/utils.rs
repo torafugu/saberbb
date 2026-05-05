@@ -5,9 +5,9 @@ pub fn sigmoid(x: f64) -> f64 {
 }
 
 pub fn next_tb(tb: InningType) -> InningType {
-    if matches!(tb, InningType::BOTTOM) {
-        InningType::TOP
+    if matches!(tb, InningType::Bottom) {
+        InningType::Top
     } else {
-        InningType::BOTTOM
+        InningType::Bottom
     }
 }

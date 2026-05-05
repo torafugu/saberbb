@@ -7,7 +7,7 @@ use crate::domain::shared::types::{BattingResult, InningType};
 use crate::t;
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
-use rusqlite::types::{FromSql, FromSqlResult, ValueRef};
+use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, params};
 use std::sync::Arc;
 
@@ -25,6 +25,16 @@ impl FromSql for SqlGameType {
     }
 }
 
+impl ToSql for InningType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let s = match self {
+            InningType::Top => "Top",
+            InningType::Bottom => "Bottom",
+        };
+        Ok(ToSqlOutput::from(s))
+    }
+}
+
 struct SqlInningType(InningType);
 impl FromSql for SqlInningType {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
@@ -34,6 +44,19 @@ impl FromSql for SqlInningType {
             eprintln!("{} {}: {:?}", t!("error_parse"), tb, e);
             rusqlite::types::FromSqlError::InvalidType
         })
+    }
+}
+
+impl ToSql for BattingResult {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let s = match self {
+            BattingResult::Single => "Single",
+            BattingResult::Double => "Double",
+            BattingResult::Triple => "Triple",
+            BattingResult::HomeRun => "HomeRun",
+            BattingResult::Out => "Out",
+        };
+        Ok(ToSqlOutput::from(s))
     }
 }
 
@@ -104,7 +127,7 @@ impl GameRepository for SqlGameRepository {
                     "INSERT OR REPLACE INTO inning (game_id, seq, tb, point
                 ) VALUES (
                  ?1, ?2, ?3, ?4)",
-                    params![game.id, inning.seq, inning.tb.to_string(), inning.point],
+                    params![game.id, inning.seq, inning.tb, inning.point],
                 )?;
 
                 for count in inning.counts.iter() {
@@ -118,13 +141,13 @@ impl GameRepository for SqlGameRepository {
                     params![
                         game.id,
                         inning.seq,
-                        inning.tb.to_string(),
+                        inning.tb,
                         count.seq,
                         count.bases.first,
                         count.bases.second,
                         count.bases.third,
                         count.batter.id,
-                        count.result.to_string(),
+                        count.result,
                         count.point,
                         count.out
                     ],
@@ -287,9 +310,8 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
         )?;
         for inning in inning_iter {
             let mut _inning = inning?;
-            let count_iter = stmt_count.query_map(
-                params![game.id, _inning.seq, _inning.tb.to_string()],
-                |row| {
+            let count_iter =
+                stmt_count.query_map(params![game.id, _inning.seq, _inning.tb], |row| {
                     Ok(Count {
                         seq: row.get("seq")?,
                         bases: Bases {
@@ -307,8 +329,7 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
                         point: row.get("point")?,
                         out: row.get("out")?,
                     })
-                },
-            )?;
+                })?;
 
             for count in count_iter {
                 _inning.counts.push(count?);

@@ -11,11 +11,11 @@ pub fn batting_resolve(batter: &Batter) -> BattingResult {
     let home_run_average: f64 = batter.hit_average() + xbh_average;
 
     match rng {
-        n if batter.hit_average() > n => _result = BattingResult::SINGLE,
-        n if double_average > n => _result = BattingResult::DOUBLE,
-        n if triple_average > n => _result = BattingResult::TRIPLE,
-        n if home_run_average > n => _result = BattingResult::HOMERUN,
-        _ => _result = BattingResult::OUT,
+        n if batter.hit_average() > n => _result = BattingResult::Single,
+        n if double_average > n => _result = BattingResult::Double,
+        n if triple_average > n => _result = BattingResult::Triple,
+        n if home_run_average > n => _result = BattingResult::HomeRun,
+        _ => _result = BattingResult::Out,
     }
     _result
 }

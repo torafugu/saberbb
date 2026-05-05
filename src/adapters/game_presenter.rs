@@ -1,13 +1,13 @@
-use super::menu_component::MenuItem;
-use crate::domain::shared::game::Game;
+use super::menu_component::{MenuItem, init_terminal, restore_terminal};
+use crate::domain::shared::game::{Count, Game};
 use crate::domain::shared::types::InningType;
 use crate::repositories::game_repository::{load_processed_games, load_processed_seasons};
+use crate::rprintln;
 use crate::t;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{CellAlignment, Table};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use crossterm::{cursor, execute};
 use inquire::Select;
 use std::collections::BTreeMap;
@@ -20,60 +20,126 @@ const SPACE_TEXT: &str = " ";
 const SEPARATOR_TEXT: &str = ":";
 const WALK_OFF_TEXT: &str = "x";
 
-macro_rules! rprintln {
-    ($($arg:tt)*) => {
-        let output = format!($($arg)*);
-        for line in output.lines() {
-            let _ = crossterm::execute!(
-                std::io::stdout(),
-                crossterm::cursor::MoveToColumn(0),
-                crossterm::terminal::Clear(crossterm::terminal::ClearType::UntilNewLine)
-            );
-            print!("{}\r\n", line);
-        }
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-    };
-}
-
 pub fn display_game_rounds_processed(num_of_rounds: i8) {
-    println!("{} rounds processed.", num_of_rounds);
+    println!(
+        "{}",
+        t!("game_rounds_processed", "num_of_rounds" => num_of_rounds.to_string())
+    );
 }
 
-pub fn display_game_detail(
-    game: &Game,
-    inning_seq: i8,
-    inning_tb: InningType,
-    count_id: i8,
-) -> io::Result<()> {
-    enable_raw_mode()?;
-    let mut should_redraw = true;
-    // println!("<- {} {} ->");
+pub fn display_game_detail(game: &Game) -> io::Result<()> {
+    let mut inning_seq: i8 = 1;
+    let mut inning_tb: InningType = InningType::Top;
+    let mut count_seq: i8 = 1;
+
+    let mut current_inning = game
+        .innings
+        .iter()
+        .find(|i| i.is(inning_seq, inning_tb))
+        .expect(&t!("inning_not_found"));
+    let mut current_count;
+
     let mut stdout = io::stdout();
+
+    let _ = init_terminal();
+    let mut should_redraw = true;
+
+    rprintln!("<- {} {} ->", t!("prev_count"), t!("next_count"));
 
     loop {
         if should_redraw {
             let mut table = Table::new();
             execute!(stdout, cursor::MoveTo(0, 0))?;
-            rprintln!("Game.id:{}", game.id);
-            rprintln!("inning:{}({})", inning_seq, inning_tb);
-            rprintln!("{LINE_SEPARATOR_TEXT}");
 
             let max_ining_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
+            current_inning = game
+                .innings
+                .iter()
+                .find(|i| i.is(inning_seq, inning_tb))
+                .expect(&t!("inning_not_found"));
 
+            current_count = current_inning
+                .counts
+                .iter()
+                .find(|i| i.seq == count_seq)
+                .expect(&t!("count_not_found"));
+
+            rprintln!(
+                "{}:{}({}) {}:{}",
+                t!("current_inning"),
+                current_inning.seq,
+                current_inning.tb.to_string(),
+                t!("current_count"),
+                current_count.seq
+            );
+
+            // Display score board
             let mut headers: Vec<String> = Vec::new();
+            let mut top_scores: Vec<String> = Vec::new();
+            let mut bottom_scores: Vec<String> = Vec::new();
             headers.push(t!("team"));
+            top_scores.push((&game.away_team.name).to_string());
+            bottom_scores.push((&game.home_team.name).to_string());
+
             for inning_num in 1..max_ining_seq + 1 {
                 headers.push(inning_num.to_string());
+                top_scores.push("".to_string());
+                bottom_scores.push("".to_string());
             }
             headers.push(t!("total_score"));
+            top_scores.push("".to_string());
+            bottom_scores.push("".to_string());
 
-            // for inning in &game.innings {
-            //     headers.push(inning.seq.to_string());
-            // }
+            let mut top_total_point: i8 = 0;
+            let mut bottom_total_point: i8 = 0;
+
+            'inning: for inning in &game.innings {
+                let mut top_inning_point = 0;
+                let mut bottom_inning_point = 0;
+                for count in &inning.counts {
+                    if inning.tb == InningType::Top {
+                        top_inning_point += count.point;
+                        top_total_point += count.point;
+                        top_scores[inning.seq as usize] = (top_inning_point).to_string();
+                    } else {
+                        bottom_inning_point += count.point;
+                        bottom_total_point += count.point;
+                        bottom_scores[inning.seq as usize] = (bottom_inning_point).to_string();
+                    }
+                    if inning.seq == inning_seq && inning.tb == inning_tb && count.seq == count_seq
+                    {
+                        break 'inning;
+                    }
+                }
+            }
+
+            if inning_seq == max_ining_seq
+                && count_seq == (current_inning.counts.len()) as i8
+                && bottom_scores[max_ining_seq as usize] == ""
+            {
+                bottom_scores[max_ining_seq as usize] = WALK_OFF_TEXT.to_string();
+            }
+
+            top_scores[(max_ining_seq + 1) as usize] = top_total_point.to_string();
+            bottom_scores[(max_ining_seq + 1) as usize] = bottom_total_point.to_string();
+
             table.set_header(headers);
-            table.add_row(vec![&game.away_team.name]);
-            table.add_row(vec![&game.home_team.name]);
+            table.add_row(top_scores);
+            table.add_row(bottom_scores);
+            for inning_num in 1..max_ining_seq + 2 {
+                table
+                    .column_mut(inning_num as usize)
+                    .unwrap()
+                    .set_cell_alignment(CellAlignment::Right);
+            }
+            table
+                .load_preset(UTF8_FULL)
+                .apply_modifier(UTF8_ROUND_CORNERS);
+
             rprintln!("{table}");
+
+            // Display count
+            rprintln!("{}", format_count(&current_count));
             should_redraw = false;
         }
 
@@ -84,15 +150,62 @@ pub fn display_game_detail(
                         code: KeyCode::Left,
                         ..
                     } => {
-                        println!("前のカウント");
+                        if count_seq > 1 {
+                            count_seq -= 1;
+                            should_redraw = true;
+                        } else if current_inning.tb == InningType::Bottom {
+                            inning_tb = InningType::Top;
+                            count_seq = game
+                                .innings
+                                .iter()
+                                .find(|i| i.is(inning_seq, inning_tb))
+                                .expect(&t!("inning_not_found"))
+                                .counts
+                                .len() as i8;
+                            should_redraw = true;
+                        } else if let Some(_) = game
+                            .innings
+                            .iter()
+                            .find(|i| i.is(inning_seq - 1, InningType::Top))
+                        {
+                            inning_seq -= 1;
+                            inning_tb = InningType::Bottom;
+                            count_seq = game
+                                .innings
+                                .iter()
+                                .find(|i| i.is(inning_seq, inning_tb))
+                                .expect(&t!("inning_not_found"))
+                                .counts
+                                .len() as i8;
+                            should_redraw = true;
+                        }
                     }
                     KeyEvent {
                         code: KeyCode::Right,
                         ..
                     } => {
-                        // let _ = display_game_detail(&game, inning_seq, inning_tb, count_id);
-                        rprintln!("Redraw!");
-                        should_redraw = true;
+                        if count_seq < current_inning.counts.len() as i8 {
+                            count_seq += 1;
+                            should_redraw = true;
+                        } else if current_inning.tb == InningType::Top
+                            && let Some(_) = game
+                                .innings
+                                .iter()
+                                .find(|i| i.is(inning_seq, InningType::Bottom))
+                        {
+                            inning_tb = InningType::Bottom;
+                            count_seq = 1;
+                            should_redraw = true;
+                        } else if let Some(_) = game
+                            .innings
+                            .iter()
+                            .find(|i| i.is(inning_seq + 1, InningType::Top))
+                        {
+                            inning_seq += 1;
+                            inning_tb = InningType::Top;
+                            count_seq = 1;
+                            should_redraw = true;
+                        }
                     }
                     KeyEvent {
                         code: KeyCode::Char('c'),
@@ -102,6 +215,7 @@ pub fn display_game_detail(
                     | KeyEvent {
                         code: KeyCode::Esc, ..
                     } => {
+                        let _ = restore_terminal();
                         break;
                     }
                     _ => {}
@@ -109,8 +223,35 @@ pub fn display_game_detail(
             }
         }
     }
-    disable_raw_mode()?;
+    let _ = restore_terminal();
     Ok(())
+}
+
+fn format_count(count: &Count) -> String {
+    let mut formated_count = format!("  <{}>\n", display_runner(count.bases.second));
+    formated_count.push_str(&format!(
+        "<{}> <{}>\n",
+        display_runner(count.bases.third),
+        display_runner(count.bases.first)
+    ));
+    formated_count.push_str(&format!("  <H>\n"));
+    formated_count.push_str(&format!("{}: {}\n", &t!("out_count"), count.out));
+    formated_count.push_str(&format!("{}: {}\n", &t!("batter"), count.batter.name));
+    let rounded_ba = (count.batter.hit_average() * 1000.0).round();
+    formated_count.push_str(&format!(" {} : .{}\n", &t!("ba"), rounded_ba));
+    let rounded_slg = (count.batter.slg() * 1000.0).round();
+    formated_count.push_str(&format!(" {}: .{}\n", &t!("slg"), rounded_slg));
+    formated_count.push_str(&format!("{}: {}\n", &t!("batting_result"), count.result));
+    if count.point > 0 {
+        formated_count.push_str(&format!("{}: +{}\n", &t!("score"), count.point));
+    } else {
+        formated_count.push_str("");
+    }
+    formated_count
+}
+
+fn display_runner(runner: bool) -> &'static str {
+    if runner { RUNNER_TEXT } else { NO_RUNNER_TEXT }
 }
 
 pub fn display_select_game(season: i16) {
@@ -161,10 +302,7 @@ pub fn display_select_game(season: i16) {
             let selection = Select::new(&t!("select_game"), menu_items).prompt();
 
             if let Ok(selected) = selection {
-                let _ = display_game_detail(&selected.value, 1, InningType::TOP, 1);
-
-                // display_game_result(&selected.value);
-                // display_batting_results(&selected.value);
+                let _ = display_game_detail(&selected.value);
             }
         }
         Err(e) => {
@@ -205,92 +343,6 @@ pub fn display_select_season() {
     }
 }
 
-pub fn display_game_result(game: &Game) {
-    // TODO: load_inning, load_count
-    let mut _top_innings = game.away_team.name.to_string();
-    let mut _bottom_innings = game.home_team.name.to_string();
-    _top_innings.push_str(SEPARATOR_TEXT);
-    _bottom_innings.push_str(SEPARATOR_TEXT);
-
-    let mut _top_total_score: i8 = 0;
-    let mut _bottom_total_score: i8 = 0;
-    let mut _inning_index: usize = 1; // to compare with innings.len()
-
-    println!("game.id:{}", game.id);
-    // println!("inning.len:{}", game.innings.len());
-
-    for inning in game.innings.iter() {
-        println!("inning:{}({})", inning.seq, inning.tb);
-        println!("{LINE_SEPARATOR_TEXT}");
-
-        let mut _top_inning_score: i8 = 0;
-        let mut _bottom_inning_score: i8 = 0;
-
-        for count in inning.counts.iter() {
-            println!("count.seq:{}", count.seq);
-
-            let mut _top_scoreboard = _top_innings.clone();
-            let mut _bottom_scoreboard = _bottom_innings.clone();
-
-            if inning.tb == InningType::TOP {
-                _top_inning_score += count.point;
-                _top_scoreboard.push_str(&_top_inning_score.to_string());
-            } else {
-                _bottom_inning_score += count.point;
-                _bottom_scoreboard.push_str(&_bottom_inning_score.to_string());
-            }
-
-            _top_scoreboard.push_str(SPACE_TEXT);
-            _top_scoreboard.push_str(&_top_total_score.to_string());
-
-            if inning.tb == InningType::TOP {
-                if game.innings.len() == _inning_index {
-                    _bottom_scoreboard.push_str(WALK_OFF_TEXT);
-                } else {
-                    _bottom_scoreboard.push_str(SPACE_TEXT);
-                }
-            }
-
-            _bottom_scoreboard.push_str(SPACE_TEXT);
-            _bottom_scoreboard.push_str(&_bottom_total_score.to_string());
-
-            println!("{_top_scoreboard}");
-            println!("{_bottom_scoreboard}");
-            println!("  <{}>", display_runner(count.bases.second));
-            println!(
-                "<{}> <{}>",
-                display_runner(count.bases.third),
-                display_runner(count.bases.first)
-            );
-            println!("  <H>");
-            println!("Out Count: {}", count.out);
-            println!("Batter: {}", count.batter.name);
-            let rounded_ba = (count.batter.hit_average() * 1000.0).round();
-            println!(" BA : .{}", rounded_ba);
-            let rounded_slg = (count.batter.slg() * 1000.0).round();
-            println!(" SLG: .{}", rounded_slg);
-            println!("Batting Result: {}", count.result);
-            if count.point > 0 {
-                println!("Scored: {}", count.point);
-            }
-            println!("{LINE_SEPARATOR_TEXT}");
-        }
-
-        if inning.tb == InningType::TOP {
-            _top_innings.push_str(&inning.point.to_string());
-            _top_total_score += &inning.point;
-        } else {
-            _bottom_innings.push_str(&inning.point.to_string());
-            _bottom_total_score += &inning.point;
-        }
-        _inning_index += 1;
-    }
-}
-
-fn display_runner(runner: bool) -> &'static str {
-    if runner { RUNNER_TEXT } else { NO_RUNNER_TEXT }
-}
-
 pub fn display_batting_results(game: &Game) {
     println!("Batting Results:");
     println!("{}", game.away_team.name.to_string());
@@ -300,7 +352,7 @@ pub fn display_batting_results(game: &Game) {
 
     for inning in game.innings.iter() {
         for count in inning.counts.iter() {
-            if inning.tb == InningType::TOP {
+            if inning.tb == InningType::Top {
                 _top_results
                     .entry(count.batter.name.to_string())
                     .and_modify(|e| {

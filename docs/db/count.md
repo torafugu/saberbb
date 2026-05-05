@@ -7,9 +7,7 @@
 
 ```sql
 CREATE TABLE count (
-    game_round_season INTEGER,
-    game_round_seq INTEGER,
-    game_seq INTEGER,
+    game_id INTEGER,
     inning_seq INTEGER,
     inning_tb TEXT,
     seq INTEGER,
@@ -21,9 +19,7 @@ CREATE TABLE count (
     point INTEGER NOT NULL,
     out INTEGER NOT NULL,
     PRIMARY KEY (
-        game_round_season,
-        game_round_seq,
-        game_seq,
+        game_id,
         inning_seq,
         inning_tb,
         seq
@@ -35,39 +31,35 @@ CREATE TABLE count (
 
 ## Columns
 
-| Name              | Type    | Default | Nullable | Children | Parents | Comment |
-| ----------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_round_season | INTEGER |         | true     |          |         |         |
-| game_round_seq    | INTEGER |         | true     |          |         |         |
-| game_seq          | INTEGER |         | true     |          |         |         |
-| inning_seq        | INTEGER |         | true     |          |         |         |
-| inning_tb         | TEXT    |         | true     |          |         |         |
-| seq               | INTEGER |         | true     |          |         |         |
-| is_first_runner   | BOOLEAN | 0       | false    |          |         |         |
-| is_second_runner  | BOOLEAN | 0       | false    |          |         |         |
-| is_third_runner   | BOOLEAN | 0       | false    |          |         |         |
-| batter_id         | INTEGER |         | true     |          |         |         |
-| result            | TEXT    |         | false    |          |         |         |
-| point             | INTEGER |         | false    |          |         |         |
-| out               | INTEGER |         | false    |          |         |         |
+| Name             | Type    | Default | Nullable | Children | Parents | Comment |
+| ---------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id          | INTEGER |         | true     |          |         |         |
+| inning_seq       | INTEGER |         | true     |          |         |         |
+| inning_tb        | TEXT    |         | true     |          |         |         |
+| seq              | INTEGER |         | true     |          |         |         |
+| is_first_runner  | BOOLEAN | 0       | false    |          |         |         |
+| is_second_runner | BOOLEAN | 0       | false    |          |         |         |
+| is_third_runner  | BOOLEAN | 0       | false    |          |         |         |
+| batter_id        | INTEGER |         | true     |          |         |         |
+| result           | TEXT    |         | false    |          |         |         |
+| point            | INTEGER |         | false    |          |         |         |
+| out              | INTEGER |         | false    |          |         |         |
 
 ## Constraints
 
-| Name                     | Type        | Definition                                                                            |
-| ------------------------ | ----------- | ------------------------------------------------------------------------------------- |
-| game_round_season        | PRIMARY KEY | PRIMARY KEY (game_round_season)                                                       |
-| game_round_seq           | PRIMARY KEY | PRIMARY KEY (game_round_seq)                                                          |
-| game_seq                 | PRIMARY KEY | PRIMARY KEY (game_seq)                                                                |
-| inning_seq               | PRIMARY KEY | PRIMARY KEY (inning_seq)                                                              |
-| inning_tb                | PRIMARY KEY | PRIMARY KEY (inning_tb)                                                               |
-| seq                      | PRIMARY KEY | PRIMARY KEY (seq)                                                                     |
-| sqlite_autoindex_count_1 | PRIMARY KEY | PRIMARY KEY (game_round_season, game_round_seq, game_seq, inning_seq, inning_tb, seq) |
+| Name                     | Type        | Definition                                        |
+| ------------------------ | ----------- | ------------------------------------------------- |
+| game_id                  | PRIMARY KEY | PRIMARY KEY (game_id)                             |
+| inning_seq               | PRIMARY KEY | PRIMARY KEY (inning_seq)                          |
+| inning_tb                | PRIMARY KEY | PRIMARY KEY (inning_tb)                           |
+| seq                      | PRIMARY KEY | PRIMARY KEY (seq)                                 |
+| sqlite_autoindex_count_1 | PRIMARY KEY | PRIMARY KEY (game_id, inning_seq, inning_tb, seq) |
 
 ## Indexes
 
-| Name                     | Definition                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| sqlite_autoindex_count_1 | PRIMARY KEY (game_round_season, game_round_seq, game_seq, inning_seq, inning_tb, seq) |
+| Name                     | Definition                                        |
+| ------------------------ | ------------------------------------------------- |
+| sqlite_autoindex_count_1 | PRIMARY KEY (game_id, inning_seq, inning_tb, seq) |
 
 ## Relations
 

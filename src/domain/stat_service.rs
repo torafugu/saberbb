@@ -1,9 +1,11 @@
+use crate::domain::shared::player::BattingStats;
 use crate::domain::shared::team::Standing;
 use crate::t;
 use anyhow::{Context, Result};
 
 pub trait StatRepository {
     fn load_stadings(&self) -> Result<Vec<Standing>>;
+    fn load_batting_stats(&self) -> Result<Vec<BattingStats>>;
 }
 
 pub struct StatService<R: StatRepository> {
@@ -11,7 +13,7 @@ pub struct StatService<R: StatRepository> {
 }
 
 impl<R: StatRepository> StatService<R> {
-    pub fn show_standing(&self) -> Result<Vec<Standing>> {
+    pub fn show_standings(&self) -> Result<Vec<Standing>> {
         let mut standings = self
             .repo
             .load_stadings()
@@ -34,5 +36,13 @@ impl<R: StatRepository> StatService<R> {
         }
 
         Ok(standings)
+    }
+    pub fn show_batting_stats(&self) -> Result<Vec<BattingStats>> {
+        let batting_stats = self
+            .repo
+            .load_batting_stats()
+            .context(t!("error", "function" => "load_batting_stats"))?;
+
+        Ok(batting_stats)
     }
 }

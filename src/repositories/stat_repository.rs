@@ -1,3 +1,4 @@
+use crate::domain::shared::player::{Batter, BattingStats};
 use crate::domain::shared::team::{Standing, Team};
 use crate::domain::stat_service::StatRepository;
 use anyhow::Result;
@@ -73,5 +74,72 @@ impl StatRepository for SqlStatRepository {
         })?;
         let standings: Vec<Standing> = standings_iter.collect::<Result<Vec<_>, _>>()?;
         Ok(standings)
+    }
+
+    fn load_batting_stats(&self) -> Result<Vec<BattingStats>> {
+        let mut stmt = self.pool.prepare(
+            "SELECT 
+                        batter_id,
+                        b.name AS batter_name,
+                        SUM(1) AS AB,
+                        SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
+                        SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
+                        SUM(CASE WHEN result = 'Triple' THEN 1 ELSE 0 END) AS triple,
+                        SUM(CASE WHEN result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
+                        COALESCE(ROUND(CAST(SUM(CASE WHEN result IN ('Single', 'Double', 'Triple', 'Homerun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
+                        SUM(point) AS rbi
+                    FROM count
+                    LEFT JOIN 
+                        Batter b ON count.batter_id = b.id
+                    GROUP BY batter_id
+                    ORDER BY batter_id",
+        )?;
+
+        let batting_stats_iter = stmt.query_map([], |row| {
+            Ok(BattingStats {
+                batter: Batter {
+                    id: row.get("batter_id")?,
+                    name: row.get("batter_name")?,
+                    mod_ba: 0.0,
+                    mod_slg: 0.0,
+                },
+                ab: row.get("ab")?,
+                single: row.get("single")?,
+                double: row.get("double")?,
+                triple: row.get("triple")?,
+                homerun: row.get("homerun")?,
+                ba: row.get("ba")?,
+                rbi: row.get("rbi")?,
+            })
+        })?;
+
+        // if let Err(e) = stmt.query_map([], |row| {
+        //     Ok(BattingStats {
+        //         batter: Batter {
+        //             id: row.get("batter_id")?,
+        //             name: row.get("batter_name")?,
+        //             mod_ba: 0.0,
+        //             mod_slg: 0.0,
+        //         },
+        //         ab: row.get("ab")?,
+        //         single: row.get("single")?,
+        //         double: row.get("double")?,
+        //         triple: row.get("draws")?,
+        //         homerun: row.get("homerun")?,
+        //         ba: row.get("ba")?,
+        //         rbi: row.get("rbi")?,
+        //     })
+        // }) {
+        //     eprintln!("Error report: {:?}", e);
+        // };
+
+        // if let Err(e) = batting_stats_iter.collect::<Result<Vec<_>, _>>() {
+        //     eprintln!("Error report: {:?}", e);
+        // };
+
+        // Ok(Vec::new())
+
+        let batting_stats: Vec<BattingStats> = batting_stats_iter.collect::<Result<Vec<_>, _>>()?;
+        Ok(batting_stats)
     }
 }

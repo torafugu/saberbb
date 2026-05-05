@@ -29,7 +29,7 @@ impl<R: GameRepository> GameService<R> {
         for game in game_round.games.iter_mut() {
             let mut is_in_game: bool = true;
             let mut inning_seq: i8 = 1;
-            let mut inning_tb: InningType = InningType::TOP;
+            let mut inning_tb: InningType = InningType::Top;
             let mut top_total_score: i8 = 0;
             let mut bottom_total_score: i8 = 0;
             let mut top_batter_order: usize = 1;
@@ -77,7 +77,7 @@ impl<R: GameRepository> GameService<R> {
                     count_seq += 1;
 
                     let current_batter: &Batter;
-                    if inning_tb == InningType::TOP {
+                    if inning_tb == InningType::Top {
                         current_batter = &game.away_batters[top_batter_order - 1];
                     } else {
                         current_batter = &game.home_batters[bottom_batter_order - 1];
@@ -87,14 +87,14 @@ impl<R: GameRepository> GameService<R> {
                         seq: count_seq,
                         bases: bases.clone(),
                         batter: Arc::new(current_batter.clone()),
-                        result: BattingResult::OUT,
+                        result: BattingResult::Out,
                         point: 0,
                         out,
                     };
 
                     // Batting result calculation
                     let batting_result = batting_resolve(&count.batter);
-                    if batting_result == BattingResult::OUT {
+                    if batting_result == BattingResult::Out {
                         out += 1;
                     }
 
@@ -104,7 +104,7 @@ impl<R: GameRepository> GameService<R> {
 
                     // inning.point = count.bases_advance(batting_result);
 
-                    if inning_tb == InningType::TOP {
+                    if inning_tb == InningType::Top {
                         top_total_score += count.point;
                         if top_batter_order == 9 {
                             top_batter_order = 1;
@@ -123,7 +123,7 @@ impl<R: GameRepository> GameService<R> {
 
                     // Check walk-off
                     if inning_seq == MAX_INNING
-                        && inning_tb == InningType::BOTTOM
+                        && inning_tb == InningType::Bottom
                         && bottom_total_score > top_total_score
                     {
                         is_in_game = false;
@@ -131,7 +131,7 @@ impl<R: GameRepository> GameService<R> {
                     }
                 }
 
-                if inning_tb == InningType::BOTTOM {
+                if inning_tb == InningType::Bottom {
                     game.home_point += inning.point as i16;
                 } else {
                     game.away_point += inning.point as i16;
@@ -140,13 +140,13 @@ impl<R: GameRepository> GameService<R> {
 
                 // Check Game-Set
                 if inning_seq == MAX_INNING {
-                    if inning_tb == InningType::BOTTOM {
+                    if inning_tb == InningType::Bottom {
                         break;
                     } else if bottom_total_score > top_total_score {
                         break;
                     }
                 } else {
-                    if inning_tb == InningType::BOTTOM {
+                    if inning_tb == InningType::Bottom {
                         inning_seq += 1;
                     }
                 }

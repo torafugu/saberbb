@@ -8,10 +8,10 @@
 | [team](team.md)               | 3       |         | table |
 | [league](league.md)           | 2       |         | table |
 | [game_season](game_season.md) | 5       |         | table |
-| [game_round](game_round.md)   | 3       |         | table |
-| [inning](inning.md)           | 6       |         | table |
-| [count](count.md)             | 13      |         | table |
-| [game](game.md)               | 7       |         | table |
+| [game_round](game_round.md)   | 4       |         | table |
+| [inning](inning.md)           | 4       |         | table |
+| [count](count.md)             | 11      |         | table |
+| [game](game.md)               | 9       |         | table |
 
 ## Relations
 

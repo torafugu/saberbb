@@ -7,10 +7,11 @@
 
 ```sql
 CREATE TABLE game_round (
+    id INTEGER,
     season INTEGER,
     seq INTEGER,
     date TEXT NOT NULL,
-    PRIMARY KEY (season, seq)
+    PRIMARY KEY (id)
 )
 ```
 
@@ -20,23 +21,16 @@ CREATE TABLE game_round (
 
 | Name   | Type    | Default | Nullable | Children | Parents | Comment |
 | ------ | ------- | ------- | -------- | -------- | ------- | ------- |
+| id     | INTEGER |         | true     |          |         |         |
 | season | INTEGER |         | true     |          |         |         |
 | seq    | INTEGER |         | true     |          |         |         |
 | date   | TEXT    |         | false    |          |         |         |
 
 ## Constraints
 
-| Name                          | Type        | Definition                |
-| ----------------------------- | ----------- | ------------------------- |
-| season                        | PRIMARY KEY | PRIMARY KEY (season)      |
-| seq                           | PRIMARY KEY | PRIMARY KEY (seq)         |
-| sqlite_autoindex_game_round_1 | PRIMARY KEY | PRIMARY KEY (season, seq) |
-
-## Indexes
-
-| Name                          | Definition                |
-| ----------------------------- | ------------------------- |
-| sqlite_autoindex_game_round_1 | PRIMARY KEY (season, seq) |
+| Name | Type        | Definition       |
+| ---- | ----------- | ---------------- |
+| id   | PRIMARY KEY | PRIMARY KEY (id) |
 
 ## Relations
 

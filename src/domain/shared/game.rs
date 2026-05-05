@@ -52,7 +52,7 @@ impl Bases {
         let mut point: i8 = 0;
 
         match batting_result {
-            BattingResult::SINGLE => {
+            BattingResult::Single => {
                 if self.third {
                     point += 1;
                     self.third = false;
@@ -66,7 +66,7 @@ impl Bases {
                 }
                 self.first = true;
             }
-            BattingResult::DOUBLE => {
+            BattingResult::Double => {
                 if self.third {
                     point += 1;
                     self.third = false;
@@ -80,7 +80,7 @@ impl Bases {
                 }
                 self.second = true;
             }
-            BattingResult::TRIPLE => {
+            BattingResult::Triple => {
                 if self.third {
                     point += 1;
                 }
@@ -94,7 +94,7 @@ impl Bases {
                 }
                 self.third = true;
             }
-            BattingResult::HOMERUN => {
+            BattingResult::HomeRun => {
                 if self.third {
                     point += 1;
                     self.third = false;
@@ -156,10 +156,15 @@ pub struct Inning {
     pub counts: Vec<Count>,
     pub point: i8,
 }
+impl Inning {
+    pub fn is(&self, seq: i8, tb: InningType) -> bool {
+        self.seq == seq && self.tb == tb
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Count {
-    pub seq: i32,
+    pub seq: i8,
     pub bases: Bases,
     pub batter: Arc<Batter>,
     pub result: BattingResult,
