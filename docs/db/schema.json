@@ -2,49 +2,6 @@
   "name": "statbb.db",
   "tables": [
     {
-      "name": "batter",
-      "type": "table",
-      "columns": [
-        {
-          "name": "id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "mod_ba",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_slg",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
-          "table": "batter",
-          "columns": [
-            "id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE batter (\nid INTEGER PRIMARY KEY AUTOINCREMENT, \nteam_id INTEGER NOT NULL,\nname TEXT NOT NULL, \nmod_ba  REAL NOT NULL, \nmod_slg REAL NOT NULL)"
-    },
-    {
       "name": "team",
       "type": "table",
       "columns": [
@@ -444,6 +401,74 @@
         }
       ],
       "def": "CREATE TABLE game (\n    game_round_id INTEGER,\n    id INTEGER,\n    planned_date TEXT NOT NULL,\n    actual_date TEXT NOT NULL,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    away_point INTEGER NOT NULL,\n    home_point INTEGER NOT NULL,\n    PRIMARY KEY (id)\n)"
+    },
+    {
+      "name": "player",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "team_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "age",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "throw",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "mod_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "mod_control",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "bat",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "mod_ba",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "mod_slg",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "player",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player (\n    id INTEGER PRIMARY KEY,\n    team_id INTEGER NOT NULL,\n    name TEXT NOT NULL,\n    age INTEGER NOT NULL,\n    throw TEXT NOT NULL,\n    mod_speed REAL NOT NULL,\n    mod_control REAL NOT NULL,\n    bat TEXT NOT NULL,\n    mod_ba REAL NOT NULL,\n    mod_slg REAL NOT NULL\n)"
     }
   ],
   "driver": {

@@ -1,7 +1,7 @@
 use super::menu_component::{init_terminal, restore_terminal};
-use crate::domain::stat_service::StatService;
+use crate::domain::statistics_service::StatService;
 use crate::repositories::persistence_config::get_db_conn;
-use crate::repositories::stat_repository::SqlStatRepository;
+use crate::repositories::statistics_repository::SqlStatRepository;
 use crate::rprintln;
 use crate::t;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;

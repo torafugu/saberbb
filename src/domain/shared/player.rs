@@ -1,6 +1,9 @@
 use super::utils;
+use crate::t;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
+use strum_macros::EnumString;
 
 const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
 const BATTING_MAX_HIT_AVERAGE: f64 = 0.32;
@@ -8,19 +11,58 @@ const BATTING_MIN_SLG: f64 = 0.3;
 const BATTING_MAX_SLG: f64 = 0.55;
 const DUMMY_BATTER_TEXT: &str = "Dummy Batter";
 
+#[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
+#[strum(ascii_case_insensitive)]
+pub enum RL {
+    Right,
+    Left,
+}
+impl fmt::Display for RL {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RL::Right => write!(f, "{}", t!("right")),
+            RL::Left => write!(f, "{}", t!("left")),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Batter {
+pub struct Player {
     pub id: i32,
     pub name: Arc<str>,
+    pub age: i8,
+    pub throw: RL,
+    pub mod_speed: f64,
+    pub mod_control: f64,
+    pub bat: RL,
     pub mod_ba: f64,
     pub mod_slg: f64,
 }
 
-impl Batter {
-    pub fn new(id: i32, name: &str, mod_ba: f64, mod_slg: f64) -> Batter {
-        Batter {
+impl Player {
+    pub fn min(id: i32, name: &str) -> Player {
+        Player {
             id: id,
             name: Arc::from(name),
+            age: 25,
+            throw: RL::Right,
+            mod_speed: 0.0,
+            mod_control: 0.0,
+            bat: RL::Right,
+            mod_ba: 0.0,
+            mod_slg: 0.0,
+        }
+    }
+
+    pub fn batter(id: i32, name: &str, mod_ba: f64, mod_slg: f64) -> Player {
+        Player {
+            id: id,
+            name: Arc::from(name),
+            age: 25,
+            throw: RL::Right,
+            mod_speed: 0.0,
+            mod_control: 0.0,
+            bat: RL::Right,
             mod_ba: mod_ba,
             mod_slg: mod_slg,
         }
@@ -40,19 +82,8 @@ impl Batter {
     }
 }
 
-impl Default for Batter {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            name: Arc::from(DUMMY_BATTER_TEXT),
-            mod_ba: 0.0,
-            mod_slg: 0.0,
-        }
-    }
-}
-
 pub struct BattingStats {
-    pub batter: Batter,
+    pub batter: Player,
     pub ab: i16,
     pub single: i16,
     pub double: i16,

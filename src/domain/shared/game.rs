@@ -1,33 +1,31 @@
-use super::player::Batter;
+use super::player::Player;
 use super::team::Team;
 use super::types::BattingResult;
 use super::types::InningType;
+use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use strum::EnumString;
+use strum_macros::EnumString;
 
 pub const MAX_INNING: i8 = 9;
 pub const MAX_OUT: i8 = 3;
 pub const TOTAL_GAMES: i16 = 140;
-const EXHIBITION: &str = "Exhibition";
-const REGULAR: &str = "Regular";
-const POSTSEASON: &str = "postseason";
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
 #[strum(ascii_case_insensitive)]
 pub enum GameType {
-    EXHIBITION,
-    REGULAR,
-    POSTSEASON,
+    Exhibition,
+    Regular,
+    Postseason,
 }
 impl fmt::Display for GameType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            GameType::EXHIBITION => write!(f, "{EXHIBITION}"),
-            GameType::REGULAR => write!(f, "{REGULAR}"),
-            GameType::POSTSEASON => write!(f, "{POSTSEASON}"),
+            GameType::Exhibition => write!(f, "{}", t!("exhibition")),
+            GameType::Regular => write!(f, "{}", t!("regular")),
+            GameType::Postseason => write!(f, "{}", t!("postseason")),
         }
     }
 }
@@ -145,8 +143,8 @@ pub struct Game {
     pub innings: Vec<Inning>,
     pub away_point: i16,
     pub home_point: i16,
-    pub away_batters: Vec<Batter>,
-    pub home_batters: Vec<Batter>,
+    pub away_batters: Vec<Player>,
+    pub home_batters: Vec<Player>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -166,7 +164,7 @@ impl Inning {
 pub struct Count {
     pub seq: i8,
     pub bases: Bases,
-    pub batter: Arc<Batter>,
+    pub batter: Arc<Player>,
     pub result: BattingResult,
     pub point: i8,
     pub out: i8,

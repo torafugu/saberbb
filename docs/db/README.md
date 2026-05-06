@@ -4,7 +4,6 @@
 
 | Name                          | Columns | Comment | Type  |
 | ----------------------------- | ------- | ------- | ----- |
-| [batter](batter.md)           | 5       |         | table |
 | [team](team.md)               | 3       |         | table |
 | [league](league.md)           | 2       |         | table |
 | [game_season](game_season.md) | 5       |         | table |
@@ -12,6 +11,7 @@
 | [inning](inning.md)           | 4       |         | table |
 | [count](count.md)             | 11      |         | table |
 | [game](game.md)               | 9       |         | table |
+| [player](player.md)           | 10      |         | table |
 
 ## Relations
 

@@ -8,10 +8,12 @@ use adapters::schedule_presenter::display_game_seasons_scheduled;
 use adapters::topmenu_presenter::display_menu;
 use clap::Parser;
 use domain::game_service::GameService;
+use domain::player_service::PlayerService;
 use domain::schedule_service::ScheduleService;
 use i18n::I18nManager;
 use repositories::game_repository::SqlGameRepository;
 use repositories::persistence_config::get_db_conn;
+use repositories::player_repository::SqlPlayerRepository;
 use repositories::schedule_repository::SqlScheduleRepository;
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +53,22 @@ fn main() {
         display_game_rounds_processed(num_of_rounds);
     }
 
+    // Player Generate Mode
+    if let Some(num_of_players) = args.generate {
+        let db_repo = SqlPlayerRepository {
+            pool: get_db_conn().unwrap(),
+        };
+        let mut player_service = PlayerService { repo: db_repo };
+        if let Err(e) = player_service.generate_players() {
+            eprintln!("{}:{}", t!("error", "function" => "generate_players"), e);
+        }
+    }
+
+    // Game Display Mode　(Show the game result interactively)
+    if args.menu {
+        display_menu();
+    }
+
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
         let db_repo = SqlScheduleRepository {
@@ -64,11 +82,6 @@ fn main() {
         }
         display_game_seasons_scheduled(num_of_schedules);
     }
-
-    // Game Display Mode　(Show the game result interactively)
-    if args.menu {
-        display_menu();
-    }
 }
 
 #[derive(Parser, Debug)]
@@ -81,6 +94,10 @@ struct Args {
     /// Display the last game result
     #[arg(short, long)]
     display: bool,
+
+    /// Generate players
+    #[arg(short, long)]
+    generate: Option<i16>,
 
     /// View game result interactively
     #[arg(short, long)]

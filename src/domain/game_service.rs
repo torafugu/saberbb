@@ -1,6 +1,6 @@
 use super::resolver::batting_resolve;
 use super::shared::game::{Bases, Count, GameRound, Inning, MAX_INNING, MAX_OUT};
-use super::shared::player::Batter;
+use super::shared::player::Player;
 use super::shared::types::{BattingResult, InningType};
 use super::shared::utils::next_tb;
 use crate::t;
@@ -39,26 +39,26 @@ impl<R: GameRepository> GameService<R> {
             game.actual_date = game.planned_date;
 
             game.away_batters = Vec::from([
-                Batter::new(1, "Top batter 1", 1.0, -0.5),
-                Batter::new(2, "Top batter 2", 1.2, -0.8),
-                Batter::new(3, "Top batter 3", 1.4, 0.8),
-                Batter::new(4, "Top batter 4", 1.6, 1.0),
-                Batter::new(5, "Top batter 5", 1.5, 0.9),
-                Batter::new(6, "Top batter 6", -0.1, 0.2),
-                Batter::new(7, "Top batter 7", 0.1, -0.3),
-                Batter::new(8, "Top batter 8", -1.0, -0.5),
-                Batter::new(9, "Top batter 9", -1.2, -1.2),
+                Player::batter(1, "Top batter 1", 1.0, -0.5),
+                Player::batter(2, "Top batter 2", 1.2, -0.8),
+                Player::batter(3, "Top batter 3", 1.4, 0.8),
+                Player::batter(4, "Top batter 4", 1.6, 1.0),
+                Player::batter(5, "Top batter 5", 1.5, 0.9),
+                Player::batter(6, "Top batter 6", -0.1, 0.2),
+                Player::batter(7, "Top batter 7", 0.1, -0.3),
+                Player::batter(8, "Top batter 8", -1.0, -0.5),
+                Player::batter(9, "Top batter 9", -1.2, -1.2),
             ]);
             game.home_batters = Vec::from([
-                Batter::new(10, "Bottom batter 1", 0.9, -0.8),
-                Batter::new(11, "Bottom batter 2", 1.1, -0.6),
-                Batter::new(12, "Bottom batter 3", 1.2, 1.0),
-                Batter::new(13, "Bottom batter 4", 1.4, 1.4),
-                Batter::new(14, "Bottom batter 5", 0.2, 1.1),
-                Batter::new(15, "Bottom batter 6", -0.5, -0.2),
-                Batter::new(16, "Bottom batter 7", -0.8, -0.1),
-                Batter::new(17, "Bottom batter 8", -1.3, -0.3),
-                Batter::new(18, "Bottom batter 9", -1.4, -0.4),
+                Player::batter(10, "Bottom batter 1", 0.9, -0.8),
+                Player::batter(11, "Bottom batter 2", 1.1, -0.6),
+                Player::batter(12, "Bottom batter 3", 1.2, 1.0),
+                Player::batter(13, "Bottom batter 4", 1.4, 1.4),
+                Player::batter(14, "Bottom batter 5", 0.2, 1.1),
+                Player::batter(15, "Bottom batter 6", -0.5, -0.2),
+                Player::batter(16, "Bottom batter 7", -0.8, -0.1),
+                Player::batter(17, "Bottom batter 8", -1.3, -0.3),
+                Player::batter(18, "Bottom batter 9", -1.4, -0.4),
             ]);
 
             // loop for an innning
@@ -76,7 +76,7 @@ impl<R: GameRepository> GameService<R> {
                 while out < MAX_OUT {
                     count_seq += 1;
 
-                    let current_batter: &Batter;
+                    let current_batter: &Player;
                     if inning_tb == InningType::Top {
                         current_batter = &game.away_batters[top_batter_order - 1];
                     } else {

@@ -44,8 +44,6 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
     let _ = init_terminal();
     let mut should_redraw = true;
 
-    rprintln!("<- {} {} ->", t!("prev_count"), t!("next_count"));
-
     loop {
         if should_redraw {
             let mut table = Table::new();
@@ -64,8 +62,11 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                 .find(|i| i.seq == count_seq)
                 .expect(&t!("count_not_found"));
 
+            rprintln!("<- {} {} ->", t!("prev_count"), t!("next_count"));
+            rprintln!("\r\n");
             rprintln!(
-                "{}:{}({}) {}:{}",
+                "<{}> {}:{}({}) {}:{}",
+                game.game_type,
                 t!("current_inning"),
                 current_inning.seq,
                 current_inning.tb.to_string(),

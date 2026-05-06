@@ -52,10 +52,7 @@ pub fn restore_terminal() -> io::Result<()> {
 
     terminal::disable_raw_mode()?;
 
-    execute!(
-        stdout,
-        cursor::Show, // 隠していた場合は再表示
-    )?;
+    execute!(stdout, cursor::Show,)?;
 
     println!("\r");
     Ok(())

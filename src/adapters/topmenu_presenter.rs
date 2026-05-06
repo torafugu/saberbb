@@ -1,5 +1,5 @@
 use super::game_presenter::display_select_season;
-use super::stat_presenter::{display_batting_stats, display_standings};
+use super::statistics_presenter::{display_batting_stats, display_standings};
 use crate::t;
 use console::Term;
 use inquire::Select;

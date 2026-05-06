@@ -1,0 +1,14 @@
+DROP TABLE player;
+
+CREATE TABLE player (
+    id INTEGER PRIMARY KEY,
+    team_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    age INTEGER NOT NULL,
+    throw TEXT NOT NULL,
+    mod_speed REAL NOT NULL,
+    mod_control REAL NOT NULL,
+    bat TEXT NOT NULL,
+    mod_ba REAL NOT NULL,
+    mod_slg REAL NOT NULL
+);

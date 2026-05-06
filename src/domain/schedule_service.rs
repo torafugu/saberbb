@@ -101,7 +101,7 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                                 actual_date: NaiveDate::parse_from_str("19000101", "%Y%m%d")?,
                                 home_team: home.clone(),
                                 away_team: away.clone(),
-                                game_type: GameType::REGULAR,
+                                game_type: GameType::Regular,
                                 innings: Vec::new(),
                                 away_point: 0,
                                 home_point: 0,

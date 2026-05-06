@@ -1,6 +1,6 @@
-use crate::domain::shared::player::{Batter, BattingStats};
+use crate::domain::shared::player::{BattingStats, Player};
 use crate::domain::shared::team::{Standing, Team};
-use crate::domain::stat_service::StatRepository;
+use crate::domain::statistics_service::StatRepository;
 use anyhow::Result;
 use rusqlite::Connection;
 
@@ -96,13 +96,9 @@ impl StatRepository for SqlStatRepository {
         )?;
 
         let batting_stats_iter = stmt.query_map([], |row| {
+            let name: String = row.get("batter_name")?;
             Ok(BattingStats {
-                batter: Batter {
-                    id: row.get("batter_id")?,
-                    name: row.get("batter_name")?,
-                    mod_ba: 0.0,
-                    mod_slg: 0.0,
-                },
+                batter: Player::min(row.get("batter_id")?, &name),
                 ab: row.get("ab")?,
                 single: row.get("single")?,
                 double: row.get("double")?,
@@ -112,32 +108,6 @@ impl StatRepository for SqlStatRepository {
                 rbi: row.get("rbi")?,
             })
         })?;
-
-        // if let Err(e) = stmt.query_map([], |row| {
-        //     Ok(BattingStats {
-        //         batter: Batter {
-        //             id: row.get("batter_id")?,
-        //             name: row.get("batter_name")?,
-        //             mod_ba: 0.0,
-        //             mod_slg: 0.0,
-        //         },
-        //         ab: row.get("ab")?,
-        //         single: row.get("single")?,
-        //         double: row.get("double")?,
-        //         triple: row.get("draws")?,
-        //         homerun: row.get("homerun")?,
-        //         ba: row.get("ba")?,
-        //         rbi: row.get("rbi")?,
-        //     })
-        // }) {
-        //     eprintln!("Error report: {:?}", e);
-        // };
-
-        // if let Err(e) = batting_stats_iter.collect::<Result<Vec<_>, _>>() {
-        //     eprintln!("Error report: {:?}", e);
-        // };
-
-        // Ok(Vec::new())
 
         let batting_stats: Vec<BattingStats> = batting_stats_iter.collect::<Result<Vec<_>, _>>()?;
         Ok(batting_stats)

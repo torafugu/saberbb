@@ -1,7 +1,7 @@
 use super::persistence_config::get_db_conn;
 use crate::domain::game_service::GameRepository;
 use crate::domain::shared::game::{Bases, Count, Game, GameRound, GameType, Inning};
-use crate::domain::shared::player::Batter;
+use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
 use crate::domain::shared::types::{BattingResult, InningType};
 use crate::t;
@@ -12,6 +12,17 @@ use rusqlite::{Connection, params};
 use std::sync::Arc;
 
 const SELECT_BATTER_SQL: &str = "SELECT id, name, mod_ba, mod_slg FROM batter WHERE team_id = ?1";
+
+impl ToSql for GameType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let s = match self {
+            GameType::Exhibition => "Exhibition",
+            GameType::Regular => "Regular",
+            GameType::Postseason => "Postseason",
+        };
+        Ok(ToSqlOutput::from(s))
+    }
+}
 
 struct SqlGameType(GameType);
 impl FromSql for SqlGameType {
@@ -263,22 +274,24 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
         let mut game = game?;
         let mut stmt_away_batter = conn.prepare(SELECT_BATTER_SQL)?;
         let away_batter_iter = stmt_away_batter.query_map([game.away_team.id], |row| {
-            Ok(Batter {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                mod_ba: row.get("mod_ba")?,
-                mod_slg: row.get("mod_slg")?,
-            })
+            let name: String = row.get("batter_name")?;
+            Ok(Player::batter(
+                row.get("id")?,
+                &name,
+                row.get("mod_ba")?,
+                row.get("mod_slg")?,
+            ))
         })?;
 
         let mut stmt_home_batter = conn.prepare(SELECT_BATTER_SQL)?;
         let home_batter_iter = stmt_home_batter.query_map([game.home_team.id], |row| {
-            Ok(Batter {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                mod_ba: row.get("mod_ba")?,
-                mod_slg: row.get("mod_slg")?,
-            })
+            let name: String = row.get("batter_name")?;
+            Ok(Player::batter(
+                row.get("id")?,
+                &name,
+                row.get("mod_ba")?,
+                row.get("mod_slg")?,
+            ))
         })?;
 
         for away_batter in away_batter_iter {
@@ -312,6 +325,7 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
             let mut _inning = inning?;
             let count_iter =
                 stmt_count.query_map(params![game.id, _inning.seq, _inning.tb], |row| {
+                    let name: String = row.get("batter_name")?;
                     Ok(Count {
                         seq: row.get("seq")?,
                         bases: Bases {
@@ -320,9 +334,9 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
                             third: row.get("is_third_runner")?,
                         },
                         result: row.get::<_, SqlBattingResult>("result")?.0,
-                        batter: Arc::from(Batter::new(
+                        batter: Arc::from(Player::batter(
                             row.get("batter_id")?,
-                            &row.get::<_, String>("batter_name")?,
+                            &name,
                             row.get("batter_ba")?,
                             row.get("batter_slg")?,
                         )),
