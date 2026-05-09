@@ -1,89 +1,17 @@
 use super::persistence_config::get_db_conn;
+use super::sql_types::{SqlBattingResult, SqlInningType};
 use crate::domain::game_service::GameRepository;
-use crate::domain::shared::game::{Bases, Count, Game, GameRound, GameType, Inning};
+use crate::domain::shared::game::{Bases, Count, Game, GameRound, Inning};
 use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
-use crate::domain::shared::types::{BattingResult, InningType};
+use crate::repositories::sql_types::SqlGameType;
 use crate::t;
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, params};
 use std::sync::Arc;
 
-const SELECT_BATTER_SQL: &str = "SELECT id, name, mod_ba, mod_slg FROM batter WHERE team_id = ?1";
-
-impl ToSql for GameType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            GameType::Exhibition => "Exhibition",
-            GameType::Regular => "Regular",
-            GameType::Postseason => "Postseason",
-        };
-        Ok(ToSqlOutput::from(s))
-    }
-}
-
-struct SqlGameType(GameType);
-impl FromSql for SqlGameType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let gt = value.as_str()?;
-
-        gt.parse::<GameType>().map(SqlGameType).map_err(|e| {
-            eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
-            rusqlite::types::FromSqlError::InvalidType
-        })
-    }
-}
-
-impl ToSql for InningType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            InningType::Top => "Top",
-            InningType::Bottom => "Bottom",
-        };
-        Ok(ToSqlOutput::from(s))
-    }
-}
-
-struct SqlInningType(InningType);
-impl FromSql for SqlInningType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let tb = value.as_str()?;
-
-        tb.parse::<InningType>().map(SqlInningType).map_err(|e| {
-            eprintln!("{} {}: {:?}", t!("error_parse"), tb, e);
-            rusqlite::types::FromSqlError::InvalidType
-        })
-    }
-}
-
-impl ToSql for BattingResult {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            BattingResult::Single => "Single",
-            BattingResult::Double => "Double",
-            BattingResult::Triple => "Triple",
-            BattingResult::HomeRun => "HomeRun",
-            BattingResult::Out => "Out",
-        };
-        Ok(ToSqlOutput::from(s))
-    }
-}
-
-struct SqlBattingResult(BattingResult);
-impl FromSql for SqlBattingResult {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let br = value.as_str()?;
-
-        br.parse::<BattingResult>()
-            .map(SqlBattingResult)
-            .map_err(|e| {
-                eprintln!("{} {}: {:?}", t!("error_parse"), br, e);
-                rusqlite::types::FromSqlError::InvalidType
-            })
-    }
-}
+const SELECT_BATTER_SQL: &str = "SELECT id, name, mod_ba, mod_slg FROM player WHERE team_id = ?1";
 
 pub struct SqlGameRepository {
     pub pool: Connection,
@@ -274,7 +202,7 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
         let mut game = game?;
         let mut stmt_away_batter = conn.prepare(SELECT_BATTER_SQL)?;
         let away_batter_iter = stmt_away_batter.query_map([game.away_team.id], |row| {
-            let name: String = row.get("batter_name")?;
+            let name: String = row.get("name")?;
             Ok(Player::batter(
                 row.get("id")?,
                 &name,
@@ -285,7 +213,7 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
 
         let mut stmt_home_batter = conn.prepare(SELECT_BATTER_SQL)?;
         let home_batter_iter = stmt_home_batter.query_map([game.home_team.id], |row| {
-            let name: String = row.get("batter_name")?;
+            let name: String = row.get("name")?;
             Ok(Player::batter(
                 row.get("id")?,
                 &name,
@@ -317,8 +245,8 @@ fn load_games(game_round: &GameRound) -> Result<Vec<Game>> {
         let mut stmt_count = conn.prepare(
             "SELECT seq, is_first_runner, is_second_runner, is_third_runner, result, point, out, 
                 id as batter_id, name as batter_name, mod_ba as batter_ba, mod_slg as batter_slg
-                FROM count, batter 
-                WHERE count.batter_id = batter.id AND 
+                FROM count, player 
+                WHERE count.batter_id = player.id AND 
                 game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3",
         )?;
         for inning in inning_iter {

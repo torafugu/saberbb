@@ -6,13 +6,15 @@ use chrono::{Datelike, Duration, NaiveDate};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
+const DEFAULT_DATE: &str = "19000101";
+
 pub trait ScheduleRepository {
     fn load_game_season(&self) -> Result<GameSeason>;
     fn load_all_leagues(&self) -> Result<Vec<League>>;
     fn save_scheduled_game_rounds(&mut self, game_rounds: Vec<GameRound>) -> Result<()>;
     fn load_last_game_round_id(&self) -> Result<i32>;
     fn load_last_game_id(&self) -> Result<i32>;
-    fn update_scheduled_season(&self, updated_sheduled_season: i16) -> Result<()>;
+    fn update_scheduled_season(&self, scheduled_season: i16) -> Result<()>;
 }
 
 pub struct ScheduleService<R: ScheduleRepository> {
@@ -98,7 +100,7 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                             game_round.games.push(Game {
                                 id: last_game_id,
                                 planned_date: game_date,
-                                actual_date: NaiveDate::parse_from_str("19000101", "%Y%m%d")?,
+                                actual_date: NaiveDate::parse_from_str(DEFAULT_DATE, "%Y%m%d")?,
                                 home_team: home.clone(),
                                 away_team: away.clone(),
                                 game_type: GameType::Regular,

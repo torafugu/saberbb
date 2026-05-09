@@ -9,7 +9,7 @@ pub struct SqlStatRepository {
 }
 
 impl StatRepository for SqlStatRepository {
-    fn load_stadings(&self) -> Result<Vec<Standing>> {
+    fn load_standings(&self) -> Result<Vec<Standing>> {
         let mut stmt = self.pool.prepare(
             "SELECT 
                     team_id,

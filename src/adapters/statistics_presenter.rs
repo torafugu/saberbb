@@ -95,7 +95,7 @@ pub fn display_batting_stats() {
             }
             for batting_stat in batting_stats_res {
                 table.add_row(vec![
-                    batting_stat.batter.name,
+                    batting_stat.batter.last_name,
                     Arc::from(batting_stat.ab.to_string()),
                     Arc::from(batting_stat.single.to_string()),
                     Arc::from(batting_stat.double.to_string()),

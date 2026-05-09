@@ -13,12 +13,12 @@ use inquire::Select;
 use std::collections::BTreeMap;
 use std::io;
 
-const LINE_SEPARATOR_TEXT: &str = "---";
-const RUNNER_TEXT: &str = "R";
-const NO_RUNNER_TEXT: &str = "-";
-const SPACE_TEXT: &str = " ";
-const SEPARATOR_TEXT: &str = ":";
-const WALK_OFF_TEXT: &str = "x";
+const LINE_SEPARATOR: &str = "---";
+const RUNNER: &str = "R";
+const NO_RUNNER: &str = "-";
+const SPACE: &str = " ";
+const SEPARATOR: &str = ":";
+const WALK_OFF: &str = "x";
 
 pub fn display_game_rounds_processed(num_of_rounds: i8) {
     println!(
@@ -49,7 +49,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             let mut table = Table::new();
             execute!(stdout, cursor::MoveTo(0, 0))?;
 
-            let max_ining_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
+            let max_inning_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
             current_inning = game
                 .innings
                 .iter()
@@ -82,7 +82,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             top_scores.push((&game.away_team.name).to_string());
             bottom_scores.push((&game.home_team.name).to_string());
 
-            for inning_num in 1..max_ining_seq + 1 {
+            for inning_num in 1..max_inning_seq + 1 {
                 headers.push(inning_num.to_string());
                 top_scores.push("".to_string());
                 bottom_scores.push("".to_string());
@@ -114,20 +114,20 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                 }
             }
 
-            if inning_seq == max_ining_seq
+            if inning_seq == max_inning_seq
                 && count_seq == (current_inning.counts.len()) as i8
-                && bottom_scores[max_ining_seq as usize] == ""
+                && bottom_scores[max_inning_seq as usize] == ""
             {
-                bottom_scores[max_ining_seq as usize] = WALK_OFF_TEXT.to_string();
+                bottom_scores[max_inning_seq as usize] = WALK_OFF.to_string();
             }
 
-            top_scores[(max_ining_seq + 1) as usize] = top_total_point.to_string();
-            bottom_scores[(max_ining_seq + 1) as usize] = bottom_total_point.to_string();
+            top_scores[(max_inning_seq + 1) as usize] = top_total_point.to_string();
+            bottom_scores[(max_inning_seq + 1) as usize] = bottom_total_point.to_string();
 
             table.set_header(headers);
             table.add_row(top_scores);
             table.add_row(bottom_scores);
-            for inning_num in 1..max_ining_seq + 2 {
+            for inning_num in 1..max_inning_seq + 2 {
                 table
                     .column_mut(inning_num as usize)
                     .unwrap()
@@ -237,7 +237,7 @@ fn format_count(count: &Count) -> String {
     ));
     formated_count.push_str(&format!("  <H>\n"));
     formated_count.push_str(&format!("{}: {}\n", &t!("out_count"), count.out));
-    formated_count.push_str(&format!("{}: {}\n", &t!("batter"), count.batter.name));
+    formated_count.push_str(&format!("{}: {}\n", &t!("batter"), count.batter.last_name));
     let rounded_ba = (count.batter.hit_average() * 1000.0).round();
     formated_count.push_str(&format!(" {} : .{}\n", &t!("ba"), rounded_ba));
     let rounded_slg = (count.batter.slg() * 1000.0).round();
@@ -252,7 +252,7 @@ fn format_count(count: &Count) -> String {
 }
 
 fn display_runner(runner: bool) -> &'static str {
-    if runner { RUNNER_TEXT } else { NO_RUNNER_TEXT }
+    if runner { RUNNER } else { NO_RUNNER }
 }
 
 pub fn display_select_game(season: i16) {
@@ -355,17 +355,17 @@ pub fn display_batting_results(game: &Game) {
         for count in inning.counts.iter() {
             if inning.tb == InningType::Top {
                 _top_results
-                    .entry(count.batter.name.to_string())
+                    .entry(count.batter.last_name.to_string())
                     .and_modify(|e| {
-                        e.push_str(SPACE_TEXT);
+                        e.push_str(SPACE);
                         e.push_str(count.result.to_string().as_str());
                     })
                     .or_insert(count.result.to_string());
             } else {
                 _bottom_results
-                    .entry(count.batter.name.to_string())
+                    .entry(count.batter.last_name.to_string())
                     .and_modify(|e| {
-                        e.push_str(SPACE_TEXT);
+                        e.push_str(SPACE);
                         e.push_str(count.result.to_string().as_str());
                     })
                     .or_insert(count.result.to_string());
@@ -383,6 +383,6 @@ pub fn display_batting_results(game: &Game) {
     for (key, value) in &_bottom_results {
         println!("{}: {}", key, value);
     }
-    println!("{LINE_SEPARATOR_TEXT}");
-    println!("{LINE_SEPARATOR_TEXT}");
+    println!("{LINE_SEPARATOR}");
+    println!("{LINE_SEPARATOR}");
 }

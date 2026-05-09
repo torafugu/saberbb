@@ -7,16 +7,17 @@
 
 ```sql
 CREATE TABLE player (
-    id INTEGER PRIMARY KEY,
-    team_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    age INTEGER NOT NULL,
-    throw TEXT NOT NULL,
-    mod_speed REAL NOT NULL,
-    mod_control REAL NOT NULL,
-    bat TEXT NOT NULL,
-    mod_ba REAL NOT NULL,
-    mod_slg REAL NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT
+  , team_id INTEGER NOT NULL
+  , first_name TEXT NOT NULL
+  , last_name TEXT NOT NULL
+  , age INTEGER NOT NULL
+  , throw TEXT NOT NULL
+  , mod_speed REAL NOT NULL
+  , mod_control REAL NOT NULL
+  , bat TEXT NOT NULL
+  , mod_ba REAL NOT NULL
+  , mod_slg REAL NOT NULL
 )
 ```
 
@@ -28,7 +29,8 @@ CREATE TABLE player (
 | ----------- | ------- | ------- | -------- | -------- | ------- | ------- |
 | id          | INTEGER |         | true     |          |         |         |
 | team_id     | INTEGER |         | false    |          |         |         |
-| name        | TEXT    |         | false    |          |         |         |
+| first_name  | TEXT    |         | false    |          |         |         |
+| last_name   | TEXT    |         | false    |          |         |         |
 | age         | INTEGER |         | false    |          |         |         |
 | throw       | TEXT    |         | false    |          |         |         |
 | mod_speed   | REAL    |         | false    |          |         |         |

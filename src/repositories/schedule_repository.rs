@@ -135,10 +135,10 @@ impl ScheduleRepository for SqlScheduleRepository {
         Ok(())
     }
 
-    fn update_scheduled_season(&self, updated_sheduled_season: i16) -> Result<()> {
+    fn update_scheduled_season(&self, scheduled_season: i16) -> Result<()> {
         self.pool.execute(
             "Update game_season SET scheduled_season = ?1",
-            params![updated_sheduled_season],
+            params![scheduled_season],
         )?;
         Ok(())
     }

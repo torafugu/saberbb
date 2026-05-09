@@ -1,4 +1,4 @@
-use super::utils;
+use crate::domain::utils;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -9,7 +9,6 @@ const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
 const BATTING_MAX_HIT_AVERAGE: f64 = 0.32;
 const BATTING_MIN_SLG: f64 = 0.3;
 const BATTING_MAX_SLG: f64 = 0.55;
-const DUMMY_BATTER_TEXT: &str = "Dummy Batter";
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
 #[strum(ascii_case_insensitive)]
@@ -29,7 +28,8 @@ impl fmt::Display for RL {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
     pub id: i32,
-    pub name: Arc<str>,
+    pub first_name: Arc<str>,
+    pub last_name: Arc<str>,
     pub age: i8,
     pub throw: RL,
     pub mod_speed: f64,
@@ -43,7 +43,8 @@ impl Player {
     pub fn min(id: i32, name: &str) -> Player {
         Player {
             id: id,
-            name: Arc::from(name),
+            first_name: Arc::from(name),
+            last_name: Arc::from(name),
             age: 25,
             throw: RL::Right,
             mod_speed: 0.0,
@@ -57,7 +58,8 @@ impl Player {
     pub fn batter(id: i32, name: &str, mod_ba: f64, mod_slg: f64) -> Player {
         Player {
             id: id,
-            name: Arc::from(name),
+            first_name: Arc::from(name),
+            last_name: Arc::from(name),
             age: 25,
             throw: RL::Right,
             mod_speed: 0.0,

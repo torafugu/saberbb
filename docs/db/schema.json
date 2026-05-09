@@ -403,6 +403,87 @@
       "def": "CREATE TABLE game (\n    game_round_id INTEGER,\n    id INTEGER,\n    planned_date TEXT NOT NULL,\n    actual_date TEXT NOT NULL,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    away_point INTEGER NOT NULL,\n    home_point INTEGER NOT NULL,\n    PRIMARY KEY (id)\n)"
     },
     {
+      "name": "first_names",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "reading",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "gender",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "country",
+          "type": "TEXT",
+          "nullable": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "first_names",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE \"first_names\" (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT\n  , reading TEXT\n  , gender TEXT\n  , country TEXT\n)"
+    },
+    {
+      "name": "last_names",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "reading",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "country",
+          "type": "TEXT",
+          "nullable": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "last_names",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE \"last_names\" (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT\n  , reading TEXT\n  , country TEXT\n)"
+    },
+    {
       "name": "player",
       "type": "table",
       "columns": [
@@ -417,7 +498,12 @@
           "nullable": false
         },
         {
-          "name": "name",
+          "name": "first_name",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "last_name",
           "type": "TEXT",
           "nullable": false
         },
@@ -468,7 +554,7 @@
           ]
         }
       ],
-      "def": "CREATE TABLE player (\n    id INTEGER PRIMARY KEY,\n    team_id INTEGER NOT NULL,\n    name TEXT NOT NULL,\n    age INTEGER NOT NULL,\n    throw TEXT NOT NULL,\n    mod_speed REAL NOT NULL,\n    mod_control REAL NOT NULL,\n    bat TEXT NOT NULL,\n    mod_ba REAL NOT NULL,\n    mod_slg REAL NOT NULL\n)"
+      "def": "CREATE TABLE player (\n    id INTEGER PRIMARY KEY AUTOINCREMENT\n  , team_id INTEGER NOT NULL\n  , first_name TEXT NOT NULL\n  , last_name TEXT NOT NULL\n  , age INTEGER NOT NULL\n  , throw TEXT NOT NULL\n  , mod_speed REAL NOT NULL\n  , mod_control REAL NOT NULL\n  , bat TEXT NOT NULL\n  , mod_ba REAL NOT NULL\n  , mod_slg REAL NOT NULL\n)"
     }
   ],
   "driver": {

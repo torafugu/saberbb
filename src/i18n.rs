@@ -9,8 +9,7 @@ use unic_langid::langid;
 static_loader! {
     static LOCALES = {
         locales: "locales",
-        fallback_language: "en-US",
-    };
+        fallback_language: "en-US",    };
 }
 
 #[macro_export]
@@ -52,5 +51,13 @@ impl I18nManager {
 
     pub fn tr_with(&self, key: &str, args: HashMap<Cow<'static, str>, FluentValue>) -> String {
         LOCALES.lookup_with_args(&self.lang, key, &args)
+    }
+
+    pub fn lang_db(&self) -> String {
+        let mut lang_db = "us".to_string();
+        if self.lang.to_string() == "ja-JP" {
+            lang_db = "jp".to_string();
+        }
+        lang_db
     }
 }

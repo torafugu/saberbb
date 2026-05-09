@@ -4,7 +4,7 @@ use crate::t;
 use anyhow::{Context, Result};
 
 pub trait StatRepository {
-    fn load_stadings(&self) -> Result<Vec<Standing>>;
+    fn load_standings(&self) -> Result<Vec<Standing>>;
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>>;
 }
 
@@ -16,8 +16,8 @@ impl<R: StatRepository> StatService<R> {
     pub fn show_standings(&self) -> Result<Vec<Standing>> {
         let mut standings = self
             .repo
-            .load_stadings()
-            .context(t!("error", "function" => "load_stadings"))?;
+            .load_standings()
+            .context(t!("error", "function" => "load_standings"))?;
 
         // 1. Sort by pct
         // partial_cmp is used to compare f32

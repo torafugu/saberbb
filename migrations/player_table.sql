@@ -1,9 +1,10 @@
 DROP TABLE player;
 
 CREATE TABLE player (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     team_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
     age INTEGER NOT NULL,
     throw TEXT NOT NULL,
     mod_speed REAL NOT NULL,

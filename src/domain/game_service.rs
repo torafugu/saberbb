@@ -2,7 +2,7 @@ use super::resolver::batting_resolve;
 use super::shared::game::{Bases, Count, GameRound, Inning, MAX_INNING, MAX_OUT};
 use super::shared::player::Player;
 use super::shared::types::{BattingResult, InningType};
-use super::shared::utils::next_tb;
+use super::utils::next_tb;
 use crate::t;
 use anyhow::{Context, Result};
 use std::i16;

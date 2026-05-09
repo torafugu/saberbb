@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 directories = "6.0"
-rand = "0.10.1"
+rand = { version = "0.10.1", features = ["std"] }
 rand_distr = "0.6.0"
 rusqlite = { version = "0.39", features = ["bundled", "chrono"] }
 serde = { version = "1.0", features = ["derive", "rc"] }

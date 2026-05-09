@@ -1,8 +1,21 @@
+use super::shared::player::Player;
+use super::shared::team::{League, Team};
+use super::utils::{age_random, rl_random, skewed_normal_random};
+use crate::i18n::I18nManager;
+use crate::t;
 use anyhow::Result;
-use rand_distr::Distribution;
+
+const SPEED_SKEW: f64 = 0.2;
+const CONTROL_SKEW: f64 = 0.2;
+const BA_SKEW: f64 = 0.2;
+const SLG_SKEW: f64 = 0.2;
+const THROW_LEFTY: f64 = 0.2;
+const BAT_LEFTY: f64 = 0.4;
 
 pub trait PlayerRepository {
-    fn save_players(&mut self, num_of_players: i16) -> Result<()>;
+    fn save_player(&mut self, team: Team, player: Player) -> Result<()>;
+    fn random_name(&self, language: String) -> Result<[String; 2]>;
+    fn next_player_dist_team(&self) -> Result<Team>;
 }
 
 pub struct PlayerService<R: PlayerRepository> {
@@ -10,19 +23,34 @@ pub struct PlayerService<R: PlayerRepository> {
 }
 
 impl<R: PlayerRepository> PlayerService<R> {
-    pub fn generate_players(&mut self) -> Result<()> {
-        let mut rng = rand::rng();
+    // TODO: Divide batter generation and pitcher generation
+    pub fn generate_players(&mut self, num_of_players: i16) -> Result<()> {
+        for _ in 0..num_of_players {
+            let name = self.repo.random_name(I18nManager::global().lang_db())?;
+            let age = age_random();
+            let throw = rl_random(THROW_LEFTY);
+            let mod_speed = skewed_normal_random(SPEED_SKEW);
+            let mod_control = skewed_normal_random(CONTROL_SKEW);
+            let bat = rl_random(THROW_LEFTY);
+            let mod_ba = skewed_normal_random(BA_SKEW);
+            let mod_slg = skewed_normal_random(SLG_SKEW);
+            let team = self.repo.next_player_dist_team()?;
+            let player = Player {
+                id: 0,
+                first_name: name[0].clone().into(),
+                last_name: name[1].clone().into(),
+                age: age,
+                throw: throw,
+                mod_speed: mod_speed,
+                mod_control: mod_control,
+                bat: bat,
+                mod_ba: mod_ba,
+                mod_slg: mod_slg,
+            };
 
-        for _ in 0..30 {
-            // Skew-Normal Distribution
-            let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
-            let val1: f64 = normal.sample(&mut rng);
-            let val2: f64 = normal.sample(&mut rng).abs();
-
-            let alpha: f64 = 0.5; // Skew level
-            let skewed_val = val1 + alpha * val2;
-
-            println!("{:.4}", skewed_val);
+            if let Err(e) = self.repo.save_player(team, player) {
+                eprintln!("{}:{}", t!("error", "function" => "save_player"), e);
+            }
         }
         Ok(())
     }

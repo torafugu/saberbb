@@ -59,7 +59,7 @@ fn main() {
             pool: get_db_conn().unwrap(),
         };
         let mut player_service = PlayerService { repo: db_repo };
-        if let Err(e) = player_service.generate_players() {
+        if let Err(e) = player_service.generate_players(num_of_players) {
             eprintln!("{}:{}", t!("error", "function" => "generate_players"), e);
         }
     }
@@ -87,7 +87,7 @@ fn main() {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Proess games
+    /// Process games
     #[arg(short, long)]
     process: Option<i8>,
 
