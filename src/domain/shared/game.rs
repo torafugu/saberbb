@@ -2,6 +2,7 @@ use super::player::Player;
 use super::team::Team;
 use super::types::BattingResult;
 use super::types::InningType;
+use crate::domain::shared::types::Position;
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -143,8 +144,8 @@ pub struct Game {
     pub innings: Vec<Inning>,
     pub away_point: i16,
     pub home_point: i16,
-    pub away_batters: Vec<Player>,
-    pub home_batters: Vec<Player>,
+    pub away_players: Vec<BattingOrder>,
+    pub home_players: Vec<BattingOrder>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -168,4 +169,11 @@ pub struct Count {
     pub result: BattingResult,
     pub point: i8,
     pub out: i8,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct BattingOrder {
+    pub order: i8,
+    pub position: Position,
+    pub player: Player,
 }

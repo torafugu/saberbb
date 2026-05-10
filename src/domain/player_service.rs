@@ -31,7 +31,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             let throw = rl_random(THROW_LEFTY);
             let mod_speed = skewed_normal_random(SPEED_SKEW);
             let mod_control = skewed_normal_random(CONTROL_SKEW);
-            let bat = rl_random(THROW_LEFTY);
+            let bat = rl_random(BAT_LEFTY);
             let mod_ba = skewed_normal_random(BA_SKEW);
             let mod_slg = skewed_normal_random(SLG_SKEW);
             let team = self.repo.next_player_dist_team()?;

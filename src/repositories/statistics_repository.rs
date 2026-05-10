@@ -61,6 +61,7 @@ impl StatRepository for SqlStatRepository {
                 team: Team {
                     id: row.get("team_id")?,
                     name: row.get("team_name")?,
+                    players: Vec::new(),
                 },
                 games: row.get("games")?,
                 wins: row.get("wins")?,

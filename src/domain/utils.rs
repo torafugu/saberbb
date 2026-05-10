@@ -2,8 +2,8 @@ use crate::domain::shared::{player::RL, types::InningType};
 use rand_distr::{Distribution, Gamma};
 
 // TODO: Get from config file
-const AGE_SHAPE: f64 = 3.0;
-const AGE_SCALE: f64 = 3.5;
+const AGE_SHAPE: f64 = 2.5;
+const AGE_SCALE: f64 = 2.5;
 const AGE_OFFSET: f64 = 18.0;
 
 pub fn sigmoid(x: f64) -> f64 {

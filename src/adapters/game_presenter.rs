@@ -272,8 +272,8 @@ pub fn display_select_game(season: i16) {
                          innings,
                          away_point,
                          home_point,
-                         away_batters,
-                         home_batters,
+                         away_players: away_batters,
+                         home_players: home_batters,
                      }| {
                         let label = format!(
                             "[{}] {} vs {})",
@@ -292,8 +292,8 @@ pub fn display_select_game(season: i16) {
                                 innings,
                                 away_point,
                                 home_point,
-                                away_batters,
-                                home_batters,
+                                away_players: away_batters,
+                                home_players: home_batters,
                             },
                         }
                     },

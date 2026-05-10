@@ -1,8 +1,38 @@
 use crate::domain::shared::game::GameType;
 use crate::domain::shared::player::RL;
-use crate::domain::shared::types::{BattingResult, InningType};
+use crate::domain::shared::types::{BattingResult, InningType, Position};
 use crate::t;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+
+impl ToSql for Position {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let s = match self {
+            Position::P => "P",
+            Position::C => "C",
+            Position::FB => "1B",
+            Position::SB => "2B",
+            Position::TB => "3B",
+            Position::SS => "SS",
+            Position::LF => "LF",
+            Position::CF => "CF",
+            Position::RF => "RF",
+            Position::DH => "DH",
+        };
+        Ok(ToSqlOutput::from(s))
+    }
+}
+
+pub struct SqlPosition(pub Position);
+impl FromSql for SqlPosition {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        gt.parse::<Position>().map(SqlPosition).map_err(|e| {
+            eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
+            rusqlite::types::FromSqlError::InvalidType
+        })
+    }
+}
 
 impl ToSql for RL {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {

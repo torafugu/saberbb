@@ -38,28 +38,9 @@ impl<R: GameRepository> GameService<R> {
             // TODO: Check postponement
             game.actual_date = game.planned_date;
 
-            game.away_batters = Vec::from([
-                Player::batter(1, "Top batter 1", 1.0, -0.5),
-                Player::batter(2, "Top batter 2", 1.2, -0.8),
-                Player::batter(3, "Top batter 3", 1.4, 0.8),
-                Player::batter(4, "Top batter 4", 1.6, 1.0),
-                Player::batter(5, "Top batter 5", 1.5, 0.9),
-                Player::batter(6, "Top batter 6", -0.1, 0.2),
-                Player::batter(7, "Top batter 7", 0.1, -0.3),
-                Player::batter(8, "Top batter 8", -1.0, -0.5),
-                Player::batter(9, "Top batter 9", -1.2, -1.2),
-            ]);
-            game.home_batters = Vec::from([
-                Player::batter(10, "Bottom batter 1", 0.9, -0.8),
-                Player::batter(11, "Bottom batter 2", 1.1, -0.6),
-                Player::batter(12, "Bottom batter 3", 1.2, 1.0),
-                Player::batter(13, "Bottom batter 4", 1.4, 1.4),
-                Player::batter(14, "Bottom batter 5", 0.2, 1.1),
-                Player::batter(15, "Bottom batter 6", -0.5, -0.2),
-                Player::batter(16, "Bottom batter 7", -0.8, -0.1),
-                Player::batter(17, "Bottom batter 8", -1.3, -0.3),
-                Player::batter(18, "Bottom batter 9", -1.4, -0.4),
-            ]);
+            // TODO: Implement No DH case
+            game.away_players = game.away_team.lineup(true);
+            game.home_players = game.home_team.lineup(true);
 
             // loop for an innning
             while is_in_game {
@@ -76,17 +57,30 @@ impl<R: GameRepository> GameService<R> {
                 while out < MAX_OUT {
                     count_seq += 1;
 
-                    let current_batter: &Player;
+                    let current_batter: Player;
+
                     if inning_tb == InningType::Top {
-                        current_batter = &game.away_batters[top_batter_order - 1];
+                        current_batter = game
+                            .away_players
+                            .iter()
+                            .find(|i| i.order == top_batter_order as i8)
+                            .expect(&t!("batter_not_found"))
+                            .clone()
+                            .player;
                     } else {
-                        current_batter = &game.home_batters[bottom_batter_order - 1];
+                        current_batter = game
+                            .home_players
+                            .iter()
+                            .find(|i| i.order == bottom_batter_order as i8)
+                            .expect(&t!("batter_not_found"))
+                            .clone()
+                            .player;
                     }
 
                     let mut count = Count {
                         seq: count_seq,
                         bases: bases.clone(),
-                        batter: Arc::new(current_batter.clone()),
+                        batter: Arc::new(current_batter),
                         result: BattingResult::Out,
                         point: 0,
                         out,

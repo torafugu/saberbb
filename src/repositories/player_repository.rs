@@ -92,6 +92,7 @@ impl PlayerRepository for SqlPlayerRepository {
                 Ok(Team {
                     id: row.get("team_id")?,
                     name: row.get("team_name")?,
+                    players: Vec::new(),
                 })
             },
         )?;

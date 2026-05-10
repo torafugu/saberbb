@@ -107,8 +107,8 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                                 innings: Vec::new(),
                                 away_point: 0,
                                 home_point: 0,
-                                away_batters: Vec::new(),
-                                home_batters: Vec::new(),
+                                away_players: Vec::new(),
+                                home_players: Vec::new(),
                             });
                         }
                     }

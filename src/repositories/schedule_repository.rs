@@ -51,6 +51,7 @@ impl ScheduleRepository for SqlScheduleRepository {
                 Ok(Team {
                     id: row.get("id")?,
                     name: row.get("name")?,
+                    players: Vec::new(),
                 })
             })?;
 
