@@ -10,14 +10,6 @@ pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
 
-pub fn next_tb(tb: InningType) -> InningType {
-    if matches!(tb, InningType::Bottom) {
-        InningType::Top
-    } else {
-        InningType::Bottom
-    }
-}
-
 pub fn skewed_normal_random(skew_level: f64) -> f64 {
     let mut rng = rand::rng();
     let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();

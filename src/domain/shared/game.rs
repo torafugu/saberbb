@@ -2,6 +2,7 @@ use super::player::Player;
 use super::team::Team;
 use super::types::BattingResult;
 use super::types::InningType;
+use crate::domain::resolver::batting_resolve;
 use crate::domain::shared::types::Position;
 use crate::t;
 use chrono::NaiveDate;
@@ -12,6 +13,7 @@ use strum_macros::EnumString;
 
 pub const MAX_INNING: i8 = 9;
 pub const MAX_OUT: i8 = 3;
+pub const MAX_BATTER_ORDER: i8 = 9;
 pub const TOTAL_GAMES: i16 = 140;
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
@@ -142,10 +144,110 @@ pub struct Game {
     pub home_team: Team,
     pub game_type: GameType,
     pub innings: Vec<Inning>,
-    pub away_point: i16,
-    pub home_point: i16,
+    pub away_point: i8,
+    pub home_point: i8,
     pub away_players: Vec<BattingOrder>,
     pub home_players: Vec<BattingOrder>,
+}
+impl Game {
+    pub fn update_point(&mut self, game_state: &GameState) {
+        if game_state.inning_tb == InningType::Bottom {
+            self.home_point = game_state.home_total_point;
+        } else {
+            self.away_point = game_state.away_total_point;
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct GameState {
+    pub is_in_game: bool,
+    pub inning_seq: i8,
+    pub inning_tb: InningType,
+    pub away_total_point: i8,
+    pub home_total_point: i8,
+    pub away_batter_order: i8,
+    pub home_batter_order: i8,
+}
+impl GameState {
+    pub fn new() -> GameState {
+        GameState {
+            is_in_game: true,
+            inning_seq: 1,
+            inning_tb: InningType::Top,
+            away_total_point: 0,
+            home_total_point: 0,
+            away_batter_order: 1,
+            home_batter_order: 1,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.is_in_game
+    }
+
+    pub fn is_walk_off(&self) -> bool {
+        if self.inning_seq == MAX_INNING
+            && self.inning_tb == InningType::Bottom
+            && self.home_total_point > self.away_total_point
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_game_set(&self) -> bool {
+        if self.inning_seq == MAX_INNING
+            && (self.inning_tb == InningType::Bottom
+                || self.home_total_point > self.away_total_point)
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn new_inning(&mut self) -> Inning {
+        if self.inning_tb == InningType::Bottom {
+            self.inning_seq += 1;
+            self.inning_tb = InningType::Top;
+        } else {
+            self.inning_tb = InningType::Bottom;
+        }
+        Inning {
+            seq: self.inning_seq,
+            tb: self.inning_tb,
+            counts: Vec::new(),
+            point: 0,
+        }
+    }
+
+    pub fn batter_order(&self) -> i8 {
+        if self.inning_tb == InningType::Top {
+            self.away_batter_order
+        } else {
+            self.home_batter_order
+        }
+    }
+
+    pub fn update(&mut self, point: i8) {
+        if self.inning_tb == InningType::Top {
+            self.away_total_point += point;
+            if self.away_batter_order == MAX_BATTER_ORDER {
+                self.away_batter_order = 1;
+            } else {
+                self.away_batter_order += 1;
+            }
+        } else {
+            self.home_total_point += point;
+            if self.home_batter_order == MAX_BATTER_ORDER {
+                self.home_batter_order = 1;
+            } else {
+                self.home_batter_order += 1;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -158,6 +260,51 @@ pub struct Inning {
 impl Inning {
     pub fn is(&self, seq: i8, tb: InningType) -> bool {
         self.seq == seq && self.tb == tb
+    }
+
+    pub fn add_count(&mut self, count: Count) {
+        self.point += count.point;
+        self.counts.push(count);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct InningState {
+    pub count_seq: i8,
+    pub bases: Bases,
+    pub out: i8,
+}
+impl InningState {
+    pub fn new() -> InningState {
+        InningState {
+            count_seq: 0,
+            bases: Bases::new(),
+            out: 0,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        if self.out < MAX_OUT { true } else { false }
+    }
+
+    pub fn batting_resolve(&mut self, batter: &Player) -> Count {
+        let batting_result = batting_resolve(batter);
+        if batting_result == BattingResult::Out {
+            self.out += 1;
+        }
+        let point = self.bases.advance(&batting_result);
+        Count {
+            seq: self.count_seq,
+            bases: self.bases.clone(),
+            batter: Arc::new(batter.clone()),
+            result: batting_result,
+            point: point,
+            out: self.out,
+        }
+    }
+
+    pub fn add_count_seq(&mut self) {
+        self.count_seq += 1;
     }
 }
 
