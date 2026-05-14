@@ -1,7 +1,6 @@
 use super::game::BattingOrder;
 use super::types::Position;
 use rand::prelude::IndexedRandom;
-use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

@@ -1,4 +1,4 @@
-use crate::domain::shared::{player::RL, types::InningType};
+use crate::domain::shared::player::RL;
 use rand_distr::{Distribution, Gamma};
 
 // TODO: Get from config file

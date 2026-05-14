@@ -34,7 +34,6 @@ ra = RA
 batting_stats = Batting Stats
 total_score = R
 inning_not_found = Inning not found
-batter_not_found = Batter not found
 count_not_found = Count not found
 prev_count = Previous Count
 next_count = Next Count

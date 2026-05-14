@@ -35,7 +35,6 @@ ra = 失点
 batting_stats = 打撃成績
 total_score = 計
 inning_not_found = イニングが見つかりません
-batter_not_found = バッターが見つかりません
 count_not_found = カウントが見つかりません
 prev_count = 前のカウント
 next_count = 次のカウント

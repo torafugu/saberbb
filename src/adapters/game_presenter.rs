@@ -1,7 +1,10 @@
 use super::menu_component::{MenuItem, init_terminal, restore_terminal};
+use crate::domain::game_service::GameRepository;
+use crate::domain::game_service::GameService;
 use crate::domain::shared::game::{Count, Game};
 use crate::domain::shared::types::InningType;
-use crate::repositories::game_repository::{load_processed_games, load_processed_seasons};
+use crate::repositories::game_repository::SqlGameRepository;
+use crate::repositories::persistence_config::get_db_conn;
 use crate::rprintln;
 use crate::t;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
@@ -256,7 +259,11 @@ fn display_runner(runner: bool) -> &'static str {
 }
 
 pub fn display_select_game(season: i16) {
-    let game_rounds_res = load_processed_games(season);
+    let db_repo = SqlGameRepository {
+        pool: get_db_conn().unwrap(),
+    };
+    let game_service = GameService { repo: db_repo };
+    let game_rounds_res = game_service.repo.load_processed_games(season);
     match game_rounds_res {
         Ok(games) => {
             let menu_items: Vec<MenuItem<Game>> = games
@@ -272,8 +279,6 @@ pub fn display_select_game(season: i16) {
                          innings,
                          away_point,
                          home_point,
-                         away_players: away_batters,
-                         home_players: home_batters,
                      }| {
                         let label = format!(
                             "[{}] {} vs {})",
@@ -292,8 +297,6 @@ pub fn display_select_game(season: i16) {
                                 innings,
                                 away_point,
                                 home_point,
-                                away_players: away_batters,
-                                home_players: home_batters,
                             },
                         }
                     },
@@ -317,7 +320,11 @@ pub fn display_select_game(season: i16) {
 }
 
 pub fn display_select_season() {
-    let load_processed_seasons_res = load_processed_seasons();
+    let db_repo = SqlGameRepository {
+        pool: get_db_conn().unwrap(),
+    };
+    let game_service = GameService { repo: db_repo };
+    let load_processed_seasons_res = game_service.repo.load_processed_seasons();
     match load_processed_seasons_res {
         Ok(processed_seasons) => {
             let selection = Select::new(&t!("select_season"), processed_seasons)
@@ -344,6 +351,7 @@ pub fn display_select_season() {
     }
 }
 
+// TODO: Display in Game progress mode
 pub fn display_batting_results(game: &Game) {
     println!("Batting Results:");
     println!("{}", game.away_team.name.to_string());

@@ -174,11 +174,11 @@ mod tests {
             Ok(1)
         }
 
-        fn save_scheduled_game_rounds(&mut self, game_rounds: Vec<GameRound>) -> Result<()> {
+        fn save_scheduled_game_rounds(&mut self, _game_rounds: Vec<GameRound>) -> Result<()> {
             Ok(())
         }
 
-        fn update_scheduled_season(&self, updated_sheduled_season: i16) -> Result<()> {
+        fn update_scheduled_season(&self, _updated_sheduled_season: i16) -> Result<()> {
             Ok(())
         }
     }

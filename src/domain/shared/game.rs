@@ -146,8 +146,6 @@ pub struct Game {
     pub innings: Vec<Inning>,
     pub away_point: i8,
     pub home_point: i8,
-    pub away_players: Vec<BattingOrder>,
-    pub home_players: Vec<BattingOrder>,
 }
 impl Game {
     pub fn update_point(&mut self, game_state: &GameState) {
@@ -168,17 +166,27 @@ pub struct GameState {
     pub home_total_point: i8,
     pub away_batter_order: i8,
     pub home_batter_order: i8,
+    pub away_batting_lineup: Lineup,
+    pub home_batting_lineup: Lineup,
 }
 impl GameState {
     pub fn new() -> GameState {
         GameState {
             is_in_game: true,
-            inning_seq: 1,
-            inning_tb: InningType::Top,
+            inning_seq: 0,                 // Initialization
+            inning_tb: InningType::Bottom, // Initialization
             away_total_point: 0,
             home_total_point: 0,
             away_batter_order: 1,
             home_batter_order: 1,
+            away_batting_lineup: Lineup {
+                current_index: 0,
+                batting_orders: Vec::new(),
+            },
+            home_batting_lineup: Lineup {
+                current_index: 0,
+                batting_orders: Vec::new(),
+            },
         }
     }
 
@@ -208,7 +216,7 @@ impl GameState {
         }
     }
 
-    pub fn new_inning(&mut self) -> Inning {
+    pub fn advance_half_inning(&mut self) -> Inning {
         if self.inning_tb == InningType::Bottom {
             self.inning_seq += 1;
             self.inning_tb = InningType::Top;
@@ -223,13 +231,21 @@ impl GameState {
         }
     }
 
-    pub fn batter_order(&self) -> i8 {
+    pub fn current_batter(&mut self) -> Player {
         if self.inning_tb == InningType::Top {
-            self.away_batter_order
+            self.away_batting_lineup.next().unwrap()
         } else {
-            self.home_batter_order
+            self.home_batting_lineup.next().unwrap()
         }
     }
+
+    // pub fn current_batting_order(&self) -> i8 {
+    //     if self.inning_tb == InningType::Top {
+    //         self.away_batter_order
+    //     } else {
+    //         self.home_batter_order
+    //     }
+    // }
 
     pub fn update(&mut self, point: i8) {
         if self.inning_tb == InningType::Top {
@@ -323,4 +339,33 @@ pub struct BattingOrder {
     pub order: i8,
     pub position: Position,
     pub player: Player,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Lineup {
+    pub current_index: usize,
+    pub batting_orders: Vec<BattingOrder>,
+}
+impl Lineup {
+    pub fn new(batting_orders: Vec<BattingOrder>) -> Self {
+        Self {
+            current_index: 0,
+            batting_orders,
+        }
+    }
+}
+impl Iterator for Lineup {
+    type Item = Player;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.batting_orders.is_empty() {
+            return None;
+        }
+
+        let player = self.batting_orders[self.current_index].player.clone();
+
+        // Use the modulo operator (%) to rotate the index around the range 0..N
+        self.current_index = (self.current_index + 1) % self.batting_orders.len();
+        Some(player)
+    }
 }

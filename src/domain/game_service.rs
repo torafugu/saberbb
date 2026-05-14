@@ -1,10 +1,13 @@
-use super::shared::game::{GameRound, GameState, InningState};
+use super::shared::game::{Game, GameRound, GameState, InningState, Lineup};
 use crate::t;
 use anyhow::{Context, Result};
 
 pub trait GameRepository {
     fn save_game_round(&mut self, round: &GameRound) -> Result<()>;
     fn load_game_round_to_process(&self) -> Result<GameRound>;
+    fn load_processed_games(&self, season: i16) -> Result<Vec<Game>>;
+    fn load_processed_seasons(&self) -> Result<Vec<i16>>;
+    fn load_games(&self, game_round: &GameRound) -> Result<Vec<Game>>;
 }
 
 pub struct GameService<R: GameRepository> {
@@ -22,31 +25,22 @@ impl<R: GameRepository> GameService<R> {
         // 2. Procees games in the game round
         for game in game_round.games.iter_mut() {
             let mut game_state = GameState::new();
+            // TODO: Implement No DH case
+            game_state.away_batting_lineup = Lineup::new(game.away_team.lineup(true));
+            game_state.home_batting_lineup = Lineup::new(game.home_team.lineup(true));
 
             // TODO: Check postponement
             game.actual_date = game.planned_date;
 
-            // TODO: Implement No DH case
-            game.away_players = game.away_team.lineup(true);
-            game.home_players = game.home_team.lineup(true);
-
             // loop for an innning
             while game_state.is_active() {
-                let mut inning = game_state.new_inning();
+                let mut inning = game_state.advance_half_inning();
                 let mut inning_state = InningState::new();
 
                 while inning_state.is_active() {
                     inning_state.add_count_seq();
 
-                    let current_batter = game
-                        .away_players
-                        .iter()
-                        .find(|i| i.order == game_state.batter_order())
-                        .expect(&t!("batter_not_found"))
-                        .clone()
-                        .player;
-
-                    let count = inning_state.batting_resolve(&current_batter);
+                    let count = inning_state.batting_resolve(&game_state.current_batter());
                     game_state.update(count.point);
                     inning.add_count(count);
 
