@@ -7,15 +7,17 @@ use adapters::game_presenter::display_game_rounds_processed;
 use adapters::schedule_presenter::display_game_seasons_scheduled;
 use adapters::topmenu_presenter::display_menu;
 use clap::Parser;
+use deadpool::managed::Pool;
 use domain::game_service::GameService;
 use domain::player_service::PlayerService;
 use domain::schedule_service::ScheduleService;
 use i18n::I18nManager;
 use repositories::game_repository::SqlGameRepository;
-use repositories::persistence_config::get_db_conn;
+use repositories::persistence_config::{get_db_conn, get_sqlite_manager};
 use repositories::player_repository::SqlPlayerRepository;
 use repositories::schedule_repository::SqlScheduleRepository;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AppConfig {
@@ -31,19 +33,40 @@ impl Default for AppConfig {
     }
 }
 
+struct AppContext {
+    game_repository: SqlGameRepository,
+}
+
+static APP_CONTEXT: OnceLock<AppContext> = OnceLock::new();
+
+fn ctx() -> &'static AppContext {
+    APP_CONTEXT
+        .get()
+        .expect(&t!("not_initialized", "struct" => "AppContext"))
+}
+
 fn main() {
     // load default-config.toml and initialize I18nManager
     let cfg: AppConfig = confy::load::<AppConfig>("statbb", None).unwrap_or_default();
     I18nManager::init(&cfg.language);
 
+    // configure db connection pool
+    let manager = get_sqlite_manager().expect(&t!("dbpool_failed"));
+    let pool = Pool::builder(manager).max_size(16).build().unwrap();
+
+    let ctx = AppContext {
+        game_repository: SqlGameRepository { pool },
+    };
+    APP_CONTEXT.set(ctx).ok();
+
     let args = Args::parse();
 
     // Game Process Mode
     if let Some(num_of_rounds) = args.process {
-        let db_repo = SqlGameRepository {
-            pool: get_db_conn().unwrap(),
+        let mut game_service = GameService {
+            repo: APP_CONTEXT.get().unwrap().game_repository.clone(),
         };
-        let mut game_service = GameService { repo: db_repo };
+        // let mut game_service = GameService { repo: db_repo };
 
         for _ in 0..num_of_rounds {
             if let Err(e) = game_service.process_game_round() {

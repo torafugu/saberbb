@@ -40,11 +40,11 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn min(id: i32, name: &str) -> Player {
+    pub fn min(id: i32, first_name: &str, last_name: &str) -> Player {
         Player {
             id: id,
-            first_name: Arc::from(name),
-            last_name: Arc::from(name),
+            first_name: Arc::from(first_name),
+            last_name: Arc::from(last_name),
             age: 25,
             throw: RL::Right,
             mod_speed: 0.0,
@@ -55,11 +55,11 @@ impl Player {
         }
     }
 
-    pub fn batter(id: i32, name: &str, mod_ba: f64, mod_slg: f64) -> Player {
+    pub fn batter(id: i32, first_name: &str, last_name: &str, mod_ba: f64, mod_slg: f64) -> Player {
         Player {
             id: id,
-            first_name: Arc::from(name),
-            last_name: Arc::from(name),
+            first_name: Arc::from(first_name),
+            last_name: Arc::from(last_name),
             age: 25,
             throw: RL::Right,
             mod_speed: 0.0,

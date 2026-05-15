@@ -1,10 +1,10 @@
 use super::menu_component::{MenuItem, init_terminal, restore_terminal};
-use crate::domain::game_service::GameRepository;
-use crate::domain::game_service::GameService;
+use crate::APP_CONTEXT;
 use crate::domain::shared::game::{Count, Game};
-use crate::domain::shared::types::InningType;
-use crate::repositories::game_repository::SqlGameRepository;
-use crate::repositories::persistence_config::get_db_conn;
+use crate::domain::shared::types::{Base, InningType};
+use crate::domain::utils::is_base_occupied;
+use crate::i18n::I18nManager;
+use crate::repositories::game_repository::GameRepository;
 use crate::rprintln;
 use crate::t;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
@@ -31,9 +31,9 @@ pub fn display_game_rounds_processed(num_of_rounds: i8) {
 }
 
 pub fn display_game_detail(game: &Game) -> io::Result<()> {
-    let mut inning_seq: i8 = 1;
+    let mut inning_seq: u8 = 1;
     let mut inning_tb: InningType = InningType::Top;
-    let mut count_seq: i8 = 1;
+    let mut count_seq: u8 = 1;
 
     let mut current_inning = game
         .innings
@@ -94,8 +94,8 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             top_scores.push("".to_string());
             bottom_scores.push("".to_string());
 
-            let mut top_total_point: i8 = 0;
-            let mut bottom_total_point: i8 = 0;
+            let mut top_total_point: u8 = 0;
+            let mut bottom_total_point: u8 = 0;
 
             'inning: for inning in &game.innings {
                 let mut top_inning_point = 0;
@@ -118,7 +118,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             }
 
             if inning_seq == max_inning_seq
-                && count_seq == (current_inning.counts.len()) as i8
+                && count_seq == (current_inning.counts.len()) as u8
                 && bottom_scores[max_inning_seq as usize] == ""
             {
                 bottom_scores[max_inning_seq as usize] = WALK_OFF.to_string();
@@ -165,7 +165,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                                 .find(|i| i.is(inning_seq, inning_tb))
                                 .expect(&t!("inning_not_found"))
                                 .counts
-                                .len() as i8;
+                                .len() as u8;
                             should_redraw = true;
                         } else if let Some(_) = game
                             .innings
@@ -180,7 +180,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                                 .find(|i| i.is(inning_seq, inning_tb))
                                 .expect(&t!("inning_not_found"))
                                 .counts
-                                .len() as i8;
+                                .len() as u8;
                             should_redraw = true;
                         }
                     }
@@ -188,7 +188,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                         code: KeyCode::Right,
                         ..
                     } => {
-                        if count_seq < current_inning.counts.len() as i8 {
+                        if count_seq < current_inning.counts.len() as u8 {
                             count_seq += 1;
                             should_redraw = true;
                         } else if current_inning.tb == InningType::Top
@@ -232,15 +232,19 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
 }
 
 fn format_count(count: &Count) -> String {
-    let mut formated_count = format!("  <{}>\n", display_runner(count.bases.second));
-    formated_count.push_str(&format!(
-        "<{}> <{}>\n",
-        display_runner(count.bases.third),
-        display_runner(count.bases.first)
-    ));
+    let mut formated_count = format!(
+        "  <{}>\n<{}> <{}>\n",
+        display_runner(count.bases_occupied, Base::Second),
+        display_runner(count.bases_occupied, Base::Third),
+        display_runner(count.bases_occupied, Base::First)
+    );
     formated_count.push_str(&format!("  <H>\n"));
     formated_count.push_str(&format!("{}: {}\n", &t!("out_count"), count.out));
-    formated_count.push_str(&format!("{}: {}\n", &t!("batter"), count.batter.last_name));
+    formated_count.push_str(&format!(
+        "{}: {}\n",
+        &t!("batter"),
+        &I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+    ));
     let rounded_ba = (count.batter.hit_average() * 1000.0).round();
     formated_count.push_str(&format!(" {} : .{}\n", &t!("ba"), rounded_ba));
     let rounded_slg = (count.batter.slg() * 1000.0).round();
@@ -254,16 +258,20 @@ fn format_count(count: &Count) -> String {
     formated_count
 }
 
-fn display_runner(runner: bool) -> &'static str {
-    if runner { RUNNER } else { NO_RUNNER }
+fn display_runner(bases_occupied: u8, base: Base) -> &'static str {
+    if is_base_occupied(bases_occupied, base) {
+        RUNNER
+    } else {
+        NO_RUNNER
+    }
 }
 
-pub fn display_select_game(season: i16) {
-    let db_repo = SqlGameRepository {
-        pool: get_db_conn().unwrap(),
-    };
-    let game_service = GameService { repo: db_repo };
-    let game_rounds_res = game_service.repo.load_processed_games(season);
+pub fn display_select_game(season: u16) {
+    let game_rounds_res = APP_CONTEXT
+        .get()
+        .unwrap()
+        .game_repository
+        .load_processed_games(season);
     match game_rounds_res {
         Ok(games) => {
             let menu_items: Vec<MenuItem<Game>> = games
@@ -320,11 +328,14 @@ pub fn display_select_game(season: i16) {
 }
 
 pub fn display_select_season() {
-    let db_repo = SqlGameRepository {
-        pool: get_db_conn().unwrap(),
-    };
-    let game_service = GameService { repo: db_repo };
-    let load_processed_seasons_res = game_service.repo.load_processed_seasons();
+    // let game_service = GameService {
+    //     repo: APP_CONTEXT.get().unwrap().game_repository,
+    // };
+    let load_processed_seasons_res = APP_CONTEXT
+        .get()
+        .unwrap()
+        .game_repository
+        .load_processed_seasons();
     match load_processed_seasons_res {
         Ok(processed_seasons) => {
             let selection = Select::new(&t!("select_season"), processed_seasons)

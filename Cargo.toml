@@ -8,7 +8,8 @@ anyhow = "1.0"
 directories = "6.0"
 rand = { version = "0.10.1", features = ["std"] }
 rand_distr = "0.6.0"
-rusqlite = { version = "0.39", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.39.0", features = ["bundled", "chrono"] }
+deadpool = "0.12.1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_rusqlite = "0.42.0"
 strum = { version = "0.28.0", features = ["derive"] }
@@ -23,3 +24,4 @@ console = "0.16.3"
 dialoguer = "0.12.0"
 comfy-table = "7.2.2"
 crossterm = "0.29.0"
+futures = "0.3"

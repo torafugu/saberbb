@@ -1,4 +1,3 @@
-use super::persistence_config::get_db_conn;
 use crate::domain::schedule_service::ScheduleRepository;
 use crate::domain::shared::game::{GameRound, GameSeason};
 use crate::domain::shared::team::{League, Team};
@@ -65,7 +64,7 @@ impl ScheduleRepository for SqlScheduleRepository {
         Ok(leagues)
     }
 
-    fn load_last_game_round_id(&self) -> Result<i32> {
+    fn load_last_game_round_id(&self) -> Result<u32> {
         let res_round_id = self.pool.query_row(
             "SELECT id FROM game_round ORDER BY id DESC LIMIT 1",
             params![],
@@ -80,7 +79,7 @@ impl ScheduleRepository for SqlScheduleRepository {
         }
     }
 
-    fn load_last_game_id(&self) -> Result<i32> {
+    fn load_last_game_id(&self) -> Result<u32> {
         let res_game_id = self.pool.query_row(
             "SELECT id FROM game ORDER BY id DESC LIMIT 1",
             params![],
@@ -123,7 +122,7 @@ impl ScheduleRepository for SqlScheduleRepository {
                         game.actual_date,
                         game.away_team.id,
                         game.home_team.id,
-                        game.game_type.to_string(),
+                        game.game_type,
                         0,
                         0
                     ],
@@ -136,7 +135,7 @@ impl ScheduleRepository for SqlScheduleRepository {
         Ok(())
     }
 
-    fn update_scheduled_season(&self, scheduled_season: i16) -> Result<()> {
+    fn update_scheduled_season(&self, scheduled_season: u16) -> Result<()> {
         self.pool.execute(
             "Update game_season SET scheduled_season = ?1",
             params![scheduled_season],
@@ -166,11 +165,11 @@ mod tests {
             Ok(leagues)
         }
 
-        fn load_last_game_round_id(&self) -> Result<i32> {
+        fn load_last_game_round_id(&self) -> Result<u32> {
             Ok(1)
         }
 
-        fn load_last_game_id(&self) -> Result<i32> {
+        fn load_last_game_id(&self) -> Result<u32> {
             Ok(1)
         }
 
@@ -178,7 +177,7 @@ mod tests {
             Ok(())
         }
 
-        fn update_scheduled_season(&self, _updated_sheduled_season: i16) -> Result<()> {
+        fn update_scheduled_season(&self, _updated_sheduled_season: u16) -> Result<()> {
             Ok(())
         }
     }

@@ -45,16 +45,16 @@ impl Position {
 impl std::fmt::Display for Position {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Position::P => write!(f, "{}", t!("P")),
-            Position::C => write!(f, "{}", t!("C")),
-            Position::FB => write!(f, "{}", t!("FB")),
-            Position::SB => write!(f, "{}", t!("SB")),
-            Position::TB => write!(f, "{}", t!("TB")),
-            Position::SS => write!(f, "{}", t!("SS")),
-            Position::LF => write!(f, "{}", t!("LF")),
-            Position::CF => write!(f, "{}", t!("CF")),
-            Position::RF => write!(f, "{}", t!("RF")),
-            Position::DH => write!(f, "{}", t!("DH")),
+            Position::P => write!(f, "{}", t!("p")),
+            Position::C => write!(f, "{}", t!("c")),
+            Position::FB => write!(f, "{}", t!("fb")),
+            Position::SB => write!(f, "{}", t!("sb")),
+            Position::TB => write!(f, "{}", t!("tb")),
+            Position::SS => write!(f, "{}", t!("ss")),
+            Position::LF => write!(f, "{}", t!("lf")),
+            Position::CF => write!(f, "{}", t!("cf")),
+            Position::RF => write!(f, "{}", t!("rf")),
+            Position::DH => write!(f, "{}", t!("dh")),
         }
     }
 }
@@ -93,4 +93,16 @@ impl std::fmt::Display for BattingResult {
             BattingResult::Out => write!(f, "{}", t!("out")),
         }
     }
+}
+impl BattingResult {
+    pub fn is_out(&self) -> bool {
+        matches!(self, BattingResult::Out)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Base {
+    First = 0,
+    Second = 1,
+    Third = 2,
 }

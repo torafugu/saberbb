@@ -1,4 +1,5 @@
 use crate::domain::shared::player::RL;
+use crate::domain::shared::types::Base;
 use rand_distr::{Distribution, Gamma};
 
 // TODO: Get from config file
@@ -33,4 +34,15 @@ pub fn age_random() -> i8 {
     let dist = Gamma::new(AGE_SHAPE, AGE_SCALE).unwrap();
     let age = dist.sample(&mut rng) + AGE_OFFSET;
     age.round() as i8
+}
+
+pub fn has_unique_elements_sorted<T: Ord>(mut vec: Vec<T>) -> bool {
+    vec.sort();
+    let len_before = vec.len();
+    vec.dedup(); // Remove consecutive duplicates
+    len_before == vec.len()
+}
+
+pub fn is_base_occupied(bases_occupied: u8, base: Base) -> bool {
+    (bases_occupied & (1 << base as u8)) != 0
 }

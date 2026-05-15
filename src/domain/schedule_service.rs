@@ -12,9 +12,9 @@ pub trait ScheduleRepository {
     fn load_game_season(&self) -> Result<GameSeason>;
     fn load_all_leagues(&self) -> Result<Vec<League>>;
     fn save_scheduled_game_rounds(&mut self, game_rounds: Vec<GameRound>) -> Result<()>;
-    fn load_last_game_round_id(&self) -> Result<i32>;
-    fn load_last_game_id(&self) -> Result<i32>;
-    fn update_scheduled_season(&self, scheduled_season: i16) -> Result<()>;
+    fn load_last_game_round_id(&self) -> Result<u32>;
+    fn load_last_game_id(&self) -> Result<u32>;
+    fn update_scheduled_season(&self, scheduled_season: u16) -> Result<()>;
 }
 
 pub struct ScheduleService<R: ScheduleRepository> {
@@ -54,8 +54,8 @@ impl<R: ScheduleRepository> ScheduleService<R> {
             let mut current_date = game_season.start_date;
 
             // Initialize the map with team IDs as keys and 0 as the starting game count
-            let mut games_played: HashMap<i16, i16> =
-                league.teams.iter().map(|t| (t.id as i16, 0)).collect();
+            let mut games_played: HashMap<u16, u16> =
+                league.teams.iter().map(|t| (t.id as u16, 0)).collect();
 
             // We need a reference key for the while loop condition
             let first_team_id = league.teams[0].id;

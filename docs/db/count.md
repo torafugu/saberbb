@@ -11,9 +11,7 @@ CREATE TABLE count (
     inning_seq INTEGER,
     inning_tb TEXT,
     seq INTEGER,
-    is_first_runner BOOLEAN NOT NULL DEFAULT 0,
-    is_second_runner BOOLEAN NOT NULL DEFAULT 0,
-    is_third_runner BOOLEAN NOT NULL DEFAULT 0,
+    bases_occupied INTEGER NOT NULL DEFAULT 0,
     batter_id INTEGER,
     result TEXT NOT NULL,
     point INTEGER NOT NULL,
@@ -31,19 +29,17 @@ CREATE TABLE count (
 
 ## Columns
 
-| Name             | Type    | Default | Nullable | Children | Parents | Comment |
-| ---------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_id          | INTEGER |         | true     |          |         |         |
-| inning_seq       | INTEGER |         | true     |          |         |         |
-| inning_tb        | TEXT    |         | true     |          |         |         |
-| seq              | INTEGER |         | true     |          |         |         |
-| is_first_runner  | BOOLEAN | 0       | false    |          |         |         |
-| is_second_runner | BOOLEAN | 0       | false    |          |         |         |
-| is_third_runner  | BOOLEAN | 0       | false    |          |         |         |
-| batter_id        | INTEGER |         | true     |          |         |         |
-| result           | TEXT    |         | false    |          |         |         |
-| point            | INTEGER |         | false    |          |         |         |
-| out              | INTEGER |         | false    |          |         |         |
+| Name           | Type    | Default | Nullable | Children | Parents | Comment |
+| -------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id        | INTEGER |         | true     |          |         |         |
+| inning_seq     | INTEGER |         | true     |          |         |         |
+| inning_tb      | TEXT    |         | true     |          |         |         |
+| seq            | INTEGER |         | true     |          |         |         |
+| bases_occupied | INTEGER | 0       | false    |          |         |         |
+| batter_id      | INTEGER |         | true     |          |         |         |
+| result         | TEXT    |         | false    |          |         |         |
+| point          | INTEGER |         | false    |          |         |         |
+| out            | INTEGER |         | false    |          |         |         |
 
 ## Constraints
 

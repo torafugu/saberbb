@@ -1,9 +1,7 @@
+use super::game_state::GameState;
 use super::player::Player;
 use super::team::Team;
-use super::types::BattingResult;
-use super::types::InningType;
-use crate::domain::resolver::batting_resolve;
-use crate::domain::shared::types::Position;
+use super::types::{Base, BattingResult, InningType};
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -11,10 +9,7 @@ use std::fmt;
 use std::sync::Arc;
 use strum_macros::EnumString;
 
-pub const MAX_INNING: i8 = 9;
-pub const MAX_OUT: i8 = 3;
-pub const MAX_BATTER_ORDER: i8 = 9;
-pub const TOTAL_GAMES: i16 = 140;
+pub const TOTAL_GAMES: u16 = 140;
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
 #[strum(ascii_case_insensitive)]
@@ -33,119 +28,35 @@ impl fmt::Display for GameType {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Bases {
-    pub first: bool,
-    pub second: bool,
-    pub third: bool,
-}
-
-impl Bases {
-    pub fn new() -> Self {
-        Self {
-            first: false,
-            second: false,
-            third: false,
-        }
-    }
-
-    pub fn advance(&mut self, batting_result: &BattingResult) -> i8 {
-        let mut point: i8 = 0;
-
-        match batting_result {
-            BattingResult::Single => {
-                if self.third {
-                    point += 1;
-                    self.third = false;
-                }
-                if self.second {
-                    self.second = false;
-                    self.third = true;
-                }
-                if self.first {
-                    self.second = true;
-                }
-                self.first = true;
-            }
-            BattingResult::Double => {
-                if self.third {
-                    point += 1;
-                    self.third = false;
-                }
-                if self.second {
-                    point += 1;
-                }
-                if self.first {
-                    self.first = false;
-                    self.third = true;
-                }
-                self.second = true;
-            }
-            BattingResult::Triple => {
-                if self.third {
-                    point += 1;
-                }
-                if self.second {
-                    point += 1;
-                    self.second = false;
-                }
-                if self.first {
-                    point += 1;
-                    self.first = false;
-                }
-                self.third = true;
-            }
-            BattingResult::HomeRun => {
-                if self.third {
-                    point += 1;
-                    self.third = false;
-                }
-                if self.second {
-                    point += 1;
-                    self.second = false;
-                }
-                if self.first {
-                    point += 1;
-                    self.first = false;
-                }
-                point += 1;
-            }
-            _ => {}
-        }
-
-        point
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameSeason {
-    pub start_season: i16,
+    pub start_season: u16,
     pub start_date: NaiveDate,
-    pub current_season: i16,
-    pub current_round_seq: i16,
-    pub scheduled_season: i16,
+    pub current_season: u16,
+    pub current_round_seq: u16,
+    pub scheduled_season: u16,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GameRound {
-    pub id: i32,
-    pub season: i16,
-    pub seq: i16,
+    pub id: u32,
+    pub season: u16,
+    pub seq: u16,
     pub date: NaiveDate,
     pub games: Vec<Game>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Game {
-    pub id: i32,
+    pub id: u32,
     pub planned_date: NaiveDate,
     pub actual_date: NaiveDate,
     pub away_team: Team,
     pub home_team: Team,
     pub game_type: GameType,
     pub innings: Vec<Inning>,
-    pub away_point: i8,
-    pub home_point: i8,
+    pub away_point: u8,
+    pub home_point: u8,
 }
 impl Game {
     pub fn update_point(&mut self, game_state: &GameState) {
@@ -157,124 +68,15 @@ impl Game {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct GameState {
-    pub is_in_game: bool,
-    pub inning_seq: i8,
-    pub inning_tb: InningType,
-    pub away_total_point: i8,
-    pub home_total_point: i8,
-    pub away_batter_order: i8,
-    pub home_batter_order: i8,
-    pub away_batting_lineup: Lineup,
-    pub home_batting_lineup: Lineup,
-}
-impl GameState {
-    pub fn new() -> GameState {
-        GameState {
-            is_in_game: true,
-            inning_seq: 0,                 // Initialization
-            inning_tb: InningType::Bottom, // Initialization
-            away_total_point: 0,
-            home_total_point: 0,
-            away_batter_order: 1,
-            home_batter_order: 1,
-            away_batting_lineup: Lineup {
-                current_index: 0,
-                batting_orders: Vec::new(),
-            },
-            home_batting_lineup: Lineup {
-                current_index: 0,
-                batting_orders: Vec::new(),
-            },
-        }
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.is_in_game
-    }
-
-    pub fn is_walk_off(&self) -> bool {
-        if self.inning_seq == MAX_INNING
-            && self.inning_tb == InningType::Bottom
-            && self.home_total_point > self.away_total_point
-        {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_game_set(&self) -> bool {
-        if self.inning_seq == MAX_INNING
-            && (self.inning_tb == InningType::Bottom
-                || self.home_total_point > self.away_total_point)
-        {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn advance_half_inning(&mut self) -> Inning {
-        if self.inning_tb == InningType::Bottom {
-            self.inning_seq += 1;
-            self.inning_tb = InningType::Top;
-        } else {
-            self.inning_tb = InningType::Bottom;
-        }
-        Inning {
-            seq: self.inning_seq,
-            tb: self.inning_tb,
-            counts: Vec::new(),
-            point: 0,
-        }
-    }
-
-    pub fn current_batter(&mut self) -> Player {
-        if self.inning_tb == InningType::Top {
-            self.away_batting_lineup.next().unwrap()
-        } else {
-            self.home_batting_lineup.next().unwrap()
-        }
-    }
-
-    // pub fn current_batting_order(&self) -> i8 {
-    //     if self.inning_tb == InningType::Top {
-    //         self.away_batter_order
-    //     } else {
-    //         self.home_batter_order
-    //     }
-    // }
-
-    pub fn update(&mut self, point: i8) {
-        if self.inning_tb == InningType::Top {
-            self.away_total_point += point;
-            if self.away_batter_order == MAX_BATTER_ORDER {
-                self.away_batter_order = 1;
-            } else {
-                self.away_batter_order += 1;
-            }
-        } else {
-            self.home_total_point += point;
-            if self.home_batter_order == MAX_BATTER_ORDER {
-                self.home_batter_order = 1;
-            } else {
-                self.home_batter_order += 1;
-            }
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Inning {
-    pub seq: i8,
+    pub seq: u8,
     pub tb: InningType,
     pub counts: Vec<Count>,
-    pub point: i8,
+    pub point: u8,
 }
 impl Inning {
-    pub fn is(&self, seq: i8, tb: InningType) -> bool {
+    pub fn is(&self, seq: u8, tb: InningType) -> bool {
         self.seq == seq && self.tb == tb
     }
 
@@ -284,88 +86,12 @@ impl Inning {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct InningState {
-    pub count_seq: i8,
-    pub bases: Bases,
-    pub out: i8,
-}
-impl InningState {
-    pub fn new() -> InningState {
-        InningState {
-            count_seq: 0,
-            bases: Bases::new(),
-            out: 0,
-        }
-    }
-
-    pub fn is_active(&self) -> bool {
-        if self.out < MAX_OUT { true } else { false }
-    }
-
-    pub fn batting_resolve(&mut self, batter: &Player) -> Count {
-        let batting_result = batting_resolve(batter);
-        if batting_result == BattingResult::Out {
-            self.out += 1;
-        }
-        let point = self.bases.advance(&batting_result);
-        Count {
-            seq: self.count_seq,
-            bases: self.bases.clone(),
-            batter: Arc::new(batter.clone()),
-            result: batting_result,
-            point: point,
-            out: self.out,
-        }
-    }
-
-    pub fn add_count_seq(&mut self) {
-        self.count_seq += 1;
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Count {
-    pub seq: i8,
-    pub bases: Bases,
+    pub seq: u8,
+    pub bases_occupied: u8,
     pub batter: Arc<Player>,
     pub result: BattingResult,
-    pub point: i8,
-    pub out: i8,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct BattingOrder {
-    pub order: i8,
-    pub position: Position,
-    pub player: Player,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Lineup {
-    pub current_index: usize,
-    pub batting_orders: Vec<BattingOrder>,
-}
-impl Lineup {
-    pub fn new(batting_orders: Vec<BattingOrder>) -> Self {
-        Self {
-            current_index: 0,
-            batting_orders,
-        }
-    }
-}
-impl Iterator for Lineup {
-    type Item = Player;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.batting_orders.is_empty() {
-            return None;
-        }
-
-        let player = self.batting_orders[self.current_index].player.clone();
-
-        // Use the modulo operator (%) to rotate the index around the range 0..N
-        self.current_index = (self.current_index + 1) % self.batting_orders.len();
-        Some(player)
-    }
+    pub point: u8,
+    pub out: u8,
 }

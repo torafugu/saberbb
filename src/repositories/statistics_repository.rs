@@ -81,7 +81,8 @@ impl StatRepository for SqlStatRepository {
         let mut stmt = self.pool.prepare(
             "SELECT 
                         batter_id,
-                        b.name AS batter_name,
+                        b.first_name AS batter_first_name,
+                        b.last_name AS batter_last_name,
                         SUM(1) AS AB,
                         SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
                         SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
@@ -91,15 +92,16 @@ impl StatRepository for SqlStatRepository {
                         SUM(point) AS rbi
                     FROM count
                     LEFT JOIN 
-                        Batter b ON count.batter_id = b.id
+                        Player b ON count.batter_id = b.id
                     GROUP BY batter_id
                     ORDER BY batter_id",
         )?;
 
         let batting_stats_iter = stmt.query_map([], |row| {
-            let name: String = row.get("batter_name")?;
+            let first_name: String = row.get("batter_name")?;
+            let last_name: String = row.get("batter_name")?;
             Ok(BattingStats {
-                batter: Player::min(row.get("batter_id")?, &name),
+                batter: Player::min(row.get("batter_id")?, &first_name, &last_name),
                 ab: row.get("ab")?,
                 single: row.get("single")?,
                 double: row.get("double")?,

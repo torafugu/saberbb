@@ -1,7 +1,7 @@
 use crate::domain::shared::player::Player;
 use crate::domain::shared::types::BattingResult;
 
-pub fn batting_resolve(batter: &Player) -> BattingResult {
+pub fn simulate_batting(batter: &Player) -> BattingResult {
     let rng: f64 = rand::random();
     let _result: BattingResult;
     // TODO : Adjust by mod_slg!

@@ -212,134 +212,6 @@
       "def": "CREATE TABLE inning (\n    game_id INTEGER,\n    seq INTEGER,\n    tb TEXT,\n    point INTEGER NOT NULL,\n    PRIMARY KEY (game_id, seq, tb)\n)"
     },
     {
-      "name": "count",
-      "type": "table",
-      "columns": [
-        {
-          "name": "game_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "is_first_runner",
-          "type": "BOOLEAN",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "is_second_runner",
-          "type": "BOOLEAN",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "is_third_runner",
-          "type": "BOOLEAN",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "batter_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "result",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "point",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "out",
-          "type": "INTEGER",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_count_1",
-          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
-          "table": "count",
-          "columns": [
-            "game_id",
-            "inning_seq",
-            "inning_tb",
-            "seq"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "game_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id)",
-          "table": "count",
-          "columns": [
-            "game_id"
-          ]
-        },
-        {
-          "name": "inning_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_seq)",
-          "table": "count",
-          "columns": [
-            "inning_seq"
-          ]
-        },
-        {
-          "name": "inning_tb",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_tb)",
-          "table": "count",
-          "columns": [
-            "inning_tb"
-          ]
-        },
-        {
-          "name": "seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq)",
-          "table": "count",
-          "columns": [
-            "seq"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_count_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
-          "table": "count",
-          "columns": [
-            "game_id",
-            "inning_seq",
-            "inning_tb",
-            "seq"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    is_first_runner BOOLEAN NOT NULL DEFAULT 0,\n    is_second_runner BOOLEAN NOT NULL DEFAULT 0,\n    is_third_runner BOOLEAN NOT NULL DEFAULT 0,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    point INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
-    },
-    {
       "name": "game",
       "type": "table",
       "columns": [
@@ -555,6 +427,122 @@
         }
       ],
       "def": "CREATE TABLE player (\n    id INTEGER PRIMARY KEY AUTOINCREMENT\n  , team_id INTEGER NOT NULL\n  , first_name TEXT NOT NULL\n  , last_name TEXT NOT NULL\n  , age INTEGER NOT NULL\n  , throw TEXT NOT NULL\n  , mod_speed REAL NOT NULL\n  , mod_control REAL NOT NULL\n  , bat TEXT NOT NULL\n  , mod_ba REAL NOT NULL\n  , mod_slg REAL NOT NULL\n)"
+    },
+    {
+      "name": "count",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_tb",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "bases_occupied",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "batter_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "result",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "point",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "out",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_count_1",
+          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
+          "table": "count",
+          "columns": [
+            "game_id",
+            "inning_seq",
+            "inning_tb",
+            "seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "count",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "inning_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_seq)",
+          "table": "count",
+          "columns": [
+            "inning_seq"
+          ]
+        },
+        {
+          "name": "inning_tb",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_tb)",
+          "table": "count",
+          "columns": [
+            "inning_tb"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "count",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_count_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
+          "table": "count",
+          "columns": [
+            "game_id",
+            "inning_seq",
+            "inning_tb",
+            "seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    bases_occupied INTEGER NOT NULL DEFAULT 0,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    point INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
     }
   ],
   "driver": {
