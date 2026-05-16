@@ -1,16 +1,23 @@
 use crate::domain::shared::player::{BattingStats, Player};
 use crate::domain::shared::team::{Standing, Team};
 use crate::domain::statistics_service::StatRepository;
+use crate::repositories::persistence_config::SqliteManager;
+use crate::t;
 use anyhow::Result;
-use rusqlite::Connection;
+use deadpool::managed::Pool;
 
+type DbPool = Pool<SqliteManager>;
+
+#[derive(Clone)]
 pub struct SqlStatRepository {
-    pub pool: Connection,
+    pub pool: DbPool,
 }
 
 impl StatRepository for SqlStatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>> {
-        let mut stmt = self.pool.prepare(
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let mut stmt = conn.prepare(
             "SELECT 
                     team_id,
                     team_name,
@@ -72,13 +79,20 @@ impl StatRepository for SqlStatRepository {
                 r: 0,
                 ra: 0,
             })
-        })?;
-        let standings: Vec<Standing> = standings_iter.collect::<Result<Vec<_>, _>>()?;
+        });
+
+        if let Err(e) = &standings_iter {
+            eprintln!("{}:{}", t!("error", "SQL" => "SELECT standings"), e);
+        }
+
+        let standings: Vec<Standing> = standings_iter?.collect::<Result<Vec<_>, _>>()?;
         Ok(standings)
     }
 
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>> {
-        let mut stmt = self.pool.prepare(
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let mut stmt = conn.prepare(
             "SELECT 
                         batter_id,
                         b.first_name AS batter_first_name,
@@ -110,9 +124,14 @@ impl StatRepository for SqlStatRepository {
                 ba: row.get("ba")?,
                 rbi: row.get("rbi")?,
             })
-        })?;
+        });
 
-        let batting_stats: Vec<BattingStats> = batting_stats_iter.collect::<Result<Vec<_>, _>>()?;
+        if let Err(e) = &batting_stats_iter {
+            eprintln!("{}:{}", t!("error", "SQL" => "SELECT batting_stats"), e);
+        }
+
+        let batting_stats: Vec<BattingStats> =
+            batting_stats_iter?.collect::<Result<Vec<_>, _>>()?;
         Ok(batting_stats)
     }
 }

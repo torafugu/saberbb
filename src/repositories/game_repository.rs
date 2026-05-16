@@ -6,8 +6,8 @@ use crate::repositories::persistence_config::SqliteManager;
 use crate::repositories::sql_types::SqlGameType;
 use crate::t;
 use anyhow::Result;
-use deadpool::managed::{Manager, Metrics, Pool, RecycleResult};
-use rusqlite::{Connection, params};
+use deadpool::managed::Pool;
+use rusqlite::params;
 use std::sync::Arc;
 
 pub trait GameRepository {
@@ -52,6 +52,7 @@ impl GameRepository for SqlGameRepository {
             }
             Err(e) => {
                 eprintln!("{}:{}", t!("error", "function" => "load_games"), e);
+                return Err(e.into());
             }
         }
         Ok(game_round)
@@ -79,7 +80,8 @@ impl GameRepository for SqlGameRepository {
                 game.home_point
             ],
         ) {
-           eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO game"), e); 
+           eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO game"), e);
+           return Err(e.into());
         };
 
             for inning in game.innings.iter() {
@@ -113,6 +115,7 @@ impl GameRepository for SqlGameRepository {
                         ],
                     ) {
                         eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO count"), e);
+                        return Err(e.into());
                     };
                 }
             }
@@ -123,9 +126,17 @@ impl GameRepository for SqlGameRepository {
             params![],
         ) {
             eprintln!("{}:{}", t!("error", "SQL" => "UPDATE game_season"), e);
+            return Err(e.into());
         };
 
-        tx.commit()?;
+        if let Err(e) = tx.commit() {
+            eprintln!(
+                "{}:{}",
+                t!("error", "Function" => "commit of save_game_round"),
+                e
+            );
+            return Err(e.into());
+        };
 
         Ok(())
     }

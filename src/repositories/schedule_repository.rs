@@ -1,17 +1,33 @@
-use crate::domain::schedule_service::ScheduleRepository;
 use crate::domain::shared::game::{GameRound, GameSeason};
 use crate::domain::shared::team::{League, Team};
+use crate::repositories::persistence_config::SqliteManager;
+use crate::t;
 use anyhow::Result;
 use chrono::NaiveDate;
-use rusqlite::{Connection, Error, params};
+use deadpool::managed::Pool;
+use rusqlite::{Error, params};
 
+type DbPool = Pool<SqliteManager>;
+
+pub trait ScheduleRepository {
+    fn load_game_season(&self) -> Result<GameSeason>;
+    fn load_all_leagues(&self) -> Result<Vec<League>>;
+    fn save_scheduled_game_rounds(&mut self, game_rounds: Vec<GameRound>) -> Result<()>;
+    fn load_last_game_round_id(&self) -> Result<u32>;
+    fn load_last_game_id(&self) -> Result<u32>;
+    fn update_scheduled_season(&self, scheduled_season: u16) -> Result<()>;
+}
+
+#[derive(Clone)]
 pub struct SqlScheduleRepository {
-    pub pool: Connection,
+    pub pool: DbPool,
 }
 
 impl ScheduleRepository for SqlScheduleRepository {
     fn load_game_season(&self) -> Result<GameSeason> {
-        let game_season: GameSeason = self.pool.query_row(
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let game_season  = conn.query_row(
         "SELECT start_season, start_date, current_season, current_round_seq, scheduled_season FROM game_season LIMIT 1",
         params![],
         |row| {
@@ -23,49 +39,64 @@ impl ScheduleRepository for SqlScheduleRepository {
                 scheduled_season: row.get("scheduled_season")?,
             })
         },
-    )?;
-        Ok(game_season)
+    );
+        if let Err(e) = &game_season {
+            eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM game_season"), e);
+        }
+        Ok(game_season?)
     }
 
     fn load_all_leagues(&self) -> Result<Vec<League>> {
-        let mut stmt_league = self
-            .pool
-            .prepare("SELECT id, name FROM league ORDER BY id")?;
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let mut stmt_league = conn.prepare("SELECT id, name FROM league ORDER BY id")?;
         let league_iter = stmt_league.query_map([], |row| {
             Ok(League {
                 id: row.get("id")?,
                 name: row.get("name")?,
                 teams: Vec::new(),
             })
-        })?;
+        });
+        if let Err(e) = &league_iter {
+            eprintln!(
+                "{}:{}",
+                t!("error", "SQL" => "SELECT FROM game_round, game_season"),
+                e
+            );
+        }
 
         let mut leagues: Vec<League> = Vec::new();
 
-        for league in league_iter {
-            let mut _league = league?;
-            let mut stmt_team = self
-                .pool
-                .prepare("SELECT id, name FROM team WHERE league_id = ?1")?;
-            let team_iter = stmt_team.query_map(params![_league.id], |row| {
+        for league in league_iter? {
+            let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+            let mut league = league?;
+            let mut stmt_team = conn.prepare("SELECT id, name FROM team WHERE league_id = ?1")?;
+            let team_iter = stmt_team.query_map(params![league.id], |row| {
                 Ok(Team {
                     id: row.get("id")?,
                     name: row.get("name")?,
                     players: Vec::new(),
                 })
-            })?;
-
-            for team in team_iter {
-                _league.teams.push(team?);
+            });
+            if let Err(e) = &team_iter {
+                eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM team"), e);
             }
 
-            leagues.push(_league);
+            for team in team_iter? {
+                league.teams.push(team?);
+            }
+
+            leagues.push(league);
         }
 
         Ok(leagues)
     }
 
     fn load_last_game_round_id(&self) -> Result<u32> {
-        let res_round_id = self.pool.query_row(
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let res_round_id = conn.query_row(
             "SELECT id FROM game_round ORDER BY id DESC LIMIT 1",
             params![],
             |row| Ok(row.get("id")?),
@@ -74,13 +105,18 @@ impl ScheduleRepository for SqlScheduleRepository {
         // in case the number of rows = 0
         if res_round_id == Err(Error::QueryReturnedNoRows) {
             Ok(0)
+        } else if let Err(e) = res_round_id {
+            eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM game_round"), e);
+            return Err(e.into());
         } else {
             Ok(res_round_id?)
         }
     }
 
     fn load_last_game_id(&self) -> Result<u32> {
-        let res_game_id = self.pool.query_row(
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let res_game_id = conn.query_row(
             "SELECT id FROM game ORDER BY id DESC LIMIT 1",
             params![],
             |row| Ok(row.get("id")?),
@@ -95,10 +131,12 @@ impl ScheduleRepository for SqlScheduleRepository {
     }
 
     fn save_scheduled_game_rounds(&mut self, game_rounds: Vec<GameRound>) -> Result<()> {
-        let tx = self.pool.transaction()?;
+        let mut conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let tx = conn.transaction()?;
 
         for game_round in game_rounds {
-            let _ = tx.execute(
+            if let Err(e) = tx.execute(
                 "INSERT OR REPLACE INTO game_round (id, season, seq, date) VALUES (?1, ?2, ?3, ?4)",
                 params![
                     game_round.id,
@@ -106,10 +144,13 @@ impl ScheduleRepository for SqlScheduleRepository {
                     game_round.seq,
                     game_round.date
                 ],
-            )?;
+            ) {
+                eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO game_round"), e);
+                return Err(e.into());
+            }
 
             for game in game_round.games {
-                let _ = tx.execute(
+                if let Err(e) = tx.execute(
                     "INSERT OR REPLACE INTO game (
                 game_round_id, id, planned_date, actual_date, away_team_id, home_team_id, game_type, away_point, home_point
                 ) VALUES (
@@ -126,20 +167,35 @@ impl ScheduleRepository for SqlScheduleRepository {
                         0,
                         0
                     ],
-                )?;
+                ) {
+                    eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO game"), e);
+                    return Err(e.into());
+                };
             }
         }
 
-        tx.commit()?;
+        if let Err(e) = tx.commit() {
+            eprintln!(
+                "{}:{}",
+                t!("error", "Function" => "commit of save_scheduled_game_rounds"),
+                e
+            );
+            return Err(e.into());
+        };
 
         Ok(())
     }
 
     fn update_scheduled_season(&self, scheduled_season: u16) -> Result<()> {
-        self.pool.execute(
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        if let Err(e) = conn.execute(
             "Update game_season SET scheduled_season = ?1",
             params![scheduled_season],
-        )?;
+        ) {
+            eprintln!("{}:{}", t!("error", "SQL" => "Update game_season"), e);
+            return Err(e.into());
+        };
         Ok(())
     }
 }

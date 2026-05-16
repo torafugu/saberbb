@@ -13,9 +13,10 @@ use domain::player_service::PlayerService;
 use domain::schedule_service::ScheduleService;
 use i18n::I18nManager;
 use repositories::game_repository::SqlGameRepository;
-use repositories::persistence_config::{get_db_conn, get_sqlite_manager};
+use repositories::persistence_config::get_sqlite_manager;
 use repositories::player_repository::SqlPlayerRepository;
 use repositories::schedule_repository::SqlScheduleRepository;
+use repositories::statistics_repository::SqlStatRepository;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
@@ -35,6 +36,9 @@ impl Default for AppConfig {
 
 struct AppContext {
     game_repository: SqlGameRepository,
+    player_repository: SqlPlayerRepository,
+    schedule_repository: SqlScheduleRepository,
+    statistics_repository: SqlStatRepository,
 }
 
 static APP_CONTEXT: OnceLock<AppContext> = OnceLock::new();
@@ -50,12 +54,16 @@ fn main() {
     let cfg: AppConfig = confy::load::<AppConfig>("statbb", None).unwrap_or_default();
     I18nManager::init(&cfg.language);
 
+    // TODO: move to separated function
     // configure db connection pool
     let manager = get_sqlite_manager().expect(&t!("dbpool_failed"));
     let pool = Pool::builder(manager).max_size(16).build().unwrap();
 
     let ctx = AppContext {
-        game_repository: SqlGameRepository { pool },
+        game_repository: SqlGameRepository { pool: pool.clone() },
+        player_repository: SqlPlayerRepository { pool: pool.clone() },
+        schedule_repository: SqlScheduleRepository { pool: pool.clone() },
+        statistics_repository: SqlStatRepository { pool: pool.clone() },
     };
     APP_CONTEXT.set(ctx).ok();
 
@@ -78,10 +86,9 @@ fn main() {
 
     // Player Generate Mode
     if let Some(num_of_players) = args.generate {
-        let db_repo = SqlPlayerRepository {
-            pool: get_db_conn().unwrap(),
+        let mut player_service = PlayerService {
+            repo: APP_CONTEXT.get().unwrap().player_repository.clone(),
         };
-        let mut player_service = PlayerService { repo: db_repo };
         if let Err(e) = player_service.generate_players(num_of_players) {
             eprintln!("{}:{}", t!("error", "function" => "generate_players"), e);
         }
@@ -94,10 +101,9 @@ fn main() {
 
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
-        let db_repo = SqlScheduleRepository {
-            pool: get_db_conn().unwrap(),
+        let mut schedule_service = ScheduleService {
+            repo: APP_CONTEXT.get().unwrap().schedule_repository.clone(),
         };
-        let mut schedule_service = ScheduleService { repo: db_repo };
         for _ in 0..num_of_schedules {
             if let Err(e) = schedule_service.schedule_season() {
                 eprintln!("{}:{}", t!("error", "function" => "schedule_season"), e);

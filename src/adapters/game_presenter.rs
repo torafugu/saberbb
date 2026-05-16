@@ -1,6 +1,7 @@
 use super::menu_component::{MenuItem, init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
 use crate::domain::shared::game::{Count, Game};
+use crate::domain::shared::game_state::GameCursor;
 use crate::domain::shared::types::{Base, InningType};
 use crate::domain::utils::is_base_occupied;
 use crate::i18n::I18nManager;
@@ -31,19 +32,10 @@ pub fn display_game_rounds_processed(num_of_rounds: i8) {
 }
 
 pub fn display_game_detail(game: &Game) -> io::Result<()> {
-    let mut inning_seq: u8 = 1;
-    let mut inning_tb: InningType = InningType::Top;
-    let mut count_seq: u8 = 1;
-
-    let mut current_inning = game
-        .innings
-        .iter()
-        .find(|i| i.is(inning_seq, inning_tb))
-        .expect(&t!("inning_not_found"));
-    let mut current_count;
+    let mut cursor = GameCursor::new(game.clone());
+    let max_inning_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
 
     let mut stdout = io::stdout();
-
     let _ = init_terminal();
     let mut should_redraw = true;
 
@@ -52,18 +44,20 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             let mut table = Table::new();
             execute!(stdout, cursor::MoveTo(0, 0))?;
 
-            let max_inning_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
-            current_inning = game
-                .innings
-                .iter()
-                .find(|i| i.is(inning_seq, inning_tb))
-                .expect(&t!("inning_not_found"));
+            // cursor.set_current_inning_and_count(game);
 
-            current_count = current_inning
-                .counts
-                .iter()
-                .find(|i| i.seq == count_seq)
-                .expect(&t!("count_not_found"));
+            // cursor.current_inning = game
+            //     .innings
+            //     .iter()
+            //     .find(|i| i.is(inning_seq, inning_tb))
+            //     .expect(&t!("inning_not_found"))
+            //     .clone();
+
+            // current_count = current_inning
+            //     .counts
+            //     .iter()
+            //     .find(|i| i.seq == count_seq)
+            //     .expect(&t!("count_not_found"));
 
             rprintln!("<- {} {} ->", t!("prev_count"), t!("next_count"));
             rprintln!("\r\n");
@@ -71,10 +65,10 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                 "<{}> {}:{}({}) {}:{}",
                 game.game_type,
                 t!("current_inning"),
-                current_inning.seq,
-                current_inning.tb.to_string(),
+                cursor.inning_seq,
+                cursor.inning_tb.to_string(),
                 t!("current_count"),
-                current_count.seq
+                cursor.count_seq
             );
 
             // Display score board
@@ -85,7 +79,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             top_scores.push((&game.away_team.name).to_string());
             bottom_scores.push((&game.home_team.name).to_string());
 
-            for inning_num in 1..max_inning_seq + 1 {
+            for inning_num in 1..cursor.max_innning_num() {
                 headers.push(inning_num.to_string());
                 top_scores.push("".to_string());
                 bottom_scores.push("".to_string());
@@ -110,15 +104,18 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                         bottom_total_point += count.point;
                         bottom_scores[inning.seq as usize] = (bottom_inning_point).to_string();
                     }
-                    if inning.seq == inning_seq && inning.tb == inning_tb && count.seq == count_seq
+                    if inning.seq == cursor.inning_seq
+                        && inning.tb == cursor.inning_tb
+                        && count.seq == cursor.count_seq
                     {
                         break 'inning;
                     }
                 }
             }
 
-            if inning_seq == max_inning_seq
-                && count_seq == (current_inning.counts.len()) as u8
+            if cursor.is_last_inning()
+                && cursor.is_last_count()
+                && cursor.inning_tb == InningType::Bottom
                 && bottom_scores[max_inning_seq as usize] == ""
             {
                 bottom_scores[max_inning_seq as usize] = WALK_OFF.to_string();
@@ -143,7 +140,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
             rprintln!("{table}");
 
             // Display count
-            rprintln!("{}", format_count(&current_count));
+            rprintln!("{}", format_count(&cursor.current_count()));
             should_redraw = false;
         }
 
@@ -154,62 +151,15 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
                         code: KeyCode::Left,
                         ..
                     } => {
-                        if count_seq > 1 {
-                            count_seq -= 1;
-                            should_redraw = true;
-                        } else if current_inning.tb == InningType::Bottom {
-                            inning_tb = InningType::Top;
-                            count_seq = game
-                                .innings
-                                .iter()
-                                .find(|i| i.is(inning_seq, inning_tb))
-                                .expect(&t!("inning_not_found"))
-                                .counts
-                                .len() as u8;
-                            should_redraw = true;
-                        } else if let Some(_) = game
-                            .innings
-                            .iter()
-                            .find(|i| i.is(inning_seq - 1, InningType::Top))
-                        {
-                            inning_seq -= 1;
-                            inning_tb = InningType::Bottom;
-                            count_seq = game
-                                .innings
-                                .iter()
-                                .find(|i| i.is(inning_seq, inning_tb))
-                                .expect(&t!("inning_not_found"))
-                                .counts
-                                .len() as u8;
-                            should_redraw = true;
-                        }
+                        cursor.prev();
+                        should_redraw = true;
                     }
                     KeyEvent {
                         code: KeyCode::Right,
                         ..
                     } => {
-                        if count_seq < current_inning.counts.len() as u8 {
-                            count_seq += 1;
-                            should_redraw = true;
-                        } else if current_inning.tb == InningType::Top
-                            && let Some(_) = game
-                                .innings
-                                .iter()
-                                .find(|i| i.is(inning_seq, InningType::Bottom))
-                        {
-                            inning_tb = InningType::Bottom;
-                            count_seq = 1;
-                            should_redraw = true;
-                        } else if let Some(_) = game
-                            .innings
-                            .iter()
-                            .find(|i| i.is(inning_seq + 1, InningType::Top))
-                        {
-                            inning_seq += 1;
-                            inning_tb = InningType::Top;
-                            count_seq = 1;
-                            should_redraw = true;
-                        }
+                        cursor.next();
+                        should_redraw = true;
                     }
                     KeyEvent {
                         code: KeyCode::Char('c'),
@@ -230,6 +180,10 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
     let _ = restore_terminal();
     Ok(())
 }
+
+// fn scoreboard_until(game, cursor) -> String {
+//     ""
+// }
 
 fn format_count(count: &Count) -> String {
     let mut formated_count = format!(

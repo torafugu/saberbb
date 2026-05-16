@@ -1,4 +1,4 @@
-use super::game::{Count, Inning};
+use super::game::{Count, Game, Inning};
 use super::player::Player;
 use super::types::{Base, BattingResult, InningType, Position};
 use crate::domain::resolver::simulate_batting;
@@ -251,4 +251,123 @@ pub struct BattingOrder {
     pub order: u8,
     pub position: Position,
     pub player: Player,
+}
+
+#[derive(Debug)]
+pub struct GameCursor {
+    game: Game,
+    pub inning_seq: u8,
+    pub inning_tb: InningType,
+    pub count_seq: u8,
+}
+impl GameCursor {
+    pub fn new(game: Game) -> Self {
+        Self {
+            game: game,
+            inning_seq: 1,
+            inning_tb: InningType::Top,
+            count_seq: 1,
+        }
+    }
+
+    pub fn prev(&mut self) {
+        if !self.is_first_count() {
+            self.prev_count();
+        } else if self.is_bottom_inning() {
+            self.inning_tb = InningType::Top;
+            self.count_seq = self.max_count_seq();
+        } else if !self.is_first_inning() {
+            self.prev_inning();
+            self.inning_tb = InningType::Bottom;
+            self.count_seq = self.max_count_seq();
+        }
+    }
+
+    pub fn next(&mut self) {
+        if !self.is_last_count() {
+            self.next_count();
+        } else if self.is_top_inning() {
+            self.inning_tb = InningType::Bottom;
+            self.count_seq = 1;
+        } else if !self.is_last_inning() {
+            self.next_inning();
+            self.inning_tb = InningType::Top;
+            self.count_seq = 1;
+        }
+    }
+
+    fn is_first_inning(&self) -> bool {
+        self.inning_seq == 1
+    }
+
+    pub fn is_last_count(&mut self) -> bool {
+        self.count_seq == self.max_count_seq()
+    }
+
+    pub fn is_last_inning(&mut self) -> bool {
+        self.inning_seq == self.max_inning_seq()
+    }
+
+    fn is_first_count(&self) -> bool {
+        self.count_seq == 1
+    }
+
+    fn is_top_inning(&self) -> bool {
+        self.inning_tb == InningType::Top
+    }
+
+    fn is_bottom_inning(&self) -> bool {
+        self.inning_tb == InningType::Bottom
+    }
+
+    fn prev_count(&mut self) {
+        self.count_seq -= 1
+    }
+
+    fn next_count(&mut self) {
+        self.count_seq += 1
+    }
+
+    fn prev_inning(&mut self) {
+        self.inning_seq -= 1;
+    }
+
+    fn next_inning(&mut self) {
+        self.inning_seq += 1;
+    }
+
+    pub fn max_innning_num(&mut self) -> u8 {
+        self.max_inning_seq() + 1
+    }
+
+    pub fn max_inning_seq(&mut self) -> u8 {
+        self.game.innings.iter().map(|i| i.seq).max().unwrap_or(0)
+    }
+
+    pub fn max_count_seq(&mut self) -> u8 {
+        self.current_inning().counts.len() as u8
+    }
+
+    // pub fn set_current_inning_and_count(&mut self, game: &Game) {
+    //     self.set_current_inning(game);
+    //     self.set_current_count();
+    // }
+
+    fn current_inning(&mut self) -> Inning {
+        self.game
+            .innings
+            .iter()
+            .find(|i| i.is(self.inning_seq, self.inning_tb))
+            .expect(&t!("inning_not_found"))
+            .clone()
+    }
+
+    pub fn current_count(&mut self) -> Count {
+        self.current_inning()
+            .counts
+            .iter()
+            .find(|i| i.seq == self.count_seq)
+            .expect(&t!("count_not_found"))
+            .clone()
+    }
 }

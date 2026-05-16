@@ -1,7 +1,6 @@
 use super::menu_component::{init_terminal, restore_terminal};
+use crate::APP_CONTEXT;
 use crate::domain::statistics_service::StatService;
-use crate::repositories::persistence_config::get_db_conn;
-use crate::repositories::statistics_repository::SqlStatRepository;
 use crate::rprintln;
 use crate::t;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
@@ -14,10 +13,9 @@ pub fn display_standings() {
 
     let mut table = Table::new();
     println!("{}", t!("standings"));
-    let db_repo = SqlStatRepository {
-        pool: get_db_conn().unwrap(),
+    let stat_service = StatService {
+        repo: APP_CONTEXT.get().unwrap().statistics_repository.clone(),
     };
-    let stat_service = StatService { repo: db_repo };
     let standings_res = stat_service.show_standings();
     match standings_res {
         Ok(standings_res) => {
@@ -69,10 +67,9 @@ pub fn display_batting_stats() {
 
     let mut table = Table::new();
     println!("{}", t!("batting_stats"));
-    let db_repo = SqlStatRepository {
-        pool: get_db_conn().unwrap(),
+    let batting_stats_service = StatService {
+        repo: APP_CONTEXT.get().unwrap().statistics_repository.clone(),
     };
-    let batting_stats_service = StatService { repo: db_repo };
     let batting_stats_res = batting_stats_service.show_batting_stats();
     match batting_stats_res {
         Ok(batting_stats_res) => {

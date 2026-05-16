@@ -1,7 +1,7 @@
 use super::shared::player::Player;
-use super::shared::team::{League, Team};
 use super::utils::{age_random, rl_random, skewed_normal_random};
 use crate::i18n::I18nManager;
+use crate::repositories::player_repository::PlayerRepository;
 use crate::t;
 use anyhow::Result;
 
@@ -11,12 +11,6 @@ const BA_SKEW: f64 = 0.2;
 const SLG_SKEW: f64 = 0.2;
 const THROW_LEFTY: f64 = 0.2;
 const BAT_LEFTY: f64 = 0.4;
-
-pub trait PlayerRepository {
-    fn save_player(&mut self, team: Team, player: Player) -> Result<()>;
-    fn random_name(&self, language: String) -> Result<[String; 2]>;
-    fn next_player_dist_team(&self) -> Result<Team>;
-}
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,

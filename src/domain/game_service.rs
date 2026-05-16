@@ -32,9 +32,6 @@ impl<R: GameRepository> GameService<R> {
                 let mut inning = game_state.advance_half_inning();
                 let mut inning_state = InningState::new();
 
-                // Top inning
-                // Bottom Inning
-
                 // loop for a count
                 while let InningProgress::Ongoing = inning_state.progress() {
                     inning_state.add_count_seq();

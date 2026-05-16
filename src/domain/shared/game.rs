@@ -1,7 +1,7 @@
 use super::game_state::GameState;
 use super::player::Player;
 use super::team::Team;
-use super::types::{Base, BattingResult, InningType};
+use super::types::{BattingResult, InningType};
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
