@@ -64,4 +64,5 @@ lf = 左
 cf = 中
 rf = 右
 dh = 指
-lineup_failed = 打順生成に失敗
+away_lineup_failed = 先攻チームの打順生成に失敗
+home_lineup_failed = 後攻チームの打順生成に失敗

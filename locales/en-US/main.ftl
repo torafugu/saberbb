@@ -63,4 +63,5 @@ lf = LF
 cf = CF
 rf = RF
 dh = DH
-lineup_failed = Lineup failed
+away_lineup_failed = Lineup failed
+home_lineup_failed = Lineup failed

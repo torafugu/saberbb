@@ -44,7 +44,11 @@ impl GameState {
         }
     }
 
-    pub fn is_bottom(&self) -> bool {
+    fn is_top(&self) -> bool {
+        self.inning_tb == InningType::Top
+    }
+
+    fn is_bottom(&self) -> bool {
         self.inning_tb == InningType::Bottom
     }
 
@@ -71,7 +75,9 @@ impl GameState {
     }
 
     fn is_game_set_condition(&self) -> bool {
-        self.inning_seq >= MAX_INNING && self.is_bottom()
+        self.inning_seq >= MAX_INNING
+            && ((self.is_top() && self.away_total_point < self.home_total_point)
+                || self.is_bottom())
     }
 
     fn is_postponed(&self) -> bool {
@@ -96,12 +102,12 @@ impl GameState {
         }
     }
 
-    pub fn current_batter(&self) -> Player {
-        let lineup = match self.inning_tb {
-            InningType::Top => &self.away_batting_lineup,
-            InningType::Bottom => &self.home_batting_lineup,
-        };
-        lineup.clone().next().expect(&t!("lineup_failed"))
+    pub fn current_batter(&mut self) -> Player {
+        if self.inning_tb == InningType::Top {
+            self.away_batting_lineup.next().expect(&t!("lineup_failed"))
+        } else {
+            self.home_batting_lineup.next().expect(&t!("lineup_failed"))
+        }
     }
 
     pub fn add_point(&mut self, point: u8) {
@@ -255,19 +261,25 @@ pub struct BattingOrder {
 
 #[derive(Debug)]
 pub struct GameCursor {
-    game: Game,
+    game: Arc<Game>,
     pub inning_seq: u8,
     pub inning_tb: InningType,
     pub count_seq: u8,
+    pub is_last_bottom_inning_skiped: bool,
 }
 impl GameCursor {
     pub fn new(game: Game) -> Self {
         Self {
-            game: game,
+            game: game.into(),
             inning_seq: 1,
             inning_tb: InningType::Top,
             count_seq: 1,
+            is_last_bottom_inning_skiped: false,
         }
+    }
+
+    pub fn game_type(&self) -> String {
+        self.game.game_type.to_string()
     }
 
     pub fn prev(&mut self) {
@@ -281,12 +293,13 @@ impl GameCursor {
             self.inning_tb = InningType::Bottom;
             self.count_seq = self.max_count_seq();
         }
+        self.is_last_bottom_inning_skiped = false;
     }
 
     pub fn next(&mut self) {
         if !self.is_last_count() {
             self.next_count();
-        } else if self.is_top_inning() {
+        } else if self.is_top_inning() && !self.is_last_bottom_inning_skiped {
             self.inning_tb = InningType::Bottom;
             self.count_seq = 1;
         } else if !self.is_last_inning() {
@@ -294,6 +307,10 @@ impl GameCursor {
             self.inning_tb = InningType::Top;
             self.count_seq = 1;
         }
+    }
+
+    fn is_last_bottom_inning_skiped(&mut self) -> bool {
+        self.game.away_point < self.game.home_point
     }
 
     fn is_first_inning(&self) -> bool {
@@ -321,11 +338,19 @@ impl GameCursor {
     }
 
     fn prev_count(&mut self) {
-        self.count_seq -= 1
+        self.count_seq -= 1;
     }
 
     fn next_count(&mut self) {
-        self.count_seq += 1
+        self.count_seq += 1;
+
+        if self.is_top_inning()
+            && self.is_last_inning()
+            && self.is_last_count()
+            && self.is_last_bottom_inning_skiped()
+        {
+            self.is_last_bottom_inning_skiped = true;
+        }
     }
 
     fn prev_inning(&mut self) {
@@ -336,10 +361,6 @@ impl GameCursor {
         self.inning_seq += 1;
     }
 
-    pub fn max_innning_num(&mut self) -> u8 {
-        self.max_inning_seq() + 1
-    }
-
     pub fn max_inning_seq(&mut self) -> u8 {
         self.game.innings.iter().map(|i| i.seq).max().unwrap_or(0)
     }
@@ -347,11 +368,6 @@ impl GameCursor {
     pub fn max_count_seq(&mut self) -> u8 {
         self.current_inning().counts.len() as u8
     }
-
-    // pub fn set_current_inning_and_count(&mut self, game: &Game) {
-    //     self.set_current_inning(game);
-    //     self.set_current_count();
-    // }
 
     fn current_inning(&mut self) -> Inning {
         self.game
@@ -369,5 +385,62 @@ impl GameCursor {
             .find(|i| i.seq == self.count_seq)
             .expect(&t!("count_not_found"))
             .clone()
+    }
+
+    pub fn current_scoreboard(&mut self) -> ScoreBoard {
+        let mut scoreboard = ScoreBoard {
+            away_team_name: self.game.away_team.name.to_string(),
+            home_team_name: self.game.home_team.name.to_string(),
+            max_inning_num: self.max_inning_seq(),
+            away_total_point: 0,
+            home_total_point: 0,
+            away_innning_points: Vec::new(),
+            home_innning_points: Vec::new(),
+            is_last_bottom_inning_skiped: self.is_last_bottom_inning_skiped,
+        };
+
+        'inning: for inning in &self.game.innings {
+            if inning.tb == InningType::Top {
+                scoreboard.away_innning_points.push(0);
+            } else {
+                scoreboard.home_innning_points.push(0);
+            }
+
+            for count in &inning.counts {
+                if inning.tb == InningType::Top {
+                    *scoreboard.away_innning_points.last_mut().unwrap() += count.point;
+                    scoreboard.away_total_point += count.point;
+                } else {
+                    *scoreboard.home_innning_points.last_mut().unwrap() += count.point;
+                    scoreboard.home_total_point += count.point;
+                }
+                if inning.seq == self.inning_seq
+                    && inning.tb == self.inning_tb
+                    && count.seq == self.count_seq
+                {
+                    break 'inning;
+                }
+            }
+        }
+
+        scoreboard
+    }
+}
+
+#[derive(Debug)]
+pub struct ScoreBoard {
+    pub away_team_name: String,
+    pub home_team_name: String,
+    pub max_inning_num: u8,
+    pub away_total_point: u8,
+    pub home_total_point: u8,
+    pub away_innning_points: Vec<u8>,
+    pub home_innning_points: Vec<u8>,
+    pub is_last_bottom_inning_skiped: bool,
+}
+impl ScoreBoard {
+    pub fn away_scores() -> String {
+        let scores = "0";
+        scores.to_string()
     }
 }

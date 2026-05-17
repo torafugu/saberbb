@@ -1,7 +1,7 @@
 use super::menu_component::{MenuItem, init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
 use crate::domain::shared::game::{Count, Game};
-use crate::domain::shared::game_state::GameCursor;
+use crate::domain::shared::game_state::{GameCursor, ScoreBoard};
 use crate::domain::shared::types::{Base, InningType};
 use crate::domain::utils::is_base_occupied;
 use crate::i18n::I18nManager;
@@ -41,103 +41,14 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
 
     loop {
         if should_redraw {
-            let mut table = Table::new();
+            // let mut table = Table::new();
             execute!(stdout, cursor::MoveTo(0, 0))?;
 
-            // cursor.set_current_inning_and_count(game);
+            // Display header
+            rprintln!("{}", format_header(&cursor));
 
-            // cursor.current_inning = game
-            //     .innings
-            //     .iter()
-            //     .find(|i| i.is(inning_seq, inning_tb))
-            //     .expect(&t!("inning_not_found"))
-            //     .clone();
-
-            // current_count = current_inning
-            //     .counts
-            //     .iter()
-            //     .find(|i| i.seq == count_seq)
-            //     .expect(&t!("count_not_found"));
-
-            rprintln!("<- {} {} ->", t!("prev_count"), t!("next_count"));
-            rprintln!("\r\n");
-            rprintln!(
-                "<{}> {}:{}({}) {}:{}",
-                game.game_type,
-                t!("current_inning"),
-                cursor.inning_seq,
-                cursor.inning_tb.to_string(),
-                t!("current_count"),
-                cursor.count_seq
-            );
-
-            // Display score board
-            let mut headers: Vec<String> = Vec::new();
-            let mut top_scores: Vec<String> = Vec::new();
-            let mut bottom_scores: Vec<String> = Vec::new();
-            headers.push(t!("team"));
-            top_scores.push((&game.away_team.name).to_string());
-            bottom_scores.push((&game.home_team.name).to_string());
-
-            for inning_num in 1..cursor.max_innning_num() {
-                headers.push(inning_num.to_string());
-                top_scores.push("".to_string());
-                bottom_scores.push("".to_string());
-            }
-            headers.push(t!("total_score"));
-            top_scores.push("".to_string());
-            bottom_scores.push("".to_string());
-
-            let mut top_total_point: u8 = 0;
-            let mut bottom_total_point: u8 = 0;
-
-            'inning: for inning in &game.innings {
-                let mut top_inning_point = 0;
-                let mut bottom_inning_point = 0;
-                for count in &inning.counts {
-                    if inning.tb == InningType::Top {
-                        top_inning_point += count.point;
-                        top_total_point += count.point;
-                        top_scores[inning.seq as usize] = (top_inning_point).to_string();
-                    } else {
-                        bottom_inning_point += count.point;
-                        bottom_total_point += count.point;
-                        bottom_scores[inning.seq as usize] = (bottom_inning_point).to_string();
-                    }
-                    if inning.seq == cursor.inning_seq
-                        && inning.tb == cursor.inning_tb
-                        && count.seq == cursor.count_seq
-                    {
-                        break 'inning;
-                    }
-                }
-            }
-
-            if cursor.is_last_inning()
-                && cursor.is_last_count()
-                && cursor.inning_tb == InningType::Bottom
-                && bottom_scores[max_inning_seq as usize] == ""
-            {
-                bottom_scores[max_inning_seq as usize] = WALK_OFF.to_string();
-            }
-
-            top_scores[(max_inning_seq + 1) as usize] = top_total_point.to_string();
-            bottom_scores[(max_inning_seq + 1) as usize] = bottom_total_point.to_string();
-
-            table.set_header(headers);
-            table.add_row(top_scores);
-            table.add_row(bottom_scores);
-            for inning_num in 1..max_inning_seq + 2 {
-                table
-                    .column_mut(inning_num as usize)
-                    .unwrap()
-                    .set_cell_alignment(CellAlignment::Right);
-            }
-            table
-                .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_ROUND_CORNERS);
-
-            rprintln!("{table}");
+            // Display scoreboard
+            rprintln!("{}", format_scoreboard(&cursor.current_scoreboard()));
 
             // Display count
             rprintln!("{}", format_count(&cursor.current_count()));
@@ -181,9 +92,66 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
     Ok(())
 }
 
-// fn scoreboard_until(game, cursor) -> String {
-//     ""
-// }
+fn format_header(cursor: &GameCursor) -> String {
+    let mut formated_header = format!("<- {} {} ->", t!("prev_count"), t!("next_count"));
+    formated_header.push_str("\r\n");
+    formated_header.push_str(&format!(
+        "<{}> {}:{}({}) {}:{}",
+        cursor.game_type(),
+        t!("current_inning"),
+        cursor.inning_seq,
+        cursor.inning_tb.to_string(),
+        t!("current_count"),
+        cursor.count_seq
+    ));
+    formated_header
+}
+
+fn format_scoreboard(scoreboard: &ScoreBoard) -> String {
+    let mut table = Table::new();
+    let mut headers: Vec<String> = Vec::new();
+    let mut away_scores: Vec<String> = Vec::new();
+    let mut home_scores: Vec<String> = Vec::new();
+    headers.push(t!("team"));
+    away_scores.push((scoreboard.away_team_name).to_string());
+    home_scores.push((scoreboard.home_team_name).to_string());
+
+    for inning_seq in 0..scoreboard.max_inning_num {
+        headers.push((inning_seq + 1).to_string());
+        away_scores.push("".to_string());
+        home_scores.push("".to_string());
+    }
+
+    for inning_seq in 0..scoreboard.away_innning_points.len() {
+        away_scores[inning_seq + 1] = scoreboard.away_innning_points[inning_seq].to_string();
+    }
+
+    for inning_seq in 0..scoreboard.home_innning_points.len() {
+        home_scores[inning_seq + 1] = scoreboard.home_innning_points[inning_seq].to_string();
+    }
+
+    if scoreboard.is_last_bottom_inning_skiped {
+        home_scores[scoreboard.max_inning_num as usize] = WALK_OFF.to_string();
+    }
+
+    headers.push(t!("total_score"));
+    away_scores.push(scoreboard.away_total_point.to_string());
+    home_scores.push(scoreboard.home_total_point.to_string());
+
+    table.set_header(headers);
+    table.add_row(away_scores);
+    table.add_row(home_scores);
+    for inning_seq in 1..table.column_count() {
+        table
+            .column_mut(inning_seq as usize)
+            .unwrap()
+            .set_cell_alignment(CellAlignment::Right);
+    }
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+    format!("{table}")
+}
 
 fn format_count(count: &Count) -> String {
     let mut formated_count = format!(
@@ -193,19 +161,19 @@ fn format_count(count: &Count) -> String {
         display_runner(count.bases_occupied, Base::First)
     );
     formated_count.push_str(&format!("  <H>\n"));
-    formated_count.push_str(&format!("{}: {}\n", &t!("out_count"), count.out));
+    formated_count.push_str(&format!("{}: {}\n", t!("out_count"), count.out));
     formated_count.push_str(&format!(
         "{}: {}\n",
-        &t!("batter"),
-        &I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+        t!("batter"),
+        I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
     ));
     let rounded_ba = (count.batter.hit_average() * 1000.0).round();
-    formated_count.push_str(&format!(" {} : .{}\n", &t!("ba"), rounded_ba));
+    formated_count.push_str(&format!(" {} : .{}\n", t!("ba"), rounded_ba));
     let rounded_slg = (count.batter.slg() * 1000.0).round();
-    formated_count.push_str(&format!(" {}: .{}\n", &t!("slg"), rounded_slg));
-    formated_count.push_str(&format!("{}: {}\n", &t!("batting_result"), count.result));
+    formated_count.push_str(&format!(" {}: .{}\n", t!("slg"), rounded_slg));
+    formated_count.push_str(&format!("{}: {}\n", t!("batting_result"), count.result));
     if count.point > 0 {
-        formated_count.push_str(&format!("{}: +{}\n", &t!("score"), count.point));
+        formated_count.push_str(&format!("{}: +{}\n", t!("score"), count.point));
     } else {
         formated_count.push_str("");
     }
@@ -282,9 +250,6 @@ pub fn display_select_game(season: u16) {
 }
 
 pub fn display_select_season() {
-    // let game_service = GameService {
-    //     repo: APP_CONTEXT.get().unwrap().game_repository,
-    // };
     let load_processed_seasons_res = APP_CONTEXT
         .get()
         .unwrap()

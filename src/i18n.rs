@@ -62,9 +62,9 @@ impl I18nManager {
     }
 
     pub fn full_name(&self, first_name: &str, last_name: &str) -> String {
-        let mut full_name = format!("{} {}", last_name, first_name);
+        let mut full_name = format!("{} {}", first_name, last_name);
         if self.lang.to_string() == "ja-JP" {
-            full_name = format!("{} {}", first_name, last_name);
+            full_name = format!("{} {}", last_name, first_name);
         }
         full_name
     }

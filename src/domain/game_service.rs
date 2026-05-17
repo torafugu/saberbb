@@ -142,16 +142,16 @@ mod tests {
             Ok(games)
         }
 
-        fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>> {
+        fn load_team_players(&self, _team_id: u16) -> Result<Vec<Player>> {
             Ok(Vec::new())
         }
 
-        fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>> {
+        fn load_innings(&self, _game_id: u32) -> Result<Vec<Inning>> {
             let mut innings = Vec::new();
             Ok(innings)
         }
 
-        fn load_counts(&self, game_id: u32, inning: &Inning) -> Result<Vec<Count>> {
+        fn load_counts(&self, _game_id: u32, _inning: &Inning) -> Result<Vec<Count>> {
             let counts = Vec::new();
             Ok(counts)
         }

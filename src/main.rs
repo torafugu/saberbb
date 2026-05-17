@@ -43,11 +43,11 @@ struct AppContext {
 
 static APP_CONTEXT: OnceLock<AppContext> = OnceLock::new();
 
-fn ctx() -> &'static AppContext {
-    APP_CONTEXT
-        .get()
-        .expect(&t!("not_initialized", "struct" => "AppContext"))
-}
+// fn ctx() -> &'static AppContext {
+//     APP_CONTEXT
+//         .get()
+//         .expect(&t!("not_initialized", "struct" => "AppContext"))
+// }
 
 fn main() {
     // load default-config.toml and initialize I18nManager
@@ -55,7 +55,6 @@ fn main() {
     I18nManager::init(&cfg.language);
 
     // TODO: move to separated function
-    // configure db connection pool
     let manager = get_sqlite_manager().expect(&t!("dbpool_failed"));
     let pool = Pool::builder(manager).max_size(16).build().unwrap();
 
@@ -74,7 +73,6 @@ fn main() {
         let mut game_service = GameService {
             repo: APP_CONTEXT.get().unwrap().game_repository.clone(),
         };
-        // let mut game_service = GameService { repo: db_repo };
 
         for _ in 0..num_of_rounds {
             if let Err(e) = game_service.process_game_round() {
