@@ -29,11 +29,11 @@ pub fn rl_random(lefty_rate: f64) -> RL {
     rl
 }
 
-pub fn age_random() -> i8 {
+pub fn age_random() -> u8 {
     let mut rng = rand::rng();
     let dist = Gamma::new(AGE_SHAPE, AGE_SCALE).unwrap();
     let age = dist.sample(&mut rng) + AGE_OFFSET;
-    age.round() as i8
+    age.round() as u8
 }
 
 pub fn has_unique_elements_sorted<T: Ord>(mut vec: Vec<T>) -> bool {

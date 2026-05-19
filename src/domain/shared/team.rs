@@ -1,4 +1,3 @@
-use super::game_state::BattingOrder;
 use super::types::Position;
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -20,9 +19,8 @@ pub struct Team {
     pub players: Vec<Player>,
 }
 impl Team {
-    pub fn lineup(&mut self, is_dh: bool) -> Vec<BattingOrder> {
+    pub fn lineup(&mut self, is_dh: bool) -> Vec<Player> {
         let mut rng = rand::rng();
-        let mut order: u8 = 1;
         let mut batting_orders = Vec::new();
         let mut players = self.players.clone();
         players.shuffle(&mut rng);
@@ -30,24 +28,14 @@ impl Team {
         if is_dh {
             for position in &Position::ALL {
                 if let Some(selection) = players.pop() {
-                    batting_orders.push(BattingOrder {
-                        order: order,
-                        position: position.clone(),
-                        player: selection.clone(),
-                    });
+                    batting_orders.push(selection.clone());
                 }
-                order += 1;
             }
         } else {
             for position in &Position::ALL_NO_DH {
                 if let Some(selection) = players.pop() {
-                    batting_orders.push(BattingOrder {
-                        order: order,
-                        position: position.clone(),
-                        player: selection.clone(),
-                    });
+                    batting_orders.push(selection.clone());
                 }
-                order += 1;
             }
         }
 

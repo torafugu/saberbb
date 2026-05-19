@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
+pub const MAX_BATTING_ORDER: usize = 9;
 
 #[derive(Debug, PartialEq)]
 pub enum GameProgress {
@@ -23,24 +24,30 @@ pub struct GameState {
     pub inning_tb: InningType,
     pub away_total_point: u8,
     pub home_total_point: u8,
-    pub away_batting_lineup: Lineup,
-    pub home_batting_lineup: Lineup,
+    pub away_batters: Lineup,
+    pub home_batters: Lineup,
+    pub away_fielders: Fielder,
+    pub home_fielders: Fielder,
 }
 impl GameState {
     pub fn new() -> GameState {
         GameState {
-            inning_seq: 0,                 // Initialization
-            inning_tb: InningType::Bottom, // Initialization
+            // Initialization: 1 should be set at the beginning of the game
+            inning_seq: 0,
+            // Initialization: Top should be set at the beginning of the game
+            inning_tb: InningType::Bottom,
             away_total_point: 0,
             home_total_point: 0,
-            away_batting_lineup: Lineup {
+            away_batters: Lineup {
                 current_index: 0,
-                batting_orders: Vec::new(),
+                batters: Vec::new(),
             },
-            home_batting_lineup: Lineup {
+            home_batters: Lineup {
                 current_index: 0,
-                batting_orders: Vec::new(),
+                batters: Vec::new(),
             },
+            away_fielders: Fielder::default(),
+            home_fielders: Fielder::default(),
         }
     }
 
@@ -104,9 +111,17 @@ impl GameState {
 
     pub fn current_batter(&mut self) -> Player {
         if self.inning_tb == InningType::Top {
-            self.away_batting_lineup.next().expect(&t!("lineup_failed"))
+            self.away_batters.next().expect(&t!("lineup_failed"))
         } else {
-            self.home_batting_lineup.next().expect(&t!("lineup_failed"))
+            self.home_batters.next().expect(&t!("lineup_failed"))
+        }
+    }
+
+    pub fn current_fielders(&mut self) -> &Fielder {
+        if self.inning_tb == InningType::Top {
+            &self.away_fielders
+        } else {
+            &self.home_fielders
         }
     }
 
@@ -147,7 +162,7 @@ impl InningState {
         InningProgress::Ongoing
     }
 
-    pub fn batting_resolve(&mut self, batter: &Player) -> Count {
+    pub fn batting_resolve(&mut self, batter: &Player, fielders: &Fielder) -> Count {
         let batting_result = simulate_batting(batter);
         if batting_result.is_out() {
             self.add_out(1);
@@ -156,6 +171,15 @@ impl InningState {
         Count {
             seq: self.count_seq,
             bases_occupied: self.bases_occupied,
+            pitcher: Arc::new(fielders.pitcher.clone()),
+            catcher: Arc::new(fielders.catcher.clone()),
+            first_baseman: Arc::new(fielders.first_baseman.clone()),
+            second_baseman: Arc::new(fielders.second_baseman.clone()),
+            third_baseman: Arc::new(fielders.third_baseman.clone()),
+            shortstop: Arc::new(fielders.shortstop.clone()),
+            left_fielder: Arc::new(fielders.left_fielder.clone()),
+            center_fielder: Arc::new(fielders.center_fielder.clone()),
+            right_fielder: Arc::new(fielders.right_fielder.clone()),
             batter: Arc::new(batter.clone()),
             result: batting_result,
             point: point,
@@ -226,13 +250,13 @@ impl InningState {
 #[derive(Clone, Debug)]
 pub struct Lineup {
     pub current_index: usize,
-    pub batting_orders: Vec<BattingOrder>,
+    pub batters: Vec<Player>,
 }
 impl Lineup {
-    pub fn new(batting_orders: Vec<BattingOrder>) -> Self {
+    pub fn new(batters: Vec<Player>) -> Self {
         Self {
             current_index: 0,
-            batting_orders,
+            batters,
         }
     }
 }
@@ -240,23 +264,44 @@ impl Iterator for Lineup {
     type Item = Player;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.batting_orders.is_empty() {
+        if self.batters.is_empty() {
             return None;
         }
 
-        let player = self.batting_orders[self.current_index].player.clone();
+        let player = self.batters[self.current_index].clone();
 
         // Use the modulo operator (%) to rotate the index around the range 0..N
-        self.current_index = (self.current_index + 1) % self.batting_orders.len();
+        self.current_index = (self.current_index + 1) % MAX_BATTING_ORDER;
         Some(player)
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct BattingOrder {
-    pub order: u8,
-    pub position: Position,
-    pub player: Player,
+pub struct Fielder {
+    pub pitcher: Player,
+    pub catcher: Player,
+    pub first_baseman: Player,
+    pub second_baseman: Player,
+    pub third_baseman: Player,
+    pub shortstop: Player,
+    pub left_fielder: Player,
+    pub center_fielder: Player,
+    pub right_fielder: Player,
+}
+impl Fielder {
+    fn default() -> Self {
+        Self {
+            pitcher: Player::default(),
+            catcher: Player::default(),
+            first_baseman: Player::default(),
+            second_baseman: Player::default(),
+            third_baseman: Player::default(),
+            shortstop: Player::default(),
+            left_fielder: Player::default(),
+            center_fielder: Player::default(),
+            right_fielder: Player::default(),
+        }
+    }
 }
 
 #[derive(Debug)]

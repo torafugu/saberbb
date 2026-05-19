@@ -33,7 +33,6 @@ pub fn display_game_rounds_processed(num_of_rounds: i8) {
 
 pub fn display_game_detail(game: &Game) -> io::Result<()> {
     let mut cursor = GameCursor::new(game.clone());
-    let max_inning_seq = game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
 
     let mut stdout = io::stdout();
     let _ = init_terminal();
@@ -41,9 +40,7 @@ pub fn display_game_detail(game: &Game) -> io::Result<()> {
 
     loop {
         if should_redraw {
-            // let mut table = Table::new();
             execute!(stdout, cursor::MoveTo(0, 0))?;
-
             // Display header
             rprintln!("{}", format_header(&cursor));
 

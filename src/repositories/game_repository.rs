@@ -32,8 +32,10 @@ impl GameRepository for SqlGameRepository {
         let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
 
         let mut game_round: GameRound = conn.query_row(
-            "SELECT id, season, seq, date FROM game_round, game_season 
-                WHERE current_season = season AND current_round_seq + 1 = seq",
+            "SELECT id, season, seq, date
+                    FROM game_season 
+                    INNER JOIN game_round
+                    ON current_season = season AND current_round_seq + 1 = seq",
             params![],
             |row| {
                 Ok(GameRound {
@@ -97,17 +99,34 @@ impl GameRepository for SqlGameRepository {
                 for count in inning.counts.iter() {
                     if let Err(e) = tx.execute(
                         "INSERT OR REPLACE INTO count (
-                        game_id, inning_seq, inning_tb, seq,
-                        bases_occupied, batter_id, result, point, out
+                        game_id, inning_seq, inning_tb, seq, bases_occupied, 
+                        pitcher_id, catcher_id, 
+                        first_baseman_id, second_baseman_id, third_baseman_id, shortstop_id, 
+                        left_fielder_id, center_fielder_id, right_fielder_id, 
+                        batter_id, 
+                        result, point, out
                         ) VALUES (
-                         ?1, ?2, ?3, ?4,
-                         ?5, ?6, ?7, ?8, ?9)",
+                         ?1, ?2, ?3, ?4, ?5, 
+                         ?6, ?7, 
+                         ?8, ?9, ?10, ?11, 
+                         ?12, ?13, ?14, 
+                         ?15,
+                         ?16, ?17, ?18)",
                         params![
                             game.id,
                             inning.seq,
                             inning.tb,
                             count.seq,
                             count.bases_occupied,
+                            count.pitcher.id,
+                            count.catcher.id,
+                            count.first_baseman.id,
+                            count.second_baseman.id,
+                            count.third_baseman.id,
+                            count.shortstop.id,
+                            count.left_fielder.id,
+                            count.center_fielder.id,
+                            count.right_fielder.id,
                             count.batter.id,
                             count.result,
                             count.point,
@@ -145,8 +164,11 @@ impl GameRepository for SqlGameRepository {
         let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
         let mut stmt = conn.prepare(
             "SELECT id, season, seq, date 
-            FROM game_round, game_season 
-            WHERE season = ?1 AND current_round_seq >= seq ORDER BY seq DESC",
+                    FROM game_season 
+                    INNER JOIN game_round
+                    ON current_round_seq >= seq
+                    WHERE season = ?1
+                    ORDER BY seq DESC",
         )?;
 
         let game_rounds = stmt.query_map([season], |row| {
@@ -365,10 +387,38 @@ impl GameRepository for SqlGameRepository {
 
         let mut stmt = conn.prepare(
             "SELECT seq, bases_occupied, result, point, out, 
-                id as batter_id, first_name, last_name, mod_ba as batter_ba, mod_slg as batter_slg
-                FROM count, player 
-                WHERE count.batter_id = player.id AND 
-                game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3",
+                b.id as b_id, b.first_name as b_first_name, b.last_name as b_last_name, b.mod_ba as ba, b.mod_slg as slg, 
+                p.id as p_id, p.first_name as p_first_name, p.last_name as p_last_name,
+                c.id as c_id, c.first_name as c_first_name, c.last_name as c_last_name,
+                fb.id as fb_id, fb.first_name as fb_first_name, fb.last_name as fb_last_name,
+                sb.id as sb_id, sb.first_name as sb_first_name, sb.last_name as sb_last_name,
+                tb.id as tb_id, tb.first_name as tb_first_name, tb.last_name as tb_last_name,
+                ss.id as ss_id, ss.first_name as ss_first_name, ss.last_name as ss_last_name,
+                lf.id as lf_id, lf.first_name as lf_first_name, lf.last_name as lf_last_name,
+                cf.id as cf_id, cf.first_name as cf_first_name, cf.last_name as cf_last_name,
+                rf.id as rf_id, rf.first_name as rf_first_name, rf.last_name as rf_last_name
+                FROM count
+                INNER JOIN player AS b
+                ON count.batter_id = b.id
+                INNER JOIN player AS p
+                ON count.pitcher_id = p.id
+                INNER JOIN player AS c
+                ON count.catcher_id = c.id
+                INNER JOIN player AS fb
+                ON count.first_baseman_id = fb.id
+                INNER JOIN player AS sb
+                ON count.second_baseman_id = sb.id
+                INNER JOIN player AS tb
+                ON count.third_baseman_id = tb.id
+                INNER JOIN player AS ss
+                ON count.shortstop_id = ss.id
+                INNER JOIN player AS lf
+                ON count.left_fielder_id = lf.id
+                INNER JOIN player AS cf
+                ON count.center_fielder_id = cf.id
+                INNER JOIN player AS rf
+                ON count.right_fielder_id = rf.id 
+                WHERE game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3",
         )?;
 
         let count_iter = stmt.query_map(params![game_id, inning.seq, inning.tb], |row| {
@@ -376,12 +426,57 @@ impl GameRepository for SqlGameRepository {
                 seq: row.get("seq")?,
                 bases_occupied: row.get("bases_occupied")?,
                 result: row.get::<_, SqlBattingResult>("result")?.0,
+                pitcher: Arc::from(Player::min(
+                    row.get("p_id")?,
+                    &row.get::<_, String>("p_first_name")?,
+                    &row.get::<_, String>("p_last_name")?,
+                )),
+                catcher: Arc::from(Player::min(
+                    row.get("c_id")?,
+                    &row.get::<_, String>("c_first_name")?,
+                    &row.get::<_, String>("c_last_name")?,
+                )),
+                first_baseman: Arc::from(Player::min(
+                    row.get("fb_id")?,
+                    &row.get::<_, String>("fb_first_name")?,
+                    &row.get::<_, String>("fb_last_name")?,
+                )),
+                second_baseman: Arc::from(Player::min(
+                    row.get("sb_id")?,
+                    &row.get::<_, String>("sb_first_name")?,
+                    &row.get::<_, String>("sb_last_name")?,
+                )),
+                third_baseman: Arc::from(Player::min(
+                    row.get("tb_id")?,
+                    &row.get::<_, String>("tb_first_name")?,
+                    &row.get::<_, String>("tb_last_name")?,
+                )),
+                shortstop: Arc::from(Player::min(
+                    row.get("ss_id")?,
+                    &row.get::<_, String>("ss_first_name")?,
+                    &row.get::<_, String>("ss_last_name")?,
+                )),
+                left_fielder: Arc::from(Player::min(
+                    row.get("lf_id")?,
+                    &row.get::<_, String>("lf_first_name")?,
+                    &row.get::<_, String>("lf_last_name")?,
+                )),
+                center_fielder: Arc::from(Player::min(
+                    row.get("cf_id")?,
+                    &row.get::<_, String>("cf_first_name")?,
+                    &row.get::<_, String>("cf_last_name")?,
+                )),
+                right_fielder: Arc::from(Player::min(
+                    row.get("rf_id")?,
+                    &row.get::<_, String>("rf_first_name")?,
+                    &row.get::<_, String>("rf_last_name")?,
+                )),
                 batter: Arc::from(Player::batter(
-                    row.get("batter_id")?,
-                    &row.get::<_, String>("first_name")?,
-                    &row.get::<_, String>("last_name")?,
-                    row.get("batter_ba")?,
-                    row.get("batter_slg")?,
+                    row.get("b_id")?,
+                    &row.get::<_, String>("b_first_name")?,
+                    &row.get::<_, String>("b_last_name")?,
+                    row.get("ba")?,
+                    row.get("slg")?,
                 )),
                 point: row.get("point")?,
                 out: row.get("out")?,

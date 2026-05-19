@@ -13,7 +13,7 @@
 | [first_names](first_names.md) | 5       |         | table |
 | [last_names](last_names.md)   | 4       |         | table |
 | [player](player.md)           | 11      |         | table |
-| [count](count.md)             | 9       |         | table |
+| [count](count.md)             | 18      |         | table |
 
 ## Relations
 

@@ -1,3 +1,4 @@
+use crate::domain::shared::types::Position;
 use crate::domain::utils;
 use crate::t;
 use serde::{Deserialize, Serialize};
@@ -9,8 +10,10 @@ const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
 const BATTING_MAX_HIT_AVERAGE: f64 = 0.32;
 const BATTING_MIN_SLG: f64 = 0.3;
 const BATTING_MAX_SLG: f64 = 0.55;
+const PLAYER_NAME_DEFAULT: &str = "DEAFULT";
+const PLAYER_AGE_DEFAULT: u8 = 25;
 
-#[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
+#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
 #[strum(ascii_case_insensitive)]
 pub enum RL {
     Right,
@@ -27,36 +30,42 @@ impl fmt::Display for RL {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
-    pub id: i32,
+    pub id: u32,
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
-    pub age: i8,
+    pub age: u8,
     pub throw: RL,
     pub mod_speed: f64,
     pub mod_control: f64,
+    pub defensive_skills: Vec<DefensiveSkill>,
     pub bat: RL,
     pub mod_ba: f64,
     pub mod_slg: f64,
 }
 
 impl Player {
-    pub fn min(id: i32, first_name: &str, last_name: &str) -> Player {
-        Player {
+    pub fn default() -> Self {
+        Player::min(1, PLAYER_NAME_DEFAULT, PLAYER_NAME_DEFAULT)
+    }
+
+    pub fn min(id: u32, first_name: &str, last_name: &str) -> Self {
+        Self {
             id: id,
             first_name: Arc::from(first_name),
             last_name: Arc::from(last_name),
-            age: 25,
+            age: PLAYER_AGE_DEFAULT,
             throw: RL::Right,
             mod_speed: 0.0,
             mod_control: 0.0,
+            defensive_skills: Vec::new(),
             bat: RL::Right,
             mod_ba: 0.0,
             mod_slg: 0.0,
         }
     }
 
-    pub fn batter(id: i32, first_name: &str, last_name: &str, mod_ba: f64, mod_slg: f64) -> Player {
-        Player {
+    pub fn batter(id: u32, first_name: &str, last_name: &str, mod_ba: f64, mod_slg: f64) -> Self {
+        Self {
             id: id,
             first_name: Arc::from(first_name),
             last_name: Arc::from(last_name),
@@ -64,6 +73,7 @@ impl Player {
             throw: RL::Right,
             mod_speed: 0.0,
             mod_control: 0.0,
+            defensive_skills: Vec::new(),
             bat: RL::Right,
             mod_ba: mod_ba,
             mod_slg: mod_slg,
@@ -84,13 +94,8 @@ impl Player {
     }
 }
 
-pub struct BattingStats {
-    pub batter: Player,
-    pub ab: i16,
-    pub single: i16,
-    pub double: i16,
-    pub triple: i16,
-    pub homerun: i16,
-    pub ba: f32,
-    pub rbi: f32,
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DefensiveSkill {
+    position: Position,
+    mod_uzr: f64,
 }

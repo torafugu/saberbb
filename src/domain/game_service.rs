@@ -21,8 +21,8 @@ impl<R: GameRepository> GameService<R> {
             // Initiate the game
             let mut game_state = GameState::new();
             // TODO: Implement No DH case
-            game_state.away_batting_lineup = Lineup::new(game.away_team.lineup(true));
-            game_state.home_batting_lineup = Lineup::new(game.home_team.lineup(true));
+            game_state.away_batters = Lineup::new(game.away_team.lineup(true));
+            game_state.home_batters = Lineup::new(game.home_team.lineup(true));
 
             // TODO: Check postponement
             game.actual_date = game.planned_date;
@@ -36,7 +36,10 @@ impl<R: GameRepository> GameService<R> {
                 while let InningProgress::Ongoing = inning_state.progress() {
                     inning_state.add_count_seq();
 
-                    let count = inning_state.batting_resolve(&game_state.current_batter());
+                    let count = inning_state.batting_resolve(
+                        &game_state.current_batter(),
+                        &game_state.current_fielders(),
+                    );
                     game_state.add_point(count.point);
                     inning.add_count(count);
 
@@ -188,16 +191,14 @@ mod tests {
         assert!(!games.is_empty(), "Games list should not be empty");
 
         let mut game_state = GameState::new();
-        game_state.away_batting_lineup = Lineup::new(games[0].clone().away_team.lineup(true));
-        game_state.home_batting_lineup = Lineup::new(games[0].clone().home_team.lineup(true));
+        game_state.away_batters = Lineup::new(games[0].clone().away_team.lineup(true));
+        game_state.home_batters = Lineup::new(games[0].clone().home_team.lineup(true));
 
         let away_lineup_full_names: Vec<String> = game_state
-            .away_batting_lineup
-            .batting_orders
+            .away_batters
+            .batters
             .iter()
-            .map(|order| {
-                I18nManager::global().full_name(&order.player.first_name, &order.player.last_name)
-            })
+            .map(|order| I18nManager::global().full_name(&order.first_name, &order.last_name))
             .collect();
         assert!(
             has_unique_elements_sorted(away_lineup_full_names),
@@ -205,12 +206,10 @@ mod tests {
         );
 
         let home_lineup_full_names: Vec<String> = game_state
-            .home_batting_lineup
-            .batting_orders
+            .home_batters
+            .batters
             .iter()
-            .map(|order| {
-                I18nManager::global().full_name(&order.player.first_name, &order.player.last_name)
-            })
+            .map(|order| I18nManager::global().full_name(&order.first_name, &order.last_name))
             .collect();
         assert!(
             has_unique_elements_sorted(home_lineup_full_names),

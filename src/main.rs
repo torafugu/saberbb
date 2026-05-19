@@ -124,7 +124,7 @@ struct Args {
 
     /// Generate players
     #[arg(short, long)]
-    generate: Option<i16>,
+    generate: Option<u16>,
 
     /// View game result interactively
     #[arg(short, long)]
@@ -132,5 +132,5 @@ struct Args {
 
     /// Schedule games
     #[arg(short, long)]
-    schedule: Option<i8>,
+    schedule: Option<u8>,
 }

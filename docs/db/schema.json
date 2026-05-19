@@ -459,6 +459,51 @@
           "default": "0"
         },
         {
+          "name": "pitcher_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "catcher_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "first_baseman_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "second_baseman_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "third_baseman_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "shortstop_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "left_fielder_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "center_fielder_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "right_fielder_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
           "name": "batter_id",
           "type": "INTEGER",
           "nullable": true
@@ -542,7 +587,7 @@
           ]
         }
       ],
-      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    bases_occupied INTEGER NOT NULL DEFAULT 0,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    point INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
+      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    bases_occupied INTEGER NOT NULL DEFAULT 0,\n    pitcher_id INTEGER,\n    catcher_id INTEGER,\n    first_baseman_id INTEGER,\n    second_baseman_id INTEGER,\n    third_baseman_id INTEGER,\n    shortstop_id INTEGER,\n    left_fielder_id INTEGER,\n    center_fielder_id INTEGER,\n    right_fielder_id INTEGER,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    point INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
     }
   ],
   "driver": {

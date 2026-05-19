@@ -18,7 +18,7 @@ pub struct PlayerService<R: PlayerRepository> {
 
 impl<R: PlayerRepository> PlayerService<R> {
     // TODO: Divide batter generation and pitcher generation
-    pub fn generate_players(&mut self, num_of_players: i16) -> Result<()> {
+    pub fn generate_players(&mut self, num_of_players: u16) -> Result<()> {
         for _ in 0..num_of_players {
             let name = self.repo.random_name(I18nManager::global().lang_db())?;
             let age = age_random();
@@ -37,6 +37,7 @@ impl<R: PlayerRepository> PlayerService<R> {
                 throw: throw,
                 mod_speed: mod_speed,
                 mod_control: mod_control,
+                defensive_skills: Vec::new(),
                 bat: bat,
                 mod_ba: mod_ba,
                 mod_slg: mod_slg,

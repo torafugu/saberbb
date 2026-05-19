@@ -12,6 +12,15 @@ CREATE TABLE count (
     inning_tb TEXT,
     seq INTEGER,
     bases_occupied INTEGER NOT NULL DEFAULT 0,
+    pitcher_id INTEGER,
+    catcher_id INTEGER,
+    first_baseman_id INTEGER,
+    second_baseman_id INTEGER,
+    third_baseman_id INTEGER,
+    shortstop_id INTEGER,
+    left_fielder_id INTEGER,
+    center_fielder_id INTEGER,
+    right_fielder_id INTEGER,
     batter_id INTEGER,
     result TEXT NOT NULL,
     point INTEGER NOT NULL,
@@ -29,17 +38,26 @@ CREATE TABLE count (
 
 ## Columns
 
-| Name           | Type    | Default | Nullable | Children | Parents | Comment |
-| -------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_id        | INTEGER |         | true     |          |         |         |
-| inning_seq     | INTEGER |         | true     |          |         |         |
-| inning_tb      | TEXT    |         | true     |          |         |         |
-| seq            | INTEGER |         | true     |          |         |         |
-| bases_occupied | INTEGER | 0       | false    |          |         |         |
-| batter_id      | INTEGER |         | true     |          |         |         |
-| result         | TEXT    |         | false    |          |         |         |
-| point          | INTEGER |         | false    |          |         |         |
-| out            | INTEGER |         | false    |          |         |         |
+| Name              | Type    | Default | Nullable | Children | Parents | Comment |
+| ----------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id           | INTEGER |         | true     |          |         |         |
+| inning_seq        | INTEGER |         | true     |          |         |         |
+| inning_tb         | TEXT    |         | true     |          |         |         |
+| seq               | INTEGER |         | true     |          |         |         |
+| bases_occupied    | INTEGER | 0       | false    |          |         |         |
+| pitcher_id        | INTEGER |         | true     |          |         |         |
+| catcher_id        | INTEGER |         | true     |          |         |         |
+| first_baseman_id  | INTEGER |         | true     |          |         |         |
+| second_baseman_id | INTEGER |         | true     |          |         |         |
+| third_baseman_id  | INTEGER |         | true     |          |         |         |
+| shortstop_id      | INTEGER |         | true     |          |         |         |
+| left_fielder_id   | INTEGER |         | true     |          |         |         |
+| center_fielder_id | INTEGER |         | true     |          |         |         |
+| right_fielder_id  | INTEGER |         | true     |          |         |         |
+| batter_id         | INTEGER |         | true     |          |         |         |
+| result            | TEXT    |         | false    |          |         |         |
+| point             | INTEGER |         | false    |          |         |         |
+| out               | INTEGER |         | false    |          |         |         |
 
 ## Constraints
 

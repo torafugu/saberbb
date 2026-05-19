@@ -1,4 +1,4 @@
-use crate::domain::shared::player::BattingStats;
+use crate::domain::shared::statistics::BattingStats;
 use crate::domain::shared::team::Standing;
 use crate::t;
 use anyhow::{Context, Result};

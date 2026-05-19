@@ -1,4 +1,5 @@
-use crate::domain::shared::player::{BattingStats, Player};
+use crate::domain::shared::player::Player;
+use crate::domain::shared::statistics::BattingStats;
 use crate::domain::shared::team::{Standing, Team};
 use crate::domain::statistics_service::StatRepository;
 use crate::repositories::persistence_config::SqliteManager;
