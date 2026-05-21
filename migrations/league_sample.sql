@@ -1,9 +1,9 @@
 INSERT INTO
-    league (id, name)
+    league (name)
 VALUES
-    (1, "A-League");
+    ("A-League");
 
 INSERT INTO
-    league (id, name)
+    league (name)
 VALUES
-    (2, "B-League");
+    ("Z-League");

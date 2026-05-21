@@ -1,7 +1,7 @@
 use super::menu_component::{MenuItem, init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
-use crate::domain::shared::game::{Count, Game};
-use crate::domain::shared::game_state::{GameCursor, ScoreBoard};
+use crate::domain::shared::game::{Count, GameHeader, GameRow};
+use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
 use crate::domain::shared::types::{Base, InningType};
 use crate::domain::utils::is_base_occupied;
 use crate::i18n::I18nManager;
@@ -31,7 +31,7 @@ pub fn display_game_rounds_processed(num_of_rounds: i8) {
     );
 }
 
-pub fn display_game_detail(game: &Game) -> io::Result<()> {
+pub fn display_game_detail(game: &GameRow) -> io::Result<()> {
     let mut cursor = GameCursor::new(game.clone());
 
     let mut stdout = io::stdout();
@@ -186,26 +186,24 @@ fn display_runner(bases_occupied: u8, base: Base) -> &'static str {
 }
 
 pub fn display_select_game(season: u16) {
-    let game_rounds_res = APP_CONTEXT
+    let game_headers_res = APP_CONTEXT
         .get()
         .unwrap()
         .game_repository
-        .load_processed_games(season);
-    match game_rounds_res {
-        Ok(games) => {
-            let menu_items: Vec<MenuItem<Game>> = games
+        .load_processed_game_headers(season);
+    match game_headers_res {
+        Ok(game_headers) => {
+            let menu_items: Vec<MenuItem<GameHeader>> = game_headers
                 .into_iter()
                 .map(
-                    |Game {
+                    |GameHeader {
                          id,
-                         planned_date,
                          actual_date,
                          away_team,
                          home_team,
                          game_type,
-                         innings,
-                         away_point,
-                         home_point,
+                         away_points,
+                         home_points,
                      }| {
                         let label = format!(
                             "[{}] {} vs {})",
@@ -214,16 +212,14 @@ pub fn display_select_game(season: u16) {
 
                         MenuItem {
                             label,
-                            value: Game {
+                            value: GameHeader {
                                 id,
-                                planned_date,
                                 actual_date,
                                 away_team,
                                 home_team,
                                 game_type,
-                                innings,
-                                away_point,
-                                home_point,
+                                away_points,
+                                home_points,
                             },
                         }
                     },
@@ -233,13 +229,19 @@ pub fn display_select_game(season: u16) {
             let selection = Select::new(&t!("select_game"), menu_items).prompt();
 
             if let Ok(selected) = selection {
-                let _ = display_game_detail(&selected.value);
+                let game_row_res = APP_CONTEXT
+                    .get()
+                    .unwrap()
+                    .game_repository
+                    .load_game_row(&selected.value)
+                    .expect(&t!("error", "function" => "load_game_schedules_to_process"));
+                display_game_detail(&game_row_res).expect(&t!("screen_io_error"));
             }
         }
         Err(e) => {
             eprintln!(
                 "{}:{}",
-                t!("error", "function" => "load_processed_rounds"),
+                t!("error", "function" => "load_processed_game_headers"),
                 e
             );
         }
@@ -278,8 +280,7 @@ pub fn display_select_season() {
     }
 }
 
-// TODO: Display in Game progress mode
-pub fn display_batting_results(game: &Game) {
+pub fn display_batting_results(game: &GameRow) {
     println!("Batting Results:");
     println!("{}", game.away_team.name.to_string());
 

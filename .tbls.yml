@@ -1,5 +1,5 @@
 # .tbls.yml
-dsn: sqlite:///Users/yoshi/Library/Application Support/jp.cosmi.statbb/statbb.db  # プロジェクトで使用しているDBファイル名
+dsn: sqlite:///Users/yoshi/Library/Application Support/jp.cosmi.saberbb/saberbb.db  # プロジェクトで使用しているDBファイル名
 docPath: docs/db              # ドキュメントの出力先
 format:
   adjust: true                # カラム名などの表示を調整

@@ -1,19 +1,18 @@
-# statbb.db
+# saberbb.db
 
 ## Tables
 
 | Name                          | Columns | Comment | Type  |
 | ----------------------------- | ------- | ------- | ----- |
-| [team](team.md)               | 3       |         | table |
-| [league](league.md)           | 2       |         | table |
-| [game_season](game_season.md) | 5       |         | table |
-| [game_round](game_round.md)   | 4       |         | table |
-| [inning](inning.md)           | 4       |         | table |
-| [game](game.md)               | 9       |         | table |
 | [first_names](first_names.md) | 5       |         | table |
 | [last_names](last_names.md)   | 4       |         | table |
 | [player](player.md)           | 11      |         | table |
 | [count](count.md)             | 18      |         | table |
+| [inning](inning.md)           | 3       |         | table |
+| [league](league.md)           | 2       |         | table |
+| [team](team.md)               | 3       |         | table |
+| [game_season](game_season.md) | 4       |         | table |
+| [game](game.md)               | 11      |         | table |
 
 ## Relations
 

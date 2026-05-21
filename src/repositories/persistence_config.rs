@@ -28,12 +28,12 @@ impl Manager for SqliteManager {
 }
 
 pub fn get_sqlite_manager() -> Result<SqliteManager> {
-    let proj_dirs = ProjectDirs::from("jp", "cosmi", "statbb").expect(&t!("error_no_data_dir"));
+    let proj_dirs = ProjectDirs::from("jp", "cosmi", "saberbb").expect(&t!("error_no_data_dir"));
 
     let data_dir = proj_dirs.data_dir();
     fs::create_dir_all(data_dir)?;
 
-    let db_path = data_dir.join("statbb.db");
+    let db_path = data_dir.join("saberbb.db");
     let manager = SqliteManager { path: db_path };
 
     Ok(manager)

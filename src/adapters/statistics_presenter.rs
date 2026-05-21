@@ -1,6 +1,7 @@
 use super::menu_component::{init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
 use crate::domain::statistics_service::StatService;
+use crate::i18n::I18nManager;
 use crate::rprintln;
 use crate::t;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
@@ -92,14 +93,17 @@ pub fn display_batting_stats() {
             }
             for batting_stat in batting_stats_res {
                 table.add_row(vec![
-                    batting_stat.batter.last_name,
-                    Arc::from(batting_stat.ab.to_string()),
-                    Arc::from(batting_stat.single.to_string()),
-                    Arc::from(batting_stat.double.to_string()),
-                    Arc::from(batting_stat.triple.to_string()),
-                    Arc::from(batting_stat.homerun.to_string()),
-                    Arc::from(batting_stat.ba.to_string()),
-                    Arc::from(batting_stat.rbi.to_string()),
+                    I18nManager::global().full_name(
+                        &batting_stat.batter.first_name,
+                        &batting_stat.batter.last_name,
+                    ),
+                    batting_stat.ab.to_string(),
+                    batting_stat.single.to_string(),
+                    batting_stat.double.to_string(),
+                    batting_stat.triple.to_string(),
+                    batting_stat.homerun.to_string(),
+                    batting_stat.ba.to_string(),
+                    batting_stat.rbi.to_string(),
                 ]);
             }
             table

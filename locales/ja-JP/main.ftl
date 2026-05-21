@@ -66,3 +66,4 @@ rf = 右
 dh = 指
 away_lineup_failed = 先攻チームの打順生成に失敗
 home_lineup_failed = 後攻チームの打順生成に失敗
+screen_io_error = 画面IOエラー

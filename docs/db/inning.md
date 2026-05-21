@@ -10,7 +10,6 @@ CREATE TABLE inning (
     game_id INTEGER,
     seq INTEGER,
     tb TEXT,
-    point INTEGER NOT NULL,
     PRIMARY KEY (game_id, seq, tb)
 )
 ```
@@ -24,7 +23,6 @@ CREATE TABLE inning (
 | game_id | INTEGER |         | true     |          |         |         |
 | seq     | INTEGER |         | true     |          |         |         |
 | tb      | TEXT    |         | true     |          |         |         |
-| point   | INTEGER |         | false    |          |         |         |
 
 ## Constraints
 

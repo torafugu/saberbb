@@ -65,3 +65,4 @@ rf = RF
 dh = DH
 away_lineup_failed = Away lineup failed
 home_lineup_failed = Home lineup failed
+screen_io_error = Screen IO error

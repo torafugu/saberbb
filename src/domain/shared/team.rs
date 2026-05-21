@@ -19,6 +19,14 @@ pub struct Team {
     pub players: Vec<Player>,
 }
 impl Team {
+    pub fn min(id: u16, name: &str) -> Self {
+        Self {
+            id: id,
+            name: name.into(),
+            players: Vec::new(),
+        }
+    }
+
     pub fn lineup(&mut self, is_dh: bool) -> Vec<Player> {
         let mut rng = rand::rng();
         let mut batting_orders = Vec::new();

@@ -1,7 +1,8 @@
 DROP TABLE team;
 
 CREATE TABLE team (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     league_id INTEGER NOT NULL,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    UNIQUE(league_id, name)
 );

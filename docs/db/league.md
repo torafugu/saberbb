@@ -6,7 +6,10 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE league (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+CREATE TABLE league (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+)
 ```
 
 </details>

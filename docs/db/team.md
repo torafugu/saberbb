@@ -6,7 +6,12 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE team (id INTEGER PRIMARY KEY, league_id INTEGER NOT NULL, name TEXT NOT NULL)
+CREATE TABLE team (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    league_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE(league_id, name)
+)
 ```
 
 </details>
@@ -21,9 +26,16 @@ CREATE TABLE team (id INTEGER PRIMARY KEY, league_id INTEGER NOT NULL, name TEXT
 
 ## Constraints
 
-| Name | Type        | Definition       |
-| ---- | ----------- | ---------------- |
-| id   | PRIMARY KEY | PRIMARY KEY (id) |
+| Name                    | Type        | Definition               |
+| ----------------------- | ----------- | ------------------------ |
+| id                      | PRIMARY KEY | PRIMARY KEY (id)         |
+| sqlite_autoindex_team_1 | UNIQUE      | UNIQUE (league_id, name) |
+
+## Indexes
+
+| Name                    | Definition               |
+| ----------------------- | ------------------------ |
+| sqlite_autoindex_team_1 | UNIQUE (league_id, name) |
 
 ## Relations
 

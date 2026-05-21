@@ -35,8 +35,8 @@ impl StatRepository for SqlStatRepository {
                             WHEN actual_date = '1900-01-01' THEN 0 ELSE 1
                         END AS games,
                         CASE 
-                            WHEN home_point > away_point THEN 'win'
-                            WHEN home_point < away_point THEN 'loss'
+                            WHEN home_points > away_points THEN 'win'
+                            WHEN home_points < away_points THEN 'loss'
                             ELSE 'draw'
                         END AS result
                     FROM game
@@ -52,8 +52,8 @@ impl StatRepository for SqlStatRepository {
                             WHEN actual_date = '1900-01-01' THEN 0 ELSE 1
                         END AS games,
                         CASE 
-                            WHEN away_point > home_point THEN 'win'
-                            WHEN away_point < home_point THEN 'loss'
+                            WHEN away_points > home_points THEN 'win'
+                            WHEN away_points < home_points THEN 'loss'
                             ELSE 'draw'
                         END AS result
                     FROM game
@@ -113,8 +113,8 @@ impl StatRepository for SqlStatRepository {
         )?;
 
         let batting_stats_iter = stmt.query_map([], |row| {
-            let first_name: String = row.get("batter_name")?;
-            let last_name: String = row.get("batter_name")?;
+            let first_name: String = row.get("batter_first_name")?;
+            let last_name: String = row.get("batter_last_name")?;
             Ok(BattingStats {
                 batter: Player::min(row.get("batter_id")?, &first_name, &last_name),
                 ab: row.get("ab")?,

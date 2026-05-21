@@ -1178,6 +1178,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
+name = "saberbb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "comfy-table",
+ "confy",
+ "console",
+ "crossterm",
+ "deadpool",
+ "dialoguer",
+ "directories",
+ "fluent-templates",
+ "futures",
+ "inquire",
+ "rand",
+ "rand_distr",
+ "rusqlite",
+ "serde",
+ "serde_rusqlite",
+ "strum",
+ "strum_macros",
+ "unic-langid",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1340,33 +1367,6 @@ dependencies = [
  "js-sys",
  "rsqlite-vfs",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "statbb"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "comfy-table",
- "confy",
- "console",
- "crossterm",
- "deadpool",
- "dialoguer",
- "directories",
- "fluent-templates",
- "futures",
- "inquire",
- "rand",
- "rand_distr",
- "rusqlite",
- "serde",
- "serde_rusqlite",
- "strum",
- "strum_macros",
- "unic-langid",
 ]
 
 [[package]]

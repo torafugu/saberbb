@@ -30,7 +30,7 @@ impl fmt::Display for RL {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
-    pub id: u32,
+    pub id: u32, // in case of same first_name and last_name
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
     pub age: u8,

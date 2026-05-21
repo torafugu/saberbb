@@ -1,10 +1,9 @@
 INSERT INTO
     game_season (
-        start_season,
-        start_date,
+        season_start_date,
+        scheduled_season,
         current_season,
-        current_round_seq,
-        scheduled_season
+        current_round_seq
     )
 VALUES
-    (2026, '2026-01-01', 2026, 1, 2025);
+    ('2026-04-01', 2025, 2025, 1);

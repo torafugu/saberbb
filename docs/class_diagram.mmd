@@ -1,0 +1,313 @@
+classDiagram
+    class Player {
+        +u32 id
+        +Arc~str~ first_name
+        +Arc~str~ last_name
+        +u8 age
+        +RL throw
+        +f64 mod_speed
+        +f64 mod_control
+        +Vec~DefensiveSkill~ defensive_skills
+        +RL bat
+        +f64 mod_ba
+        +f64 mod_slg
+    }
+
+    class DefensiveSkill {
+        -Position position
+        -f64 mod_uzr
+    }
+
+    class League {
+        +u16 id
+        +Arc~str~ name
+        +Vec~Team~ teams
+    }
+
+    class Team {
+        +u16 id
+        +Arc~str~ name
+        +Vec~Player~ players
+    }
+
+    class Standing {
+        +Team team
+        +u16 games
+        +u16 wins
+        +u16 losses
+        +u16 draws
+        +f32 pct
+        +f32 gb
+        +u16 r
+        +u16 ra
+    }
+
+    class GameSeason {
+        +NaiveDate start_date
+        +u16 season
+    }
+
+    class GameScheduler {
+        +u32 id
+        +u16 season
+        +u16 round_seq
+        +u16 seq
+        +NaiveDate planned_date
+        +Team away_team
+        +Team home_team
+        +GameType game_type
+    }
+
+    class GameHeader {
+        +u32 id
+        +NaiveDate actual_date
+        +Team away_team
+        +Team home_team
+        +GameType game_type
+        +u8 away_points
+        +u8 home_points
+    }
+
+    class GameResult {
+        +u32 id
+        +NaiveDate actual_date
+        +Vec~Inning~ innings
+        +u8 away_points
+        +u8 home_points
+    }
+
+    class GameRow {
+        +u32 id
+        +u16 season
+        +u16 round_seq
+        +u16 seq
+        +NaiveDate planned_date
+        +NaiveDate actual_date
+        +Team away_team
+        +Team home_team
+        +GameType game_type
+        +Vec~Inning~ innings
+        +u8 away_points
+        +u8 home_points
+    }
+
+    class Inning {
+        +u8 seq
+        +InningType tb
+        +Vec~Count~ counts
+    }
+
+    class Count {
+        +u8 seq
+        +u8 bases_occupied
+        +Arc~Player~ pitcher
+        +Arc~Player~ catcher
+        +Arc~Player~ first_baseman
+        +Arc~Player~ second_baseman
+        +Arc~Player~ third_baseman
+        +Arc~Player~ shortstop
+        +Arc~Player~ left_fielder
+        +Arc~Player~ center_fielder
+        +Arc~Player~ right_fielder
+        +Arc~Player~ batter
+        +BattingResult result
+        +u8 point
+        +u8 out
+    }
+
+    class GameState {
+        +u8 inning_seq
+        +InningType inning_tb
+        +u8 away_total_point
+        +u8 home_total_point
+        +Lineup away_batters
+        +Lineup home_batters
+        +Fielder away_fielders
+        +Fielder home_fielders
+    }
+
+    class InningState {
+        +u8 count_seq
+        +u8 bases_occupied
+        +u8 out
+    }
+
+    class Lineup {
+        +usize current_index
+        +Vec~Player~ batters
+    }
+
+    class Fielder {
+        +Player pitcher
+        +Player catcher
+        +Player first_baseman
+        +Player second_baseman
+        +Player third_baseman
+        +Player shortstop
+        +Player left_fielder
+        +Player center_fielder
+        +Player right_fielder
+    }
+
+    class GameCursor {
+        -Arc~GameRow~ game
+        +u8 inning_seq
+        +InningType inning_tb
+        +u8 count_seq
+        +bool is_last_bottom_inning_skiped
+    }
+
+    class ScoreBoard {
+        +String away_team_name
+        +String home_team_name
+        +u8 max_inning_num
+        +u8 away_total_point
+        +u8 home_total_point
+        +Vec~u8~ away_innning_points
+        +Vec~u8~ home_innning_points
+        +bool is_last_bottom_inning_skiped
+    }
+
+    class BattingStats {
+        +Player batter
+        +u16 ab
+        +u16 single
+        +u16 double
+        +u16 triple
+        +u16 homerun
+        +f32 ba
+        +f32 rbi
+    }
+
+    class RL {
+        <<enumeration>>
+        Right
+        Left
+    }
+
+    class Position {
+        <<enumeration>>
+        P
+        C
+        FB
+        SB
+        TB
+        SS
+        LF
+        CF
+        RF
+        DH
+    }
+
+    class InningType {
+        <<enumeration>>
+        Top
+        Bottom
+    }
+
+    class BattingResult {
+        <<enumeration>>
+        Single
+        Double
+        Triple
+        HomeRun
+        Out
+    }
+
+    class Base {
+        <<enumeration>>
+        First
+        Second
+        Third
+    }
+
+    class GameType {
+        <<enumeration>>
+        Exhibition
+        Regular
+        Postseason
+    }
+
+    class GameProgress {
+        <<enumeration>>
+        Ongoing
+        WalkOff
+        GameSet
+        Postponed
+    }
+
+    class InningProgress {
+        <<enumeration>>
+        Ongoing
+        HalfInningOver
+    }
+
+    Player --> RL : throw
+    Player --> RL : bat
+    Player "1" --> "0..*" DefensiveSkill : defensive_skills
+    DefensiveSkill --> Position : position
+
+    League "1" --> "0..*" Team : teams
+    Team "1" --> "0..*" Player : players
+    Standing --> Team : team
+
+    GameScheduler --> Team : away_team
+    GameScheduler --> Team : home_team
+    GameScheduler --> GameType : game_type
+
+    GameHeader --> Team : away_team
+    GameHeader --> Team : home_team
+    GameHeader --> GameType : game_type
+
+    GameResult "1" --> "0..*" Inning : innings
+    GameResult --> GameState : update_point
+
+    GameRow --> Team : away_team
+    GameRow --> Team : home_team
+    GameRow --> GameType : game_type
+    GameRow "1" --> "0..*" Inning : innings
+
+    Inning --> InningType : tb
+    Inning "1" --> "0..*" Count : counts
+
+    Count --> Player : pitcher
+    Count --> Player : catcher
+    Count --> Player : first_baseman
+    Count --> Player : second_baseman
+    Count --> Player : third_baseman
+    Count --> Player : shortstop
+    Count --> Player : left_fielder
+    Count --> Player : center_fielder
+    Count --> Player : right_fielder
+    Count --> Player : batter
+    Count --> BattingResult : result
+
+    GameState --> InningType : inning_tb
+    GameState --> Lineup : away_batters
+    GameState --> Lineup : home_batters
+    GameState --> Fielder : away_fielders
+    GameState --> Fielder : home_fielders
+    GameState --> GameProgress : progress
+    GameState --> Inning : advance_half_inning
+
+    InningState --> InningProgress : progress
+    InningState --> BattingResult : advance
+    InningState --> Count : batting_resolve
+
+    Lineup "1" --> "0..*" Player : batters
+    Fielder --> Player : pitcher
+    Fielder --> Player : catcher
+    Fielder --> Player : first_baseman
+    Fielder --> Player : second_baseman
+    Fielder --> Player : third_baseman
+    Fielder --> Player : shortstop
+    Fielder --> Player : left_fielder
+    Fielder --> Player : center_fielder
+    Fielder --> Player : right_fielder
+
+    GameCursor --> GameRow : game
+    GameCursor --> InningType : inning_tb
+    GameCursor --> Count : current_count
+    GameCursor --> ScoreBoard : current_scoreboard
+
+    BattingStats --> Player : batter

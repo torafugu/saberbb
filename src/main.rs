@@ -43,15 +43,10 @@ struct AppContext {
 
 static APP_CONTEXT: OnceLock<AppContext> = OnceLock::new();
 
-// fn ctx() -> &'static AppContext {
-//     APP_CONTEXT
-//         .get()
-//         .expect(&t!("not_initialized", "struct" => "AppContext"))
-// }
-
 fn main() {
     // load default-config.toml and initialize I18nManager
-    let cfg: AppConfig = confy::load::<AppConfig>("statbb", None).unwrap_or_default();
+    let cfg: AppConfig = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
+
     I18nManager::init(&cfg.language);
 
     // TODO: move to separated function

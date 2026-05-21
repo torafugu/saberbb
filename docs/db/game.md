@@ -7,16 +7,17 @@
 
 ```sql
 CREATE TABLE game (
-    game_round_id INTEGER,
-    id INTEGER,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    season INTEGER,
+    round_seq INTEGER,
+    seq INTEGER,
     planned_date TEXT NOT NULL,
-    actual_date TEXT NOT NULL,
+    actual_date TEXT,
     away_team_id INTEGER NOT NULL,
     home_team_id INTEGER NOT NULL,
     game_type TEXT NOT NULL,
-    away_point INTEGER NOT NULL,
-    home_point INTEGER NOT NULL,
-    PRIMARY KEY (id)
+    away_points INTEGER,
+    home_points INTEGER
 )
 ```
 
@@ -24,17 +25,19 @@ CREATE TABLE game (
 
 ## Columns
 
-| Name          | Type    | Default | Nullable | Children | Parents | Comment |
-| ------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_round_id | INTEGER |         | true     |          |         |         |
-| id            | INTEGER |         | true     |          |         |         |
-| planned_date  | TEXT    |         | false    |          |         |         |
-| actual_date   | TEXT    |         | false    |          |         |         |
-| away_team_id  | INTEGER |         | false    |          |         |         |
-| home_team_id  | INTEGER |         | false    |          |         |         |
-| game_type     | TEXT    |         | false    |          |         |         |
-| away_point    | INTEGER |         | false    |          |         |         |
-| home_point    | INTEGER |         | false    |          |         |         |
+| Name         | Type    | Default | Nullable | Children | Parents | Comment |
+| ------------ | ------- | ------- | -------- | -------- | ------- | ------- |
+| id           | INTEGER |         | true     |          |         |         |
+| season       | INTEGER |         | true     |          |         |         |
+| round_seq    | INTEGER |         | true     |          |         |         |
+| seq          | INTEGER |         | true     |          |         |         |
+| planned_date | TEXT    |         | false    |          |         |         |
+| actual_date  | TEXT    |         | true     |          |         |         |
+| away_team_id | INTEGER |         | false    |          |         |         |
+| home_team_id | INTEGER |         | false    |          |         |         |
+| game_type    | TEXT    |         | false    |          |         |         |
+| away_points  | INTEGER |         | true     |          |         |         |
+| home_points  | INTEGER |         | true     |          |         |         |
 
 ## Constraints
 

@@ -1,6 +1,6 @@
-# statbb
+# saberbb
 
-`statbb` is a Rust CLI baseball simulation and statistics app. It can generate
+`saberbb` is a Rust CLI baseball simulation and statistics app. It can generate
 players, schedule seasons, process games, and inspect standings, batting stats,
 and game results through an interactive terminal menu.
 
@@ -58,7 +58,11 @@ When viewing a game, use:
 
 ## Data Storage
 
-`statbb` uses a local SQLite database named `statbb.db`.
+`saberbb` uses a local SQLite database named `saberbb.db`.
+
+The config file is stored at:
+
+- `~/.config/saberbb/config.toml`
 
 The database schema documentation is available in:
 
