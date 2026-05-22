@@ -96,6 +96,6 @@ impl Player {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct DefensiveSkill {
-    position: Position,
-    mod_uzr: f64,
+    pub position: Position,
+    pub mod_uzr: f64,
 }

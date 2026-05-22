@@ -1,16 +1,20 @@
-use super::shared::player::Player;
-use super::utils::{age_random, rl_random, skewed_normal_random};
+use super::shared::player::{DefensiveSkill, Player};
+use super::utils::{ItemProb, age_random, choose_item_weighted, rl_random, skewed_normal_random};
+use crate::domain::error::AppError;
+use crate::domain::shared::types::Position;
 use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
 use crate::t;
-use anyhow::Result;
+use anyhow::{Result, bail};
 
+// TODO: Move to database
 const SPEED_SKEW: f64 = 0.2;
 const CONTROL_SKEW: f64 = 0.2;
 const BA_SKEW: f64 = 0.2;
 const SLG_SKEW: f64 = 0.2;
 const THROW_LEFTY: f64 = 0.2;
 const BAT_LEFTY: f64 = 0.4;
+const UZR_SKEW: f64 = 0.2;
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,
@@ -28,7 +32,28 @@ impl<R: PlayerRepository> PlayerService<R> {
             let bat = rl_random(BAT_LEFTY);
             let mod_ba = skewed_normal_random(BA_SKEW);
             let mod_slg = skewed_normal_random(SLG_SKEW);
-            let team = self.repo.next_player_dist_team()?;
+            let defensive_skill = DefensiveSkill {
+                position: self.assign_defensive_skills()?,
+                mod_uzr: skewed_normal_random(UZR_SKEW),
+            };
+
+            let team = match self
+                .repo
+                .next_player_dist_team(defensive_skill.position.clone())
+            {
+                Ok(team) => team,
+                Err(e)
+                    if e.downcast_ref::<AppError>()
+                        .map_or(false, |app| matches!(app, AppError::NotFound(_))) =>
+                {
+                    self.repo.next_random_team()?
+                }
+                Err(e) => {
+                    let error_msg = t!("error", "function" => "next_player_dist_team");
+                    return Err(anyhow::anyhow!("{} {}", error_msg, e));
+                }
+            };
+
             let player = Player {
                 id: 0,
                 first_name: name[0].clone().into(),
@@ -37,16 +62,368 @@ impl<R: PlayerRepository> PlayerService<R> {
                 throw: throw,
                 mod_speed: mod_speed,
                 mod_control: mod_control,
-                defensive_skills: Vec::new(),
+                // TODO: consider multiple skill holder
+                defensive_skills: vec![defensive_skill],
                 bat: bat,
                 mod_ba: mod_ba,
                 mod_slg: mod_slg,
             };
 
             if let Err(e) = self.repo.save_player(team, player) {
-                eprintln!("{}:{}", t!("error", "function" => "save_player"), e);
+                bail!("{}, {}", t!("error", "function" => "save_player"), e);
             }
         }
         Ok(())
+    }
+
+    pub fn assign_defensive_skills(&self) -> Result<Position> {
+        let position_probs = vec![
+            ItemProb {
+                name: Position::P,
+                prob: 0.42,
+            },
+            ItemProb {
+                name: Position::C,
+                prob: 0.1,
+            },
+            ItemProb {
+                name: Position::FB,
+                prob: 0.06,
+            },
+            ItemProb {
+                name: Position::SB,
+                prob: 0.06,
+            },
+            ItemProb {
+                name: Position::TB,
+                prob: 0.06,
+            },
+            ItemProb {
+                name: Position::SS,
+                prob: 0.06,
+            },
+            ItemProb {
+                name: Position::LF,
+                prob: 0.07,
+            },
+            ItemProb {
+                name: Position::CF,
+                prob: 0.07,
+            },
+            ItemProb {
+                name: Position::RF,
+                prob: 0.07,
+            },
+        ];
+
+        match choose_item_weighted(&position_probs) {
+            Some(chosen) => Ok(chosen.clone()),
+            None => {
+                bail!(t!("error", "function" => "choose_item_weighted"));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::team::Team;
+    use anyhow::anyhow;
+    use std::cell::{Cell, RefCell};
+
+    struct RecordingRepo {
+        name: [String; 2],
+        team: Team,
+        random_team: Team,
+        random_name_error: bool,
+        next_team_error: bool,
+        next_team_not_found: bool,
+        next_random_team_error: bool,
+        save_error_at: Option<usize>,
+        random_name_languages: RefCell<Vec<String>>,
+        next_team_positions: RefCell<Vec<Position>>,
+        next_team_calls: Cell<usize>,
+        next_random_team_calls: Cell<usize>,
+        save_calls: usize,
+        saved: Vec<(Team, Player)>,
+    }
+
+    impl RecordingRepo {
+        fn new() -> Self {
+            Self {
+                name: ["翔平".to_string(), "大谷".to_string()],
+                team: Team::min(1, "ライオンズ"),
+                random_team: Team::min(99, "ランダムズ"),
+                random_name_error: false,
+                next_team_error: false,
+                next_team_not_found: false,
+                next_random_team_error: false,
+                save_error_at: None,
+                random_name_languages: RefCell::new(Vec::new()),
+                next_team_positions: RefCell::new(Vec::new()),
+                next_team_calls: Cell::new(0),
+                next_random_team_calls: Cell::new(0),
+                save_calls: 0,
+                saved: Vec::new(),
+            }
+        }
+    }
+
+    impl PlayerRepository for RecordingRepo {
+        fn save_player(&mut self, team: Team, player: Player) -> Result<()> {
+            let call_index = self.save_calls;
+            self.save_calls += 1;
+
+            if self.save_error_at == Some(call_index) {
+                return Err(anyhow!("save failed"));
+            }
+
+            self.saved.push((team, player));
+            Ok(())
+        }
+
+        fn random_name(&self, _language: String) -> Result<[String; 2]> {
+            if self.random_name_error {
+                return Err(anyhow!("random name failed"));
+            }
+
+            self.random_name_languages.borrow_mut().push(_language);
+            Ok(self.name.clone())
+        }
+
+        fn next_player_dist_team(&self, position: Position) -> Result<Team> {
+            self.next_team_positions.borrow_mut().push(position);
+            self.next_team_calls.set(self.next_team_calls.get() + 1);
+
+            if self.next_team_not_found {
+                return Err(AppError::NotFound("position not found".to_string()).into());
+            }
+
+            if self.next_team_error {
+                return Err(anyhow!("next team failed"));
+            }
+
+            Ok(self.team.clone())
+        }
+
+        fn next_random_team(&self) -> Result<Team> {
+            self.next_random_team_calls
+                .set(self.next_random_team_calls.get() + 1);
+
+            if self.next_random_team_error {
+                return Err(anyhow!("next random team failed"));
+            }
+
+            Ok(self.random_team.clone())
+        }
+    }
+
+    #[test]
+    fn generate_players_saves_requested_number_of_players() {
+        let mut service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        let result = service.generate_players(3);
+
+        assert!(result.is_ok());
+        assert_eq!(service.repo.random_name_languages.borrow().len(), 3);
+        assert_eq!(service.repo.next_team_calls.get(), 3);
+        assert_eq!(service.repo.next_random_team_calls.get(), 0);
+        assert_eq!(service.repo.save_calls, 3);
+        assert_eq!(service.repo.saved.len(), 3);
+    }
+
+    #[test]
+    fn generate_players_saves_players_with_names_from_repository() {
+        let mut service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        service.generate_players(1).unwrap();
+
+        let (_, player) = &service.repo.saved[0];
+        assert_eq!(player.first_name.as_ref(), "翔平");
+        assert_eq!(player.last_name.as_ref(), "大谷");
+    }
+
+    #[test]
+    fn generate_players_assigns_team_from_repository() {
+        let mut repo = RecordingRepo::new();
+        repo.team = Team::min(7, "ライオンズ");
+        let mut service = PlayerService { repo };
+
+        service.generate_players(1).unwrap();
+
+        let (team, _) = &service.repo.saved[0];
+        assert_eq!(team.id, 7);
+        assert_eq!(team.name.as_ref(), "ライオンズ");
+    }
+
+    #[test]
+    fn generate_players_sets_generated_player_defaults() {
+        let mut service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        service.generate_players(1).unwrap();
+
+        let (_, player) = &service.repo.saved[0];
+        assert_eq!(player.id, 0);
+        assert_eq!(player.defensive_skills.len(), 1);
+        assert!(player.age >= 18);
+        assert!(player.mod_speed.is_finite());
+        assert!(player.mod_control.is_finite());
+        assert!(player.mod_ba.is_finite());
+        assert!(player.mod_slg.is_finite());
+        assert!(player.defensive_skills[0].mod_uzr.is_finite());
+    }
+
+    #[test]
+    fn generate_players_with_zero_players_does_nothing() {
+        let mut service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        let result = service.generate_players(0);
+
+        assert!(result.is_ok());
+        assert!(service.repo.random_name_languages.borrow().is_empty());
+        assert_eq!(service.repo.next_team_calls.get(), 0);
+        assert_eq!(service.repo.next_random_team_calls.get(), 0);
+        assert_eq!(service.repo.save_calls, 0);
+        assert!(service.repo.saved.is_empty());
+    }
+
+    #[test]
+    fn generate_players_returns_error_when_random_name_fails() {
+        let mut repo = RecordingRepo::new();
+        repo.random_name_error = true;
+        let mut service = PlayerService { repo };
+
+        let result = service.generate_players(3);
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.next_team_calls.get(), 0);
+        assert_eq!(service.repo.next_random_team_calls.get(), 0);
+        assert_eq!(service.repo.save_calls, 0);
+        assert!(service.repo.saved.is_empty());
+    }
+
+    #[test]
+    fn generate_players_returns_error_when_next_player_dist_team_fails() {
+        let mut repo = RecordingRepo::new();
+        repo.next_team_error = true;
+        let mut service = PlayerService { repo };
+
+        let result = service.generate_players(3);
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.random_name_languages.borrow().len(), 1);
+        assert_eq!(service.repo.next_team_calls.get(), 1);
+        assert_eq!(service.repo.next_random_team_calls.get(), 0);
+        assert_eq!(service.repo.save_calls, 0);
+        assert!(service.repo.saved.is_empty());
+    }
+
+    #[test]
+    fn generate_players_falls_back_to_random_team_when_position_team_not_found() {
+        let mut repo = RecordingRepo::new();
+        repo.next_team_not_found = true;
+        repo.random_team = Team::min(42, "フォールバックズ");
+        let mut service = PlayerService { repo };
+
+        let result = service.generate_players(1);
+
+        assert!(result.is_ok());
+        assert_eq!(service.repo.next_team_calls.get(), 1);
+        assert_eq!(service.repo.next_random_team_calls.get(), 1);
+        assert_eq!(service.repo.save_calls, 1);
+        assert_eq!(service.repo.saved[0].0.id, 42);
+        assert_eq!(service.repo.saved[0].0.name.as_ref(), "フォールバックズ");
+    }
+
+    #[test]
+    fn generate_players_returns_error_when_random_team_fallback_fails() {
+        let mut repo = RecordingRepo::new();
+        repo.next_team_not_found = true;
+        repo.next_random_team_error = true;
+        let mut service = PlayerService { repo };
+
+        let result = service.generate_players(1);
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.next_team_calls.get(), 1);
+        assert_eq!(service.repo.next_random_team_calls.get(), 1);
+        assert_eq!(service.repo.save_calls, 0);
+        assert!(service.repo.saved.is_empty());
+    }
+
+    #[test]
+    fn generate_players_returns_error_when_save_player_fails() {
+        let mut repo = RecordingRepo::new();
+        repo.save_error_at = Some(1);
+        let mut service = PlayerService { repo };
+
+        let result = service.generate_players(3);
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.random_name_languages.borrow().len(), 2);
+        assert_eq!(service.repo.next_team_calls.get(), 2);
+        assert_eq!(service.repo.next_random_team_calls.get(), 0);
+        assert_eq!(service.repo.save_calls, 2);
+        assert_eq!(service.repo.saved.len(), 1);
+    }
+
+    #[test]
+    fn generate_players_uses_current_i18n_language_for_random_name() {
+        let mut service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        service.generate_players(1).unwrap();
+
+        assert_eq!(
+            *service.repo.random_name_languages.borrow(),
+            vec!["us".to_string()]
+        );
+    }
+
+    #[test]
+    fn generate_players_passes_assigned_position_to_next_team_lookup() {
+        let mut service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        service.generate_players(1).unwrap();
+
+        let saved_position = service.repo.saved[0].1.defensive_skills[0].position.clone();
+        assert_eq!(
+            *service.repo.next_team_positions.borrow(),
+            vec![saved_position]
+        );
+    }
+
+    #[test]
+    fn assign_defensive_skills_returns_supported_position() {
+        let service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+
+        let position = service.assign_defensive_skills().unwrap();
+
+        assert!(matches!(
+            position,
+            Position::P
+                | Position::C
+                | Position::FB
+                | Position::SB
+                | Position::TB
+                | Position::SS
+                | Position::LF
+                | Position::CF
+                | Position::RF
+        ));
     }
 }

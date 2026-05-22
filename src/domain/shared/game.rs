@@ -30,10 +30,7 @@ impl fmt::Display for GameType {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GameSeason {
-    // pub start_season: u16,
     pub start_date: NaiveDate,
-    // pub current_season: u16,
-    // pub current_round_seq: u16,
     pub season: u16,
 }
 

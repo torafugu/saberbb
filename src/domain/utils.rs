@@ -1,5 +1,6 @@
 use crate::domain::shared::player::RL;
 use crate::domain::shared::types::Base;
+use rand::distr::weighted::WeightedIndex;
 use rand_distr::{Distribution, Gamma};
 
 // TODO: Get from config file
@@ -45,4 +46,29 @@ pub fn has_unique_elements_sorted<T: Ord>(mut vec: Vec<T>) -> bool {
 
 pub fn is_base_occupied(bases_occupied: u8, base: Base) -> bool {
     (bases_occupied & (1 << base as u8)) != 0
+}
+
+#[derive(Debug, Clone)]
+pub struct ItemProb<T> {
+    pub name: T,
+    pub prob: f64,
+}
+
+pub fn choose_item_weighted<T>(items: &[ItemProb<T>]) -> Option<&T> {
+    if items.is_empty() {
+        return None;
+    }
+
+    // Extract weights
+    let weights: Vec<f64> = items.iter().map(|item| item.prob).collect();
+
+    let dist = match WeightedIndex::new(&weights) {
+        Ok(d) => d,
+        Err(_) => return None, // in case weights is all 0 or invalid
+    };
+
+    let mut rng = rand::rng();
+    let index = dist.sample(&mut rng);
+
+    Some(&items[index].name)
 }

@@ -78,161 +78,263 @@ impl<R: GameRepository> GameService<R> {
 
 mod tests {
     use super::*;
-    use crate::domain::shared::game::*;
-    use crate::domain::shared::team::*;
-
+    use crate::domain::shared::game::{
+        Count, GameHeader, GameRow, GameScheduler, GameType, Inning,
+    };
+    use crate::domain::shared::team::Team;
+    use crate::domain::shared::types::InningType;
+    use anyhow::anyhow;
     use chrono::NaiveDate;
-    struct MockRepo;
-    impl GameRepository for MockRepo {
-        fn save_game_result(&mut self, _round: &GameResult) -> Result<()> {
+
+    struct RecordingRepo {
+        schedules: Vec<GameScheduler>,
+        load_error: bool,
+        save_error_at: Option<usize>,
+        update_error: bool,
+        save_calls: usize,
+        saved_results: Vec<GameResult>,
+        update_calls: usize,
+    }
+
+    impl RecordingRepo {
+        fn new(schedules: Vec<GameScheduler>) -> Self {
+            Self {
+                schedules,
+                load_error: false,
+                save_error_at: None,
+                update_error: false,
+                save_calls: 0,
+                saved_results: Vec::new(),
+                update_calls: 0,
+            }
+        }
+    }
+
+    impl GameRepository for RecordingRepo {
+        fn save_game_result(&mut self, game: &GameResult) -> Result<()> {
+            let call_index = self.save_calls;
+            self.save_calls += 1;
+
+            if self.save_error_at == Some(call_index) {
+                return Err(anyhow!("save failed"));
+            }
+
+            self.saved_results.push(game.clone());
             Ok(())
         }
 
         fn updated_game_result(&mut self) -> Result<()> {
+            self.update_calls += 1;
+
+            if self.update_error {
+                return Err(anyhow!("update failed"));
+            }
+
             Ok(())
         }
 
         fn load_processed_seasons(&self) -> Result<Vec<u16>> {
-            let mut seasons: Vec<u16> = Vec::new();
-            seasons.push(2026);
-            Ok(seasons)
+            unimplemented!("not used by GameService::process_game_round")
         }
 
         fn load_processed_game_headers(&self, _season: u16) -> Result<Vec<GameHeader>> {
-            let mut game_headers: Vec<GameHeader> = Vec::new();
-            let game_header = GameHeader {
-                id: 1,
-                actual_date: NaiveDate::parse_from_str("20250101", "%Y%m%d")?,
-                game_type: GameType::Regular,
-                away_team: Team {
-                    id: 1,
-                    name: "AAA".into(),
-                    players: Vec::new(),
-                },
-                home_team: Team {
-                    id: 2,
-                    name: "BBB".into(),
-                    players: Vec::new(),
-                },
-                away_points: 2,
-                home_points: 3,
-            };
-            game_headers.push(game_header);
-            Ok(game_headers)
+            unimplemented!("not used by GameService::process_game_round")
         }
 
         fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>> {
-            let mut game_schedules: Vec<GameScheduler> = Vec::new();
-            let game_schedule = GameScheduler {
-                id: 1,
-                season: 2026,
-                round_seq: 1,
-                seq: 1,
-                planned_date: NaiveDate::parse_from_str("20250101", "%Y%m%d")?,
-                away_team: Team {
-                    id: 1,
-                    name: "AAA".into(),
-                    players: Vec::new(),
-                },
-                home_team: Team {
-                    id: 2,
-                    name: "BBB".into(),
-                    players: Vec::new(),
-                },
-                game_type: GameType::Regular,
-            };
-            game_schedules.push(game_schedule);
-            Ok(game_schedules)
+            if self.load_error {
+                return Err(anyhow!("load failed"));
+            }
+
+            Ok(self.schedules.clone())
         }
 
         fn load_game_row(&self, _game_header: &GameHeader) -> Result<GameRow> {
-            let game = GameRow {
-                id: 1,
-                season: 2026,
-                round_seq: 1,
-                seq: 1,
-                planned_date: NaiveDate::parse_from_str("20250101", "%Y%m%d")?,
-                actual_date: NaiveDate::parse_from_str("20250101", "%Y%m%d")?,
-                away_team: Team {
-                    id: 1,
-                    name: "AAA".into(),
-                    players: Vec::new(),
-                },
-                home_team: Team {
-                    id: 2,
-                    name: "BBB".into(),
-                    players: Vec::new(),
-                },
-                game_type: GameType::Regular,
-                innings: Vec::new(),
-                away_points: 2,
-                home_points: 3,
-            };
-            Ok(game)
+            unimplemented!("not used by GameService::process_game_round")
         }
 
         fn load_team_players(&self, _team: &Team) -> Result<Vec<Player>> {
-            Ok(Vec::new())
+            unimplemented!("not used by GameService::process_game_round")
         }
 
         fn load_innings(&self, _game: &GameRow) -> Result<Vec<Inning>> {
-            let innings = Vec::new();
-            Ok(innings)
+            unimplemented!("not used by GameService::process_game_round")
         }
 
         fn load_counts(&self, _game: &GameRow, _inning: &Inning) -> Result<Vec<Count>> {
-            let counts = Vec::new();
-            Ok(counts)
+            unimplemented!("not used by GameService::process_game_round")
         }
     }
 
-    use crate::domain::shared::game::GameRow;
-    // use crate::domain::utils::*;
-    // use crate::i18n::I18nManager;
-    // use crate::repositories::game_repository::SqlGameRepository;
-    use crate::repositories::persistence_config::SqliteManager;
-    // use crate::repositories::persistence_config::get_sqlite_manager;
-    use deadpool::managed::Pool;
-    type DbPool = Pool<SqliteManager>;
+    fn player(id: u32) -> Player {
+        Player::batter(id, &format!("First{id}"), &format!("Last{id}"), 0.0, 0.0)
+    }
 
-    // #[test]
-    // fn test_team_lineup_has_no_duplicated_player_success() {
-    //     let manager = get_sqlite_manager().expect(&t!("dbpool_failed"));
-    //     let pool: DbPool = Pool::builder(manager).max_size(16).build().unwrap();
-    //     let game_repository = SqlGameRepository { pool };
+    fn team(id: u16, name: &str, first_player_id: u32) -> Team {
+        Team {
+            id,
+            name: name.into(),
+            players: (first_player_id..first_player_id + 10)
+                .map(player)
+                .collect(),
+        }
+    }
 
-    //     let result = game_repository.load_games(&game_round);
+    fn schedule(id: u32) -> GameScheduler {
+        GameScheduler {
+            id,
+            season: 2026,
+            round_seq: 1,
+            seq: id as u16,
+            planned_date: NaiveDate::from_ymd_opt(2026, 4, id).unwrap(),
+            away_team: team(1, "AAA", 1),
+            home_team: team(2, "BBB", 101),
+            game_type: GameType::Regular,
+        }
+    }
 
-    //     assert!(result.is_ok(), "Should return Ok");
+    fn points_by_inning_type(game: &GameResult, inning_type: InningType) -> u8 {
+        game.innings
+            .iter()
+            .filter(|inning| inning.tb == inning_type)
+            .flat_map(|inning| inning.counts.iter())
+            .map(|count| count.point)
+            .sum()
+    }
 
-    //     let games = result.unwrap();
+    #[test]
+    fn process_game_round_saves_one_result_for_one_schedule() {
+        let mut service = GameService {
+            repo: RecordingRepo::new(vec![schedule(1)]),
+        };
 
-    //     assert!(!games.is_empty(), "Games list should not be empty");
+        let result = service.process_game_round();
 
-    //     let mut game_state = GameState::new();
-    //     game_state.away_batters = Lineup::new(games[0].clone().away_team.lineup(true));
-    //     game_state.home_batters = Lineup::new(games[0].clone().home_team.lineup(true));
+        assert!(result.is_ok());
+        assert_eq!(service.repo.save_calls, 1);
+        assert_eq!(service.repo.saved_results.len(), 1);
+        assert_eq!(service.repo.update_calls, 1);
 
-    //     let away_lineup_full_names: Vec<String> = game_state
-    //         .away_batters
-    //         .batters
-    //         .iter()
-    //         .map(|order| I18nManager::global().full_name(&order.first_name, &order.last_name))
-    //         .collect();
-    //     assert!(
-    //         has_unique_elements_sorted(away_lineup_full_names),
-    //         "Away line up should not include dupicated player"
-    //     );
+        let saved = &service.repo.saved_results[0];
+        assert_eq!(saved.id, 1);
+        assert_eq!(
+            saved.actual_date,
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+        );
+        assert!(!saved.innings.is_empty());
+    }
 
-    //     let home_lineup_full_names: Vec<String> = game_state
-    //         .home_batters
-    //         .batters
-    //         .iter()
-    //         .map(|order| I18nManager::global().full_name(&order.first_name, &order.last_name))
-    //         .collect();
-    //     assert!(
-    //         has_unique_elements_sorted(home_lineup_full_names),
-    //         "Home line up should not include dupicated player"
-    //     );
-    // }
+    #[test]
+    fn process_game_round_saves_all_scheduled_games_and_updates_once() {
+        let mut service = GameService {
+            repo: RecordingRepo::new(vec![schedule(1), schedule(2)]),
+        };
+
+        let result = service.process_game_round();
+
+        assert!(result.is_ok());
+        assert_eq!(service.repo.save_calls, 2);
+        assert_eq!(service.repo.saved_results.len(), 2);
+        assert_eq!(service.repo.saved_results[0].id, 1);
+        assert_eq!(service.repo.saved_results[1].id, 2);
+        assert_eq!(service.repo.update_calls, 1);
+    }
+
+    #[test]
+    fn process_game_round_generates_valid_game_result_shape() {
+        let mut service = GameService {
+            repo: RecordingRepo::new(vec![schedule(1)]),
+        };
+
+        service.process_game_round().unwrap();
+
+        let saved = &service.repo.saved_results[0];
+        // Consider in case canceled due to rain
+        assert!((17..=18).contains(&saved.innings.len()));
+        assert_eq!(
+            saved.away_points,
+            points_by_inning_type(saved, InningType::Top)
+        );
+        assert_eq!(
+            saved.home_points,
+            points_by_inning_type(saved, InningType::Bottom)
+        );
+
+        for inning in &saved.innings {
+            assert!(inning.seq >= 1);
+            assert!(!inning.counts.is_empty());
+            for (index, count) in inning.counts.iter().enumerate() {
+                assert_eq!(count.seq as usize, index + 1);
+                assert!(count.out <= 3);
+            }
+        }
+    }
+
+    #[test]
+    fn process_game_round_returns_error_when_load_schedules_fails() {
+        let mut repo = RecordingRepo::new(Vec::new());
+        repo.load_error = true;
+        let mut service = GameService { repo };
+
+        let result = service.process_game_round();
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.save_calls, 0);
+        assert_eq!(service.repo.update_calls, 0);
+    }
+
+    #[test]
+    fn process_game_round_returns_error_when_save_game_result_fails() {
+        let mut repo = RecordingRepo::new(vec![schedule(1), schedule(2)]);
+        repo.save_error_at = Some(1);
+        let mut service = GameService { repo };
+
+        let result = service.process_game_round();
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.save_calls, 2);
+        assert_eq!(service.repo.saved_results.len(), 1);
+        assert_eq!(service.repo.saved_results[0].id, 1);
+        assert_eq!(service.repo.update_calls, 0);
+    }
+
+    #[test]
+    fn process_game_round_returns_error_when_update_game_result_fails() {
+        let mut repo = RecordingRepo::new(vec![schedule(1)]);
+        repo.update_error = true;
+        let mut service = GameService { repo };
+
+        let result = service.process_game_round();
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.save_calls, 1);
+        assert_eq!(service.repo.saved_results.len(), 1);
+        assert_eq!(service.repo.update_calls, 1);
+    }
+
+    #[test]
+    fn process_game_round_with_no_schedules_only_updates_round() {
+        let mut service = GameService {
+            repo: RecordingRepo::new(Vec::new()),
+        };
+
+        let result = service.process_game_round();
+
+        assert!(result.is_ok());
+        assert_eq!(service.repo.save_calls, 0);
+        assert!(service.repo.saved_results.is_empty());
+        assert_eq!(service.repo.update_calls, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn process_game_round_panics_when_team_has_empty_lineup() {
+        let mut game_schedule = schedule(1);
+        game_schedule.away_team.players.clear();
+        let mut service = GameService {
+            repo: RecordingRepo::new(vec![game_schedule]),
+        };
+
+        service.process_game_round().unwrap();
+    }
 }

@@ -1,5 +1,7 @@
+use crate::domain::error::AppError;
 use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
+use crate::domain::shared::types::Position;
 use crate::repositories::persistence_config::SqliteManager;
 use crate::t;
 use anyhow::Result;
@@ -11,7 +13,8 @@ type DbPool = Pool<SqliteManager>;
 pub trait PlayerRepository {
     fn save_player(&mut self, team: Team, player: Player) -> Result<()>;
     fn random_name(&self, language: String) -> Result<[String; 2]>;
-    fn next_player_dist_team(&self) -> Result<Team>;
+    fn next_player_dist_team(&self, position: Position) -> Result<Team>;
+    fn next_random_team(&self) -> Result<Team>;
 }
 
 #[derive(Clone)]
@@ -21,9 +24,10 @@ pub struct SqlPlayerRepository {
 
 impl PlayerRepository for SqlPlayerRepository {
     fn save_player(&mut self, team: Team, player: Player) -> Result<()> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let mut conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let tx = conn.transaction()?;
 
-        if let Err(e) = conn.execute(
+        if let Err(e) = tx.execute(
             "INSERT INTO player (
                         team_id, first_name, last_name,
                         age, throw, mod_speed, mod_control, bat, mod_ba, mod_slg
@@ -43,9 +47,37 @@ impl PlayerRepository for SqlPlayerRepository {
                 player.mod_slg
             ],
         ) {
-            eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO player"), e);
+            let error_msg = t!("error", "SQL" => "INSERT INTO player");
+            eprintln!("{}: {}", error_msg, e);
             return Err(e.into());
         };
+
+        let generated_id = tx.last_insert_rowid();
+
+        for defensive_skill in player.defensive_skills.iter() {
+            if let Err(e) = tx.execute(
+                "INSERT INTO defensive_skill (
+                        player_id, position, mod_uzr
+                        ) VALUES (
+                         ?1, ?2, ?3)",
+                params![
+                    generated_id,
+                    defensive_skill.position,
+                    defensive_skill.mod_uzr
+                ],
+            ) {
+                let error_msg = t!("error", "SQL" => "INSERT INTO defensive_skill");
+                eprintln!("{}: {}", error_msg, e);
+                return Err(e.into());
+            };
+        }
+
+        if let Err(e) = tx.commit() {
+            let error_msg = t!("error", "Function" => "commit of save_player");
+            eprintln!("{}: {}", error_msg, e);
+            return Err(e.into());
+        };
+
         Ok(())
     }
 
@@ -76,7 +108,8 @@ impl PlayerRepository for SqlPlayerRepository {
         if first_name == Err(Error::QueryReturnedNoRows) {
             return Ok(names);
         } else if let Err(e) = first_name {
-            eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM first_names"), e);
+            let error_msg = t!("error", "SQL" => "SELECT FROM first_names");
+            eprintln!("{}: {}", error_msg, e);
             return Err(e.into());
         }
         names[0] = first_name?;
@@ -103,7 +136,8 @@ impl PlayerRepository for SqlPlayerRepository {
         if last_name == Err(Error::QueryReturnedNoRows) {
             return Ok(names);
         } else if let Err(e) = last_name {
-            eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM last_names"), e);
+            let error_msg = t!("error", "SQL" => "SELECT FROM last_names");
+            eprintln!("{}: {}", error_msg, e);
             return Err(e.into());
         }
         names[1] = last_name?;
@@ -111,19 +145,22 @@ impl PlayerRepository for SqlPlayerRepository {
         Ok(names)
     }
 
-    fn next_player_dist_team(&self) -> Result<Team> {
+    fn next_player_dist_team(&self, position: Position) -> Result<Team> {
         let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
-        let team = conn.query_row(
-            "SELECT 
-                        t.id AS team_id, 
+
+        let team_result = conn.query_row(
+            "SELECT
+                        t.id AS team_id,
                         t.name AS team_name,
                         COUNT(p.id) AS player_count
                     FROM team t
                     LEFT JOIN player p ON t.id = p.team_id
+                    LEFT JOIN defensive_skill ds ON ds.player_id = p.id
+        			WHERE ds.position = ?1
                     GROUP BY t.id
                     ORDER BY player_count, t.id
                     LIMIT 1;",
-            params![],
+            params![position],
             |row| {
                 Ok(Team {
                     id: row.get("team_id")?,
@@ -132,10 +169,446 @@ impl PlayerRepository for SqlPlayerRepository {
                 })
             },
         );
-        if let Err(e) = &team {
-            eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM team"), e);
-        }
 
+        match team_result {
+            Ok(team) => Ok(team),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                let error_msg = t!("not_found", "property" => "Position");
+                return Err(AppError::NotFound(format!("{} {:?}", error_msg, position)).into());
+            }
+            Err(e) => {
+                let error_msg = t!("error", "SQL" => "SELECT FROM team");
+                eprintln!("{}: {}", error_msg, e);
+                return Err(e.into());
+            }
+        }
+    }
+
+    fn next_random_team(&self) -> Result<Team> {
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let team = conn.query_row(
+            "SELECT id, name
+                    FROM team
+                    ORDER BY RANDOM() 
+                    LIMIT 1;",
+            params![],
+            |row| {
+                Ok(Team {
+                    id: row.get("id")?,
+                    name: row.get("name")?,
+                    players: Vec::new(),
+                })
+            },
+        );
+        if let Err(e) = &team {
+            let error_msg = t!("error", "SQL" => "SELECT FROM team");
+            eprintln!("{}: {}", error_msg, e);
+        }
         Ok(team?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::player::{DefensiveSkill, RL};
+    use rusqlite::{Connection, params};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    fn test_db_path() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let seq = TEST_DB_SEQ.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "saberbb-player-repository-{}-{nanos}-{seq}.db",
+            std::process::id()
+        ))
+    }
+
+    fn setup_repo() -> (SqlPlayerRepository, PathBuf) {
+        let path = test_db_path();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE team (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                UNIQUE(league_id, name)
+            );
+
+            CREATE TABLE player (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                age INTEGER NOT NULL,
+                throw TEXT NOT NULL,
+                mod_speed REAL NOT NULL,
+                mod_control REAL NOT NULL,
+                bat TEXT NOT NULL,
+                mod_ba REAL NOT NULL,
+                mod_slg REAL NOT NULL
+            );
+
+            CREATE TABLE defensive_skill (
+                player_id INTEGER,
+                position TEXT,
+                mod_uzr REAL NOT NULL,
+                PRIMARY KEY (player_id, position)
+            );
+
+            CREATE TABLE first_names (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                reading TEXT,
+                gender TEXT,
+                country TEXT
+            );
+
+            CREATE TABLE last_names (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                reading TEXT,
+                country TEXT
+            );
+            ",
+        )
+        .unwrap();
+        drop(conn);
+
+        let manager = SqliteManager { path: path.clone() };
+        let pool: DbPool = Pool::builder(manager).max_size(16).build().unwrap();
+        (SqlPlayerRepository { pool }, path)
+    }
+
+    fn setup_repo_without_player_table() -> (SqlPlayerRepository, PathBuf) {
+        let path = test_db_path();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE team (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                UNIQUE(league_id, name)
+            );
+            ",
+        )
+        .unwrap();
+        drop(conn);
+
+        let manager = SqliteManager { path: path.clone() };
+        let pool: DbPool = Pool::builder(manager).max_size(16).build().unwrap();
+        (SqlPlayerRepository { pool }, path)
+    }
+
+    fn conn(repo: &SqlPlayerRepository) -> deadpool::managed::Object<SqliteManager> {
+        futures::executor::block_on(repo.pool.get()).unwrap()
+    }
+
+    fn seed_team(repo: &SqlPlayerRepository, id: u16, name: &str) {
+        conn(repo)
+            .execute(
+                "INSERT INTO team (id, league_id, name) VALUES (?1, 1, ?2)",
+                params![id, name],
+            )
+            .unwrap();
+    }
+
+    fn seed_player_row(repo: &SqlPlayerRepository, id: u32, team_id: u16) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player (
+                    id, team_id, first_name, last_name, age, throw,
+                    mod_speed, mod_control, bat, mod_ba, mod_slg
+                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 0.0, 0.0, 'Right', 0.0, 0.0)",
+                params![id, team_id, format!("First{id}"), format!("Last{id}")],
+            )
+            .unwrap();
+    }
+
+    fn seed_defensive_skill(repo: &SqlPlayerRepository, player_id: u32, position: Position) {
+        conn(repo)
+            .execute(
+                "INSERT INTO defensive_skill (player_id, position, mod_uzr)
+                 VALUES (?1, ?2, 0.0)",
+                params![player_id, position],
+            )
+            .unwrap();
+    }
+
+    fn seed_first_name(repo: &SqlPlayerRepository, name: &str, gender: &str, country: &str) {
+        conn(repo)
+            .execute(
+                "INSERT INTO first_names (name, reading, gender, country) VALUES (?1, '', ?2, ?3)",
+                params![name, gender, country],
+            )
+            .unwrap();
+    }
+
+    fn seed_last_name(repo: &SqlPlayerRepository, name: &str, country: &str) {
+        conn(repo)
+            .execute(
+                "INSERT INTO last_names (name, reading, country) VALUES (?1, '', ?2)",
+                params![name, country],
+            )
+            .unwrap();
+    }
+
+    fn player() -> Player {
+        Player {
+            id: 0,
+            first_name: "翔平".into(),
+            last_name: "大谷".into(),
+            age: 29,
+            throw: RL::Left,
+            mod_speed: 1.1,
+            mod_control: 1.2,
+            defensive_skills: Vec::new(),
+            bat: RL::Right,
+            mod_ba: 1.3,
+            mod_slg: 1.4,
+        }
+    }
+
+    #[test]
+    fn save_player_inserts_all_player_fields() {
+        let (mut repo, path) = setup_repo();
+        seed_team(&repo, 1, "ライオンズ");
+
+        repo.save_player(Team::min(1, "ライオンズ"), player())
+            .unwrap();
+
+        let conn = conn(&repo);
+        let row: (u16, String, String, u8, String, f64, f64, String, f64, f64) = conn
+            .query_row(
+                "SELECT team_id, first_name, last_name, age, throw,
+                    mod_speed, mod_control, bat, mod_ba, mod_slg
+                 FROM player",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                    ))
+                },
+            )
+            .unwrap();
+
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "翔平");
+        assert_eq!(row.2, "大谷");
+        assert_eq!(row.3, 29);
+        assert_eq!(row.4, "Left");
+        assert_eq!(row.5, 1.1);
+        assert_eq!(row.6, 1.2);
+        assert_eq!(row.7, "Right");
+        assert_eq!(row.8, 1.3);
+        assert_eq!(row.9, 1.4);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn save_player_inserts_defensive_skills() {
+        let (mut repo, path) = setup_repo();
+        seed_team(&repo, 1, "ライオンズ");
+        let mut player = player();
+        player.defensive_skills = vec![
+            DefensiveSkill {
+                position: Position::P,
+                mod_uzr: 1.5,
+            },
+            DefensiveSkill {
+                position: Position::CF,
+                mod_uzr: 2.5,
+            },
+        ];
+
+        repo.save_player(Team::min(1, "ライオンズ"), player)
+            .unwrap();
+
+        let conn = conn(&repo);
+        let skills: Vec<(String, f64)> = {
+            let mut stmt = conn
+                .prepare("SELECT position, mod_uzr FROM defensive_skill ORDER BY position")
+                .unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+
+        assert_eq!(
+            skills,
+            vec![("CF".to_string(), 2.5), ("P".to_string(), 1.5)]
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn save_player_returns_error_when_player_table_is_missing() {
+        let (mut repo, path) = setup_repo_without_player_table();
+        seed_team(&repo, 1, "ライオンズ");
+
+        let result = repo.save_player(Team::min(1, "ライオンズ"), player());
+
+        assert!(result.is_err());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn random_name_returns_matching_first_and_last_name_for_language() {
+        let (repo, path) = setup_repo();
+        seed_first_name(&repo, "翔平", "M", "JP");
+        seed_last_name(&repo, "大谷", "JP");
+
+        let names = repo.random_name("JP".to_string()).unwrap();
+
+        assert_eq!(names, ["翔平".to_string(), "大谷".to_string()]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn random_name_filters_out_non_male_first_names() {
+        let (repo, path) = setup_repo();
+        seed_first_name(&repo, "FemaleOnly", "F", "JP");
+        seed_first_name(&repo, "MaleOnly", "M", "JP");
+        seed_last_name(&repo, "大谷", "JP");
+
+        let names = repo.random_name("JP".to_string()).unwrap();
+
+        assert_eq!(names[0], "MaleOnly");
+        assert_eq!(names[1], "大谷");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn random_name_filters_by_country() {
+        let (repo, path) = setup_repo();
+        seed_first_name(&repo, "翔平", "M", "JP");
+        seed_first_name(&repo, "Mike", "M", "US");
+        seed_last_name(&repo, "大谷", "JP");
+        seed_last_name(&repo, "Trout", "US");
+
+        let names = repo.random_name("JP".to_string()).unwrap();
+
+        assert_eq!(names[0], "翔平");
+        assert_eq!(names[1], "大谷");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn random_name_returns_empty_pair_when_no_first_names_for_language() {
+        let (repo, path) = setup_repo();
+        seed_last_name(&repo, "大谷", "JP");
+
+        let names = repo.random_name("JP".to_string()).unwrap();
+
+        assert_eq!(names, ["".to_string(), "".to_string()]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn random_name_returns_first_name_and_empty_last_name_when_no_last_names() {
+        let (repo, path) = setup_repo();
+        seed_first_name(&repo, "翔平", "M", "JP");
+
+        let names = repo.random_name("JP".to_string()).unwrap();
+
+        assert_eq!(names, ["翔平".to_string(), "".to_string()]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn next_player_dist_team_returns_team_with_fewest_players() {
+        let (repo, path) = setup_repo();
+        seed_team(&repo, 1, "Full");
+        seed_team(&repo, 2, "Fewest Pitchers");
+        seed_team(&repo, 3, "Half");
+        seed_player_row(&repo, 1, 1);
+        seed_player_row(&repo, 2, 1);
+        seed_player_row(&repo, 3, 3);
+        seed_player_row(&repo, 4, 2);
+        seed_defensive_skill(&repo, 1, Position::P);
+        seed_defensive_skill(&repo, 2, Position::P);
+        seed_defensive_skill(&repo, 3, Position::C);
+        seed_defensive_skill(&repo, 4, Position::P);
+
+        let team = repo.next_player_dist_team(Position::P).unwrap();
+
+        assert_eq!(team.id, 2);
+        assert_eq!(team.name.as_ref(), "Fewest Pitchers");
+        assert!(team.players.is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn next_player_dist_team_breaks_ties_by_team_id() {
+        let (repo, path) = setup_repo();
+        seed_team(&repo, 3, "Third");
+        seed_team(&repo, 1, "First");
+        seed_team(&repo, 2, "Second");
+        seed_player_row(&repo, 1, 3);
+        seed_player_row(&repo, 2, 1);
+        seed_player_row(&repo, 3, 2);
+        seed_defensive_skill(&repo, 1, Position::P);
+        seed_defensive_skill(&repo, 2, Position::P);
+        seed_defensive_skill(&repo, 3, Position::C);
+
+        let team = repo.next_player_dist_team(Position::P).unwrap();
+
+        assert_eq!(team.id, 1);
+        assert_eq!(team.name.as_ref(), "First");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn next_player_dist_team_returns_error_when_no_teams_exist() {
+        let (repo, path) = setup_repo();
+
+        let result = repo.next_player_dist_team(Position::P);
+
+        assert!(result.is_err());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn next_random_team_returns_seeded_team_without_players() {
+        let (repo, path) = setup_repo();
+        seed_team(&repo, 7, "Randoms");
+        seed_player_row(&repo, 1, 7);
+
+        let team = repo.next_random_team().unwrap();
+
+        assert_eq!(team.id, 7);
+        assert_eq!(team.name.as_ref(), "Randoms");
+        assert!(team.players.is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn next_random_team_returns_error_when_no_teams_exist() {
+        let (repo, path) = setup_repo();
+
+        let result = repo.next_random_team();
+
+        assert!(result.is_err());
+        std::fs::remove_file(path).ok();
     }
 }

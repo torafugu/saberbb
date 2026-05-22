@@ -118,7 +118,7 @@ impl GameCursor {
             .innings
             .iter()
             .find(|i| i.is(self.inning_seq, self.inning_tb))
-            .expect(&t!("inning_not_found"))
+            .expect(&t!("not_found", "property" => "Inning"))
             .clone()
     }
 
@@ -127,7 +127,7 @@ impl GameCursor {
             .counts
             .iter()
             .find(|i| i.seq == self.count_seq)
-            .expect(&t!("count_not_found"))
+            .expect(&t!("not_found", "property" => "Count"))
             .clone()
     }
 

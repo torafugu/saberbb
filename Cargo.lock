@@ -1201,6 +1201,7 @@ dependencies = [
  "serde_rusqlite",
  "strum",
  "strum_macros",
+ "thiserror",
  "unic-langid",
 ]
 
