@@ -28,6 +28,35 @@ impl fmt::Display for RL {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
+#[strum(ascii_case_insensitive)]
+pub enum PlayerAttribute {
+    ThrowLefty,
+    BatLefty,
+}
+
+#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
+#[strum(ascii_case_insensitive)]
+pub enum BatterSkill {
+    BA,
+    SLG,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct BatterSkillProb {
+    pub batter_skill: BatterSkill,
+    pub prob: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PlayerAttributeProb {
+    pub age_shape: f64,
+    pub age_scale: f64,
+    pub age_offset: f64,
+    pub throw_lefty: f64,
+    pub bat_lefty: f64,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
     pub id: u32, // in case of same first_name and last_name
@@ -98,4 +127,68 @@ impl Player {
 pub struct DefensiveSkill {
     pub position: Position,
     pub mod_uzr: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
+#[strum(ascii_case_insensitive)]
+pub enum PitchType {
+    FourSeamFastball,
+    TwoSeamFastball,
+    Cutter,
+    Curveball,
+    Slider,
+    Sweeper,
+    Changeup,
+    Forkball,
+    SplitFingerFastball,
+    Knuckleball,
+}
+impl fmt::Display for PitchType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PitchType::FourSeamFastball => write!(f, "{}", t!("four_seam_fastball")),
+            PitchType::TwoSeamFastball => write!(f, "{}", t!("two_seam_fastball")),
+            PitchType::Cutter => write!(f, "{}", t!("cutter")),
+            PitchType::Curveball => write!(f, "{}", t!("curveball")),
+            PitchType::Slider => write!(f, "{}", t!("slider")),
+            PitchType::Sweeper => write!(f, "{}", t!("sweeper")),
+            PitchType::Changeup => write!(f, "{}", t!("changeup")),
+            PitchType::Forkball => write!(f, "{}", t!("forkball")),
+            PitchType::SplitFingerFastball => write!(f, "{}", t!("split_finger_fastball")),
+            PitchType::Knuckleball => write!(f, "{}", t!("knuckleball")),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PitcherBaseSkill {
+    pub position: Position,
+    pub mod_velocity: f64,
+    pub mod_control: f64,
+    pub mod_stamina: f64,
+    pub mod_injury_proneness: f64,
+    pub mod_clutch: f64,
+    pub mod_hpp: f64,
+    pub mod_platoon_splitting: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PitchSkill {
+    pub pitch_type: PitchType,
+    pub mod_velocity: f64,
+    pub mod_control: f64,
+    pub mod_stamina: f64,
+    pub mod_injury_proneness: f64,
+    pub mod_stuff: f64,
+    pub mod_fb: f64, // Home Run to Fly Ball Rate
+    pub mod_gp: f64, // Grounder Percentage
+    pub mod_horizontal_movement: f64,
+    pub mod_vertical_movement: f64,
+    pub mod_spin_rate: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PitchMix {
+    pub pitch_type: PitchType,
+    pub usage: u8,
 }

@@ -1,4 +1,4 @@
-use super::shared::player::{DefensiveSkill, Player};
+use super::shared::player::{DefensiveSkill, Player, PlayerAttributeProb};
 use super::utils::{ItemProb, age_random, choose_item_weighted, rl_random, skewed_normal_random};
 use crate::domain::error::AppError;
 use crate::domain::shared::types::Position;
@@ -32,14 +32,16 @@ impl<R: PlayerRepository> PlayerService<R> {
             let bat = rl_random(BAT_LEFTY);
             let mod_ba = skewed_normal_random(BA_SKEW);
             let mod_slg = skewed_normal_random(SLG_SKEW);
-            let defensive_skill = DefensiveSkill {
-                position: self.assign_defensive_skills()?,
-                mod_uzr: skewed_normal_random(UZR_SKEW),
-            };
 
+            let mut defensive_skills = Vec::new();
+            // Should be changed to multiple skills
+            let defensive_skill = self.assign_defensive_skills()?;
+            defensive_skills.push(defensive_skill);
+
+            // Assign player to team
             let team = match self
                 .repo
-                .next_player_dist_team(defensive_skill.position.clone())
+                .next_player_dist_team(defensive_skills[0].position.clone())
             {
                 Ok(team) => team,
                 Err(e)
@@ -54,6 +56,8 @@ impl<R: PlayerRepository> PlayerService<R> {
                 }
             };
 
+            // In case of pitcher, configure pitcher related skills
+
             let player = Player {
                 id: 0,
                 first_name: name[0].clone().into(),
@@ -63,7 +67,7 @@ impl<R: PlayerRepository> PlayerService<R> {
                 mod_speed: mod_speed,
                 mod_control: mod_control,
                 // TODO: consider multiple skill holder
-                defensive_skills: vec![defensive_skill],
+                defensive_skills: defensive_skills,
                 bat: bat,
                 mod_ba: mod_ba,
                 mod_slg: mod_slg,
@@ -76,52 +80,22 @@ impl<R: PlayerRepository> PlayerService<R> {
         Ok(())
     }
 
-    pub fn assign_defensive_skills(&self) -> Result<Position> {
-        let position_probs = vec![
-            ItemProb {
-                name: Position::P,
-                prob: 0.42,
-            },
-            ItemProb {
-                name: Position::C,
-                prob: 0.1,
-            },
-            ItemProb {
-                name: Position::FB,
-                prob: 0.06,
-            },
-            ItemProb {
-                name: Position::SB,
-                prob: 0.06,
-            },
-            ItemProb {
-                name: Position::TB,
-                prob: 0.06,
-            },
-            ItemProb {
-                name: Position::SS,
-                prob: 0.06,
-            },
-            ItemProb {
-                name: Position::LF,
-                prob: 0.07,
-            },
-            ItemProb {
-                name: Position::CF,
-                prob: 0.07,
-            },
-            ItemProb {
-                name: Position::RF,
-                prob: 0.07,
-            },
-        ];
+    pub fn assign_defensive_skills(&self) -> Result<DefensiveSkill> {
+        let position_probs = self.repo.position_probs()?;
 
-        match choose_item_weighted(&position_probs) {
-            Some(chosen) => Ok(chosen.clone()),
+        let position = match choose_item_weighted(&position_probs) {
+            Some(chosen) => chosen.clone(),
             None => {
                 bail!(t!("error", "function" => "choose_item_weighted"));
             }
-        }
+        };
+
+        let defensive_skill = DefensiveSkill {
+            position: position,
+            mod_uzr: skewed_normal_random(UZR_SKEW),
+        };
+
+        Ok(defensive_skill)
     }
 }
 
@@ -140,11 +114,14 @@ mod tests {
         next_team_error: bool,
         next_team_not_found: bool,
         next_random_team_error: bool,
+        position_probs: Vec<ItemProb<Position>>,
+        position_probs_error: bool,
         save_error_at: Option<usize>,
         random_name_languages: RefCell<Vec<String>>,
         next_team_positions: RefCell<Vec<Position>>,
         next_team_calls: Cell<usize>,
         next_random_team_calls: Cell<usize>,
+        position_probs_calls: Cell<usize>,
         save_calls: usize,
         saved: Vec<(Team, Player)>,
     }
@@ -159,11 +136,17 @@ mod tests {
                 next_team_error: false,
                 next_team_not_found: false,
                 next_random_team_error: false,
+                position_probs: vec![ItemProb {
+                    name: Position::P,
+                    prob: 1.0,
+                }],
+                position_probs_error: false,
                 save_error_at: None,
                 random_name_languages: RefCell::new(Vec::new()),
                 next_team_positions: RefCell::new(Vec::new()),
                 next_team_calls: Cell::new(0),
                 next_random_team_calls: Cell::new(0),
+                position_probs_calls: Cell::new(0),
                 save_calls: 0,
                 saved: Vec::new(),
             }
@@ -217,6 +200,27 @@ mod tests {
 
             Ok(self.random_team.clone())
         }
+
+        fn position_probs(&self) -> Result<Vec<ItemProb<Position>>> {
+            self.position_probs_calls
+                .set(self.position_probs_calls.get() + 1);
+
+            if self.position_probs_error {
+                return Err(anyhow!("position probs failed"));
+            }
+
+            Ok(self.position_probs.clone())
+        }
+
+        fn player_attribute_probs(&self) -> Result<PlayerAttributeProb> {
+            Ok(PlayerAttributeProb {
+                age_shape: 2.5,
+                age_scale: 2.5,
+                age_offset: 18.0,
+                throw_lefty: 0.2,
+                bat_lefty: 0.4,
+            })
+        }
     }
 
     #[test]
@@ -229,6 +233,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 3);
+        assert_eq!(service.repo.position_probs_calls.get(), 3);
         assert_eq!(service.repo.next_team_calls.get(), 3);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 3);
@@ -290,6 +295,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(service.repo.random_name_languages.borrow().is_empty());
+        assert_eq!(service.repo.position_probs_calls.get(), 0);
         assert_eq!(service.repo.next_team_calls.get(), 0);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -305,6 +311,24 @@ mod tests {
         let result = service.generate_players(3);
 
         assert!(result.is_err());
+        assert_eq!(service.repo.position_probs_calls.get(), 0);
+        assert_eq!(service.repo.next_team_calls.get(), 0);
+        assert_eq!(service.repo.next_random_team_calls.get(), 0);
+        assert_eq!(service.repo.save_calls, 0);
+        assert!(service.repo.saved.is_empty());
+    }
+
+    #[test]
+    fn generate_players_returns_error_when_position_probs_fails() {
+        let mut repo = RecordingRepo::new();
+        repo.position_probs_error = true;
+        let mut service = PlayerService { repo };
+
+        let result = service.generate_players(3);
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.random_name_languages.borrow().len(), 1);
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 0);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -321,6 +345,7 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 1);
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 1);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -337,6 +362,7 @@ mod tests {
         let result = service.generate_players(1);
 
         assert!(result.is_ok());
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 1);
         assert_eq!(service.repo.next_random_team_calls.get(), 1);
         assert_eq!(service.repo.save_calls, 1);
@@ -354,6 +380,7 @@ mod tests {
         let result = service.generate_players(1);
 
         assert!(result.is_err());
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 1);
         assert_eq!(service.repo.next_random_team_calls.get(), 1);
         assert_eq!(service.repo.save_calls, 0);
@@ -370,6 +397,7 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 2);
+        assert_eq!(service.repo.position_probs_calls.get(), 2);
         assert_eq!(service.repo.next_team_calls.get(), 2);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 2);
@@ -406,24 +434,30 @@ mod tests {
     }
 
     #[test]
-    fn assign_defensive_skills_returns_supported_position() {
-        let service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
+    fn assign_defensive_skills_uses_position_probs_with_finite_uzr() {
+        let mut repo = RecordingRepo::new();
+        repo.position_probs = vec![ItemProb {
+            name: Position::CF,
+            prob: 1.0,
+        }];
+        let service = PlayerService { repo };
 
-        let position = service.assign_defensive_skills().unwrap();
+        let defensive_skill = service.assign_defensive_skills().unwrap();
 
-        assert!(matches!(
-            position,
-            Position::P
-                | Position::C
-                | Position::FB
-                | Position::SB
-                | Position::TB
-                | Position::SS
-                | Position::LF
-                | Position::CF
-                | Position::RF
-        ));
+        assert_eq!(defensive_skill.position, Position::CF);
+        assert!(defensive_skill.mod_uzr.is_finite());
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
+    }
+
+    #[test]
+    fn assign_defensive_skills_returns_error_when_position_probs_are_empty() {
+        let mut repo = RecordingRepo::new();
+        repo.position_probs = Vec::new();
+        let service = PlayerService { repo };
+
+        let result = service.assign_defensive_skills();
+
+        assert!(result.is_err());
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
     }
 }

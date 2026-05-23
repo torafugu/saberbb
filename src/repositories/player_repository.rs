@@ -1,7 +1,9 @@
+use super::sql_types::SqlPosition;
 use crate::domain::error::AppError;
-use crate::domain::shared::player::Player;
+use crate::domain::shared::player::{Player, PlayerAttributeProb};
 use crate::domain::shared::team::Team;
 use crate::domain::shared::types::Position;
+use crate::domain::utils::ItemProb;
 use crate::repositories::persistence_config::SqliteManager;
 use crate::t;
 use anyhow::Result;
@@ -15,6 +17,8 @@ pub trait PlayerRepository {
     fn random_name(&self, language: String) -> Result<[String; 2]>;
     fn next_player_dist_team(&self, position: Position) -> Result<Team>;
     fn next_random_team(&self) -> Result<Team>;
+    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>>;
+    fn player_attribute_probs(&self) -> Result<PlayerAttributeProb>;
 }
 
 #[derive(Clone)]
@@ -207,6 +211,64 @@ impl PlayerRepository for SqlPlayerRepository {
         }
         Ok(team?)
     }
+
+    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>> {
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let mut position_probs = Vec::new();
+
+        let mut stmt =
+            conn.prepare("SELECT name, prob FROM item_prob WHERE category = 'position'")?;
+        let position_prob_iter = stmt
+            .query_map([], |row| {
+                Ok(ItemProb {
+                    name: row.get::<_, SqlPosition>("name")?.0,
+                    prob: row.get("prob")?,
+                })
+            })
+            .map_err(|err| {
+                let error_msg = t!("error", "SQL" => "SELECT FROM item_prob");
+                eprintln!("{}:{}", error_msg, err);
+                err
+            })?;
+
+        for position_prob_result in position_prob_iter {
+            let position_prob = position_prob_result?;
+            position_probs.push(position_prob);
+        }
+
+        Ok(position_probs)
+    }
+
+    fn player_attribute_probs(&self) -> Result<PlayerAttributeProb> {
+        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+
+        let player_attribute_prob = conn.query_row(
+            "SELECT 
+                    MAX(CASE WHEN name = 'age_shape' THEN prob END) AS age_shape,
+                    MAX(CASE WHEN name = 'age_scale' THEN prob END) AS age_scale,
+                    MAX(CASE WHEN name = 'age_offset' THEN prob END) AS age_offset,
+                    MAX(CASE WHEN name = 'throw_lefty' THEN prob END) AS throw_lefty,
+                    MAX(CASE WHEN name = 'bat_lefty' THEN prob END) AS bat_lefty
+                    FROM item_prob
+                    WHERE category = 'player_attribute';",
+            params![],
+            |row| {
+                Ok(PlayerAttributeProb {
+                    age_shape: row.get("age_shape")?,
+                    age_scale: row.get("age_scale")?,
+                    age_offset: row.get("age_offset")?,
+                    throw_lefty: row.get("throw_lefty")?,
+                    bat_lefty: row.get("bat_lefty")?,
+                })
+            },
+        );
+        if let Err(e) = &player_attribute_prob {
+            let error_msg = t!("error", "SQL" => "SELECT FROM item_prob");
+            eprintln!("{}: {}", error_msg, e);
+        }
+        Ok(player_attribute_prob?)
+    }
 }
 
 #[cfg(test)]
@@ -278,6 +340,13 @@ mod tests {
                 name TEXT,
                 reading TEXT,
                 country TEXT
+            );
+
+            CREATE TABLE item_prob (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                name TEXT NOT NULL,
+                prob REAL NOT NULL
             );
             ",
         )
@@ -359,6 +428,25 @@ mod tests {
             .execute(
                 "INSERT INTO last_names (name, reading, country) VALUES (?1, '', ?2)",
                 params![name, country],
+            )
+            .unwrap();
+    }
+
+    fn seed_position_prob(repo: &SqlPlayerRepository, position: Position, prob: f64) {
+        conn(repo)
+            .execute(
+                "INSERT INTO item_prob (category, name, prob) VALUES ('position', ?1, ?2)",
+                params![position, prob],
+            )
+            .unwrap();
+    }
+
+    fn seed_player_attribute_prob(repo: &SqlPlayerRepository, name: &str, prob: f64) {
+        conn(repo)
+            .execute(
+                "INSERT INTO item_prob (category, name, prob)
+                 VALUES ('player_attribute', ?1, ?2)",
+                params![name, prob],
             )
             .unwrap();
     }
@@ -609,6 +697,84 @@ mod tests {
         let result = repo.next_random_team();
 
         assert!(result.is_err());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn position_probs_returns_seeded_position_probabilities() {
+        let (repo, path) = setup_repo();
+        seed_position_prob(&repo, Position::P, 0.42);
+        seed_position_prob(&repo, Position::CF, 0.07);
+
+        let position_probs = repo.position_probs().unwrap();
+
+        assert_eq!(position_probs.len(), 2);
+        assert!(position_probs.iter().any(|position_prob| {
+            position_prob.name == Position::P && position_prob.prob == 0.42
+        }));
+        assert!(position_probs.iter().any(|position_prob| {
+            position_prob.name == Position::CF && position_prob.prob == 0.07
+        }));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn position_probs_ignores_non_position_categories() {
+        let (repo, path) = setup_repo();
+        seed_position_prob(&repo, Position::P, 0.42);
+        conn(&repo)
+            .execute(
+                "INSERT INTO item_prob (category, name, prob) VALUES ('bat', 'Right', 0.6)",
+                [],
+            )
+            .unwrap();
+
+        let position_probs = repo.position_probs().unwrap();
+
+        assert_eq!(position_probs.len(), 1);
+        assert_eq!(position_probs[0].name, Position::P);
+        assert_eq!(position_probs[0].prob, 0.42);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn player_attribute_probs_returns_seeded_probabilities() {
+        let (repo, path) = setup_repo();
+        seed_player_attribute_prob(&repo, "age_shape", 2.5);
+        seed_player_attribute_prob(&repo, "age_scale", 2.6);
+        seed_player_attribute_prob(&repo, "age_offset", 18.0);
+        seed_player_attribute_prob(&repo, "throw_lefty", 0.2);
+        seed_player_attribute_prob(&repo, "bat_lefty", 0.4);
+
+        let player_attribute_probs = repo.player_attribute_probs().unwrap();
+
+        assert_eq!(player_attribute_probs.age_shape, 2.5);
+        assert_eq!(player_attribute_probs.age_scale, 2.6);
+        assert_eq!(player_attribute_probs.age_offset, 18.0);
+        assert_eq!(player_attribute_probs.throw_lefty, 0.2);
+        assert_eq!(player_attribute_probs.bat_lefty, 0.4);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn player_attribute_probs_ignores_non_player_attribute_categories() {
+        let (repo, path) = setup_repo();
+        seed_player_attribute_prob(&repo, "age_shape", 2.5);
+        seed_player_attribute_prob(&repo, "age_scale", 2.6);
+        seed_player_attribute_prob(&repo, "age_offset", 18.0);
+        seed_player_attribute_prob(&repo, "throw_lefty", 0.2);
+        seed_player_attribute_prob(&repo, "bat_lefty", 0.4);
+        conn(&repo)
+            .execute(
+                "INSERT INTO item_prob (category, name, prob)
+                 VALUES ('position', 'age_shape', 99.0)",
+                [],
+            )
+            .unwrap();
+
+        let player_attribute_probs = repo.player_attribute_probs().unwrap();
+
+        assert_eq!(player_attribute_probs.age_shape, 2.5);
         std::fs::remove_file(path).ok();
     }
 }
