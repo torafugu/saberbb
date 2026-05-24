@@ -1,5 +1,5 @@
 use crate::domain::shared::game::GameType;
-use crate::domain::shared::player::RL;
+use crate::domain::shared::player::{PitchType, RL};
 use crate::domain::shared::types::{BattingResult, InningType, Position};
 use crate::t;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -50,6 +50,36 @@ impl FromSql for SqlRL {
         let gt = value.as_str()?;
 
         gt.parse::<RL>().map(SqlRL).map_err(|e| {
+            eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
+            rusqlite::types::FromSqlError::InvalidType
+        })
+    }
+}
+
+impl ToSql for PitchType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let s = match self {
+            PitchType::FourSeamFastball => "FourSeamFastball",
+            PitchType::TwoSeamFastball => "TwoSeamFastballC",
+            PitchType::Cutter => "Cutter",
+            PitchType::Curveball => "Curveball",
+            PitchType::Slider => "Slider",
+            PitchType::Sweeper => "Sweeper",
+            PitchType::Changeup => "Changeup",
+            PitchType::Forkball => "Forkball",
+            PitchType::SplitFingerFastball => "SplitFingerFastball",
+            PitchType::Knuckleball => "PitchType::Knuckleball",
+        };
+        Ok(ToSqlOutput::from(s))
+    }
+}
+
+pub struct SqlPitchType(pub PitchType);
+impl FromSql for SqlPitchType {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        gt.parse::<PitchType>().map(SqlPitchType).map_err(|e| {
             eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
             rusqlite::types::FromSqlError::InvalidType
         })

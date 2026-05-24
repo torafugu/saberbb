@@ -1,13 +1,10 @@
 use crate::domain::shared::game::{GameScheduler, GameSeason};
 use crate::domain::shared::team::{League, Team};
-use crate::repositories::persistence_config::SqliteManager;
+use crate::repositories::db::{DbError, SqlDb, SqliteManager};
 use crate::t;
-use anyhow::Result;
-use chrono::NaiveDate;
-use deadpool::managed::Pool;
-use rusqlite::{Error, params};
-
-type DbPool = Pool<SqliteManager>;
+use anyhow::{Result, bail};
+use deadpool::managed::Object;
+use rusqlite::params;
 
 pub trait ScheduleRepository {
     fn load_game_season(&self) -> Result<GameSeason>;
@@ -18,12 +15,22 @@ pub trait ScheduleRepository {
 
 #[derive(Clone)]
 pub struct SqlScheduleRepository {
-    pub pool: DbPool,
+    db: SqlDb,
+}
+impl SqlScheduleRepository {
+    pub fn new() -> Result<Self> {
+        let db = SqlDb::new()?;
+        Ok(Self { db })
+    }
+
+    pub fn get_conn(&self) -> Result<Object<SqliteManager>, DbError> {
+        self.db.get_conn()
+    }
 }
 
 impl ScheduleRepository for SqlScheduleRepository {
     fn load_game_season(&self) -> Result<GameSeason> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         let start_date = conn.query_row(
             "SELECT season_start_date, scheduled_season + 1 AS scheduled_season FROM game_season LIMIT 1",
@@ -36,13 +43,14 @@ impl ScheduleRepository for SqlScheduleRepository {
             },
         );
         if let Err(e) = &start_date {
-            eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM game_season"), e);
+            let error_msg = t!("error", "SQL" => "SELECT game_season");
+            bail!("{}, {}", error_msg, e);
         }
         Ok(start_date?)
     }
 
     fn load_all_leagues(&self) -> Result<Vec<League>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         let mut stmt_league = conn.prepare("SELECT id, name FROM league ORDER BY id")?;
         let league_iter = stmt_league.query_map([], |row| {
@@ -53,17 +61,14 @@ impl ScheduleRepository for SqlScheduleRepository {
             })
         });
         if let Err(e) = &league_iter {
-            eprintln!(
-                "{}:{}",
-                t!("error", "SQL" => "SELECT FROM game_round, game_season"),
-                e
-            );
+            let error_msg = t!("error", "SQL" => "SELECT league");
+            bail!("{}, {}", error_msg, e);
         }
 
         let mut leagues: Vec<League> = Vec::new();
 
         for league in league_iter? {
-            let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+            let conn = self.get_conn()?;
 
             let mut league = league?;
             let mut stmt_team = conn.prepare("SELECT id, name FROM team WHERE league_id = ?1")?;
@@ -75,7 +80,8 @@ impl ScheduleRepository for SqlScheduleRepository {
                 })
             });
             if let Err(e) = &team_iter {
-                eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM team"), e);
+                let error_msg = t!("error", "SQL" => "SELECT team");
+                bail!("{}, {}", error_msg, e);
             }
 
             for team in team_iter? {
@@ -89,7 +95,7 @@ impl ScheduleRepository for SqlScheduleRepository {
     }
 
     fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<()> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         for game_schedule in game_schedules {
             if let Err(e) = conn.execute(
@@ -108,8 +114,8 @@ impl ScheduleRepository for SqlScheduleRepository {
                     game_schedule.game_type,
                 ],
             ) {
-                eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO game"), e);
-                return Err(e.into());
+                let error_msg = t!("error", "SQL" => "INSERT INTO game");
+                bail!("{}, {}", error_msg, e);
             };
         }
 
@@ -117,14 +123,14 @@ impl ScheduleRepository for SqlScheduleRepository {
     }
 
     fn update_scheduled_season(&self) -> Result<()> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         if let Err(e) = conn.execute(
             "Update game_season SET scheduled_season = scheduled_season + 1",
             params![],
         ) {
-            eprintln!("{}:{}", t!("error", "SQL" => "Update game_season"), e);
-            return Err(e.into());
+            let error_msg = t!("error", "SQL" => "Update game_season");
+            bail!("{}, {}", error_msg, e);
         };
         Ok(())
     }
@@ -134,12 +140,16 @@ impl ScheduleRepository for SqlScheduleRepository {
 mod tests {
     use super::*;
     use crate::domain::shared::game::GameType;
-    use rusqlite::Connection;
+    use chrono::NaiveDate;
+    use deadpool::managed::Pool;
+    use rusqlite::{Connection, params};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    pub type SqlitePool = Pool<SqliteManager>;
 
     fn test_db_path() -> PathBuf {
         let nanos = SystemTime::now()
@@ -195,9 +205,16 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let manager = SqliteManager { path: path.clone() };
-        let pool: DbPool = Pool::builder(manager).max_size(16).build().unwrap();
-        (SqlScheduleRepository { pool }, path)
+        let manager = SqliteManager::from_path(path.clone());
+        // let pool: DbPool = Pool::builder(manager).max_size(16).build().unwrap();
+        // (SqlScheduleRepository { pool }, path)
+        let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
+        (
+            SqlScheduleRepository {
+                db: SqlDb::from_pool(pool),
+            },
+            path,
+        )
     }
 
     fn setup_repo_without_game_table() -> (SqlScheduleRepository, PathBuf) {
@@ -213,7 +230,7 @@ mod tests {
     }
 
     fn conn(repo: &SqlScheduleRepository) -> deadpool::managed::Object<SqliteManager> {
-        futures::executor::block_on(repo.pool.get()).unwrap()
+        repo.get_conn().unwrap()
     }
 
     fn seed_game_season(repo: &SqlScheduleRepository, start_date: &str, scheduled_season: u16) {

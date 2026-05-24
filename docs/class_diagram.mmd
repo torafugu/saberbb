@@ -5,17 +5,84 @@ classDiagram
         +Arc~str~ last_name
         +u8 age
         +RL throw
-        +f64 mod_speed
-        +f64 mod_control
         +Vec~DefensiveSkill~ defensive_skills
+        +Option~PitcherSkill~ pitcher_skill
         +RL bat
         +f64 mod_ba
         +f64 mod_slg
     }
 
+    class PlayerAttributeProb {
+        +f64 age_shape
+        +f64 age_scale
+        +f64 age_offset
+        +f64 throw_lefty
+        +f64 bat_lefty
+    }
+
+    class BatterSkillProb {
+        +f64 ba_skew
+        +f64 slg_skew
+    }
+
     class DefensiveSkill {
-        -Position position
-        -f64 mod_uzr
+        +Position position
+        +f64 mod_uzr
+    }
+
+    class DefensiveSkillProb {
+        +f64 uzr_skew
+    }
+
+    class PitcherSkill {
+        +f64 mod_velocity
+        +f64 mod_control
+        +f64 mod_stamina
+        +f64 mod_injury_proneness
+        +f64 mod_clutch
+        +f64 mod_hpp
+        +f64 mod_platoon_splitting
+        +Vec~PitchSkill~ pitch_skills
+    }
+
+    class PitcherBaseSkillProb {
+        +f64 velocity_skew
+        +f64 control_skew
+        +f64 stamina_skew
+        +f64 injury_proneness_skew
+        +f64 clutch_skew
+        +f64 hpp_skew
+        +f64 platoon_splitting_skew
+    }
+
+    class PitchSkill {
+        +PitchType pitch_type
+        +f64 mod_velocity
+        +f64 mod_control
+        +f64 mod_stamina
+        +f64 mod_injury_proneness
+        +f64 mod_stuff
+        +f64 mod_fb
+        +f64 mod_gp
+        +f64 mod_horizontal_movement
+        +f64 mod_vertical_movement
+        +f64 mod_spin_rate
+        +f64 mod_usage
+    }
+
+    class PitchSkillProb {
+        +PitchType pitch_type
+        +f64 velocity_skew
+        +f64 control_skew
+        +f64 stamina_skew
+        +f64 injury_proneness_skew
+        +f64 stuff_skew
+        +f64 fb_skew
+        +f64 gp_skew
+        +f64 horizontal_movement_skew
+        +f64 vertical_movement_skew
+        +f64 spin_rate_skew
+        +f64 usage_skew
     }
 
     class League {
@@ -185,6 +252,20 @@ classDiagram
         Left
     }
 
+    class PitchType {
+        <<enumeration>>
+        FourSeamFastball
+        TwoSeamFastball
+        Cutter
+        Curveball
+        Slider
+        Sweeper
+        Changeup
+        Forkball
+        SplitFingerFastball
+        Knuckleball
+    }
+
     class Position {
         <<enumeration>>
         P
@@ -245,7 +326,11 @@ classDiagram
     Player --> RL : throw
     Player --> RL : bat
     Player "1" --> "0..*" DefensiveSkill : defensive_skills
+    Player "1" --> "0..1" PitcherSkill : pitcher_skill
     DefensiveSkill --> Position : position
+    PitcherSkill "1" --> "0..*" PitchSkill : pitch_skills
+    PitchSkill --> PitchType : pitch_type
+    PitchSkillProb --> PitchType : pitch_type
 
     League "1" --> "0..*" Team : teams
     Team "1" --> "0..*" Player : players

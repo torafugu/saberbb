@@ -6,14 +6,13 @@ mod repositories;
 use adapters::game_presenter::display_game_rounds_processed;
 use adapters::schedule_presenter::display_game_seasons_scheduled;
 use adapters::topmenu_presenter::display_menu;
+use anyhow::{Result, bail};
 use clap::Parser;
-use deadpool::managed::Pool;
 use domain::game_service::GameService;
 use domain::player_service::PlayerService;
 use domain::schedule_service::ScheduleService;
 use i18n::I18nManager;
 use repositories::game_repository::SqlGameRepository;
-use repositories::persistence_config::get_sqlite_manager;
 use repositories::player_repository::SqlPlayerRepository;
 use repositories::schedule_repository::SqlScheduleRepository;
 use repositories::statistics_repository::SqlStatRepository;
@@ -43,21 +42,17 @@ struct AppContext {
 
 static APP_CONTEXT: OnceLock<AppContext> = OnceLock::new();
 
-fn main() {
+fn main() -> Result<()> {
     // load default-config.toml and initialize I18nManager
     let cfg: AppConfig = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
 
     I18nManager::init(&cfg.language);
 
-    // TODO: move to separated function
-    let manager = get_sqlite_manager().expect(&t!("dbpool_failed"));
-    let pool = Pool::builder(manager).max_size(16).build().unwrap();
-
     let ctx = AppContext {
-        game_repository: SqlGameRepository { pool: pool.clone() },
-        player_repository: SqlPlayerRepository { pool: pool.clone() },
-        schedule_repository: SqlScheduleRepository { pool: pool.clone() },
-        statistics_repository: SqlStatRepository { pool: pool.clone() },
+        game_repository: SqlGameRepository::new()?,
+        player_repository: SqlPlayerRepository::new()?,
+        schedule_repository: SqlScheduleRepository::new()?,
+        statistics_repository: SqlStatRepository::new()?,
     };
     APP_CONTEXT.set(ctx).ok();
 
@@ -71,7 +66,8 @@ fn main() {
 
         for _ in 0..num_of_rounds {
             if let Err(e) = game_service.process_game_round() {
-                eprintln!("{}:{}", t!("error", "function" => "process_game"), e);
+                let error_msg = t!("error", "function" => "process_game");
+                bail!("{}, {}", error_msg, e);
             }
         }
         display_game_rounds_processed(num_of_rounds);
@@ -83,7 +79,8 @@ fn main() {
             repo: APP_CONTEXT.get().unwrap().player_repository.clone(),
         };
         if let Err(e) = player_service.generate_players(num_of_players) {
-            eprintln!("{}:{}", t!("error", "function" => "generate_players"), e);
+            let error_msg = t!("error", "function" => "generate_players");
+            bail!("{}, {}", error_msg, e);
         }
     }
 
@@ -99,11 +96,13 @@ fn main() {
         };
         for _ in 0..num_of_schedules {
             if let Err(e) = schedule_service.schedule_season() {
-                eprintln!("{}:{}", t!("error", "function" => "schedule_season"), e);
+                let error_msg = t!("error", "function" => "schedule_season");
+                bail!("{}, {}", error_msg, e);
             }
         }
         display_game_seasons_scheduled(num_of_schedules);
     }
+    Ok(())
 }
 
 #[derive(Parser, Debug)]

@@ -2,17 +2,19 @@
 
 ## Tables
 
-| Name                          | Columns | Comment | Type  |
-| ----------------------------- | ------- | ------- | ----- |
-| [first_names](first_names.md) | 5       |         | table |
-| [last_names](last_names.md)   | 4       |         | table |
-| [player](player.md)           | 11      |         | table |
-| [count](count.md)             | 18      |         | table |
-| [inning](inning.md)           | 3       |         | table |
-| [league](league.md)           | 2       |         | table |
-| [team](team.md)               | 3       |         | table |
-| [game_season](game_season.md) | 4       |         | table |
-| [game](game.md)               | 11      |         | table |
+| Name                                  | Columns | Comment | Type  |
+| ------------------------------------- | ------- | ------- | ----- |
+| [first_names](first_names.md)         | 5       |         | table |
+| [last_names](last_names.md)           | 4       |         | table |
+| [player](player.md)                   | 11      |         | table |
+| [count](count.md)                     | 18      |         | table |
+| [inning](inning.md)                   | 3       |         | table |
+| [league](league.md)                   | 2       |         | table |
+| [team](team.md)                       | 3       |         | table |
+| [game_season](game_season.md)         | 4       |         | table |
+| [game](game.md)                       | 11      |         | table |
+| [defensive_skill](defensive_skill.md) | 3       |         | table |
+| [item_prob](item_prob.md)             | 3       |         | table |
 
 ## Relations
 

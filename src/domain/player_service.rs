@@ -1,5 +1,7 @@
-use super::shared::player::{DefensiveSkill, Player, PlayerAttributeProb};
-use super::utils::{ItemProb, age_random, choose_item_weighted, rl_random, skewed_normal_random};
+use super::shared::player::{
+    DefensiveSkill, DefensiveSkillProb, PitcherBaseSkillProb, PitcherSkill, Player,
+};
+use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
 use crate::domain::error::AppError;
 use crate::domain::shared::types::Position;
 use crate::i18n::I18nManager;
@@ -10,11 +12,6 @@ use anyhow::{Result, bail};
 // TODO: Move to database
 const SPEED_SKEW: f64 = 0.2;
 const CONTROL_SKEW: f64 = 0.2;
-const BA_SKEW: f64 = 0.2;
-const SLG_SKEW: f64 = 0.2;
-const THROW_LEFTY: f64 = 0.2;
-const BAT_LEFTY: f64 = 0.4;
-const UZR_SKEW: f64 = 0.2;
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,
@@ -23,19 +20,33 @@ pub struct PlayerService<R: PlayerRepository> {
 impl<R: PlayerRepository> PlayerService<R> {
     // TODO: Divide batter generation and pitcher generation
     pub fn generate_players(&mut self, num_of_players: u16) -> Result<()> {
+        let player_attribute_prob = self.repo.player_attribute_prob()?;
+        let batter_skill_prob = self.repo.batter_skill_prob()?;
+        let defensive_skill_prob = self.repo.defensive_skill_prob()?;
+        let pitcher_base_skill_prob = self.repo.pitcher_base_skill_prob()?;
+
         for _ in 0..num_of_players {
             let name = self.repo.random_name(I18nManager::global().lang_db())?;
-            let age = age_random();
-            let throw = rl_random(THROW_LEFTY);
+            let age = age_random(
+                player_attribute_prob.age_shape,
+                player_attribute_prob.age_scale,
+                player_attribute_prob.age_offset,
+            );
+            let throw = rl_random(player_attribute_prob.throw_lefty);
             let mod_speed = skewed_normal_random(SPEED_SKEW);
             let mod_control = skewed_normal_random(CONTROL_SKEW);
-            let bat = rl_random(BAT_LEFTY);
-            let mod_ba = skewed_normal_random(BA_SKEW);
-            let mod_slg = skewed_normal_random(SLG_SKEW);
+            let bat = rl_random(player_attribute_prob.bat_lefty);
+            let mod_ba = skewed_normal_random(batter_skill_prob.ba_skew);
+            let mod_slg = skewed_normal_random(batter_skill_prob.slg_skew);
 
             let mut defensive_skills = Vec::new();
-            // Should be changed to multiple skills
-            let defensive_skill = self.assign_defensive_skills()?;
+            // TODO: Should be changed to multiple skills
+            let defensive_skill = self.assign_defensive_skills(&defensive_skill_prob)?;
+
+            let mut pitcher_skill = None;
+            if defensive_skill.position == Position::P {
+                pitcher_skill = Some(self.assign_pitcher_skill(&pitcher_base_skill_prob)?);
+            };
             defensive_skills.push(defensive_skill);
 
             // Assign player to team
@@ -64,23 +75,26 @@ impl<R: PlayerRepository> PlayerService<R> {
                 last_name: name[1].clone().into(),
                 age: age,
                 throw: throw,
-                mod_speed: mod_speed,
-                mod_control: mod_control,
                 // TODO: consider multiple skill holder
                 defensive_skills: defensive_skills,
+                pitcher_skill: pitcher_skill,
                 bat: bat,
                 mod_ba: mod_ba,
                 mod_slg: mod_slg,
             };
 
             if let Err(e) = self.repo.save_player(team, player) {
-                bail!("{}, {}", t!("error", "function" => "save_player"), e);
+                let error_msg = t!("error", "function" => "save_player");
+                bail!("{}, {}", error_msg, e);
             }
         }
         Ok(())
     }
 
-    pub fn assign_defensive_skills(&self) -> Result<DefensiveSkill> {
+    pub fn assign_defensive_skills(
+        &self,
+        defensive_skill_prob: &DefensiveSkillProb,
+    ) -> Result<DefensiveSkill> {
         let position_probs = self.repo.position_probs()?;
 
         let position = match choose_item_weighted(&position_probs) {
@@ -92,17 +106,42 @@ impl<R: PlayerRepository> PlayerService<R> {
 
         let defensive_skill = DefensiveSkill {
             position: position,
-            mod_uzr: skewed_normal_random(UZR_SKEW),
+            mod_uzr: skewed_normal_random(defensive_skill_prob.uzr_skew),
         };
 
         Ok(defensive_skill)
+    }
+
+    pub fn assign_pitcher_skill(
+        &self,
+        pitcher_base_skill_prob: &PitcherBaseSkillProb,
+    ) -> Result<PitcherSkill> {
+        let pitcher_skill = PitcherSkill {
+            mod_velocity: skewed_normal_random(pitcher_base_skill_prob.velocity_skew),
+            mod_control: skewed_normal_random(pitcher_base_skill_prob.control_skew),
+            mod_stamina: skewed_normal_random(pitcher_base_skill_prob.control_skew),
+            mod_injury_proneness: skewed_normal_random(
+                pitcher_base_skill_prob.injury_proneness_skew,
+            ),
+            mod_clutch: skewed_normal_random(pitcher_base_skill_prob.clutch_skew),
+            mod_hpp: skewed_normal_random(pitcher_base_skill_prob.hpp_skew),
+            mod_platoon_splitting: skewed_normal_random(
+                pitcher_base_skill_prob.platoon_splitting_skew,
+            ),
+            pitch_skills: Vec::new(),
+        };
+
+        Ok(pitcher_skill)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::player::{BatterSkillProb, PlayerAttributeProb};
     use crate::domain::shared::team::Team;
+    use crate::domain::shared::types::Position;
+    use crate::domain::utils::ItemProb;
     use anyhow::anyhow;
     use std::cell::{Cell, RefCell};
 
@@ -212,7 +251,7 @@ mod tests {
             Ok(self.position_probs.clone())
         }
 
-        fn player_attribute_probs(&self) -> Result<PlayerAttributeProb> {
+        fn player_attribute_prob(&self) -> Result<PlayerAttributeProb> {
             Ok(PlayerAttributeProb {
                 age_shape: 2.5,
                 age_scale: 2.5,
@@ -221,6 +260,40 @@ mod tests {
                 bat_lefty: 0.4,
             })
         }
+
+        fn batter_skill_prob(&self) -> Result<BatterSkillProb> {
+            Ok(BatterSkillProb {
+                ba_skew: 0.2,
+                slg_skew: 0.2,
+            })
+        }
+
+        fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb> {
+            Ok(DefensiveSkillProb { uzr_skew: 0.2 })
+        }
+
+        fn pitcher_base_skill_prob(&self) -> Result<PitcherBaseSkillProb> {
+            Ok(PitcherBaseSkillProb {
+                velocity_skew: 0.2,
+                control_skew: 0.2,
+                stamina_skew: 0.2,
+                injury_proneness_skew: 0.0,
+                clutch_skew: 0.0,
+                hpp_skew: 0.0,
+                platoon_splitting_skew: 0.0,
+            })
+        }
+    }
+
+    fn assert_pitcher_skill_is_finite(pitcher_skill: &PitcherSkill) {
+        assert!(pitcher_skill.mod_velocity.is_finite());
+        assert!(pitcher_skill.mod_control.is_finite());
+        assert!(pitcher_skill.mod_stamina.is_finite());
+        assert!(pitcher_skill.mod_injury_proneness.is_finite());
+        assert!(pitcher_skill.mod_clutch.is_finite());
+        assert!(pitcher_skill.mod_hpp.is_finite());
+        assert!(pitcher_skill.mod_platoon_splitting.is_finite());
+        assert!(pitcher_skill.pitch_skills.is_empty());
     }
 
     #[test]
@@ -278,8 +351,6 @@ mod tests {
         assert_eq!(player.id, 0);
         assert_eq!(player.defensive_skills.len(), 1);
         assert!(player.age >= 18);
-        assert!(player.mod_speed.is_finite());
-        assert!(player.mod_control.is_finite());
         assert!(player.mod_ba.is_finite());
         assert!(player.mod_slg.is_finite());
         assert!(player.defensive_skills[0].mod_uzr.is_finite());
@@ -434,6 +505,39 @@ mod tests {
     }
 
     #[test]
+    fn generate_players_assigns_pitcher_skill_for_pitchers() {
+        let mut repo = RecordingRepo::new();
+        repo.position_probs = vec![ItemProb {
+            name: Position::P,
+            prob: 1.0,
+        }];
+        let mut service = PlayerService { repo };
+
+        service.generate_players(1).unwrap();
+
+        let (_, player) = &service.repo.saved[0];
+        assert_eq!(player.defensive_skills[0].position, Position::P);
+        let pitcher_skill = player.pitcher_skill.as_ref().unwrap();
+        assert_pitcher_skill_is_finite(pitcher_skill);
+    }
+
+    #[test]
+    fn generate_players_does_not_assign_pitcher_skill_for_non_pitchers() {
+        let mut repo = RecordingRepo::new();
+        repo.position_probs = vec![ItemProb {
+            name: Position::CF,
+            prob: 1.0,
+        }];
+        let mut service = PlayerService { repo };
+
+        service.generate_players(1).unwrap();
+
+        let (_, player) = &service.repo.saved[0];
+        assert_eq!(player.defensive_skills[0].position, Position::CF);
+        assert!(player.pitcher_skill.is_none());
+    }
+
+    #[test]
     fn assign_defensive_skills_uses_position_probs_with_finite_uzr() {
         let mut repo = RecordingRepo::new();
         repo.position_probs = vec![ItemProb {
@@ -441,8 +545,11 @@ mod tests {
             prob: 1.0,
         }];
         let service = PlayerService { repo };
+        let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
 
-        let defensive_skill = service.assign_defensive_skills().unwrap();
+        let defensive_skill = service
+            .assign_defensive_skills(&defensive_skill_prob)
+            .unwrap();
 
         assert_eq!(defensive_skill.position, Position::CF);
         assert!(defensive_skill.mod_uzr.is_finite());
@@ -454,10 +561,33 @@ mod tests {
         let mut repo = RecordingRepo::new();
         repo.position_probs = Vec::new();
         let service = PlayerService { repo };
+        let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
 
-        let result = service.assign_defensive_skills();
+        let result = service.assign_defensive_skills(&defensive_skill_prob);
 
         assert!(result.is_err());
         assert_eq!(service.repo.position_probs_calls.get(), 1);
+    }
+
+    #[test]
+    fn assign_pitcher_skill_returns_finite_base_skill() {
+        let service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+        let pitcher_base_skill_prob = PitcherBaseSkillProb {
+            velocity_skew: 0.11,
+            control_skew: 0.12,
+            stamina_skew: 0.13,
+            injury_proneness_skew: 0.14,
+            clutch_skew: 0.15,
+            hpp_skew: 0.16,
+            platoon_splitting_skew: 0.17,
+        };
+
+        let pitcher_skill = service
+            .assign_pitcher_skill(&pitcher_base_skill_prob)
+            .unwrap();
+
+        assert_pitcher_skill_is_finite(&pitcher_skill);
     }
 }

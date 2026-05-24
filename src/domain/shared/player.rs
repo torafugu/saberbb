@@ -13,7 +13,7 @@ const BATTING_MAX_SLG: f64 = 0.55;
 const PLAYER_NAME_DEFAULT: &str = "DEAFULT";
 const PLAYER_AGE_DEFAULT: u8 = 25;
 
-#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, EnumString, Debug)]
 #[strum(ascii_case_insensitive)]
 pub enum RL {
     Right,
@@ -28,35 +28,6 @@ impl fmt::Display for RL {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
-#[strum(ascii_case_insensitive)]
-pub enum PlayerAttribute {
-    ThrowLefty,
-    BatLefty,
-}
-
-#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
-#[strum(ascii_case_insensitive)]
-pub enum BatterSkill {
-    BA,
-    SLG,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct BatterSkillProb {
-    pub batter_skill: BatterSkill,
-    pub prob: f64,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct PlayerAttributeProb {
-    pub age_shape: f64,
-    pub age_scale: f64,
-    pub age_offset: f64,
-    pub throw_lefty: f64,
-    pub bat_lefty: f64,
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
     pub id: u32, // in case of same first_name and last_name
@@ -64,9 +35,8 @@ pub struct Player {
     pub last_name: Arc<str>,
     pub age: u8,
     pub throw: RL,
-    pub mod_speed: f64,
-    pub mod_control: f64,
     pub defensive_skills: Vec<DefensiveSkill>,
+    pub pitcher_skill: Option<PitcherSkill>,
     pub bat: RL,
     pub mod_ba: f64,
     pub mod_slg: f64,
@@ -84,8 +54,7 @@ impl Player {
             last_name: Arc::from(last_name),
             age: PLAYER_AGE_DEFAULT,
             throw: RL::Right,
-            mod_speed: 0.0,
-            mod_control: 0.0,
+            pitcher_skill: None,
             defensive_skills: Vec::new(),
             bat: RL::Right,
             mod_ba: 0.0,
@@ -100,9 +69,8 @@ impl Player {
             last_name: Arc::from(last_name),
             age: 25,
             throw: RL::Right,
-            mod_speed: 0.0,
-            mod_control: 0.0,
             defensive_skills: Vec::new(),
+            pitcher_skill: None,
             bat: RL::Right,
             mod_ba: mod_ba,
             mod_slg: mod_slg,
@@ -124,9 +92,29 @@ impl Player {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PlayerAttributeProb {
+    pub age_shape: f64,
+    pub age_scale: f64,
+    pub age_offset: f64,
+    pub throw_lefty: f64,
+    pub bat_lefty: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct BatterSkillProb {
+    pub ba_skew: f64,
+    pub slg_skew: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct DefensiveSkill {
     pub position: Position,
     pub mod_uzr: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DefensiveSkillProb {
+    pub uzr_skew: f64,
 }
 
 #[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
@@ -161,15 +149,26 @@ impl fmt::Display for PitchType {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct PitcherBaseSkill {
-    pub position: Position,
+pub struct PitcherSkill {
     pub mod_velocity: f64,
     pub mod_control: f64,
     pub mod_stamina: f64,
     pub mod_injury_proneness: f64,
     pub mod_clutch: f64,
-    pub mod_hpp: f64,
+    pub mod_hpp: f64, // Home-Away Splitting
     pub mod_platoon_splitting: f64,
+    pub pitch_skills: Vec<PitchSkill>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PitcherBaseSkillProb {
+    pub velocity_skew: f64,
+    pub control_skew: f64,
+    pub stamina_skew: f64,
+    pub injury_proneness_skew: f64,
+    pub clutch_skew: f64,
+    pub hpp_skew: f64,
+    pub platoon_splitting_skew: f64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -185,10 +184,21 @@ pub struct PitchSkill {
     pub mod_horizontal_movement: f64,
     pub mod_vertical_movement: f64,
     pub mod_spin_rate: f64,
+    pub mod_usage: f64, // TODO: Should be over written by strategy
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct PitchMix {
+pub struct PitchSkillProb {
     pub pitch_type: PitchType,
-    pub usage: u8,
+    pub velocity_skew: f64,
+    pub control_skew: f64,
+    pub stamina_skew: f64,
+    pub injury_proneness_skew: f64,
+    pub stuff_skew: f64,
+    pub fb_skew: f64,
+    pub gp_skew: f64,
+    pub horizontal_movement_skew: f64,
+    pub vertical_movement_skew: f64,
+    pub spin_rate_skew: f64,
+    pub usage_skew: f64,
 }

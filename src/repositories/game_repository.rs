@@ -2,11 +2,11 @@ use super::sql_types::{SqlBattingResult, SqlInningType};
 use crate::domain::shared::game::{Count, GameHeader, GameResult, GameRow, GameScheduler, Inning};
 use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
-use crate::repositories::persistence_config::SqliteManager;
+use crate::repositories::db::{DbError, SqlDb, SqliteManager};
 use crate::repositories::sql_types::SqlGameType;
 use crate::t;
-use anyhow::Result;
-use deadpool::managed::Pool;
+use anyhow::{Result, bail};
+use deadpool::managed::Object;
 use rusqlite::params;
 use std::sync::Arc;
 
@@ -22,15 +22,24 @@ pub trait GameRepository {
     fn load_counts(&self, game: &GameRow, inning: &Inning) -> Result<Vec<Count>>;
 }
 
-type DbPool = Pool<SqliteManager>;
-
 #[derive(Clone)]
 pub struct SqlGameRepository {
-    pub pool: DbPool,
+    db: SqlDb,
+}
+
+impl SqlGameRepository {
+    pub fn new() -> Result<Self> {
+        let db = SqlDb::new()?;
+        Ok(Self { db })
+    }
+
+    pub fn get_conn(&self) -> Result<Object<SqliteManager>, DbError> {
+        self.db.get_conn()
+    }
 }
 impl GameRepository for SqlGameRepository {
     fn save_game_result(&mut self, game: &GameResult) -> Result<()> {
-        let mut conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let mut conn = self.get_conn()?;
         let tx = conn.transaction()?;
 
         if let Err(e) = tx.execute(
@@ -46,8 +55,8 @@ impl GameRepository for SqlGameRepository {
                 game.id,
             ],
         ) {
-            eprintln!("{}:{}", t!("error", "SQL" => "UPDATE game"), e);
-            return Err(e.into());
+            let error_msg = t!("error", "SQL" => "UPDATE game");
+            bail!("{}, {}", error_msg, e);
         };
 
         for inning in game.innings.iter() {
@@ -57,7 +66,8 @@ impl GameRepository for SqlGameRepository {
                  ?1, ?2, ?3)",
                 params![game.id, inning.seq, inning.tb],
             ) {
-                eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO inning"), e);
+                let error_msg = t!("error", "SQL" => "INSERT INTO inning");
+                bail!("{}, {}", error_msg, e);
             };
 
             for count in inning.counts.iter() {
@@ -97,39 +107,35 @@ impl GameRepository for SqlGameRepository {
                         count.out
                     ],
                 ) {
-                    eprintln!("{}:{}", t!("error", "SQL" => "INSERT INTO count"), e);
-                    return Err(e.into());
+                    let error_msg = t!("error", "SQL" => "INSERT INTO count");
+                    bail!("{}, {}", error_msg, e);
                 };
             }
         }
 
         if let Err(e) = tx.commit() {
-            eprintln!(
-                "{}:{}",
-                t!("error", "Function" => "commit of save_game_round"),
-                e
-            );
-            return Err(e.into());
+            let error_msg = t!("error", "Function" => "commit of save_game_round");
+            bail!("{}, {}", error_msg, e);
         };
 
         Ok(())
     }
 
     fn updated_game_result(&mut self) -> Result<()> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         if let Err(e) = conn.execute(
             "UPDATE game_season SET current_round_seq = current_round_seq + 1",
             params![],
         ) {
-            eprintln!("{}:{}", t!("error", "SQL" => "UPDATE game"), e);
-            return Err(e.into());
+            let error_msg = t!("error", "SQL" => "UPDATE game");
+            bail!("{}, {}", error_msg, e);
         };
         Ok(())
     }
 
     fn load_processed_seasons(&self) -> Result<Vec<u16>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT season 
                     FROM game
@@ -144,11 +150,8 @@ impl GameRepository for SqlGameRepository {
             Ok(s)
         });
         if let Err(e) = &seasons {
-            eprintln!(
-                "{}:{}",
-                t!("error", "SQL" => "select season from game_round, game_season"),
-                e
-            );
+            let error_msg = t!("error", "SQL" => "select season");
+            bail!("{}, {}", error_msg, e);
         };
 
         let processed_seasons: Vec<u16> = seasons?.collect::<Result<Vec<_>, _>>()?;
@@ -156,7 +159,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_processed_game_headers(&self, season: u16) -> Result<Vec<GameHeader>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT 
                         g.id,
@@ -210,7 +213,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT 
                         g.id,
@@ -266,11 +269,8 @@ impl GameRepository for SqlGameRepository {
                     game_schedule.away_team.players = loaded_players;
                 }
                 Err(e) => {
-                    eprintln!(
-                        "{}:{}",
-                        t!("error", "function" => "load_team_players for away"),
-                        e
-                    );
+                    let error_msg = t!("error", "function" => "load_team_players for away");
+                    bail!("{}, {}", error_msg, e);
                 }
             }
             match self.load_team_players(&game_schedule.home_team) {
@@ -278,11 +278,8 @@ impl GameRepository for SqlGameRepository {
                     game_schedule.home_team.players = loaded_players;
                 }
                 Err(e) => {
-                    eprintln!(
-                        "{}:{}",
-                        t!("error", "function" => "load_team_players for home"),
-                        e
-                    );
+                    let error_msg = t!("error", "function" => "load_team_players for home");
+                    bail!("{}, {}", error_msg, e);
                 }
             }
             game_schedules.push(game_schedule);
@@ -291,7 +288,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_game_row(&self, game_header: &GameHeader) -> Result<GameRow> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         let mut game = conn
             .query_row(
@@ -350,11 +347,8 @@ impl GameRepository for SqlGameRepository {
                 game.away_team.players = loaded_players;
             }
             Err(e) => {
-                eprintln!(
-                    "{}:{}",
-                    t!("error", "function" => "load_team_players for away"),
-                    e
-                );
+                let error_msg = t!("error", "function" => "load_team_players for away");
+                bail!("{}, {}", error_msg, e);
             }
         }
 
@@ -363,11 +357,8 @@ impl GameRepository for SqlGameRepository {
                 game.home_team.players = loaded_players;
             }
             Err(e) => {
-                eprintln!(
-                    "{}:{}",
-                    t!("error", "function" => "load_team_players for home"),
-                    e
-                );
+                let error_msg = t!("error", "function" => "load_team_players for home");
+                bail!("{}, {}", error_msg, e);
             }
         }
 
@@ -378,7 +369,8 @@ impl GameRepository for SqlGameRepository {
                 innings = loaded_innings;
             }
             Err(e) => {
-                eprintln!("{}:{}", t!("error", "function" => "load_innings"), e);
+                let error_msg = t!("error", "function" => "load_innings");
+                bail!("{}, {}", error_msg, e);
             }
         }
 
@@ -389,7 +381,8 @@ impl GameRepository for SqlGameRepository {
                     inning.counts = loaded_counts;
                 }
                 Err(e) => {
-                    eprintln!("{}:{}", t!("error", "function" => "load_counts"), e);
+                    let error_msg = t!("error", "function" => "load_counts");
+                    bail!("{}, {}", error_msg, e);
                 }
             }
             game.innings.push(inning);
@@ -399,7 +392,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_team_players(&self, team: &Team) -> Result<Vec<Player>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         let mut players: Vec<Player> = Vec::new();
         let mut stmt = conn.prepare(
@@ -423,7 +416,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_innings(&self, game: &GameRow) -> Result<Vec<Inning>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         let mut innings = Vec::new();
 
@@ -447,7 +440,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_counts(&self, game: &GameRow, inning: &Inning) -> Result<Vec<Count>> {
-        let conn = futures::executor::block_on(self.pool.get()).expect(&t!("dbpool_failed"));
+        let conn = self.get_conn()?;
 
         let mut counts = Vec::new();
 
@@ -563,12 +556,15 @@ mod tests {
     use super::*;
     use crate::domain::shared::game::{GameHeader, GameType};
     use crate::domain::shared::types::{BattingResult, InningType};
+    use deadpool::managed::Pool;
     use rusqlite::Connection;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    pub type SqlitePool = Pool<SqliteManager>;
 
     fn test_db_path() -> PathBuf {
         let nanos = SystemTime::now()
@@ -662,13 +658,18 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let manager = SqliteManager { path: path.clone() };
-        let pool: DbPool = Pool::builder(manager).max_size(16).build().unwrap();
-        (SqlGameRepository { pool }, path)
+        let manager = SqliteManager::from_path(path.clone());
+        let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
+        (
+            SqlGameRepository {
+                db: SqlDb::from_pool(pool),
+            },
+            path,
+        )
     }
 
     fn conn(repo: &SqlGameRepository) -> deadpool::managed::Object<SqliteManager> {
-        futures::executor::block_on(repo.pool.get()).unwrap()
+        repo.get_conn().unwrap()
     }
 
     fn seed_game_season(repo: &SqlGameRepository, current_season: u16, current_round_seq: u16) {

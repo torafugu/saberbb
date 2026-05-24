@@ -34,13 +34,13 @@ impl Team {
         players.shuffle(&mut rng);
 
         if is_dh {
-            for position in &Position::ALL {
+            for _position in &Position::ALL {
                 if let Some(selection) = players.pop() {
                     batting_orders.push(selection.clone());
                 }
             }
         } else {
-            for position in &Position::ALL_NO_DH {
+            for _position in &Position::ALL_NO_DH {
                 if let Some(selection) = players.pop() {
                     batting_orders.push(selection.clone());
                 }

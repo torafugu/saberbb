@@ -571,6 +571,132 @@
         }
       ],
       "def": "CREATE TABLE game (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    season INTEGER,\n    round_seq INTEGER,\n    seq INTEGER,\n    planned_date TEXT NOT NULL,\n    actual_date TEXT,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    away_points INTEGER,\n    home_points INTEGER\n)"
+    },
+    {
+      "name": "defensive_skill",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "position",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "mod_uzr",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_defensive_skill_1",
+          "def": "PRIMARY KEY (player_id, position)",
+          "table": "defensive_skill",
+          "columns": [
+            "player_id",
+            "position"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "defensive_skill",
+          "columns": [
+            "player_id"
+          ]
+        },
+        {
+          "name": "position",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (position)",
+          "table": "defensive_skill",
+          "columns": [
+            "position"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_defensive_skill_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id, position)",
+          "table": "defensive_skill",
+          "columns": [
+            "player_id",
+            "position"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE defensive_skill (\n    player_id INTEGER,\n    position TEXT,\n    mod_uzr REAL NOT NULL,\n    PRIMARY KEY (player_id, position)\n)"
+    },
+    {
+      "name": "item_prob",
+      "type": "table",
+      "columns": [
+        {
+          "name": "category",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "prob",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_item_prob_1",
+          "def": "PRIMARY KEY (category, name)",
+          "table": "item_prob",
+          "columns": [
+            "category",
+            "name"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "category",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category)",
+          "table": "item_prob",
+          "columns": [
+            "category"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (name)",
+          "table": "item_prob",
+          "columns": [
+            "name"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_item_prob_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category, name)",
+          "table": "item_prob",
+          "columns": [
+            "category",
+            "name"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE item_prob (\n    category TEXT,\n    name TEXT,\n    prob REAL NOT NULL,\n    PRIMARY KEY (category, name)\n)"
     }
   ],
   "driver": {
