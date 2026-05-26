@@ -86,23 +86,23 @@ VALUES
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
-    ('pitcher_base_skill', 'velocity_skew', 0.2);
+    ('pitcher_attribute', 'velocity_skew', 0.2);
 
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
-    ('pitcher_base_skill', 'control_skew', 0.2);
+    ('pitcher_attribute', 'control_skew', 0.2);
 
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
-    ('pitcher_base_skill', 'stamina_skew', 0.2);
+    ('pitcher_attribute', 'stamina_skew', 0.2);
 
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
     (
-        'pitcher_base_skill',
+        'pitcher_attribute',
         'injury_proneness_skew',
         0.0
     );
@@ -110,21 +110,186 @@ VALUES
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
-    ('pitcher_base_skill', 'clutch_skew', 0.0);
+    ('pitcher_attribute', 'clutch_skew', 0.0);
 
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
-    ('pitcher_base_skill', 'hpp_skew', 0.0);
+    ('pitcher_attribute', 'hpp_skew', 0.0);
 
 INSERT INTO
     item_prob (category, name, prob)
 VALUES
     (
-        'pitcher_base_skill',
+        'pitcher_attribute',
         'platoon_splitting_skew',
         0.1
     );
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('pitcher_style', 'PowerPitcher', 0.4);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('pitcher_style', 'FinessePitcher', 0.1);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('pitcher_style', 'BalancedPitcher', 0.5);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'FourSeamFastball', 1.0);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'TwoSeamFastball', 0.3);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Cutter', 0.2);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Curveball', 0.6);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Slider', 0.5);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Sweeper', 0.3);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Changeup', 0.3);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Forkball', 0.2);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'SplitFingerFastball', 0.4);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('PowerPitcher', 'Knuckleball', 0.0);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'FourSeamFastball', 1.0);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'TwoSeamFastball', 0.7);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Cutter', 0.4);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Curveball', 1.0);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Slider', 0.9);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Sweeper', 0.6);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Changeup', 0.8);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Forkball', 0.6);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'SplitFingerFastball', 0.7);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('FinessePitcher', 'Knuckleball', 0.02);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'FourSeamFastball', 1.0);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'TwoSeamFastball', 0.5);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Cutter', 0.3);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Curveball', 0.65);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Slider', 0.7);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Sweeper', 0.4);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Changeup', 0.5);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Forkball', 0.4);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'SplitFingerFastball', 0.5);
+
+INSERT INTO
+    item_prob (category, name, prob)
+VALUES
+    ('BalancedPitcher', 'Knuckleball', 0.001);
 
 INSERT INTO
     item_prob (category, name, prob)

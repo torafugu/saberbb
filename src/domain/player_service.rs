@@ -1,6 +1,5 @@
-use super::shared::player::{
-    DefensiveSkill, DefensiveSkillProb, PitcherBaseSkillProb, PitcherSkill, Player,
-};
+use super::shared::player::{DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Player};
+use super::shared::probabilities::{DefensiveSkillProb, PitcherAttributeProb};
 use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
 use crate::domain::error::AppError;
 use crate::domain::shared::types::Position;
@@ -8,10 +7,6 @@ use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
 use crate::t;
 use anyhow::{Result, bail};
-
-// TODO: Move to database
-const SPEED_SKEW: f64 = 0.2;
-const CONTROL_SKEW: f64 = 0.2;
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,
@@ -23,7 +18,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let player_attribute_prob = self.repo.player_attribute_prob()?;
         let batter_skill_prob = self.repo.batter_skill_prob()?;
         let defensive_skill_prob = self.repo.defensive_skill_prob()?;
-        let pitcher_base_skill_prob = self.repo.pitcher_base_skill_prob()?;
+        let pitcher_attribute_prob = self.repo.pitcher_attribute_prob()?;
 
         for _ in 0..num_of_players {
             let name = self.repo.random_name(I18nManager::global().lang_db())?;
@@ -33,8 +28,6 @@ impl<R: PlayerRepository> PlayerService<R> {
                 player_attribute_prob.age_offset,
             );
             let throw = rl_random(player_attribute_prob.throw_lefty);
-            let mod_speed = skewed_normal_random(SPEED_SKEW);
-            let mod_control = skewed_normal_random(CONTROL_SKEW);
             let bat = rl_random(player_attribute_prob.bat_lefty);
             let mod_ba = skewed_normal_random(batter_skill_prob.ba_skew);
             let mod_slg = skewed_normal_random(batter_skill_prob.slg_skew);
@@ -45,7 +38,7 @@ impl<R: PlayerRepository> PlayerService<R> {
 
             let mut pitcher_skill = None;
             if defensive_skill.position == Position::P {
-                pitcher_skill = Some(self.assign_pitcher_skill(&pitcher_base_skill_prob)?);
+                pitcher_skill = Some(self.assign_pitcher_skill(&pitcher_attribute_prob)?);
             };
             defensive_skills.push(defensive_skill);
 
@@ -67,8 +60,6 @@ impl<R: PlayerRepository> PlayerService<R> {
                 }
             };
 
-            // In case of pitcher, configure pitcher related skills
-
             let player = Player {
                 id: 0,
                 first_name: name[0].clone().into(),
@@ -77,7 +68,7 @@ impl<R: PlayerRepository> PlayerService<R> {
                 throw: throw,
                 // TODO: consider multiple skill holder
                 defensive_skills: defensive_skills,
-                pitcher_skill: pitcher_skill,
+                pitcher_attribute: pitcher_skill,
                 bat: bat,
                 mod_ba: mod_ba,
                 mod_slg: mod_slg,
@@ -114,9 +105,21 @@ impl<R: PlayerRepository> PlayerService<R> {
 
     pub fn assign_pitcher_skill(
         &self,
-        pitcher_base_skill_prob: &PitcherBaseSkillProb,
-    ) -> Result<PitcherSkill> {
-        let pitcher_skill = PitcherSkill {
+        pitcher_base_skill_prob: &PitcherAttributeProb,
+    ) -> Result<PitcherAttribute> {
+        let pitcher_style_probs = self.repo.pitcher_style_probs()?;
+
+        let pitcher_style = match choose_item_weighted(&pitcher_style_probs) {
+            Some(chosen) => chosen.clone(),
+            None => {
+                bail!(t!("error", "function" => "choose_item_weighted"));
+            }
+        };
+
+        let pitch_type_probs = self.repo.pitch_type_probs(&pitcher_style);
+
+        let mut pitcher_skill = PitcherAttribute {
+            pitcher_style: pitcher_style,
             mod_velocity: skewed_normal_random(pitcher_base_skill_prob.velocity_skew),
             mod_control: skewed_normal_random(pitcher_base_skill_prob.control_skew),
             mod_stamina: skewed_normal_random(pitcher_base_skill_prob.control_skew),
@@ -131,6 +134,37 @@ impl<R: PlayerRepository> PlayerService<R> {
             pitch_skills: Vec::new(),
         };
 
+        let mut pitch_skills: Vec<PitchSkill> = Vec::new();
+        for pitch_type_prob in pitch_type_probs? {
+            let rng: f64 = rand::random();
+            if rng < pitch_type_prob.prob {
+                let pitch_skill_prob = self.repo.pitch_skill_prob(&pitch_type_prob.name)?;
+                let pitch_skill = PitchSkill {
+                    pitch_type: pitch_type_prob.name.clone(),
+                    mod_velocity: skewed_normal_random(pitch_skill_prob.velocity_skew),
+                    mod_control: skewed_normal_random(pitch_skill_prob.control_skew),
+                    mod_stamina: skewed_normal_random(pitch_skill_prob.stamina_skew),
+                    mod_injury_proneness: skewed_normal_random(
+                        pitch_skill_prob.injury_proneness_skew,
+                    ),
+                    mod_stuff: skewed_normal_random(pitch_skill_prob.stuff_skew),
+                    mod_fb: skewed_normal_random(pitch_skill_prob.fb_skew),
+                    mod_gp: skewed_normal_random(pitch_skill_prob.gp_skew),
+                    mod_horizontal_movement: skewed_normal_random(
+                        pitch_skill_prob.horizontal_movement_skew,
+                    ),
+                    mod_vertical_movement: skewed_normal_random(
+                        pitch_skill_prob.vertical_movement_skew,
+                    ),
+                    mod_spin_rate: skewed_normal_random(pitch_skill_prob.spin_rate_skew),
+                    mod_usage: skewed_normal_random(pitch_skill_prob.usage_skew),
+                };
+                pitch_skills.push(pitch_skill);
+            }
+        }
+
+        pitcher_skill.pitch_skills = pitch_skills;
+
         Ok(pitcher_skill)
     }
 }
@@ -138,7 +172,10 @@ impl<R: PlayerRepository> PlayerService<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::player::{BatterSkillProb, PlayerAttributeProb};
+    use crate::domain::shared::player::PitchType;
+    use crate::domain::shared::probabilities::{
+        BatterSkillProb, PitchSkillProb, PlayerAttributeProb,
+    };
     use crate::domain::shared::team::Team;
     use crate::domain::shared::types::Position;
     use crate::domain::utils::ItemProb;
@@ -155,12 +192,16 @@ mod tests {
         next_random_team_error: bool,
         position_probs: Vec<ItemProb<Position>>,
         position_probs_error: bool,
+        pitcher_style_probs: Vec<ItemProb<PitcherStyle>>,
+        pitcher_style_probs_error: bool,
+        item_prob_categories: RefCell<Vec<String>>,
         save_error_at: Option<usize>,
         random_name_languages: RefCell<Vec<String>>,
         next_team_positions: RefCell<Vec<Position>>,
         next_team_calls: Cell<usize>,
         next_random_team_calls: Cell<usize>,
         position_probs_calls: Cell<usize>,
+        pitcher_style_probs_calls: Cell<usize>,
         save_calls: usize,
         saved: Vec<(Team, Player)>,
     }
@@ -180,12 +221,19 @@ mod tests {
                     prob: 1.0,
                 }],
                 position_probs_error: false,
+                pitcher_style_probs: vec![ItemProb {
+                    name: PitcherStyle::BalancedPitcher,
+                    prob: 1.0,
+                }],
+                pitcher_style_probs_error: false,
+                item_prob_categories: RefCell::new(Vec::new()),
                 save_error_at: None,
                 random_name_languages: RefCell::new(Vec::new()),
                 next_team_positions: RefCell::new(Vec::new()),
                 next_team_calls: Cell::new(0),
                 next_random_team_calls: Cell::new(0),
                 position_probs_calls: Cell::new(0),
+                pitcher_style_probs_calls: Cell::new(0),
                 save_calls: 0,
                 saved: Vec::new(),
             }
@@ -243,12 +291,53 @@ mod tests {
         fn position_probs(&self) -> Result<Vec<ItemProb<Position>>> {
             self.position_probs_calls
                 .set(self.position_probs_calls.get() + 1);
+            self.item_prob_categories
+                .borrow_mut()
+                .push("position".to_string());
 
             if self.position_probs_error {
                 return Err(anyhow!("position probs failed"));
             }
 
             Ok(self.position_probs.clone())
+        }
+
+        fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>> {
+            self.pitcher_style_probs_calls
+                .set(self.pitcher_style_probs_calls.get() + 1);
+            self.item_prob_categories
+                .borrow_mut()
+                .push("pitcher_style".to_string());
+
+            if self.pitcher_style_probs_error {
+                return Err(anyhow!("pitcher style probs failed"));
+            }
+
+            Ok(self.pitcher_style_probs.clone())
+        }
+
+        fn pitch_type_probs(
+            &self,
+            _pitch_style: &PitcherStyle,
+        ) -> Result<Vec<ItemProb<PitchType>>> {
+            Ok(Vec::new())
+        }
+
+        fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb> {
+            Ok(PitchSkillProb {
+                pitch_type: pitch_type.clone(),
+                velocity_skew: 0.0,
+                control_skew: 0.0,
+                stamina_skew: 0.0,
+                injury_proneness_skew: 0.0,
+                stuff_skew: 0.0,
+                fb_skew: 0.0,
+                gp_skew: 0.0,
+                horizontal_movement_skew: 0.0,
+                vertical_movement_skew: 0.0,
+                spin_rate_skew: 0.0,
+                usage_skew: 0.0,
+            })
         }
 
         fn player_attribute_prob(&self) -> Result<PlayerAttributeProb> {
@@ -272,8 +361,8 @@ mod tests {
             Ok(DefensiveSkillProb { uzr_skew: 0.2 })
         }
 
-        fn pitcher_base_skill_prob(&self) -> Result<PitcherBaseSkillProb> {
-            Ok(PitcherBaseSkillProb {
+        fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb> {
+            Ok(PitcherAttributeProb {
                 velocity_skew: 0.2,
                 control_skew: 0.2,
                 stamina_skew: 0.2,
@@ -283,9 +372,21 @@ mod tests {
                 platoon_splitting_skew: 0.0,
             })
         }
+
+        fn query_item_probs<T, F, C>(&self, _category: C, _mapper: F) -> Result<Vec<ItemProb<T>>>
+        where
+            C: AsRef<str>,
+            F: for<'row> FnMut(&'row rusqlite::Row) -> rusqlite::Result<ItemProb<T>>,
+        {
+            unreachable!("RecordingRepo returns concrete probability fixtures directly")
+        }
     }
 
-    fn assert_pitcher_skill_is_finite(pitcher_skill: &PitcherSkill) {
+    fn assert_pitcher_skill_is_finite(pitcher_skill: &PitcherAttribute) {
+        assert!(matches!(
+            pitcher_skill.pitcher_style,
+            PitcherStyle::BalancedPitcher
+        ));
         assert!(pitcher_skill.mod_velocity.is_finite());
         assert!(pitcher_skill.mod_control.is_finite());
         assert!(pitcher_skill.mod_stamina.is_finite());
@@ -307,6 +408,18 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 3);
         assert_eq!(service.repo.position_probs_calls.get(), 3);
+        assert_eq!(
+            *service.repo.item_prob_categories.borrow(),
+            vec![
+                "position".to_string(),
+                "pitcher_style".to_string(),
+                "position".to_string(),
+                "pitcher_style".to_string(),
+                "position".to_string(),
+                "pitcher_style".to_string()
+            ]
+        );
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 3);
         assert_eq!(service.repo.next_team_calls.get(), 3);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 3);
@@ -517,7 +630,7 @@ mod tests {
 
         let (_, player) = &service.repo.saved[0];
         assert_eq!(player.defensive_skills[0].position, Position::P);
-        let pitcher_skill = player.pitcher_skill.as_ref().unwrap();
+        let pitcher_skill = player.pitcher_attribute.as_ref().unwrap();
         assert_pitcher_skill_is_finite(pitcher_skill);
     }
 
@@ -534,7 +647,7 @@ mod tests {
 
         let (_, player) = &service.repo.saved[0];
         assert_eq!(player.defensive_skills[0].position, Position::CF);
-        assert!(player.pitcher_skill.is_none());
+        assert!(player.pitcher_attribute.is_none());
     }
 
     #[test]
@@ -554,6 +667,10 @@ mod tests {
         assert_eq!(defensive_skill.position, Position::CF);
         assert!(defensive_skill.mod_uzr.is_finite());
         assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(
+            *service.repo.item_prob_categories.borrow(),
+            vec!["position".to_string()]
+        );
     }
 
     #[test]
@@ -574,7 +691,7 @@ mod tests {
         let service = PlayerService {
             repo: RecordingRepo::new(),
         };
-        let pitcher_base_skill_prob = PitcherBaseSkillProb {
+        let pitcher_base_skill_prob = PitcherAttributeProb {
             velocity_skew: 0.11,
             control_skew: 0.12,
             stamina_skew: 0.13,

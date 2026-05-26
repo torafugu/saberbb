@@ -93,7 +93,7 @@ impl StatRepository for SqlStatRepository {
         });
 
         if let Err(e) = &standings_iter {
-            let error_msg = t!("error", "SQL" => "SELECT standings");
+            let error_msg = t!("error", "function" => "load_standings : SELECT standings");
             bail!("{}, {}", error_msg, e);
         }
 
@@ -139,7 +139,7 @@ impl StatRepository for SqlStatRepository {
         });
 
         if let Err(e) = &batting_stats_iter {
-            let error_msg = t!("error", "SQL" => "SELECT batting_stats");
+            let error_msg = t!("error", "function" => "load_batting_stats : SELECT batting_stats");
             bail!("{}, {}", error_msg, e);
         }
 

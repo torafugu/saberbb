@@ -55,7 +55,7 @@ impl GameRepository for SqlGameRepository {
                 game.id,
             ],
         ) {
-            let error_msg = t!("error", "SQL" => "UPDATE game");
+            let error_msg = t!("error", "function" => "save_game_result : UPDATE game");
             bail!("{}, {}", error_msg, e);
         };
 
@@ -66,7 +66,7 @@ impl GameRepository for SqlGameRepository {
                  ?1, ?2, ?3)",
                 params![game.id, inning.seq, inning.tb],
             ) {
-                let error_msg = t!("error", "SQL" => "INSERT INTO inning");
+                let error_msg = t!("error", "function" => "save_game_result : INSERT INTO inning");
                 bail!("{}, {}", error_msg, e);
             };
 
@@ -107,14 +107,15 @@ impl GameRepository for SqlGameRepository {
                         count.out
                     ],
                 ) {
-                    let error_msg = t!("error", "SQL" => "INSERT INTO count");
+                    let error_msg =
+                        t!("error", "function" => "save_game_result : INSERT INTO count");
                     bail!("{}, {}", error_msg, e);
                 };
             }
         }
 
         if let Err(e) = tx.commit() {
-            let error_msg = t!("error", "Function" => "commit of save_game_round");
+            let error_msg = t!("error", "Function" => "save_game_result : commit");
             bail!("{}, {}", error_msg, e);
         };
 
@@ -128,7 +129,7 @@ impl GameRepository for SqlGameRepository {
             "UPDATE game_season SET current_round_seq = current_round_seq + 1",
             params![],
         ) {
-            let error_msg = t!("error", "SQL" => "UPDATE game");
+            let error_msg = t!("error", "function" => "updated_game_result : UPDATE game");
             bail!("{}, {}", error_msg, e);
         };
         Ok(())
@@ -150,7 +151,7 @@ impl GameRepository for SqlGameRepository {
             Ok(s)
         });
         if let Err(e) = &seasons {
-            let error_msg = t!("error", "SQL" => "select season");
+            let error_msg = t!("error", "function" => "load_processed_seasons : select season");
             bail!("{}, {}", error_msg, e);
         };
 
@@ -201,7 +202,11 @@ impl GameRepository for SqlGameRepository {
                 })
             })
             .map_err(|err| {
-                eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM game"), err);
+                eprintln!(
+                    "{}:{}",
+                    t!("error", "function" => "load_processed_game_headers : SELECT FROM game"),
+                    err
+                );
                 err
             })?;
 
@@ -257,7 +262,11 @@ impl GameRepository for SqlGameRepository {
                 })
             })
             .map_err(|err| {
-                eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM game"), err);
+                eprintln!(
+                    "{}:{}",
+                    t!("error", "function" => "load_game_schedules_to_process : SELECT FROM game"),
+                    err
+                );
                 err
             })?;
 
@@ -269,7 +278,7 @@ impl GameRepository for SqlGameRepository {
                     game_schedule.away_team.players = loaded_players;
                 }
                 Err(e) => {
-                    let error_msg = t!("error", "function" => "load_team_players for away");
+                    let error_msg = t!("error", "function" => "load_game_schedules_to_process : load_team_players for away");
                     bail!("{}, {}", error_msg, e);
                 }
             }
@@ -278,7 +287,7 @@ impl GameRepository for SqlGameRepository {
                     game_schedule.home_team.players = loaded_players;
                 }
                 Err(e) => {
-                    let error_msg = t!("error", "function" => "load_team_players for home");
+                    let error_msg = t!("error", "function" => "load_game_schedules_to_process : load_team_players for home");
                     bail!("{}, {}", error_msg, e);
                 }
             }
@@ -338,7 +347,11 @@ impl GameRepository for SqlGameRepository {
                 },
             )
             .map_err(|err| {
-                eprintln!("{}:{}", t!("error", "SQL" => "SELECT FROM game"), err);
+                eprintln!(
+                    "{}:{}",
+                    t!("error", "function" => "load_game_row : SELECT FROM game"),
+                    err
+                );
                 err
             })?;
 
@@ -347,7 +360,8 @@ impl GameRepository for SqlGameRepository {
                 game.away_team.players = loaded_players;
             }
             Err(e) => {
-                let error_msg = t!("error", "function" => "load_team_players for away");
+                let error_msg =
+                    t!("error", "function" => "load_game_row : load_team_players for away");
                 bail!("{}, {}", error_msg, e);
             }
         }
@@ -357,7 +371,8 @@ impl GameRepository for SqlGameRepository {
                 game.home_team.players = loaded_players;
             }
             Err(e) => {
-                let error_msg = t!("error", "function" => "load_team_players for home");
+                let error_msg =
+                    t!("error", "function" => "load_game_row : load_team_players for home");
                 bail!("{}, {}", error_msg, e);
             }
         }
@@ -369,7 +384,7 @@ impl GameRepository for SqlGameRepository {
                 innings = loaded_innings;
             }
             Err(e) => {
-                let error_msg = t!("error", "function" => "load_innings");
+                let error_msg = t!("error", "function" => "load_game_row : load_innings");
                 bail!("{}, {}", error_msg, e);
             }
         }
@@ -381,7 +396,7 @@ impl GameRepository for SqlGameRepository {
                     inning.counts = loaded_counts;
                 }
                 Err(e) => {
-                    let error_msg = t!("error", "function" => "load_counts");
+                    let error_msg = t!("error", "function" => "load_game_row : load_counts");
                     bail!("{}, {}", error_msg, e);
                 }
             }

@@ -7,8 +7,6 @@ CREATE TABLE player (
     last_name TEXT NOT NULL,
     age INTEGER NOT NULL,
     throw TEXT NOT NULL,
-    mod_speed REAL NOT NULL,
-    mod_control REAL NOT NULL,
     bat TEXT NOT NULL,
     mod_ba REAL NOT NULL,
     mod_slg REAL NOT NULL

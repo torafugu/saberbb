@@ -43,7 +43,7 @@ impl ScheduleRepository for SqlScheduleRepository {
             },
         );
         if let Err(e) = &start_date {
-            let error_msg = t!("error", "SQL" => "SELECT game_season");
+            let error_msg = t!("error", "function" => "load_game_season : SELECT game_season");
             bail!("{}, {}", error_msg, e);
         }
         Ok(start_date?)
@@ -61,7 +61,7 @@ impl ScheduleRepository for SqlScheduleRepository {
             })
         });
         if let Err(e) = &league_iter {
-            let error_msg = t!("error", "SQL" => "SELECT league");
+            let error_msg = t!("error", "function" => "load_all_leagues : SELECT league");
             bail!("{}, {}", error_msg, e);
         }
 
@@ -71,7 +71,8 @@ impl ScheduleRepository for SqlScheduleRepository {
             let conn = self.get_conn()?;
 
             let mut league = league?;
-            let mut stmt_team = conn.prepare("SELECT id, name FROM team WHERE league_id = ?1")?;
+            let mut stmt_team =
+                conn.prepare("load_all_leagues : SELECT id, name FROM team WHERE league_id = ?1")?;
             let team_iter = stmt_team.query_map(params![league.id], |row| {
                 Ok(Team {
                     id: row.get("id")?,
@@ -80,7 +81,7 @@ impl ScheduleRepository for SqlScheduleRepository {
                 })
             });
             if let Err(e) = &team_iter {
-                let error_msg = t!("error", "SQL" => "SELECT team");
+                let error_msg = t!("error", "function" => "load_all_leagues : SELECT team");
                 bail!("{}, {}", error_msg, e);
             }
 
@@ -114,7 +115,7 @@ impl ScheduleRepository for SqlScheduleRepository {
                     game_schedule.game_type,
                 ],
             ) {
-                let error_msg = t!("error", "SQL" => "INSERT INTO game");
+                let error_msg = t!("error", "function" => "save_game_schedules : INSERT INTO game");
                 bail!("{}, {}", error_msg, e);
             };
         }
@@ -129,7 +130,8 @@ impl ScheduleRepository for SqlScheduleRepository {
             "Update game_season SET scheduled_season = scheduled_season + 1",
             params![],
         ) {
-            let error_msg = t!("error", "SQL" => "Update game_season");
+            let error_msg =
+                t!("error", "function" => "update_scheduled_season : Update game_season");
             bail!("{}, {}", error_msg, e);
         };
         Ok(())

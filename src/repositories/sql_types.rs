@@ -1,5 +1,5 @@
 use crate::domain::shared::game::GameType;
-use crate::domain::shared::player::{PitchType, RL};
+use crate::domain::shared::player::{PitchType, PitcherStyle, RL};
 use crate::domain::shared::types::{BattingResult, InningType, Position};
 use crate::t;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -60,7 +60,7 @@ impl ToSql for PitchType {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let s = match self {
             PitchType::FourSeamFastball => "FourSeamFastball",
-            PitchType::TwoSeamFastball => "TwoSeamFastballC",
+            PitchType::TwoSeamFastball => "TwoSeamFastball",
             PitchType::Cutter => "Cutter",
             PitchType::Curveball => "Curveball",
             PitchType::Slider => "Slider",
@@ -69,6 +69,31 @@ impl ToSql for PitchType {
             PitchType::Forkball => "Forkball",
             PitchType::SplitFingerFastball => "SplitFingerFastball",
             PitchType::Knuckleball => "PitchType::Knuckleball",
+        };
+        Ok(ToSqlOutput::from(s))
+    }
+}
+
+pub struct SqlPitcherStyle(pub PitcherStyle);
+impl FromSql for SqlPitcherStyle {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        gt.parse::<PitcherStyle>()
+            .map(SqlPitcherStyle)
+            .map_err(|e| {
+                eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
+                rusqlite::types::FromSqlError::InvalidType
+            })
+    }
+}
+
+impl ToSql for PitcherStyle {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let s = match self {
+            PitcherStyle::PowerPitcher => "PowerPitcher",
+            PitcherStyle::FinessePitcher => "FinessePitcher",
+            PitcherStyle::BalancedPitcher => "BalancedPitcher",
         };
         Ok(ToSqlOutput::from(s))
     }
