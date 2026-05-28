@@ -6,7 +6,7 @@ classDiagram
         +u8 age
         +RL throw
         +Vec~DefensiveSkill~ defensive_skills
-        +Option~PitcherSkill~ pitcher_skill
+        +Option~PitcherAttribute~ pitcher_attribute
         +RL bat
         +f64 mod_ba
         +f64 mod_slg
@@ -34,7 +34,8 @@ classDiagram
         +f64 uzr_skew
     }
 
-    class PitcherSkill {
+    class PitcherAttribute {
+        +PitcherStyle pitcher_style
         +f64 mod_velocity
         +f64 mod_control
         +f64 mod_stamina
@@ -45,7 +46,7 @@ classDiagram
         +Vec~PitchSkill~ pitch_skills
     }
 
-    class PitcherBaseSkillProb {
+    class PitcherAttributeProb {
         +f64 velocity_skew
         +f64 control_skew
         +f64 stamina_skew
@@ -266,6 +267,13 @@ classDiagram
         Knuckleball
     }
 
+    class PitcherStyle {
+        <<enumeration>>
+        PowerPitcher
+        FinessePitcher
+        BalancedPitcher
+    }
+
     class Position {
         <<enumeration>>
         P
@@ -326,9 +334,10 @@ classDiagram
     Player --> RL : throw
     Player --> RL : bat
     Player "1" --> "0..*" DefensiveSkill : defensive_skills
-    Player "1" --> "0..1" PitcherSkill : pitcher_skill
+    Player "1" --> "0..1" PitcherAttribute : pitcher_attribute
     DefensiveSkill --> Position : position
-    PitcherSkill "1" --> "0..*" PitchSkill : pitch_skills
+    PitcherAttribute --> PitcherStyle : pitcher_style
+    PitcherAttribute "1" --> "0..*" PitchSkill : pitch_skills
     PitchSkill --> PitchType : pitch_type
     PitchSkillProb --> PitchType : pitch_type
 

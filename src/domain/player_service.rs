@@ -1,8 +1,7 @@
-use super::shared::player::{DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Player};
+use super::shared::player::{DefensiveSkill, PitchSkill, PitcherAttribute, Player, Position};
 use super::shared::probabilities::{DefensiveSkillProb, PitcherAttributeProb};
 use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
-use crate::domain::error::AppError;
-use crate::domain::shared::types::Position;
+use crate::error::AppError;
 use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
 use crate::t;
@@ -48,12 +47,7 @@ impl<R: PlayerRepository> PlayerService<R> {
                 .next_player_dist_team(defensive_skills[0].position.clone())
             {
                 Ok(team) => team,
-                Err(e)
-                    if e.downcast_ref::<AppError>()
-                        .map_or(false, |app| matches!(app, AppError::NotFound(_))) =>
-                {
-                    self.repo.next_random_team()?
-                }
+                Err(AppError::NotFound(_)) => self.repo.next_random_team()?,
                 Err(e) => {
                     let error_msg = t!("error", "function" => "next_player_dist_team");
                     return Err(anyhow::anyhow!("{} {}", error_msg, e));
@@ -62,8 +56,8 @@ impl<R: PlayerRepository> PlayerService<R> {
 
             let player = Player {
                 id: 0,
-                first_name: name[0].clone().into(),
-                last_name: name[1].clone().into(),
+                first_name: name.first,
+                last_name: name.last,
                 age: age,
                 throw: throw,
                 // TODO: consider multiple skill holder
@@ -172,18 +166,18 @@ impl<R: PlayerRepository> PlayerService<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::player::PitchType;
+    use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Position};
+    use crate::domain::shared::probabilities::ItemProb;
     use crate::domain::shared::probabilities::{
         BatterSkillProb, PitchSkillProb, PlayerAttributeProb,
     };
     use crate::domain::shared::team::Team;
-    use crate::domain::shared::types::Position;
-    use crate::domain::utils::ItemProb;
+    use crate::error::AppError;
     use anyhow::anyhow;
     use std::cell::{Cell, RefCell};
 
     struct RecordingRepo {
-        name: [String; 2],
+        name: FullName,
         team: Team,
         random_team: Team,
         random_name_error: bool,
@@ -209,7 +203,10 @@ mod tests {
     impl RecordingRepo {
         fn new() -> Self {
             Self {
-                name: ["翔平".to_string(), "大谷".to_string()],
+                name: FullName {
+                    first: "翔平".into(),
+                    last: "大谷".into(),
+                },
                 team: Team::min(1, "ライオンズ"),
                 random_team: Team::min(99, "ランダムズ"),
                 random_name_error: false,
@@ -241,54 +238,54 @@ mod tests {
     }
 
     impl PlayerRepository for RecordingRepo {
-        fn save_player(&mut self, team: Team, player: Player) -> Result<()> {
+        fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
             let call_index = self.save_calls;
             self.save_calls += 1;
 
             if self.save_error_at == Some(call_index) {
-                return Err(anyhow!("save failed"));
+                return Err(AppError::Internal(anyhow!("save failed")));
             }
 
             self.saved.push((team, player));
             Ok(())
         }
 
-        fn random_name(&self, _language: String) -> Result<[String; 2]> {
+        fn random_name(&self, _language: String) -> Result<FullName, AppError> {
             if self.random_name_error {
-                return Err(anyhow!("random name failed"));
+                return Err(AppError::Internal(anyhow!("random name failed")));
             }
 
             self.random_name_languages.borrow_mut().push(_language);
             Ok(self.name.clone())
         }
 
-        fn next_player_dist_team(&self, position: Position) -> Result<Team> {
+        fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError> {
             self.next_team_positions.borrow_mut().push(position);
             self.next_team_calls.set(self.next_team_calls.get() + 1);
 
             if self.next_team_not_found {
-                return Err(AppError::NotFound("position not found".to_string()).into());
+                return Err(AppError::NotFound("position not found".to_string()));
             }
 
             if self.next_team_error {
-                return Err(anyhow!("next team failed"));
+                return Err(AppError::Internal(anyhow!("next team failed")));
             }
 
             Ok(self.team.clone())
         }
 
-        fn next_random_team(&self) -> Result<Team> {
+        fn next_random_team(&self) -> Result<Team, AppError> {
             self.next_random_team_calls
                 .set(self.next_random_team_calls.get() + 1);
 
             if self.next_random_team_error {
-                return Err(anyhow!("next random team failed"));
+                return Err(AppError::Internal(anyhow!("next random team failed")));
             }
 
             Ok(self.random_team.clone())
         }
 
-        fn position_probs(&self) -> Result<Vec<ItemProb<Position>>> {
+        fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError> {
             self.position_probs_calls
                 .set(self.position_probs_calls.get() + 1);
             self.item_prob_categories
@@ -296,13 +293,13 @@ mod tests {
                 .push("position".to_string());
 
             if self.position_probs_error {
-                return Err(anyhow!("position probs failed"));
+                return Err(AppError::Internal(anyhow!("position probs failed")));
             }
 
             Ok(self.position_probs.clone())
         }
 
-        fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>> {
+        fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError> {
             self.pitcher_style_probs_calls
                 .set(self.pitcher_style_probs_calls.get() + 1);
             self.item_prob_categories
@@ -310,7 +307,7 @@ mod tests {
                 .push("pitcher_style".to_string());
 
             if self.pitcher_style_probs_error {
-                return Err(anyhow!("pitcher style probs failed"));
+                return Err(AppError::Internal(anyhow!("pitcher style probs failed")));
             }
 
             Ok(self.pitcher_style_probs.clone())
@@ -319,11 +316,11 @@ mod tests {
         fn pitch_type_probs(
             &self,
             _pitch_style: &PitcherStyle,
-        ) -> Result<Vec<ItemProb<PitchType>>> {
+        ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
             Ok(Vec::new())
         }
 
-        fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb> {
+        fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
             Ok(PitchSkillProb {
                 pitch_type: pitch_type.clone(),
                 velocity_skew: 0.0,
@@ -340,7 +337,7 @@ mod tests {
             })
         }
 
-        fn player_attribute_prob(&self) -> Result<PlayerAttributeProb> {
+        fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError> {
             Ok(PlayerAttributeProb {
                 age_shape: 2.5,
                 age_scale: 2.5,
@@ -350,18 +347,18 @@ mod tests {
             })
         }
 
-        fn batter_skill_prob(&self) -> Result<BatterSkillProb> {
+        fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError> {
             Ok(BatterSkillProb {
                 ba_skew: 0.2,
                 slg_skew: 0.2,
             })
         }
 
-        fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb> {
+        fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError> {
             Ok(DefensiveSkillProb { uzr_skew: 0.2 })
         }
 
-        fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb> {
+        fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError> {
             Ok(PitcherAttributeProb {
                 velocity_skew: 0.2,
                 control_skew: 0.2,
@@ -371,14 +368,6 @@ mod tests {
                 hpp_skew: 0.0,
                 platoon_splitting_skew: 0.0,
             })
-        }
-
-        fn query_item_probs<T, F, C>(&self, _category: C, _mapper: F) -> Result<Vec<ItemProb<T>>>
-        where
-            C: AsRef<str>,
-            F: for<'row> FnMut(&'row rusqlite::Row) -> rusqlite::Result<ItemProb<T>>,
-        {
-            unreachable!("RecordingRepo returns concrete probability fixtures directly")
         }
     }
 

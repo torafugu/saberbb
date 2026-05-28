@@ -1,5 +1,6 @@
 mod adapters;
 mod domain;
+mod error;
 mod i18n;
 mod repositories;
 

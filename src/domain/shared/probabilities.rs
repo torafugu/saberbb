@@ -1,7 +1,15 @@
 use super::player::PitchType;
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, Validate)]
+pub struct ItemProb<T> {
+    pub name: T,
+    #[validate(range(min = 0.0, max = 1.0))]
+    pub prob: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerAttributeProb {
     pub age_shape: f64,
     pub age_scale: f64,
@@ -10,18 +18,18 @@ pub struct PlayerAttributeProb {
     pub bat_lefty: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterSkillProb {
     pub ba_skew: f64,
     pub slg_skew: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct DefensiveSkillProb {
     pub uzr_skew: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitcherAttributeProb {
     pub velocity_skew: f64,
     pub control_skew: f64,
@@ -32,7 +40,7 @@ pub struct PitcherAttributeProb {
     pub platoon_splitting_skew: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitchSkillProb {
     pub pitch_type: PitchType,
     pub velocity_skew: f64,

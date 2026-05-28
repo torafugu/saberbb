@@ -1,514 +1,297 @@
-use super::sql_types::{SqlPitchType, SqlPitcherStyle, SqlPosition};
-use crate::domain::error::AppError;
-use crate::domain::shared::player::{PitchSkill, PitchType, PitcherStyle, Player};
+use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Player, Position};
+use crate::domain::shared::probabilities::ItemProb;
 use crate::domain::shared::probabilities::{
     BatterSkillProb, DefensiveSkillProb, PitchSkillProb, PitcherAttributeProb, PlayerAttributeProb,
 };
 use crate::domain::shared::team::Team;
-use crate::domain::shared::types::Position;
-use crate::domain::utils::ItemProb;
-use crate::repositories::db::{DbError, SqlDb, SqliteManager};
-use crate::t;
-use anyhow::{Result, bail};
-use deadpool::managed::Object;
-use rusqlite::{Error, ToSql, params};
+use crate::error::AppError;
+use crate::repositories::db::{DbClient, SqlDb};
+use anyhow::Result;
+use rusqlite::params;
 
 pub trait PlayerRepository {
-    fn save_player(&mut self, team: Team, player: Player) -> Result<()>;
-    fn random_name(&self, language: String) -> Result<[String; 2]>;
-    fn next_player_dist_team(&self, position: Position) -> Result<Team>;
-    fn next_random_team(&self) -> Result<Team>;
-    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>>;
-    fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>>;
-    fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb>;
-    fn pitch_type_probs(&self, pitch_style: &PitcherStyle) -> Result<Vec<ItemProb<PitchType>>>;
-    fn player_attribute_prob(&self) -> Result<PlayerAttributeProb>;
-    fn batter_skill_prob(&self) -> Result<BatterSkillProb>;
-    fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb>;
-    fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb>;
-    fn query_item_probs<T, F, C>(&self, category: C, mapper: F) -> Result<Vec<ItemProb<T>>>
-    where
-        C: AsRef<str>,
-        F: for<'row> FnMut(&'row rusqlite::Row) -> rusqlite::Result<ItemProb<T>>;
+    fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError>;
+    fn random_name(&self, language: String) -> Result<FullName, AppError>;
+    fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError>;
+    fn next_random_team(&self) -> Result<Team, AppError>;
+    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError>;
+    fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError>;
+    fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError>;
+    fn pitch_type_probs(
+        &self,
+        pitch_style: &PitcherStyle,
+    ) -> Result<Vec<ItemProb<PitchType>>, AppError>;
+    fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError>;
+    fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError>;
+    fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError>;
+    fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError>;
 }
 
 #[derive(Clone)]
 pub struct SqlPlayerRepository {
-    db: SqlDb,
+    db_client: DbClient,
 }
 impl SqlPlayerRepository {
     pub fn new() -> Result<Self> {
-        let db = SqlDb::new()?;
-        Ok(Self { db })
-    }
-
-    pub fn get_conn(&self) -> Result<Object<SqliteManager>, DbError> {
-        self.db.get_conn()
+        let db_client = DbClient { db: SqlDb::new()? };
+        Ok(Self { db_client })
     }
 }
 
 impl PlayerRepository for SqlPlayerRepository {
-    fn save_player(&mut self, team: Team, mut player: Player) -> Result<()> {
-        let mut conn = self.get_conn()?;
-        let tx = conn.transaction()?;
-
-        if let Err(e) = tx.execute(
-            "INSERT INTO player (
-                        team_id, first_name, last_name,
-                        age, throw, bat, mod_ba, mod_slg
-                        ) VALUES (
-                         ?1, ?2, ?3,
-                         ?4, ?5, ?6, ?7, ?8)",
-            params![
-                team.id,
-                player.first_name,
-                player.last_name,
-                player.age,
-                player.throw,
-                player.bat,
-                player.mod_ba,
-                player.mod_slg
-            ],
-        ) {
-            let error_msg = t!("error", "function" => "save_player : INSERT INTO player");
-            bail!("{}, {}", error_msg, e);
-        };
-
-        let generated_id = tx.last_insert_rowid();
-
-        for defensive_skill in player.defensive_skills.iter() {
-            if let Err(e) = tx.execute(
-                "INSERT INTO defensive_skill (
-                        player_id, position, mod_uzr
-                        ) VALUES (
-                         ?1, ?2, ?3)",
+    fn save_player(&mut self, team: Team, mut player: Player) -> Result<(), AppError> {
+        self.db_client.transaction(|tx| {
+            let insert_player_sql = "INSERT INTO player (
+                                        team_id, first_name, last_name,
+                                        age, throw, bat, mod_ba, mod_slg
+                                        ) VALUES (
+                                        ?1, ?2, ?3,
+                                        ?4, ?5, ?6, ?7, ?8)";
+            let generated_id = self.db_client.execute_insert_tx(
+                tx,
+                insert_player_sql,
                 params![
-                    generated_id,
-                    defensive_skill.position,
-                    defensive_skill.mod_uzr
+                    team.id,
+                    player.first_name,
+                    player.last_name,
+                    player.age,
+                    player.throw,
+                    player.bat,
+                    player.mod_ba,
+                    player.mod_slg
                 ],
-            ) {
-                let error_msg =
-                    t!("error", "function" => "save_player : INSERT INTO defensive_skill");
-                bail!("{}, {}", error_msg, e);
-            };
-        }
+            )?;
 
-        if let Some(pitcher_attribute) = player.pitcher_attribute.take() {
-            if let Err(e) = tx.execute(
-                "INSERT INTO pitcher_attribute (
-                        player_id,
-                        pitcher_style,
-                        mod_velocity,
-                        mod_control,
-                        mod_stamina,
-                        mod_injury_proneness,
-                        mod_clutch,
-                        mod_hpp,
-                        mod_platoon_splitting
-                        ) VALUES (
-                         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    generated_id,
-                    pitcher_attribute.pitcher_style,
-                    pitcher_attribute.mod_velocity,
-                    pitcher_attribute.mod_control,
-                    pitcher_attribute.mod_stamina,
-                    pitcher_attribute.mod_injury_proneness,
-                    pitcher_attribute.mod_clutch,
-                    pitcher_attribute.mod_hpp,
-                    pitcher_attribute.mod_platoon_splitting,
-                ],
-            ) {
-                let error_msg =
-                    t!("error", "function" => "save_player : INSERT INTO pitcher_attribute");
-                bail!("{}, {}", error_msg, e);
-            };
-
-            for pitch_skill in pitcher_attribute.pitch_skills {
-                if let Err(e) = tx.execute(
-                    "INSERT INTO pitch_skill (
-                        player_id,
-                        pitch_type,
-                        mod_velocity,
-                        mod_control,
-                        mod_stamina,
-                        mod_injury_proneness,
-                        mod_stuff,
-                        mod_fb,
-                        mod_gp,
-                        mod_horizontal_movement,
-                        mod_vertical_movement,
-                        mod_spin_rate,
-                        mod_usage
-                        ) VALUES (
-                         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            for defensive_skill in player.defensive_skills.iter() {
+                let insert_defensive_skill_sql = "INSERT INTO defensive_skill (
+                                                player_id, position, mod_uzr
+                                                ) VALUES (
+                                                ?1, ?2, ?3)";
+                self.db_client.execute_tx(
+                    tx,
+                    insert_defensive_skill_sql,
                     params![
                         generated_id,
-                        pitch_skill.pitch_type,
-                        pitch_skill.mod_velocity,
-                        pitch_skill.mod_control,
-                        pitch_skill.mod_stamina,
-                        pitch_skill.mod_injury_proneness,
-                        pitch_skill.mod_stuff,
-                        pitch_skill.mod_fb,
-                        pitch_skill.mod_gp,
-                        pitch_skill.mod_horizontal_movement,
-                        pitch_skill.mod_vertical_movement,
-                        pitch_skill.mod_spin_rate,
-                        pitch_skill.mod_usage,
+                        defensive_skill.position,
+                        defensive_skill.mod_uzr
                     ],
-                ) {
-                    let error_msg =
-                        t!("error", "function" => "save_player : INSERT INTO pitch_skill");
-                    bail!("{}, {}", error_msg, e);
-                };
+                )?;
             }
-        }
 
-        if let Err(e) = tx.commit() {
-            let error_msg = t!("error", "Function" => "save_player : commit");
-            bail!("{}, {}", error_msg, e);
-        };
+            if let Some(pitcher_attribute) = player.pitcher_attribute.take() {
+                let insert_pitcher_attribute_sql = "INSERT INTO pitcher_attribute (
+                                                            player_id,
+                                                            pitcher_style,
+                                                            mod_velocity,
+                                                            mod_control,
+                                                            mod_stamina,
+                                                            mod_injury_proneness,
+                                                            mod_clutch,
+                                                            mod_hpp,
+                                                            mod_platoon_splitting
+                                                            ) VALUES (
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+                self.db_client.execute_tx(
+                    tx,
+                    insert_pitcher_attribute_sql,
+                    params![
+                        generated_id,
+                        pitcher_attribute.pitcher_style,
+                        pitcher_attribute.mod_velocity,
+                        pitcher_attribute.mod_control,
+                        pitcher_attribute.mod_stamina,
+                        pitcher_attribute.mod_injury_proneness,
+                        pitcher_attribute.mod_clutch,
+                        pitcher_attribute.mod_hpp,
+                        pitcher_attribute.mod_platoon_splitting,
+                    ],
+                )?;
 
-        Ok(())
+                for pitch_skill in pitcher_attribute.pitch_skills {
+                    let insert_pitch_skill_sql = "INSERT INTO pitch_skill (
+                                                            player_id,
+                                                            pitch_type,
+                                                            mod_velocity,
+                                                            mod_control,
+                                                            mod_stamina,
+                                                            mod_injury_proneness,
+                                                            mod_stuff,
+                                                            mod_fb,
+                                                            mod_gp,
+                                                            mod_horizontal_movement,
+                                                            mod_vertical_movement,
+                                                            mod_spin_rate,
+                                                            mod_usage
+                                                        ) VALUES (
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+                    self.db_client.execute_tx(
+                        tx,
+                        insert_pitch_skill_sql,
+                        params![
+                            generated_id,
+                            pitch_skill.pitch_type,
+                            pitch_skill.mod_velocity,
+                            pitch_skill.mod_control,
+                            pitch_skill.mod_stamina,
+                            pitch_skill.mod_injury_proneness,
+                            pitch_skill.mod_stuff,
+                            pitch_skill.mod_fb,
+                            pitch_skill.mod_gp,
+                            pitch_skill.mod_horizontal_movement,
+                            pitch_skill.mod_vertical_movement,
+                            pitch_skill.mod_spin_rate,
+                            pitch_skill.mod_usage,
+                        ],
+                    )?;
+                }
+            }
+            Ok(())
+        })
     }
 
-    fn random_name(&self, language: String) -> Result<[String; 2]> {
-        let conn = self.get_conn()?;
+    fn random_name(&self, language: String) -> Result<FullName, AppError> {
+        let query = "SELECT 
+	                        fn.name AS first_name,
+	                        ln.name AS last_name
+                            FROM 
+                            (
+                                SELECT name 
+                                FROM last_names 
+                                WHERE country = ?1
+                                LIMIT 1 
+                                OFFSET ABS(RANDOM()) % (SELECT COUNT(*) FROM last_names WHERE country = ?1)
+                            ) AS ln
+                            CROSS JOIN 
+                            (
+                                SELECT name 
+                                FROM first_names 
+                                WHERE country = ?1 AND gender = 'M'
+                                LIMIT 1 
+                                OFFSET ABS(RANDOM()) % (SELECT COUNT(*) FROM first_names WHERE country = ?1 AND gender = 'M')
+                            ) AS fn";
 
-        let mut names: [String; 2] = ["".to_string(), "".to_string()];
-
-        // Retrieve First Name
-        let res_count_first_names = conn.query_row(
-            "SELECT COUNT(*) as count FROM first_names WHERE country = ?1 AND gender = 'M'",
-            params![language],
-            |row| Ok(row.get::<_, u32>("count")?),
-        );
-
-        let count_first_names = res_count_first_names?;
-        if count_first_names == 0 {
-            return Ok(names);
-        }
-
-        let mut random_offset = rand::random_range(0..count_first_names);
-        let first_name = conn.query_row(
-            "SELECT name FROM first_names WHERE country = ?1 AND gender = 'M' LIMIT 1 OFFSET ?2",
-            params![language, random_offset],
-            |row| Ok(row.get("name")?),
-        );
-
-        if first_name == Err(Error::QueryReturnedNoRows) {
-            return Ok(names);
-        } else if let Err(e) = first_name {
-            let error_msg = t!("error", "function" => "SELECT FROM first_names");
-            bail!("{}, {}", error_msg, e);
-        }
-        names[0] = first_name?;
-
-        // Retrieve Last Name
-        let res_count_last_names = conn.query_row(
-            "SELECT COUNT(*) as count FROM last_names WHERE country = ?1",
-            params![language],
-            |row| Ok(row.get::<_, u32>("count")?),
-        );
-
-        let count_last_names = res_count_last_names?;
-        if count_last_names == 0 {
-            return Ok(names);
-        }
-
-        random_offset = rand::random_range(0..count_last_names);
-        let last_name = conn.query_row(
-            "SELECT name FROM last_names WHERE country = ?1 LIMIT 1 OFFSET ?2",
-            params![language, random_offset],
-            |row| Ok(row.get("name")?),
-        );
-
-        if last_name == Err(Error::QueryReturnedNoRows) {
-            return Ok(names);
-        } else if let Err(e) = last_name {
-            let error_msg = t!("error", "function" => "SELECT FROM last_names");
-            bail!("{}, {}", error_msg, e);
-        }
-        names[1] = last_name?;
-
-        Ok(names)
+        self.db_client
+            .query_row::<FullName>(query, params![language])
     }
 
-    fn next_player_dist_team(&self, position: Position) -> Result<Team> {
-        let conn = self.get_conn()?;
-
-        let team_result = conn.query_row(
-            "SELECT
-                        t.id AS team_id,
-                        t.name AS team_name,
-                        COUNT(p.id) AS player_count
-                    FROM team t
-                    LEFT JOIN player p ON t.id = p.team_id
-                    LEFT JOIN defensive_skill ds ON ds.player_id = p.id
-        			WHERE ds.position = ?1
-                    GROUP BY t.id
-                    ORDER BY player_count, t.id
-                    LIMIT 1;",
-            params![position],
-            |row| {
-                Ok(Team {
-                    id: row.get("team_id")?,
-                    name: row.get("team_name")?,
-                    players: Vec::new(),
-                })
-            },
-        );
-
-        match team_result {
-            Ok(team) => Ok(team),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                let error_msg = t!("not_found", "property" => "next_player_dist_team : Position");
-                return Err(AppError::NotFound(format!("{} {:?}", error_msg, position)).into());
-            }
-            Err(e) => {
-                let error_msg =
-                    t!("error", "function" => "next_player_dist_team : SELECT FROM team");
-                bail!("{}, {}", error_msg, e);
-            }
-        }
+    fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError> {
+        let query = "SELECT
+                            t.id AS id,
+                            t.name AS name,
+                            COUNT(ds.player_id) AS player_count
+                            FROM team t
+                            LEFT JOIN player p ON t.id = p.team_id
+                            LEFT JOIN defensive_skill ds ON ds.player_id = p.id
+                                AND ds.position = ?1
+                            GROUP BY t.id, t.name
+                            ORDER BY player_count, t.id
+                            LIMIT 1";
+        self.db_client.query_row::<Team>(query, params![position])
     }
 
-    fn next_random_team(&self) -> Result<Team> {
-        let conn = self.get_conn()?;
-
-        let team = conn.query_row(
-            "SELECT id, name
+    fn next_random_team(&self) -> Result<Team, AppError> {
+        let query = "SELECT id, name
                     FROM team
                     ORDER BY RANDOM() 
-                    LIMIT 1;",
-            params![],
-            |row| {
-                Ok(Team {
-                    id: row.get("id")?,
-                    name: row.get("name")?,
-                    players: Vec::new(),
-                })
-            },
-        );
-        if let Err(e) = &team {
-            let error_msg = t!("error", "function" => "next_random_team : SELECT FROM team");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(team?)
+                    LIMIT 1";
+        self.db_client.query_row::<Team>(query, params![])
     }
 
-    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>> {
-        self.query_item_probs("position", |row| {
-            Ok(ItemProb {
-                name: row.get::<_, SqlPosition>("name")?.0,
-                prob: row.get("prob")?,
-            })
-        })
+    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError> {
+        let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
+        self.db_client
+            .query_rows::<ItemProb<Position>>(query, params!["position"])
     }
 
-    fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>> {
-        self.query_item_probs("pitcher_style", |row| {
-            Ok(ItemProb {
-                name: row.get::<_, SqlPitcherStyle>("name")?.0,
-                prob: row.get("prob")?,
-            })
-        })
+    fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError> {
+        let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
+        self.db_client
+            .query_rows::<ItemProb<PitcherStyle>>(query, params!["pitcher_style"])
     }
 
-    fn pitch_type_probs(&self, pitch_style: &PitcherStyle) -> Result<Vec<ItemProb<PitchType>>> {
-        self.query_item_probs(pitch_style, |row| {
-            Ok(ItemProb {
-                name: row.get::<_, SqlPitchType>("name")?.0,
-                prob: row.get("prob")?,
-            })
-        })
+    fn pitch_type_probs(
+        &self,
+        pitch_style: &PitcherStyle,
+    ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
+        let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
+        self.db_client
+            .query_rows::<ItemProb<PitchType>>(query, params![pitch_style.as_ref()])
     }
 
-    fn player_attribute_prob(&self) -> Result<PlayerAttributeProb> {
-        let conn = self.get_conn()?;
-
-        let player_attribute_prob = conn.query_row(
-            "SELECT 
-                    MAX(CASE WHEN name = 'age_shape' THEN prob END) AS age_shape,
-                    MAX(CASE WHEN name = 'age_scale' THEN prob END) AS age_scale,
-                    MAX(CASE WHEN name = 'age_offset' THEN prob END) AS age_offset,
-                    MAX(CASE WHEN name = 'throw_lefty' THEN prob END) AS throw_lefty,
-                    MAX(CASE WHEN name = 'bat_lefty' THEN prob END) AS bat_lefty
-                    FROM item_prob
-                    WHERE category = 'player_attribute';",
-            params![],
-            |row| {
-                Ok(PlayerAttributeProb {
-                    age_shape: row.get("age_shape")?,
-                    age_scale: row.get("age_scale")?,
-                    age_offset: row.get("age_offset")?,
-                    throw_lefty: row.get("throw_lefty")?,
-                    bat_lefty: row.get("bat_lefty")?,
-                })
-            },
-        );
-        if let Err(e) = &player_attribute_prob {
-            let error_msg =
-                t!("error", "function" => "player_attribute_prob : SELECT FROM item_prob");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(player_attribute_prob?)
+    fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError> {
+        let query = "SELECT 
+                        MAX(CASE WHEN name = 'age_shape' THEN prob END) AS age_shape,
+                        MAX(CASE WHEN name = 'age_scale' THEN prob END) AS age_scale,
+                        MAX(CASE WHEN name = 'age_offset' THEN prob END) AS age_offset,
+                        MAX(CASE WHEN name = 'throw_lefty' THEN prob END) AS throw_lefty,
+                        MAX(CASE WHEN name = 'bat_lefty' THEN prob END) AS bat_lefty
+                        FROM item_prob
+                        WHERE category = 'player_attribute'";
+        self.db_client
+            .query_row::<PlayerAttributeProb>(query, params![])
     }
 
-    fn batter_skill_prob(&self) -> Result<BatterSkillProb> {
-        let conn = self.get_conn()?;
-
-        let batter_skill_prob = conn.query_row(
-            "SELECT 
-                    MAX(CASE WHEN name = 'ba_skew' THEN prob END) AS ba_skew,
-                    MAX(CASE WHEN name = 'slg_skew' THEN prob END) AS slg_skew
-                    FROM item_prob
-                    WHERE category = 'batter_skill';",
-            params![],
-            |row| {
-                Ok(BatterSkillProb {
-                    ba_skew: row.get("ba_skew")?,
-                    slg_skew: row.get("slg_skew")?,
-                })
-            },
-        );
-        if let Err(e) = &batter_skill_prob {
-            let error_msg = t!("error", "function" => "batter_skill_prob : SELECT FROM item_prob");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(batter_skill_prob?)
+    fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError> {
+        let query = "SELECT 
+                        MAX(CASE WHEN name = 'ba_skew' THEN prob END) AS ba_skew,
+                        MAX(CASE WHEN name = 'slg_skew' THEN prob END) AS slg_skew
+                        FROM item_prob
+                        WHERE category = 'batter_skill'";
+        self.db_client
+            .query_row::<BatterSkillProb>(query, params![])
     }
 
-    fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb> {
-        let conn = self.get_conn()?;
-
-        let defensive_skill_prob = conn.query_row(
-            "SELECT 
-                    MAX(CASE WHEN name = 'uzr_skew' THEN prob END) AS uzr_skew
-                    FROM item_prob
-                    WHERE category = 'defensive_skill';",
-            params![],
-            |row| {
-                Ok(DefensiveSkillProb {
-                    uzr_skew: row.get("uzr_skew")?,
-                })
-            },
-        );
-        if let Err(e) = &defensive_skill_prob {
-            let error_msg =
-                t!("error", "function" => "defensive_skill_prob : SELECT FROM item_prob");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(defensive_skill_prob?)
+    fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError> {
+        let query = "SELECT 
+                     MAX(CASE WHEN name = 'uzr_skew' THEN prob END) AS uzr_skew
+                     FROM item_prob
+                     WHERE category = 'defensive_skill'";
+        self.db_client
+            .query_row::<DefensiveSkillProb>(query, params![])
     }
 
-    fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb> {
-        let conn = self.get_conn()?;
-
-        let pitcher_attribute_prob = conn.query_row(
-            "SELECT 
-                    MAX(CASE WHEN name = 'velocity_skew' THEN prob END) AS velocity_skew,
-    				MAX(CASE WHEN name = 'control_skew' THEN prob END) AS control_skew,
-    				MAX(CASE WHEN name = 'stamina_skew' THEN prob END) AS stamina_skew,
-    				MAX(CASE WHEN name = 'injury_proneness_skew' THEN prob END) AS injury_proneness_skew,
-    				MAX(CASE WHEN name = 'clutch_skew' THEN prob END) AS clutch_skew,
-    				MAX(CASE WHEN name = 'hpp_skew' THEN prob END) AS hpp_skew,
-    				MAX(CASE WHEN name = 'platoon_splitting_skew' THEN prob END) AS platoon_splitting_skew
-                    FROM item_prob
-                    WHERE category = 'pitcher_attribute';",
-            params![],
-            |row| {
-                Ok(PitcherAttributeProb {
-                    velocity_skew: row.get("velocity_skew")?,
-                    control_skew: row.get("control_skew")?,
-                    stamina_skew: row.get("stamina_skew")?,
-                    injury_proneness_skew: row.get("injury_proneness_skew")?,
-                    clutch_skew: row.get("clutch_skew")?,
-                    hpp_skew: row.get("hpp_skew")?,
-                    platoon_splitting_skew: row.get("platoon_splitting_skew")?,
-                })
-            },
-        );
-        if let Err(e) = &pitcher_attribute_prob {
-            let error_msg =
-                t!("error", "function" => "pitcher_attribute_prob : SELECT FROM item_prob");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(pitcher_attribute_prob?)
+    fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError> {
+        let query = "SELECT 
+                        MAX(CASE WHEN name = 'velocity_skew' THEN prob END) AS velocity_skew,
+    				    MAX(CASE WHEN name = 'control_skew' THEN prob END) AS control_skew,
+    				    MAX(CASE WHEN name = 'stamina_skew' THEN prob END) AS stamina_skew,
+    				    MAX(CASE WHEN name = 'injury_proneness_skew' THEN prob END) AS injury_proneness_skew,
+    				    MAX(CASE WHEN name = 'clutch_skew' THEN prob END) AS clutch_skew,
+    				    MAX(CASE WHEN name = 'hpp_skew' THEN prob END) AS hpp_skew,
+    				    MAX(CASE WHEN name = 'platoon_splitting_skew' THEN prob END) AS platoon_splitting_skew
+                        FROM item_prob
+                        WHERE category = 'pitcher_attribute'";
+        self.db_client
+            .query_row::<PitcherAttributeProb>(query, params![])
     }
 
-    fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb> {
-        let conn = self.get_conn()?;
-
-        let pitcher_skill_prob = conn.query_row(
-            "SELECT 
-                    MAX(CASE WHEN name = 'velocity_skew' THEN prob END) AS velocity_skew,
-    				MAX(CASE WHEN name = 'control_skew' THEN prob END) AS control_skew,
-    				MAX(CASE WHEN name = 'stamina_skew' THEN prob END) AS stamina_skew,
-    				MAX(CASE WHEN name = 'injury_proneness_skew' THEN prob END) AS injury_proneness_skew,
-    				MAX(CASE WHEN name = 'stuff_skew' THEN prob END) AS stuff_skew,
-    				MAX(CASE WHEN name = 'fb_skew' THEN prob END) AS fb_skew,
-    				MAX(CASE WHEN name = 'gp_skew' THEN prob END) AS gp_skew,
-    				MAX(CASE WHEN name = 'horizontal_movement_skew' THEN prob END) AS horizontal_movement_skew,
-    				MAX(CASE WHEN name = 'vertical_movement_skew' THEN prob END) AS vertical_movement_skew,
-    				MAX(CASE WHEN name = 'spin_rate_skew' THEN prob END) AS spin_rate_skew,
-    				MAX(CASE WHEN name = 'usage_skew' THEN prob END) AS usage_skew
-                    FROM item_prob
-                    WHERE category = ?1;",
-            params![pitch_type],
-            |row| {
-                Ok(PitchSkillProb {
-                    pitch_type: pitch_type.clone(),
-                    velocity_skew: row.get("velocity_skew")?,
-                    control_skew: row.get("control_skew")?,
-                    stamina_skew: row.get("stamina_skew")?,
-                    injury_proneness_skew: row.get("injury_proneness_skew")?,
-                    stuff_skew: row.get("stuff_skew")?,
-                    fb_skew: row.get("fb_skew")?,
-                    gp_skew: row.get("gp_skew")?,
-                    horizontal_movement_skew: row.get("horizontal_movement_skew")?,
-                    vertical_movement_skew: row.get("vertical_movement_skew")?,
-                    spin_rate_skew: row.get("spin_rate_skew")?,
-                    usage_skew: row.get("usage_skew")?,
-                })
-            },
-        );
-        if let Err(e) = &pitcher_skill_prob {
-            let error_msg = t!("error", "function" => "pitch_skill_prob : SELECT FROM item_prob");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(pitcher_skill_prob?)
-    }
-
-    fn query_item_probs<T, F, C>(&self, category: C, mapper: F) -> Result<Vec<ItemProb<T>>>
-    where
-        C: AsRef<str>,
-        F: for<'row> FnMut(&'row rusqlite::Row) -> rusqlite::Result<ItemProb<T>>,
-    {
-        let conn = self.get_conn()?;
-        let mut stmt = conn.prepare("SELECT name, prob FROM item_prob WHERE category = ?")?;
-        let rows = stmt.query_map([category.as_ref()], mapper).map_err(|err| {
-            let error_msg = t!("error", "function" => "SELECT FROM item_prob");
-            eprintln!("{}:{}", error_msg, err);
-            anyhow::anyhow!("{}: {}", error_msg, err)
-        })?;
-
-        Ok(rows
-            .collect::<Result<Vec<_>, rusqlite::Error>>()
-            .map_err(|err| {
-                let error_msg = t!("error", "function" => "query_item_probs : SELECT name, prob FROM item_prob WHERE category = ?");
-                eprintln!("{}:{}", error_msg, err);
-                anyhow::anyhow!("{}: {}", error_msg, err)
-            })?)
+    fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
+        let query = "SELECT 
+                            MAX(CASE WHEN name = 'velocity_skew' THEN prob END) AS velocity_skew,
+    				        MAX(CASE WHEN name = 'control_skew' THEN prob END) AS control_skew,
+    				        MAX(CASE WHEN name = 'stamina_skew' THEN prob END) AS stamina_skew,
+    				        MAX(CASE WHEN name = 'injury_proneness_skew' THEN prob END) AS injury_proneness_skew,
+    				        MAX(CASE WHEN name = 'stuff_skew' THEN prob END) AS stuff_skew,
+    				        MAX(CASE WHEN name = 'fb_skew' THEN prob END) AS fb_skew,
+    				        MAX(CASE WHEN name = 'gp_skew' THEN prob END) AS gp_skew,
+    				        MAX(CASE WHEN name = 'horizontal_movement_skew' THEN prob END) AS horizontal_movement_skew,
+    				        MAX(CASE WHEN name = 'vertical_movement_skew' THEN prob END) AS vertical_movement_skew,
+    				        MAX(CASE WHEN name = 'spin_rate_skew' THEN prob END) AS spin_rate_skew,
+    				        MAX(CASE WHEN name = 'usage_skew' THEN prob END) AS usage_skew
+                            FROM item_prob
+                            WHERE category = ?1";
+        self.db_client
+            .query_row_with_ctx::<PitchSkillProb, PitchType>(query, params![pitch_type], pitch_type)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::player::{DefensiveSkill, PitcherAttribute, PitcherStyle, RL};
+    use crate::domain::shared::player::{
+        DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Position, RL,
+    };
+    use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
     use rusqlite::{Connection, params};
     use std::path::PathBuf;
@@ -550,8 +333,6 @@ mod tests {
                 last_name TEXT NOT NULL,
                 age INTEGER NOT NULL,
                 throw TEXT NOT NULL,
-                mod_speed REAL NOT NULL DEFAULT 0.0,
-                mod_control REAL NOT NULL DEFAULT 0.0,
                 bat TEXT NOT NULL,
                 mod_ba REAL NOT NULL,
                 mod_slg REAL NOT NULL
@@ -567,6 +348,23 @@ mod tests {
                 mod_clutch REAL NOT NULL,
                 mod_hpp REAL NOT NULL,
                 mod_platoon_splitting REAL NOT NULL
+            );
+
+            CREATE TABLE pitch_skill (
+                player_id INTEGER,
+                pitch_type TEXT,
+                mod_velocity REAL NOT NULL,
+                mod_control REAL NOT NULL,
+                mod_stamina REAL NOT NULL,
+                mod_injury_proneness REAL NOT NULL,
+                mod_stuff REAL NOT NULL,
+                mod_fb REAL NOT NULL,
+                mod_gp REAL NOT NULL,
+                mod_horizontal_movement REAL NOT NULL,
+                mod_vertical_movement REAL NOT NULL,
+                mod_spin_rate REAL NOT NULL,
+                mod_usage REAL NOT NULL,
+                PRIMARY KEY (player_id, pitch_type)
             );
 
             CREATE TABLE defensive_skill (
@@ -604,12 +402,9 @@ mod tests {
 
         let manager = SqliteManager::from_path(path.clone());
         let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
-        (
-            SqlPlayerRepository {
-                db: SqlDb::from_pool(pool),
-            },
-            path,
-        )
+        let db = SqlDb::from_pool(pool);
+        let db_client = DbClient { db };
+        (SqlPlayerRepository { db_client }, path)
     }
 
     fn setup_repo_without_player_table() -> (SqlPlayerRepository, PathBuf) {
@@ -630,16 +425,13 @@ mod tests {
 
         let manager = SqliteManager::from_path(path.clone());
         let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
-        (
-            SqlPlayerRepository {
-                db: SqlDb::from_pool(pool),
-            },
-            path,
-        )
+        let db = SqlDb::from_pool(pool);
+        let db_client = DbClient { db };
+        (SqlPlayerRepository { db_client }, path)
     }
 
     fn conn(repo: &SqlPlayerRepository) -> deadpool::managed::Object<SqliteManager> {
-        repo.get_conn().unwrap()
+        repo.db_client.get_conn().unwrap()
     }
 
     fn seed_team(repo: &SqlPlayerRepository, id: u16, name: &str) {
@@ -656,8 +448,8 @@ mod tests {
             .execute(
                 "INSERT INTO player (
                     id, team_id, first_name, last_name, age, throw,
-                    mod_speed, mod_control, bat, mod_ba, mod_slg
-                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 0.0, 0.0, 'Right', 0.0, 0.0)",
+                    bat, mod_ba, mod_slg
+                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 'Right', 0.0, 0.0)",
                 params![id, team_id, format!("First{id}"), format!("Last{id}")],
             )
             .unwrap();
@@ -710,6 +502,21 @@ mod tests {
             .unwrap();
     }
 
+    fn seed_pitch_type_prob(
+        repo: &SqlPlayerRepository,
+        pitcher_style: PitcherStyle,
+        pitch_type: PitchType,
+        prob: f64,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO item_prob (category, name, prob)
+                 VALUES (?1, ?2, ?3)",
+                params![pitcher_style.as_ref(), pitch_type, prob],
+            )
+            .unwrap();
+    }
+
     fn seed_player_attribute_prob(repo: &SqlPlayerRepository, name: &str, prob: f64) {
         conn(repo)
             .execute(
@@ -746,6 +553,21 @@ mod tests {
                 "INSERT INTO item_prob (category, name, prob)
                  VALUES ('pitcher_attribute', ?1, ?2)",
                 params![name, prob],
+            )
+            .unwrap();
+    }
+
+    fn seed_pitch_skill_prob(
+        repo: &SqlPlayerRepository,
+        pitch_type: PitchType,
+        name: &str,
+        prob: f64,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO item_prob (category, name, prob)
+                 VALUES (?1, ?2, ?3)",
+                params![pitch_type, name, prob],
             )
             .unwrap();
     }
@@ -904,6 +726,92 @@ mod tests {
     }
 
     #[test]
+    fn save_player_inserts_pitch_skills_when_pitcher_attribute_is_present() {
+        let (mut repo, path) = setup_repo();
+        seed_team(&repo, 1, "ライオンズ");
+        let mut player = player();
+        player.pitcher_attribute = Some(PitcherAttribute {
+            pitcher_style: PitcherStyle::PowerPitcher,
+            mod_velocity: 1.1,
+            mod_control: 1.2,
+            mod_stamina: 1.3,
+            mod_injury_proneness: 1.4,
+            mod_clutch: 1.5,
+            mod_hpp: 1.6,
+            mod_platoon_splitting: 1.7,
+            pitch_skills: vec![PitchSkill {
+                pitch_type: PitchType::FourSeamFastball,
+                mod_velocity: 2.1,
+                mod_control: 2.2,
+                mod_stamina: 2.3,
+                mod_injury_proneness: 2.4,
+                mod_stuff: 2.5,
+                mod_fb: 2.6,
+                mod_gp: 2.7,
+                mod_horizontal_movement: 2.8,
+                mod_vertical_movement: 2.9,
+                mod_spin_rate: 3.0,
+                mod_usage: 3.1,
+            }],
+        });
+
+        repo.save_player(Team::min(1, "ライオンズ"), player)
+            .unwrap();
+
+        let conn = conn(&repo);
+        let row: (
+            u32,
+            String,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+        ) = conn
+            .query_row(
+                "SELECT player_id, pitch_type, mod_velocity, mod_control, mod_stamina,
+                    mod_injury_proneness, mod_stuff, mod_fb, mod_gp,
+                    mod_horizontal_movement, mod_vertical_movement, mod_spin_rate, mod_usage
+                 FROM pitch_skill",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                        row.get(10)?,
+                        row.get(11)?,
+                        row.get(12)?,
+                    ))
+                },
+            )
+            .unwrap();
+
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "FourSeamFastball");
+        assert_eq!(
+            [
+                row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11, row.12,
+            ],
+            [2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 3.1]
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn save_player_returns_error_when_player_table_is_missing() {
         let (mut repo, path) = setup_repo_without_player_table();
         seed_team(&repo, 1, "ライオンズ");
@@ -922,7 +830,8 @@ mod tests {
 
         let names = repo.random_name("JP".to_string()).unwrap();
 
-        assert_eq!(names, ["翔平".to_string(), "大谷".to_string()]);
+        assert_eq!(names.first.as_ref(), "翔平");
+        assert_eq!(names.last.as_ref(), "大谷");
         std::fs::remove_file(path).ok();
     }
 
@@ -935,8 +844,8 @@ mod tests {
 
         let names = repo.random_name("JP".to_string()).unwrap();
 
-        assert_eq!(names[0], "MaleOnly");
-        assert_eq!(names[1], "大谷");
+        assert_eq!(names.first.as_ref(), "MaleOnly");
+        assert_eq!(names.last.as_ref(), "大谷");
         std::fs::remove_file(path).ok();
     }
 
@@ -950,30 +859,30 @@ mod tests {
 
         let names = repo.random_name("JP".to_string()).unwrap();
 
-        assert_eq!(names[0], "翔平");
-        assert_eq!(names[1], "大谷");
+        assert_eq!(names.first.as_ref(), "翔平");
+        assert_eq!(names.last.as_ref(), "大谷");
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn random_name_returns_empty_pair_when_no_first_names_for_language() {
+    fn random_name_returns_error_when_no_first_names_for_language() {
         let (repo, path) = setup_repo();
         seed_last_name(&repo, "大谷", "JP");
 
-        let names = repo.random_name("JP".to_string()).unwrap();
+        let result = repo.random_name("JP".to_string());
 
-        assert_eq!(names, ["".to_string(), "".to_string()]);
+        assert!(result.is_err());
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn random_name_returns_first_name_and_empty_last_name_when_no_last_names() {
+    fn random_name_returns_error_when_no_last_names() {
         let (repo, path) = setup_repo();
         seed_first_name(&repo, "翔平", "M", "JP");
 
-        let names = repo.random_name("JP".to_string()).unwrap();
+        let result = repo.random_name("JP".to_string());
 
-        assert_eq!(names, ["翔平".to_string(), "".to_string()]);
+        assert!(result.is_err());
         std::fs::remove_file(path).ok();
     }
 
@@ -981,21 +890,19 @@ mod tests {
     fn next_player_dist_team_returns_team_with_fewest_players() {
         let (repo, path) = setup_repo();
         seed_team(&repo, 1, "Full");
-        seed_team(&repo, 2, "Fewest Pitchers");
+        seed_team(&repo, 2, "No Pitchers");
         seed_team(&repo, 3, "Half");
         seed_player_row(&repo, 1, 1);
         seed_player_row(&repo, 2, 1);
         seed_player_row(&repo, 3, 3);
-        seed_player_row(&repo, 4, 2);
         seed_defensive_skill(&repo, 1, Position::P);
         seed_defensive_skill(&repo, 2, Position::P);
-        seed_defensive_skill(&repo, 3, Position::C);
-        seed_defensive_skill(&repo, 4, Position::P);
+        seed_defensive_skill(&repo, 3, Position::P);
 
         let team = repo.next_player_dist_team(Position::P).unwrap();
 
         assert_eq!(team.id, 2);
-        assert_eq!(team.name.as_ref(), "Fewest Pitchers");
+        assert_eq!(team.name.as_ref(), "No Pitchers");
         assert!(team.players.is_empty());
         std::fs::remove_file(path).ok();
     }
@@ -1011,7 +918,7 @@ mod tests {
         seed_player_row(&repo, 3, 2);
         seed_defensive_skill(&repo, 1, Position::P);
         seed_defensive_skill(&repo, 2, Position::P);
-        seed_defensive_skill(&repo, 3, Position::C);
+        seed_defensive_skill(&repo, 3, Position::P);
 
         let team = repo.next_player_dist_team(Position::P).unwrap();
 
@@ -1092,31 +999,6 @@ mod tests {
     }
 
     #[test]
-    fn query_item_probs_maps_requested_category() {
-        let (repo, path) = setup_repo();
-        seed_position_prob(&repo, Position::P, 0.42);
-        seed_position_prob(&repo, Position::CF, 0.07);
-
-        let position_probs = repo
-            .query_item_probs("position", |row| {
-                Ok(ItemProb {
-                    name: row.get::<_, SqlPosition>("name")?.0,
-                    prob: row.get("prob")?,
-                })
-            })
-            .unwrap();
-
-        assert_eq!(position_probs.len(), 2);
-        assert!(position_probs.iter().any(|position_prob| {
-            position_prob.name == Position::P && position_prob.prob == 0.42
-        }));
-        assert!(position_probs.iter().any(|position_prob| {
-            position_prob.name == Position::CF && position_prob.prob == 0.07
-        }));
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
     fn pitcher_style_probs_returns_seeded_pitcher_style_probabilities() {
         let (repo, path) = setup_repo();
         seed_pitcher_style_prob(&repo, PitcherStyle::PowerPitcher, 0.31);
@@ -1139,6 +1021,36 @@ mod tests {
         assert!(pitcher_style_probs.iter().any(|pitcher_style_prob| {
             matches!(pitcher_style_prob.name, PitcherStyle::FinessePitcher)
                 && pitcher_style_prob.prob == 0.22
+        }));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn pitch_type_probs_returns_seeded_probabilities_for_pitcher_style() {
+        let (repo, path) = setup_repo();
+        seed_pitch_type_prob(
+            &repo,
+            PitcherStyle::PowerPitcher,
+            PitchType::FourSeamFastball,
+            1.0,
+        );
+        seed_pitch_type_prob(&repo, PitcherStyle::PowerPitcher, PitchType::Slider, 0.5);
+        seed_pitch_type_prob(
+            &repo,
+            PitcherStyle::FinessePitcher,
+            PitchType::Changeup,
+            0.8,
+        );
+
+        let pitch_type_probs = repo.pitch_type_probs(&PitcherStyle::PowerPitcher).unwrap();
+
+        assert_eq!(pitch_type_probs.len(), 2);
+        assert!(pitch_type_probs.iter().any(|pitch_type_prob| {
+            matches!(pitch_type_prob.name, PitchType::FourSeamFastball)
+                && pitch_type_prob.prob == 1.0
+        }));
+        assert!(pitch_type_probs.iter().any(|pitch_type_prob| {
+            matches!(pitch_type_prob.name, PitchType::Slider) && pitch_type_prob.prob == 0.5
         }));
         std::fs::remove_file(path).ok();
     }
@@ -1296,6 +1208,60 @@ mod tests {
         assert_eq!(pitcher_attribute_prob.clutch_skew, 0.15);
         assert_eq!(pitcher_attribute_prob.hpp_skew, 0.16);
         assert_eq!(pitcher_attribute_prob.platoon_splitting_skew, 0.17);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn pitch_skill_prob_returns_seeded_probabilities_for_pitch_type() {
+        let (repo, path) = setup_repo();
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "velocity_skew", 0.11);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "control_skew", 0.12);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "stamina_skew", 0.13);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "injury_proneness_skew", 0.14);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "stuff_skew", 0.15);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "fb_skew", 0.16);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "gp_skew", 0.17);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "horizontal_movement_skew", 0.18);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "vertical_movement_skew", 0.19);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "spin_rate_skew", 0.20);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "usage_skew", 0.21);
+
+        let pitch_skill_prob = repo.pitch_skill_prob(&PitchType::Slider).unwrap();
+
+        assert!(matches!(pitch_skill_prob.pitch_type, PitchType::Slider));
+        assert_eq!(pitch_skill_prob.velocity_skew, 0.11);
+        assert_eq!(pitch_skill_prob.control_skew, 0.12);
+        assert_eq!(pitch_skill_prob.stamina_skew, 0.13);
+        assert_eq!(pitch_skill_prob.injury_proneness_skew, 0.14);
+        assert_eq!(pitch_skill_prob.stuff_skew, 0.15);
+        assert_eq!(pitch_skill_prob.fb_skew, 0.16);
+        assert_eq!(pitch_skill_prob.gp_skew, 0.17);
+        assert_eq!(pitch_skill_prob.horizontal_movement_skew, 0.18);
+        assert_eq!(pitch_skill_prob.vertical_movement_skew, 0.19);
+        assert_eq!(pitch_skill_prob.spin_rate_skew, 0.20);
+        assert_eq!(pitch_skill_prob.usage_skew, 0.21);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn pitch_skill_prob_ignores_other_pitch_type_categories() {
+        let (repo, path) = setup_repo();
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "velocity_skew", 0.11);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "control_skew", 0.12);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "stamina_skew", 0.13);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "injury_proneness_skew", 0.14);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "stuff_skew", 0.15);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "fb_skew", 0.16);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "gp_skew", 0.17);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "horizontal_movement_skew", 0.18);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "vertical_movement_skew", 0.19);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "spin_rate_skew", 0.20);
+        seed_pitch_skill_prob(&repo, PitchType::Slider, "usage_skew", 0.21);
+        seed_pitch_skill_prob(&repo, PitchType::Changeup, "velocity_skew", 0.99);
+
+        let pitch_skill_prob = repo.pitch_skill_prob(&PitchType::Slider).unwrap();
+
+        assert_eq!(pitch_skill_prob.velocity_skew, 0.11);
         std::fs::remove_file(path).ok();
     }
 }

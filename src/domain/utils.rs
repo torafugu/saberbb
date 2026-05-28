@@ -1,4 +1,5 @@
 use crate::domain::shared::player::RL;
+use crate::domain::shared::probabilities::ItemProb;
 use crate::domain::shared::types::Base;
 use rand::distr::weighted::WeightedIndex;
 use rand_distr::{Distribution, Gamma};
@@ -34,12 +35,6 @@ pub fn age_random(age_shape: f64, age_scale: f64, age_offset: f64) -> u8 {
 
 pub fn is_base_occupied(bases_occupied: u8, base: Base) -> bool {
     (bases_occupied & (1 << base as u8)) != 0
-}
-
-#[derive(Debug, Clone)]
-pub struct ItemProb<T> {
-    pub name: T,
-    pub prob: f64,
 }
 
 pub fn choose_item_weighted<T>(items: &[ItemProb<T>]) -> Option<&T> {

@@ -1,9 +1,8 @@
-use super::sql_types::{SqlBattingResult, SqlInningType};
 use crate::domain::shared::game::{Count, GameHeader, GameResult, GameRow, GameScheduler, Inning};
 use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
 use crate::repositories::db::{DbError, SqlDb, SqliteManager};
-use crate::repositories::sql_types::SqlGameType;
+use crate::repositories::sql_helpers::sql_types::{SqlBattingResult, SqlGameType, SqlInningType};
 use crate::t;
 use anyhow::{Result, bail};
 use deadpool::managed::Object;
@@ -377,7 +376,7 @@ impl GameRepository for SqlGameRepository {
             }
         }
 
-        let mut innings = Vec::new();
+        let innings;
 
         match self.load_innings(&game) {
             Ok(loaded_innings) => {
@@ -619,8 +618,6 @@ mod tests {
                 last_name TEXT NOT NULL,
                 age INTEGER NOT NULL,
                 throw TEXT NOT NULL,
-                mod_speed REAL NOT NULL,
-                mod_control REAL NOT NULL,
                 bat TEXT NOT NULL,
                 mod_ba REAL NOT NULL,
                 mod_slg REAL NOT NULL
@@ -719,8 +716,8 @@ mod tests {
             conn.execute(
                 "INSERT INTO player (
                     id, team_id, first_name, last_name, age, throw,
-                    mod_speed, mod_control, bat, mod_ba, mod_slg
-                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 0.0, 0.0, 'Right', ?5, ?6)",
+                    bat, mod_ba, mod_slg
+                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 'Right', ?5, ?6)",
                 params![
                     id,
                     team_id,

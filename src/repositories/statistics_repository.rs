@@ -1,157 +1,98 @@
-use crate::domain::shared::player::Player;
-use crate::domain::shared::statistics::BattingStats;
-use crate::domain::shared::team::{Standing, Team};
-use crate::domain::statistics_service::StatRepository;
-use crate::repositories::db::{DbError, SqlDb, SqliteManager};
-use crate::t;
-use anyhow::{Result, bail};
-use deadpool::managed::Object;
+use crate::domain::shared::statistics::{BattingStats, Standing};
+use crate::error::AppError;
+use crate::repositories::db::{DbClient, SqlDb};
+use anyhow::Result;
+use rusqlite::params;
+
+pub trait StatRepository {
+    fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
+    fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
+}
 
 #[derive(Clone)]
 pub struct SqlStatRepository {
-    db: SqlDb,
+    db_client: DbClient,
 }
 impl SqlStatRepository {
     pub fn new() -> Result<Self> {
-        let db = SqlDb::new()?;
-        Ok(Self { db })
-    }
-
-    pub fn get_conn(&self) -> Result<Object<SqliteManager>, DbError> {
-        self.db.get_conn()
+        let db_client = DbClient { db: SqlDb::new()? };
+        Ok(Self { db_client })
     }
 }
 
 impl StatRepository for SqlStatRepository {
-    fn load_standings(&self) -> Result<Vec<Standing>> {
-        let conn = self.get_conn()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT 
-                    team_id,
-                    team_name,
-                    SUM(games) AS games,
-                    SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS wins,
-                    SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) AS losses,
-                    SUM(CASE WHEN result = 'draw' THEN 1 ELSE 0 END) AS draws,
-                    COALESCE(ROUND(CAST(SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS FLOAT) / NULLIF(SUM(games), 0), 3), 0.0) AS pct
-                FROM (
-                    SELECT 
-                        home_team_id AS team_id,
-                        t_home.name AS team_name,
-                        CASE 
-                            WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN 0 ELSE 1
-                        END AS games,
-                        CASE 
-                            WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN NULL
-                            WHEN home_points > away_points THEN 'win'
-                            WHEN home_points < away_points THEN 'loss'
-                            ELSE 'draw'
-                        END AS result
-                    FROM game
-                    LEFT JOIN 
-		                Team t_home ON game.home_team_id = t_home.id
-    
-                 UNION ALL
-    
-                    SELECT 
-                        away_team_id AS team_id,
-                        t_away.name AS team_name,
-                        CASE 
-                            WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN 0 ELSE 1
-                        END AS games,
-                        CASE 
-                            WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN NULL
-                            WHEN away_points > home_points THEN 'win'
-                            WHEN away_points < home_points THEN 'loss'
-                            ELSE 'draw'
-                        END AS result
-                    FROM game
-                    LEFT JOIN 
-		                Team t_away ON game.away_team_id = t_away.id
-                ) AS combined_results
-                GROUP BY team_id
-                ORDER BY pct DESC, wins DESC;",
-        )?;
-
-        let standings_iter = stmt.query_map([], |row| {
-            Ok(Standing {
-                team: Team {
-                    id: row.get("team_id")?,
-                    name: row.get("team_name")?,
-                    players: Vec::new(),
-                },
-                games: row.get("games")?,
-                wins: row.get("wins")?,
-                losses: row.get("losses")?,
-                draws: row.get("draws")?,
-                pct: row.get("pct")?,
-                gb: 0.0,
-                r: 0,
-                ra: 0,
-            })
-        });
-
-        if let Err(e) = &standings_iter {
-            let error_msg = t!("error", "function" => "load_standings : SELECT standings");
-            bail!("{}, {}", error_msg, e);
-        }
-
-        let standings: Vec<Standing> = standings_iter?.collect::<Result<Vec<_>, _>>()?;
-        Ok(standings)
+    fn load_standings(&self) -> Result<Vec<Standing>, AppError> {
+        let query = "SELECT 
+                            team_id,
+                            team_name,
+                            SUM(games) AS games,
+                            SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS wins,
+                            SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) AS losses,
+                            SUM(CASE WHEN result = 'draw' THEN 1 ELSE 0 END) AS draws,
+                            COALESCE(ROUND(CAST(SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS FLOAT) / NULLIF(SUM(games), 0), 3), 0.0) AS pct
+                            FROM (
+                                SELECT 
+                                    home_team_id AS team_id,
+                                    t_home.name AS team_name,
+                                    CASE 
+                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN 0 ELSE 1
+                                    END AS games,
+                                    CASE 
+                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN NULL
+                                        WHEN home_points > away_points THEN 'win'
+                                        WHEN home_points < away_points THEN 'loss'
+                                    ELSE 'draw'
+                                    END AS result
+                                FROM game
+                            LEFT JOIN 
+		                        Team t_home ON game.home_team_id = t_home.id
+                            UNION ALL
+                                SELECT 
+                                    away_team_id AS team_id,
+                                    t_away.name AS team_name,
+                                    CASE 
+                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN 0 ELSE 1
+                                    END AS games,
+                                    CASE 
+                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN NULL
+                                        WHEN away_points > home_points THEN 'win'
+                                        WHEN away_points < home_points THEN 'loss'
+                                    ELSE 'draw'
+                                    END AS result
+                                FROM game
+                                LEFT JOIN 
+		                            Team t_away ON game.away_team_id = t_away.id
+                            ) AS combined_results
+                            GROUP BY team_id
+                            ORDER BY pct DESC, wins DESC";
+        self.db_client.query_rows::<Standing>(query, params![])
     }
 
-    fn load_batting_stats(&self) -> Result<Vec<BattingStats>> {
-        let conn = self.get_conn()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT 
-                        batter_id,
-                        b.first_name AS batter_first_name,
-                        b.last_name AS batter_last_name,
-                        SUM(1) AS AB,
-                        SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
-                        SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
-                        SUM(CASE WHEN result = 'Triple' THEN 1 ELSE 0 END) AS triple,
-                        SUM(CASE WHEN result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
-                        COALESCE(ROUND(CAST(SUM(CASE WHEN result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
-                        SUM(point) AS rbi
-                    FROM count
-                    LEFT JOIN 
-                        Player b ON count.batter_id = b.id
-                    GROUP BY batter_id
-                    ORDER BY batter_id",
-        )?;
-
-        let batting_stats_iter = stmt.query_map([], |row| {
-            let first_name: String = row.get("batter_first_name")?;
-            let last_name: String = row.get("batter_last_name")?;
-            Ok(BattingStats {
-                batter: Player::min(row.get("batter_id")?, &first_name, &last_name),
-                ab: row.get("ab")?,
-                single: row.get("single")?,
-                double: row.get("double")?,
-                triple: row.get("triple")?,
-                homerun: row.get("homerun")?,
-                ba: row.get("ba")?,
-                rbi: row.get("rbi")?,
-            })
-        });
-
-        if let Err(e) = &batting_stats_iter {
-            let error_msg = t!("error", "function" => "load_batting_stats : SELECT batting_stats");
-            bail!("{}, {}", error_msg, e);
-        }
-
-        let batting_stats: Vec<BattingStats> =
-            batting_stats_iter?.collect::<Result<Vec<_>, _>>()?;
-        Ok(batting_stats)
+    fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError> {
+        let query = "SELECT 
+                            batter_id,
+                            b.first_name AS batter_first_name,
+                            b.last_name AS batter_last_name,
+                            SUM(1) AS AB,
+                            SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
+                            SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
+                            SUM(CASE WHEN result = 'Triple' THEN 1 ELSE 0 END) AS triple,
+                            SUM(CASE WHEN result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
+                            COALESCE(ROUND(CAST(SUM(CASE WHEN result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
+                            SUM(point) AS rbi
+                            FROM count
+                            LEFT JOIN 
+                                Player b ON count.batter_id = b.id
+                            GROUP BY batter_id
+                            ORDER BY batter_id";
+        self.db_client.query_rows::<BattingStats>(query, params![])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repositories::db::{DbClient, SqliteManager};
     use deadpool::managed::Pool;
     use rusqlite::{Connection, params};
     use std::path::PathBuf;
@@ -193,8 +134,6 @@ mod tests {
                 last_name TEXT NOT NULL,
                 age INTEGER NOT NULL,
                 throw TEXT NOT NULL,
-                mod_speed REAL NOT NULL,
-                mod_control REAL NOT NULL,
                 bat TEXT NOT NULL,
                 mod_ba REAL NOT NULL,
                 mod_slg REAL NOT NULL
@@ -244,14 +183,16 @@ mod tests {
         let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
         (
             SqlStatRepository {
-                db: SqlDb::from_pool(pool),
+                db_client: DbClient {
+                    db: SqlDb::from_pool(pool),
+                },
             },
             path,
         )
     }
 
     fn conn(repo: &SqlStatRepository) -> deadpool::managed::Object<SqliteManager> {
-        repo.get_conn().unwrap()
+        repo.db_client.get_conn().unwrap()
     }
 
     fn seed_team(repo: &SqlStatRepository, id: u16, name: &str) {
@@ -268,8 +209,8 @@ mod tests {
             .execute(
                 "INSERT INTO player (
                     id, team_id, first_name, last_name, age, throw,
-                    mod_speed, mod_control, bat, mod_ba, mod_slg
-                ) VALUES (?1, 1, ?2, ?3, 25, 'Right', 0.0, 0.0, 'Right', 0.0, 0.0)",
+                    bat, mod_ba, mod_slg
+                ) VALUES (?1, 1, ?2, ?3, 25, 'Right', 'Right', 0.0, 0.0)",
                 params![id, first_name, last_name],
             )
             .unwrap();

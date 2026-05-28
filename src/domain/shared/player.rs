@@ -1,10 +1,10 @@
-use crate::domain::shared::types::Position;
 use crate::domain::utils;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 use strum_macros::{AsRefStr, EnumString};
+use validator::Validate;
 
 const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
 const BATTING_MAX_HIT_AVERAGE: f64 = 0.32;
@@ -12,6 +12,63 @@ const BATTING_MIN_SLG: f64 = 0.3;
 const BATTING_MAX_SLG: f64 = 0.55;
 const PLAYER_NAME_DEFAULT: &str = "DEAFULT";
 const PLAYER_AGE_DEFAULT: u8 = 25;
+
+#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug)]
+#[strum(ascii_case_insensitive)]
+pub enum Position {
+    P,
+    C,
+    FB,
+    SB,
+    TB,
+    SS,
+    LF,
+    CF,
+    RF,
+    DH,
+}
+impl Position {
+    pub const ALL: [Position; 10] = [
+        Position::P,
+        Position::C,
+        Position::FB,
+        Position::SB,
+        Position::TB,
+        Position::SS,
+        Position::LF,
+        Position::CF,
+        Position::RF,
+        Position::DH,
+    ];
+    pub const ALL_NO_DH: [Position; 9] = [
+        Position::P,
+        Position::C,
+        Position::FB,
+        Position::SB,
+        Position::TB,
+        Position::SS,
+        Position::LF,
+        Position::CF,
+        Position::RF,
+    ];
+}
+
+impl std::fmt::Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Position::P => write!(f, "{}", t!("p")),
+            Position::C => write!(f, "{}", t!("c")),
+            Position::FB => write!(f, "{}", t!("fb")),
+            Position::SB => write!(f, "{}", t!("sb")),
+            Position::TB => write!(f, "{}", t!("tb")),
+            Position::SS => write!(f, "{}", t!("ss")),
+            Position::LF => write!(f, "{}", t!("lf")),
+            Position::CF => write!(f, "{}", t!("cf")),
+            Position::RF => write!(f, "{}", t!("rf")),
+            Position::DH => write!(f, "{}", t!("dh")),
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, EnumString, Debug)]
 #[strum(ascii_case_insensitive)]
@@ -28,7 +85,13 @@ impl fmt::Display for RL {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct FullName {
+    pub first: Arc<str>,
+    pub last: Arc<str>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct Player {
     pub id: u32, // in case of same first_name and last_name
     pub first_name: Arc<str>,
@@ -91,7 +154,7 @@ impl Player {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct DefensiveSkill {
     pub position: Position,
     pub mod_uzr: f64,
@@ -145,7 +208,7 @@ impl fmt::Display for PitcherStyle {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitcherAttribute {
     pub pitcher_style: PitcherStyle,
     pub mod_velocity: f64,
@@ -158,7 +221,7 @@ pub struct PitcherAttribute {
     pub pitch_skills: Vec<PitchSkill>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitchSkill {
     pub pitch_type: PitchType,
     pub mod_velocity: f64,

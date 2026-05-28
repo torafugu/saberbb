@@ -1,12 +1,7 @@
-use crate::domain::shared::statistics::BattingStats;
-use crate::domain::shared::team::Standing;
+use crate::domain::shared::statistics::{BattingStats, Standing};
+use crate::repositories::statistics_repository::StatRepository;
 use crate::t;
 use anyhow::{Context, Result};
-
-pub trait StatRepository {
-    fn load_standings(&self) -> Result<Vec<Standing>>;
-    fn load_batting_stats(&self) -> Result<Vec<BattingStats>>;
-}
 
 pub struct StatService<R: StatRepository> {
     pub repo: R,

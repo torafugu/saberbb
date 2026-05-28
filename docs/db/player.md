@@ -7,17 +7,15 @@
 
 ```sql
 CREATE TABLE player (
-    id INTEGER PRIMARY KEY AUTOINCREMENT
-  , team_id INTEGER NOT NULL
-  , first_name TEXT NOT NULL
-  , last_name TEXT NOT NULL
-  , age INTEGER NOT NULL
-  , throw TEXT NOT NULL
-  , mod_speed REAL NOT NULL
-  , mod_control REAL NOT NULL
-  , bat TEXT NOT NULL
-  , mod_ba REAL NOT NULL
-  , mod_slg REAL NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id INTEGER NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    age INTEGER NOT NULL,
+    throw TEXT NOT NULL,
+    bat TEXT NOT NULL,
+    mod_ba REAL NOT NULL,
+    mod_slg REAL NOT NULL
 )
 ```
 
@@ -25,19 +23,17 @@ CREATE TABLE player (
 
 ## Columns
 
-| Name        | Type    | Default | Nullable | Children | Parents | Comment |
-| ----------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| id          | INTEGER |         | true     |          |         |         |
-| team_id     | INTEGER |         | false    |          |         |         |
-| first_name  | TEXT    |         | false    |          |         |         |
-| last_name   | TEXT    |         | false    |          |         |         |
-| age         | INTEGER |         | false    |          |         |         |
-| throw       | TEXT    |         | false    |          |         |         |
-| mod_speed   | REAL    |         | false    |          |         |         |
-| mod_control | REAL    |         | false    |          |         |         |
-| bat         | TEXT    |         | false    |          |         |         |
-| mod_ba      | REAL    |         | false    |          |         |         |
-| mod_slg     | REAL    |         | false    |          |         |         |
+| Name       | Type    | Default | Nullable | Children | Parents | Comment |
+| ---------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| id         | INTEGER |         | true     |          |         |         |
+| team_id    | INTEGER |         | false    |          |         |         |
+| first_name | TEXT    |         | false    |          |         |         |
+| last_name  | TEXT    |         | false    |          |         |         |
+| age        | INTEGER |         | false    |          |         |         |
+| throw      | TEXT    |         | false    |          |         |         |
+| bat        | TEXT    |         | false    |          |         |         |
+| mod_ba     | REAL    |         | false    |          |         |         |
+| mod_slg    | REAL    |         | false    |          |         |         |
 
 ## Constraints
 

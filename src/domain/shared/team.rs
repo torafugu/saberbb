@@ -1,18 +1,19 @@
-use super::types::Position;
+use super::player::Position;
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use validator::Validate;
 
 use crate::domain::shared::player::Player;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Validate)]
 pub struct League {
     pub id: u16,
     pub name: Arc<str>,
     pub teams: Vec<Team>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Validate)]
 pub struct Team {
     pub id: u16,
     pub name: Arc<str>,
@@ -49,17 +50,4 @@ impl Team {
 
         batting_orders
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Standing {
-    pub team: Team,
-    pub games: u16,
-    pub wins: u16,
-    pub losses: u16,
-    pub draws: u16,
-    pub pct: f32,
-    pub gb: f32,
-    pub r: u16,
-    pub ra: u16,
 }
