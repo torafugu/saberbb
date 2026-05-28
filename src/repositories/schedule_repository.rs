@@ -71,8 +71,7 @@ impl ScheduleRepository for SqlScheduleRepository {
             let conn = self.get_conn()?;
 
             let mut league = league?;
-            let mut stmt_team =
-                conn.prepare("load_all_leagues : SELECT id, name FROM team WHERE league_id = ?1")?;
+            let mut stmt_team = conn.prepare("SELECT id, name FROM team WHERE league_id = ?1")?;
             let team_iter = stmt_team.query_map(params![league.id], |row| {
                 Ok(Team {
                     id: row.get("id")?,
