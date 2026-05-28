@@ -8,8 +8,8 @@ impl FromRow for Team {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let team = Team {
-            id: row.get("id")?,
-            name: row.get("name")?,
+            id: row.get("id").map_err(|e| AppError::Database(e))?,
+            name: row.get("name").map_err(|e| AppError::Database(e))?,
             players: Vec::new(),
         };
 

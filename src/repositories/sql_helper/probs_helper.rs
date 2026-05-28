@@ -13,11 +13,11 @@ impl FromRow for PlayerAttributeProb {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let player_attribute_prob = PlayerAttributeProb {
-            age_shape: row.get("age_shape")?,
-            age_scale: row.get("age_scale")?,
-            age_offset: row.get("age_offset")?,
-            throw_lefty: row.get("throw_lefty")?,
-            bat_lefty: row.get("bat_lefty")?,
+            age_shape: row.get("age_shape").map_err(|e| AppError::Database(e))?,
+            age_scale: row.get("age_scale").map_err(|e| AppError::Database(e))?,
+            age_offset: row.get("age_offset").map_err(|e| AppError::Database(e))?,
+            throw_lefty: row.get("throw_lefty").map_err(|e| AppError::Database(e))?,
+            bat_lefty: row.get("bat_lefty").map_err(|e| AppError::Database(e))?,
         };
 
         player_attribute_prob.validate()?;
@@ -31,8 +31,8 @@ impl FromRow for BatterSkillProb {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let batter_skill_prob = BatterSkillProb {
-            ba_skew: row.get("ba_skew")?,
-            slg_skew: row.get("slg_skew")?,
+            ba_skew: row.get("ba_skew").map_err(|e| AppError::Database(e))?,
+            slg_skew: row.get("slg_skew").map_err(|e| AppError::Database(e))?,
         };
 
         batter_skill_prob.validate()?;
@@ -46,7 +46,7 @@ impl FromRow for DefensiveSkillProb {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let defensive_skill_prob = DefensiveSkillProb {
-            uzr_skew: row.get("uzr_skew")?,
+            uzr_skew: row.get("uzr_skew").map_err(|e| AppError::Database(e))?,
         };
 
         defensive_skill_prob.validate()?;
@@ -60,13 +60,19 @@ impl FromRow for PitcherAttributeProb {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let pitcher_attribute_prob = PitcherAttributeProb {
-            velocity_skew: row.get("velocity_skew")?,
-            control_skew: row.get("control_skew")?,
-            stamina_skew: row.get("stamina_skew")?,
-            injury_proneness_skew: row.get("injury_proneness_skew")?,
-            clutch_skew: row.get("clutch_skew")?,
-            hpp_skew: row.get("hpp_skew")?,
-            platoon_splitting_skew: row.get("platoon_splitting_skew")?,
+            velocity_skew: row
+                .get("velocity_skew")
+                .map_err(|e| AppError::Database(e))?,
+            control_skew: row.get("control_skew").map_err(|e| AppError::Database(e))?,
+            stamina_skew: row.get("stamina_skew").map_err(|e| AppError::Database(e))?,
+            injury_proneness_skew: row
+                .get("injury_proneness_skew")
+                .map_err(|e| AppError::Database(e))?,
+            clutch_skew: row.get("clutch_skew").map_err(|e| AppError::Database(e))?,
+            hpp_skew: row.get("hpp_skew").map_err(|e| AppError::Database(e))?,
+            platoon_splitting_skew: row
+                .get("platoon_splitting_skew")
+                .map_err(|e| AppError::Database(e))?,
         };
 
         pitcher_attribute_prob.validate()?;
@@ -81,17 +87,27 @@ impl FromRowWithCtx<PitchType> for PitchSkillProb {
     fn from_row_with_ctx(row: &rusqlite::Row, ctx: &PitchType) -> Result<Self, Self::Error> {
         let pitch_skill_prob = PitchSkillProb {
             pitch_type: ctx.clone(),
-            velocity_skew: row.get("velocity_skew")?,
-            control_skew: row.get("control_skew")?,
-            stamina_skew: row.get("stamina_skew")?,
-            injury_proneness_skew: row.get("injury_proneness_skew")?,
-            stuff_skew: row.get("stuff_skew")?,
-            fb_skew: row.get("fb_skew")?,
-            gp_skew: row.get("gp_skew")?,
-            horizontal_movement_skew: row.get("horizontal_movement_skew")?,
-            vertical_movement_skew: row.get("vertical_movement_skew")?,
-            spin_rate_skew: row.get("spin_rate_skew")?,
-            usage_skew: row.get("usage_skew")?,
+            velocity_skew: row
+                .get("velocity_skew")
+                .map_err(|e| AppError::Database(e))?,
+            control_skew: row.get("control_skew").map_err(|e| AppError::Database(e))?,
+            stamina_skew: row.get("stamina_skew").map_err(|e| AppError::Database(e))?,
+            injury_proneness_skew: row
+                .get("injury_proneness_skew")
+                .map_err(|e| AppError::Database(e))?,
+            stuff_skew: row.get("stuff_skew").map_err(|e| AppError::Database(e))?,
+            fb_skew: row.get("fb_skew").map_err(|e| AppError::Database(e))?,
+            gp_skew: row.get("gp_skew").map_err(|e| AppError::Database(e))?,
+            horizontal_movement_skew: row
+                .get("horizontal_movement_skew")
+                .map_err(|e| AppError::Database(e))?,
+            vertical_movement_skew: row
+                .get("vertical_movement_skew")
+                .map_err(|e| AppError::Database(e))?,
+            spin_rate_skew: row
+                .get("spin_rate_skew")
+                .map_err(|e| AppError::Database(e))?,
+            usage_skew: row.get("usage_skew").map_err(|e| AppError::Database(e))?,
         };
 
         pitch_skill_prob.validate()?;

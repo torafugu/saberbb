@@ -43,12 +43,11 @@ impl ToSql for RL {
     }
 }
 
-pub struct SqlRL(pub RL);
-impl FromSql for SqlRL {
+impl FromSql for RL {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let gt = value.as_str()?;
 
-        gt.parse::<RL>().map(SqlRL).map_err(|e| {
+        gt.parse::<RL>().map_err(|e| {
             eprintln!("{} {}: {:?}", "Parse error at ", gt, e);
             rusqlite::types::FromSqlError::InvalidType
         })
