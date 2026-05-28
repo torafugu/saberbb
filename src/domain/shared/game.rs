@@ -1,7 +1,6 @@
 use super::game_state::GameState;
 use super::player::Player;
 use super::team::Team;
-use super::types::{BattingResult, InningType};
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -24,6 +23,21 @@ impl fmt::Display for GameType {
             GameType::Exhibition => write!(f, "{}", t!("exhibition")),
             GameType::Regular => write!(f, "{}", t!("regular")),
             GameType::Postseason => write!(f, "{}", t!("postseason")),
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString, Serialize, Deserialize, Debug)]
+#[strum(ascii_case_insensitive)]
+pub enum InningType {
+    Top,
+    Bottom,
+}
+impl std::fmt::Display for InningType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            InningType::Top => write!(f, "{}", t!("inning_top")),
+            InningType::Bottom => write!(f, "{}", t!("inning_bottom")),
         }
     }
 }
@@ -124,4 +138,37 @@ pub struct Count {
     pub result: BattingResult,
     pub point: u8,
     pub out: u8,
+}
+
+#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug)]
+#[strum(ascii_case_insensitive)]
+pub enum BattingResult {
+    Single,
+    Double,
+    Triple,
+    HomeRun,
+    Out,
+}
+impl std::fmt::Display for BattingResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            BattingResult::Single => write!(f, "{}", t!("single")),
+            BattingResult::Double => write!(f, "{}", t!("double")),
+            BattingResult::Triple => write!(f, "{}", t!("triple")),
+            BattingResult::HomeRun => write!(f, "{}", t!("homerun")),
+            BattingResult::Out => write!(f, "{}", t!("out")),
+        }
+    }
+}
+impl BattingResult {
+    pub fn is_out(&self) -> bool {
+        matches!(self, BattingResult::Out)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Base {
+    First = 0,
+    Second = 1,
+    Third = 2,
 }

@@ -1,6 +1,6 @@
+use crate::domain::shared::game::Base;
 use crate::domain::shared::player::RL;
-use crate::domain::shared::probabilities::ItemProb;
-use crate::domain::shared::types::Base;
+use crate::domain::shared::prob::ItemProb;
 use rand::distr::weighted::WeightedIndex;
 use rand_distr::{Distribution, Gamma};
 

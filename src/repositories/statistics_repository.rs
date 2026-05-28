@@ -1,4 +1,4 @@
-use crate::domain::shared::statistics::{BattingStats, Standing};
+use crate::domain::shared::stat::{BattingStats, Standing};
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;

@@ -1,5 +1,4 @@
-use super::game::{Count, GameRow, Inning};
-use super::types::InningType;
+use super::game::{Count, GameRow, Inning, InningType};
 use crate::t;
 use std::sync::Arc;
 

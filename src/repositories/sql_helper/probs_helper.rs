@@ -1,89 +1,12 @@
-use crate::domain::shared::game::GameType;
 use crate::domain::shared::player::PitchType;
-use crate::domain::shared::probabilities::{
+use crate::domain::shared::prob::{
     BatterSkillProb, DefensiveSkillProb, ItemProb, PitchSkillProb, PitcherAttributeProb,
     PlayerAttributeProb,
 };
-
-use crate::domain::shared::team::Team;
-use crate::domain::shared::types::{BattingResult, InningType};
 use crate::error::AppError;
 use crate::repositories::db::{FromRow, FromRowWithCtx};
-use crate::t;
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::types::FromSql;
 use validator::Validate;
-
-impl ToSql for GameType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            GameType::Exhibition => "Exhibition",
-            GameType::Regular => "Regular",
-            GameType::Postseason => "Postseason",
-        };
-        Ok(ToSqlOutput::from(s))
-    }
-}
-
-pub struct SqlGameType(pub GameType);
-impl FromSql for SqlGameType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let gt = value.as_str()?;
-
-        gt.parse::<GameType>().map(SqlGameType).map_err(|e| {
-            eprintln!("{} {}: {:?}", t!("error_parse"), gt, e);
-            rusqlite::types::FromSqlError::InvalidType
-        })
-    }
-}
-
-impl ToSql for InningType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            InningType::Top => "Top",
-            InningType::Bottom => "Bottom",
-        };
-        Ok(ToSqlOutput::from(s))
-    }
-}
-
-pub struct SqlInningType(pub InningType);
-impl FromSql for SqlInningType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let tb = value.as_str()?;
-
-        tb.parse::<InningType>().map(SqlInningType).map_err(|e| {
-            eprintln!("{} {}: {:?}", t!("error_parse"), tb, e);
-            rusqlite::types::FromSqlError::InvalidType
-        })
-    }
-}
-
-impl ToSql for BattingResult {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            BattingResult::Single => "Single",
-            BattingResult::Double => "Double",
-            BattingResult::Triple => "Triple",
-            BattingResult::HomeRun => "HomeRun",
-            BattingResult::Out => "Out",
-        };
-        Ok(ToSqlOutput::from(s))
-    }
-}
-
-pub struct SqlBattingResult(pub BattingResult);
-impl FromSql for SqlBattingResult {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let br = value.as_str()?;
-
-        br.parse::<BattingResult>()
-            .map(SqlBattingResult)
-            .map_err(|e| {
-                eprintln!("{} {}: {:?}", t!("error_parse"), br, e);
-                rusqlite::types::FromSqlError::InvalidType
-            })
-    }
-}
 
 impl FromRow for PlayerAttributeProb {
     type Error = AppError;
@@ -189,21 +112,5 @@ impl<T: FromSql> FromRow for ItemProb<T> {
         item_prob.validate()?;
 
         Ok(item_prob)
-    }
-}
-
-impl FromRow for Team {
-    type Error = AppError;
-
-    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let team = Team {
-            id: row.get("id")?,
-            name: row.get("name")?,
-            players: Vec::new(),
-        };
-
-        team.validate()?;
-
-        Ok(team)
     }
 }

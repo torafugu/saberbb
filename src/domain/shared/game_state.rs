@@ -1,6 +1,5 @@
-use super::game::{Count, Inning};
+use super::game::{Base, BattingResult, Count, Inning, InningType};
 use super::player::Player;
-use super::types::{Base, BattingResult, InningType};
 use crate::domain::resolver::simulate_batting;
 use crate::domain::utils::is_base_occupied;
 use crate::t;

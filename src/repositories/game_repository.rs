@@ -1,8 +1,10 @@
-use crate::domain::shared::game::{Count, GameHeader, GameResult, GameRow, GameScheduler, Inning};
+use crate::domain::shared::game::{
+    BattingResult, Count, GameHeader, GameResult, GameRow, GameScheduler, GameType, Inning,
+    InningType,
+};
 use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
 use crate::repositories::db::{DbError, SqlDb, SqliteManager};
-use crate::repositories::sql_helpers::sql_types::{SqlBattingResult, SqlGameType, SqlInningType};
 use crate::t;
 use anyhow::{Result, bail};
 use deadpool::managed::Object;
@@ -195,7 +197,7 @@ impl GameRepository for SqlGameRepository {
                         row.get("home_team_id")?,
                         &row.get::<_, String>("home_team_name")?,
                     ),
-                    game_type: row.get::<_, SqlGameType>("game_type")?.0,
+                    game_type: row.get::<_, GameType>("game_type")?,
                     away_points: row.get("away_points")?,
                     home_points: row.get("home_points")?,
                 })
@@ -257,7 +259,7 @@ impl GameRepository for SqlGameRepository {
                         row.get("home_team_id")?,
                         &row.get::<_, String>("home_team_name")?,
                     ),
-                    game_type: row.get::<_, SqlGameType>("game_type")?.0,
+                    game_type: row.get::<_, GameType>("game_type")?,
                 })
             })
             .map_err(|err| {
@@ -338,7 +340,7 @@ impl GameRepository for SqlGameRepository {
                             row.get("home_team_id")?,
                             &row.get::<_, String>("home_team_name")?,
                         ),
-                        game_type: row.get::<_, SqlGameType>("game_type")?.0,
+                        game_type: row.get::<_, GameType>("game_type")?,
                         innings: Vec::new(),
                         away_points: row.get("away_points")?,
                         home_points: row.get("home_points")?,
@@ -440,7 +442,7 @@ impl GameRepository for SqlGameRepository {
         let inning_iter = stmt.query_map([game.id], |row| {
             Ok(Inning {
                 seq: row.get("seq")?,
-                tb: row.get::<_, SqlInningType>("tb")?.0,
+                tb: row.get::<_, InningType>("tb")?,
                 counts: Vec::new(),
             })
         })?;
@@ -498,7 +500,7 @@ impl GameRepository for SqlGameRepository {
             Ok(Count {
                 seq: row.get("seq")?,
                 bases_occupied: row.get("bases_occupied")?,
-                result: row.get::<_, SqlBattingResult>("result")?.0,
+                result: row.get::<_, BattingResult>("result")?,
                 pitcher: Arc::from(Player::min(
                     row.get("p_id")?,
                     &row.get::<_, String>("p_first_name")?,
@@ -568,8 +570,7 @@ impl GameRepository for SqlGameRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::game::{GameHeader, GameType};
-    use crate::domain::shared::types::{BattingResult, InningType};
+    use crate::domain::shared::game::{BattingResult, GameHeader, GameType, InningType};
     use deadpool::managed::Pool;
     use rusqlite::Connection;
     use std::path::PathBuf;

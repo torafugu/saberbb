@@ -1,8 +1,7 @@
 use super::menu_component::{MenuItem, init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
-use crate::domain::shared::game::{Count, GameHeader, GameRow};
+use crate::domain::shared::game::{Base, Count, GameHeader, GameRow, InningType};
 use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
-use crate::domain::shared::types::{Base, InningType};
 use crate::domain::utils::is_base_occupied;
 use crate::i18n::I18nManager;
 use crate::repositories::game_repository::GameRepository;

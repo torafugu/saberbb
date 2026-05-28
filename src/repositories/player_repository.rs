@@ -1,6 +1,6 @@
 use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Player, Position};
-use crate::domain::shared::probabilities::ItemProb;
-use crate::domain::shared::probabilities::{
+use crate::domain::shared::prob::ItemProb;
+use crate::domain::shared::prob::{
     BatterSkillProb, DefensiveSkillProb, PitchSkillProb, PitcherAttributeProb, PlayerAttributeProb,
 };
 use crate::domain::shared::team::Team;

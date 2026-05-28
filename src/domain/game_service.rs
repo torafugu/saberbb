@@ -79,10 +79,9 @@ impl<R: GameRepository> GameService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::game::{
-        Count, GameHeader, GameRow, GameScheduler, GameType, Inning,
+        Count, GameHeader, GameRow, GameScheduler, GameType, Inning, InningType,
     };
     use crate::domain::shared::team::Team;
-    use crate::domain::shared::types::InningType;
     use anyhow::anyhow;
     use chrono::NaiveDate;
 

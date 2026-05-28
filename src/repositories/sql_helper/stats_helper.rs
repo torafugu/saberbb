@@ -1,5 +1,5 @@
 use crate::domain::shared::player::Player;
-use crate::domain::shared::statistics::{BattingStats, Standing};
+use crate::domain::shared::stat::{BattingStats, Standing};
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;

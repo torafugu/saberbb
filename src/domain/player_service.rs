@@ -1,5 +1,5 @@
 use super::shared::player::{DefensiveSkill, PitchSkill, PitcherAttribute, Player, Position};
-use super::shared::probabilities::{DefensiveSkillProb, PitcherAttributeProb};
+use super::shared::prob::{DefensiveSkillProb, PitcherAttributeProb};
 use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
 use crate::error::AppError;
 use crate::i18n::I18nManager;
@@ -167,10 +167,8 @@ impl<R: PlayerRepository> PlayerService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Position};
-    use crate::domain::shared::probabilities::ItemProb;
-    use crate::domain::shared::probabilities::{
-        BatterSkillProb, PitchSkillProb, PlayerAttributeProb,
-    };
+    use crate::domain::shared::prob::ItemProb;
+    use crate::domain::shared::prob::{BatterSkillProb, PitchSkillProb, PlayerAttributeProb};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;

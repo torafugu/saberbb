@@ -1,4 +1,4 @@
-use crate::domain::shared::statistics::{BattingStats, Standing};
+use crate::domain::shared::stat::{BattingStats, Standing};
 use crate::repositories::statistics_repository::StatRepository;
 use crate::t;
 use anyhow::{Context, Result};

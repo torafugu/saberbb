@@ -1,5 +1,5 @@
+use crate::domain::shared::game::BattingResult;
 use crate::domain::shared::player::Player;
-use crate::domain::shared::types::BattingResult;
 
 pub fn simulate_batting(batter: &Player) -> BattingResult {
     let rng: f64 = rand::random();
