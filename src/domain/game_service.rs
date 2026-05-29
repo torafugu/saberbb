@@ -79,9 +79,10 @@ impl<R: GameRepository> GameService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::game::{
-        Count, GameHeader, GameRow, GameScheduler, GameType, Inning, InningType,
+        Count, GameHeader, GameRow, GameScheduler, GameType, Inning, TB,
     };
     use crate::domain::shared::team::Team;
+    use crate::error::AppError;
     use anyhow::anyhow;
     use chrono::NaiveDate;
 
@@ -110,57 +111,70 @@ mod tests {
     }
 
     impl GameRepository for RecordingRepo {
-        fn save_game_result(&mut self, game: &GameResult) -> Result<()> {
+        fn save_game_result(&mut self, game: &GameResult) -> std::result::Result<(), AppError> {
             let call_index = self.save_calls;
             self.save_calls += 1;
 
             if self.save_error_at == Some(call_index) {
-                return Err(anyhow!("save failed"));
+                return Err(AppError::Internal(anyhow!("save failed")));
             }
 
             self.saved_results.push(game.clone());
             Ok(())
         }
 
-        fn updated_game_result(&mut self) -> Result<()> {
+        fn updated_game_result(&mut self) -> std::result::Result<usize, AppError> {
             self.update_calls += 1;
 
             if self.update_error {
-                return Err(anyhow!("update failed"));
+                return Err(AppError::Internal(anyhow!("update failed")));
             }
 
-            Ok(())
+            Ok(1)
         }
 
-        fn load_processed_seasons(&self) -> Result<Vec<u16>> {
+        fn load_processed_seasons(&self) -> std::result::Result<Vec<u16>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_processed_game_headers(&self, _season: u16) -> Result<Vec<GameHeader>> {
+        fn load_processed_game_headers(
+            &self,
+            _season: u16,
+        ) -> std::result::Result<Vec<GameHeader>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>> {
+        fn load_game_schedules_to_process(
+            &self,
+        ) -> std::result::Result<Vec<GameScheduler>, AppError> {
             if self.load_error {
-                return Err(anyhow!("load failed"));
+                return Err(AppError::Internal(anyhow!("load failed")));
             }
 
             Ok(self.schedules.clone())
         }
 
-        fn load_game_row(&self, _game_header: &GameHeader) -> Result<GameRow> {
+        fn load_game_row(
+            &self,
+            _game_header: &GameHeader,
+        ) -> std::result::Result<GameRow, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_team_players(&self, _team: &Team) -> Result<Vec<Player>> {
+        fn load_team_players(&self, _team_id: u16) -> std::result::Result<Vec<Player>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_innings(&self, _game: &GameRow) -> Result<Vec<Inning>> {
+        fn load_innings(&self, _game_id: u32) -> std::result::Result<Vec<Inning>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_counts(&self, _game: &GameRow, _inning: &Inning) -> Result<Vec<Count>> {
+        fn load_counts(
+            &self,
+            _game_id: u32,
+            _inning_seq: u8,
+            _inning_tb: TB,
+        ) -> std::result::Result<Vec<Count>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }
@@ -192,7 +206,7 @@ mod tests {
         }
     }
 
-    fn points_by_inning_type(game: &GameResult, inning_type: InningType) -> u8 {
+    fn points_by_inning_type(game: &GameResult, inning_type: TB) -> u8 {
         game.innings
             .iter()
             .filter(|inning| inning.tb == inning_type)
@@ -250,14 +264,8 @@ mod tests {
         let saved = &service.repo.saved_results[0];
         // Consider in case canceled due to rain
         assert!((17..=18).contains(&saved.innings.len()));
-        assert_eq!(
-            saved.away_points,
-            points_by_inning_type(saved, InningType::Top)
-        );
-        assert_eq!(
-            saved.home_points,
-            points_by_inning_type(saved, InningType::Bottom)
-        );
+        assert_eq!(saved.away_points, points_by_inning_type(saved, TB::Top));
+        assert_eq!(saved.home_points, points_by_inning_type(saved, TB::Bottom));
 
         for inning in &saved.innings {
             assert!(inning.seq >= 1);

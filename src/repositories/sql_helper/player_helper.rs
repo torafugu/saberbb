@@ -1,4 +1,4 @@
-use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Position, RL};
+use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Player, Position, RL};
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -117,5 +117,23 @@ impl ToSql for PitcherStyle {
             PitcherStyle::BalancedPitcher => "BalancedPitcher",
         };
         Ok(ToSqlOutput::from(s))
+    }
+}
+
+impl FromRow for Player {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let player = Player::batter(
+            row.get("id")?,
+            &row.get::<_, String>("first_name")?,
+            &row.get::<_, String>("last_name")?,
+            row.get("mod_ba")?,
+            row.get("mod_slg")?,
+        );
+
+        player.validate()?;
+
+        Ok(player)
     }
 }

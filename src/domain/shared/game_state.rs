@@ -1,4 +1,4 @@
-use super::game::{Base, BattingResult, Count, Inning, InningType};
+use super::game::{Base, BattingResult, Count, Inning, TB};
 use super::player::Player;
 use crate::domain::resolver::simulate_batting;
 use crate::domain::utils::is_base_occupied;
@@ -20,7 +20,7 @@ pub enum GameProgress {
 #[derive(Debug)]
 pub struct GameState {
     pub inning_seq: u8,
-    pub inning_tb: InningType,
+    pub inning_tb: TB,
     pub away_total_point: u8,
     pub home_total_point: u8,
     pub away_batters: Lineup,
@@ -34,7 +34,7 @@ impl GameState {
             // Initialization: 1 should be set at the beginning of the game
             inning_seq: 0,
             // Initialization: Top should be set at the beginning of the game
-            inning_tb: InningType::Bottom,
+            inning_tb: TB::Bottom,
             away_total_point: 0,
             home_total_point: 0,
             away_batters: Lineup {
@@ -51,11 +51,11 @@ impl GameState {
     }
 
     fn is_top(&self) -> bool {
-        self.inning_tb == InningType::Top
+        self.inning_tb == TB::Top
     }
 
     fn is_bottom(&self) -> bool {
-        self.inning_tb == InningType::Bottom
+        self.inning_tb == TB::Bottom
     }
 
     pub fn progress(&self) -> GameProgress {
@@ -93,10 +93,10 @@ impl GameState {
 
     pub fn advance_half_inning(&mut self) -> Inning {
         self.inning_tb = match self.inning_tb {
-            InningType::Top => InningType::Bottom,
-            InningType::Bottom => {
+            TB::Top => TB::Bottom,
+            TB::Bottom => {
                 self.inning_seq += 1;
-                InningType::Top
+                TB::Top
             }
         };
 
@@ -108,7 +108,7 @@ impl GameState {
     }
 
     pub fn current_batter(&mut self) -> Player {
-        if self.inning_tb == InningType::Top {
+        if self.inning_tb == TB::Top {
             self.away_batters.next().expect(&t!("away_lineup_failed"))
         } else {
             self.home_batters.next().expect(&t!("home_lineup_failed"))
@@ -116,7 +116,7 @@ impl GameState {
     }
 
     pub fn current_fielders(&mut self) -> &Fielder {
-        if self.inning_tb == InningType::Top {
+        if self.inning_tb == TB::Top {
             &self.away_fielders
         } else {
             &self.home_fielders
@@ -125,8 +125,8 @@ impl GameState {
 
     pub fn add_point(&mut self, point: u8) {
         match self.inning_tb {
-            InningType::Top => self.away_total_point += point,
-            InningType::Bottom => self.home_total_point += point,
+            TB::Top => self.away_total_point += point,
+            TB::Bottom => self.home_total_point += point,
         };
     }
 }

@@ -1,4 +1,4 @@
-use super::game::{Count, GameRow, Inning, InningType};
+use super::game::{Count, GameRow, Inning, TB};
 use crate::t;
 use std::sync::Arc;
 
@@ -6,7 +6,7 @@ use std::sync::Arc;
 pub struct GameCursor {
     game: Arc<GameRow>,
     pub inning_seq: u8,
-    pub inning_tb: InningType,
+    pub inning_tb: TB,
     pub count_seq: u8,
     pub is_last_bottom_inning_skiped: bool,
 }
@@ -15,7 +15,7 @@ impl GameCursor {
         Self {
             game: game.into(),
             inning_seq: 1,
-            inning_tb: InningType::Top,
+            inning_tb: TB::Top,
             count_seq: 1,
             is_last_bottom_inning_skiped: false,
         }
@@ -29,11 +29,11 @@ impl GameCursor {
         if !self.is_first_count() {
             self.prev_count();
         } else if self.is_bottom_inning() {
-            self.inning_tb = InningType::Top;
+            self.inning_tb = TB::Top;
             self.count_seq = self.max_count_seq();
         } else if !self.is_first_inning() {
             self.prev_inning();
-            self.inning_tb = InningType::Bottom;
+            self.inning_tb = TB::Bottom;
             self.count_seq = self.max_count_seq();
         }
         self.is_last_bottom_inning_skiped = false;
@@ -43,11 +43,11 @@ impl GameCursor {
         if !self.is_last_count() {
             self.next_count();
         } else if self.is_top_inning() && !self.is_last_bottom_inning_skiped {
-            self.inning_tb = InningType::Bottom;
+            self.inning_tb = TB::Bottom;
             self.count_seq = 1;
         } else if !self.is_last_inning() {
             self.next_inning();
-            self.inning_tb = InningType::Top;
+            self.inning_tb = TB::Top;
             self.count_seq = 1;
         }
     }
@@ -73,11 +73,11 @@ impl GameCursor {
     }
 
     fn is_top_inning(&self) -> bool {
-        self.inning_tb == InningType::Top
+        self.inning_tb == TB::Top
     }
 
     fn is_bottom_inning(&self) -> bool {
-        self.inning_tb == InningType::Bottom
+        self.inning_tb == TB::Bottom
     }
 
     fn prev_count(&mut self) {
@@ -143,14 +143,14 @@ impl GameCursor {
         };
 
         'inning: for inning in &self.game.innings {
-            if inning.tb == InningType::Top {
+            if inning.tb == TB::Top {
                 scoreboard.away_innning_points.push(0);
             } else {
                 scoreboard.home_innning_points.push(0);
             }
 
             for count in &inning.counts {
-                if inning.tb == InningType::Top {
+                if inning.tb == TB::Top {
                     *scoreboard.away_innning_points.last_mut().unwrap() += count.point;
                     scoreboard.away_total_point += count.point;
                 } else {

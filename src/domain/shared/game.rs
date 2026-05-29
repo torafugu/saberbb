@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 use strum_macros::EnumString;
+use validator::Validate;
 
 pub const TOTAL_GAMES: u16 = 140;
 
@@ -29,26 +30,26 @@ impl fmt::Display for GameType {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString, Serialize, Deserialize, Debug)]
 #[strum(ascii_case_insensitive)]
-pub enum InningType {
+pub enum TB {
     Top,
     Bottom,
 }
-impl std::fmt::Display for InningType {
+impl std::fmt::Display for TB {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            InningType::Top => write!(f, "{}", t!("inning_top")),
-            InningType::Bottom => write!(f, "{}", t!("inning_bottom")),
+            TB::Top => write!(f, "{}", t!("inning_top")),
+            TB::Bottom => write!(f, "{}", t!("inning_bottom")),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct GameSeason {
     pub start_date: NaiveDate,
     pub season: u16,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameScheduler {
     pub id: u32,
     pub season: u16,
@@ -60,7 +61,7 @@ pub struct GameScheduler {
     pub game_type: GameType,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameHeader {
     pub id: u32,
     pub actual_date: NaiveDate,
@@ -71,7 +72,7 @@ pub struct GameHeader {
     pub home_points: u8,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameResult {
     pub id: u32,
     pub actual_date: NaiveDate,
@@ -81,7 +82,7 @@ pub struct GameResult {
 }
 impl GameResult {
     pub fn update_point(&mut self, game_state: &GameState) {
-        if game_state.inning_tb == InningType::Bottom {
+        if game_state.inning_tb == TB::Bottom {
             self.home_points = game_state.home_total_point;
         } else {
             self.away_points = game_state.away_total_point;
@@ -89,7 +90,7 @@ impl GameResult {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameRow {
     pub id: u32,
     pub season: u16,
@@ -105,14 +106,14 @@ pub struct GameRow {
     pub home_points: u8,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct Inning {
     pub seq: u8,
-    pub tb: InningType,
+    pub tb: TB,
     pub counts: Vec<Count>,
 }
 impl Inning {
-    pub fn is(&self, seq: u8, tb: InningType) -> bool {
+    pub fn is(&self, seq: u8, tb: TB) -> bool {
         self.seq == seq && self.tb == tb
     }
 
@@ -121,7 +122,7 @@ impl Inning {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct Count {
     pub seq: u8,
     pub bases_occupied: u8,

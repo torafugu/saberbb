@@ -3,6 +3,7 @@ use anyhow::Result;
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use directories::ProjectDirs;
 use rusqlite::Connection;
+use rusqlite::types::FromSql;
 use std::fs;
 
 #[derive(Clone)]
@@ -86,6 +87,15 @@ pub trait FromRow: Sized {
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error>
     where
         Self: Sized;
+}
+
+impl<T: FromSql> FromRow for T {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let value: T = row.get(0).map_err(|e| AppError::Database(e))?;
+        Ok(value)
+    }
 }
 
 pub trait FromRowWithCtx<Ctx>: Sized {
