@@ -1,6 +1,9 @@
-use super::shared::player::{DefensiveSkill, PitchSkill, PitcherAttribute, Player, Position};
+use super::shared::player::{
+    DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Player, Position,
+};
 use super::shared::prob::{DefensiveSkillProb, PitcherAttributeProb};
 use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
+use crate::domain::shared::prob::ItemProb;
 use crate::error::AppError;
 use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
@@ -12,11 +15,12 @@ pub struct PlayerService<R: PlayerRepository> {
 }
 
 impl<R: PlayerRepository> PlayerService<R> {
-    // TODO: Divide batter generation and pitcher generation
     pub fn generate_players(&mut self, num_of_players: u16) -> Result<()> {
         let player_attribute_prob = self.repo.player_attribute_prob()?;
         let batter_skill_prob = self.repo.batter_skill_prob()?;
+        let position_probs = self.repo.position_probs()?;
         let defensive_skill_prob = self.repo.defensive_skill_prob()?;
+        let pitcher_style_probs = self.repo.pitcher_style_probs()?;
         let pitcher_attribute_prob = self.repo.pitcher_attribute_prob()?;
 
         for _ in 0..num_of_players {
@@ -33,11 +37,13 @@ impl<R: PlayerRepository> PlayerService<R> {
 
             let mut defensive_skills = Vec::new();
             // TODO: Should be changed to multiple skills
-            let defensive_skill = self.assign_defensive_skills(&defensive_skill_prob)?;
+            let defensive_skill =
+                self.assign_defensive_skills(&position_probs, &defensive_skill_prob)?;
 
             let mut pitcher_skill = None;
             if defensive_skill.position == Position::P {
-                pitcher_skill = Some(self.assign_pitcher_skill(&pitcher_attribute_prob)?);
+                pitcher_skill =
+                    Some(self.assign_pitcher_skill(&pitcher_style_probs, &pitcher_attribute_prob)?);
             };
             defensive_skills.push(defensive_skill);
 
@@ -78,10 +84,9 @@ impl<R: PlayerRepository> PlayerService<R> {
 
     pub fn assign_defensive_skills(
         &self,
+        position_probs: &Vec<ItemProb<Position>>,
         defensive_skill_prob: &DefensiveSkillProb,
     ) -> Result<DefensiveSkill> {
-        let position_probs = self.repo.position_probs()?;
-
         let position = match choose_item_weighted(&position_probs) {
             Some(chosen) => chosen.clone(),
             None => {
@@ -99,10 +104,9 @@ impl<R: PlayerRepository> PlayerService<R> {
 
     pub fn assign_pitcher_skill(
         &self,
+        pitcher_style_probs: &Vec<ItemProb<PitcherStyle>>,
         pitcher_base_skill_prob: &PitcherAttributeProb,
     ) -> Result<PitcherAttribute> {
-        let pitcher_style_probs = self.repo.pitcher_style_probs()?;
-
         let pitcher_style = match choose_item_weighted(&pitcher_style_probs) {
             Some(chosen) => chosen.clone(),
             None => {
@@ -394,19 +398,12 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 3);
-        assert_eq!(service.repo.position_probs_calls.get(), 3);
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
         assert_eq!(
             *service.repo.item_prob_categories.borrow(),
-            vec![
-                "position".to_string(),
-                "pitcher_style".to_string(),
-                "position".to_string(),
-                "pitcher_style".to_string(),
-                "position".to_string(),
-                "pitcher_style".to_string()
-            ]
+            vec!["position".to_string(), "pitcher_style".to_string()]
         );
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 3);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 3);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 3);
@@ -466,7 +463,8 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(service.repo.random_name_languages.borrow().is_empty());
-        assert_eq!(service.repo.position_probs_calls.get(), 0);
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 0);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -482,7 +480,8 @@ mod tests {
         let result = service.generate_players(3);
 
         assert!(result.is_err());
-        assert_eq!(service.repo.position_probs_calls.get(), 0);
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 0);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -498,8 +497,9 @@ mod tests {
         let result = service.generate_players(3);
 
         assert!(result.is_err());
-        assert_eq!(service.repo.random_name_languages.borrow().len(), 1);
         assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.random_name_languages.borrow().len(), 0);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 0);
         assert_eq!(service.repo.next_team_calls.get(), 0);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -517,6 +517,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 1);
         assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 1);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 0);
@@ -534,6 +535,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 1);
         assert_eq!(service.repo.next_random_team_calls.get(), 1);
         assert_eq!(service.repo.save_calls, 1);
@@ -552,6 +554,7 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 1);
         assert_eq!(service.repo.next_random_team_calls.get(), 1);
         assert_eq!(service.repo.save_calls, 0);
@@ -568,7 +571,8 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(service.repo.random_name_languages.borrow().len(), 2);
-        assert_eq!(service.repo.position_probs_calls.get(), 2);
+        assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
         assert_eq!(service.repo.next_team_calls.get(), 2);
         assert_eq!(service.repo.next_random_team_calls.get(), 0);
         assert_eq!(service.repo.save_calls, 2);
@@ -639,38 +643,37 @@ mod tests {
 
     #[test]
     fn assign_defensive_skills_uses_position_probs_with_finite_uzr() {
-        let mut repo = RecordingRepo::new();
-        repo.position_probs = vec![ItemProb {
+        let service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
+        let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
+        let position_probs = vec![ItemProb {
             name: Position::CF,
             prob: 1.0,
         }];
-        let service = PlayerService { repo };
-        let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
 
         let defensive_skill = service
-            .assign_defensive_skills(&defensive_skill_prob)
+            .assign_defensive_skills(&position_probs, &defensive_skill_prob)
             .unwrap();
 
         assert_eq!(defensive_skill.position, Position::CF);
         assert!(defensive_skill.mod_uzr.is_finite());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(
-            *service.repo.item_prob_categories.borrow(),
-            vec!["position".to_string()]
-        );
+        assert_eq!(service.repo.position_probs_calls.get(), 0);
+        assert!(service.repo.item_prob_categories.borrow().is_empty());
     }
 
     #[test]
     fn assign_defensive_skills_returns_error_when_position_probs_are_empty() {
-        let mut repo = RecordingRepo::new();
-        repo.position_probs = Vec::new();
-        let service = PlayerService { repo };
+        let service = PlayerService {
+            repo: RecordingRepo::new(),
+        };
         let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
+        let position_probs = Vec::new();
 
-        let result = service.assign_defensive_skills(&defensive_skill_prob);
+        let result = service.assign_defensive_skills(&position_probs, &defensive_skill_prob);
 
         assert!(result.is_err());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
+        assert_eq!(service.repo.position_probs_calls.get(), 0);
     }
 
     #[test]
@@ -687,9 +690,13 @@ mod tests {
             hpp_skew: 0.16,
             platoon_splitting_skew: 0.17,
         };
+        let pitcher_style_probs = vec![ItemProb {
+            name: PitcherStyle::BalancedPitcher,
+            prob: 1.0,
+        }];
 
         let pitcher_skill = service
-            .assign_pitcher_skill(&pitcher_base_skill_prob)
+            .assign_pitcher_skill(&pitcher_style_probs, &pitcher_base_skill_prob)
             .unwrap();
 
         assert_pitcher_skill_is_finite(&pitcher_skill);
