@@ -1,328 +1,310 @@
-use super::shared::player::{
-    DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Player, Position,
-};
-use super::shared::prob::{DefensiveSkillProb, PitcherAttributeProb};
-use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
+use super::shared::player::{PitchType, PitcherStyle, Player, Position};
+use super::shared::prob::{PitchSkillProb, PlayerProb};
+use crate::domain::shared::player::FullName;
 use crate::domain::shared::prob::ItemProb;
+use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
-use crate::t;
-use anyhow::{Result, bail};
+use anyhow::Result;
+use anyhow::anyhow;
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,
 }
 
 impl<R: PlayerRepository> PlayerService<R> {
-    pub fn generate_players(&mut self, num_of_players: u16) -> Result<()> {
-        let player_attribute_prob = self.repo.player_attribute_prob()?;
-        let batter_skill_prob = self.repo.batter_skill_prob()?;
-        let position_probs = self.repo.position_probs()?;
-        let defensive_skill_prob = self.repo.defensive_skill_prob()?;
-        let pitcher_style_probs = self.repo.pitcher_style_probs()?;
-        let pitcher_attribute_prob = self.repo.pitcher_attribute_prob()?;
-
-        for _ in 0..num_of_players {
-            let name = self.repo.random_name(I18nManager::global().lang_db())?;
-            let age = age_random(
-                player_attribute_prob.age_shape,
-                player_attribute_prob.age_scale,
-                player_attribute_prob.age_offset,
-            );
-            let throw = rl_random(player_attribute_prob.throw_lefty);
-            let bat = rl_random(player_attribute_prob.bat_lefty);
-            let mod_ba = skewed_normal_random(batter_skill_prob.ba_skew);
-            let mod_slg = skewed_normal_random(batter_skill_prob.slg_skew);
-
-            let mut defensive_skills = Vec::new();
-            // TODO: Should be changed to multiple skills
-            let defensive_skill =
-                self.assign_defensive_skills(&position_probs, &defensive_skill_prob)?;
-
-            let mut pitcher_skill = None;
-            if defensive_skill.position == Position::P {
-                pitcher_skill =
-                    Some(self.assign_pitcher_skill(&pitcher_style_probs, &pitcher_attribute_prob)?);
-            };
-            defensive_skills.push(defensive_skill);
-
-            // Assign player to team
-            let team = match self
-                .repo
-                .next_player_dist_team(defensive_skills[0].position.clone())
-            {
-                Ok(team) => team,
-                Err(AppError::NotFound(_)) => self.repo.next_random_team()?,
-                Err(e) => {
-                    let error_msg = t!("error", "function" => "next_player_dist_team");
-                    return Err(anyhow::anyhow!("{} {}", error_msg, e));
-                }
-            };
-
-            let player = Player {
-                id: 0,
-                first_name: name.first,
-                last_name: name.last,
-                age: age,
-                throw: throw,
-                // TODO: consider multiple skill holder
-                defensive_skills: defensive_skills,
-                pitcher_attribute: pitcher_skill,
-                bat: bat,
-                mod_ba: mod_ba,
-                mod_slg: mod_slg,
-            };
-
-            if let Err(e) = self.repo.save_player(team, player) {
-                let error_msg = t!("error", "function" => "save_player");
-                bail!("{}, {}", error_msg, e);
-            }
-        }
-        Ok(())
+    pub fn load_player_probs(&self) -> Result<PlayerProb, AppError> {
+        Ok(PlayerProb {
+            player_attribute_prob: self.repo.player_attribute_prob()?,
+            batter_skill_prob: self.repo.batter_skill_prob()?,
+            position_probs: self.repo.position_probs()?,
+            defensive_skill_prob: self.repo.defensive_skill_prob()?,
+            pitcher_style_probs: self.repo.pitcher_style_probs()?,
+            pitcher_attribute_prob: self.repo.pitcher_attribute_prob()?,
+        })
     }
 
-    pub fn assign_defensive_skills(
-        &self,
-        position_probs: &Vec<ItemProb<Position>>,
-        defensive_skill_prob: &DefensiveSkillProb,
-    ) -> Result<DefensiveSkill> {
-        let position = match choose_item_weighted(&position_probs) {
-            Some(chosen) => chosen.clone(),
-            None => {
-                bail!(t!("error", "function" => "choose_item_weighted"));
-            }
-        };
-
-        let defensive_skill = DefensiveSkill {
-            position: position,
-            mod_uzr: skewed_normal_random(defensive_skill_prob.uzr_skew),
-        };
-
-        Ok(defensive_skill)
+    pub fn load_random_name(&self) -> Result<FullName, AppError> {
+        self.repo.random_name(I18nManager::global().lang_db())
     }
 
-    pub fn assign_pitcher_skill(
+    pub fn next_team(&self, position: Position) -> Result<Team, AppError> {
+        let team = match self.repo.next_player_dist_team(position) {
+            Ok(team) => team,
+            Err(AppError::NotFound(_)) => self.repo.next_random_team()?,
+            Err(e) => {
+                return Err(AppError::Internal(anyhow!("Failed to fetch next team")));
+            }
+        };
+        Ok(team)
+    }
+
+    pub fn pitch_type_probs(
         &self,
-        pitcher_style_probs: &Vec<ItemProb<PitcherStyle>>,
-        pitcher_base_skill_prob: &PitcherAttributeProb,
-    ) -> Result<PitcherAttribute> {
-        let pitcher_style = match choose_item_weighted(&pitcher_style_probs) {
-            Some(chosen) => chosen.clone(),
-            None => {
-                bail!(t!("error", "function" => "choose_item_weighted"));
-            }
-        };
+        pitcher_style: &PitcherStyle,
+    ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
+        self.repo.pitch_type_probs(pitcher_style)
+    }
 
-        let pitch_type_probs = self.repo.pitch_type_probs(&pitcher_style);
+    pub fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
+        self.repo.pitch_skill_prob(pitch_type)
+    }
 
-        let mut pitcher_skill = PitcherAttribute {
-            pitcher_style: pitcher_style,
-            mod_velocity: skewed_normal_random(pitcher_base_skill_prob.velocity_skew),
-            mod_control: skewed_normal_random(pitcher_base_skill_prob.control_skew),
-            mod_stamina: skewed_normal_random(pitcher_base_skill_prob.control_skew),
-            mod_injury_proneness: skewed_normal_random(
-                pitcher_base_skill_prob.injury_proneness_skew,
-            ),
-            mod_clutch: skewed_normal_random(pitcher_base_skill_prob.clutch_skew),
-            mod_hpp: skewed_normal_random(pitcher_base_skill_prob.hpp_skew),
-            mod_platoon_splitting: skewed_normal_random(
-                pitcher_base_skill_prob.platoon_splitting_skew,
-            ),
-            pitch_skills: Vec::new(),
-        };
-
-        let mut pitch_skills: Vec<PitchSkill> = Vec::new();
-        for pitch_type_prob in pitch_type_probs? {
-            let rng: f64 = rand::random();
-            if rng < pitch_type_prob.prob {
-                let pitch_skill_prob = self.repo.pitch_skill_prob(&pitch_type_prob.name)?;
-                let pitch_skill = PitchSkill {
-                    pitch_type: pitch_type_prob.name.clone(),
-                    mod_velocity: skewed_normal_random(pitch_skill_prob.velocity_skew),
-                    mod_control: skewed_normal_random(pitch_skill_prob.control_skew),
-                    mod_stamina: skewed_normal_random(pitch_skill_prob.stamina_skew),
-                    mod_injury_proneness: skewed_normal_random(
-                        pitch_skill_prob.injury_proneness_skew,
-                    ),
-                    mod_stuff: skewed_normal_random(pitch_skill_prob.stuff_skew),
-                    mod_fb: skewed_normal_random(pitch_skill_prob.fb_skew),
-                    mod_gp: skewed_normal_random(pitch_skill_prob.gp_skew),
-                    mod_horizontal_movement: skewed_normal_random(
-                        pitch_skill_prob.horizontal_movement_skew,
-                    ),
-                    mod_vertical_movement: skewed_normal_random(
-                        pitch_skill_prob.vertical_movement_skew,
-                    ),
-                    mod_spin_rate: skewed_normal_random(pitch_skill_prob.spin_rate_skew),
-                    mod_usage: skewed_normal_random(pitch_skill_prob.usage_skew),
-                };
-                pitch_skills.push(pitch_skill);
-            }
-        }
-
-        pitcher_skill.pitch_skills = pitch_skills;
-
-        Ok(pitcher_skill)
+    pub fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
+        self.repo.save_player(team, player)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Position};
-    use crate::domain::shared::prob::ItemProb;
-    use crate::domain::shared::prob::{BatterSkillProb, PitchSkillProb, PlayerAttributeProb};
+    use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Position, RL};
+    use crate::domain::shared::prob::{
+        BatterSkillProb, DefensiveSkillProb, ItemProb, PitchSkillProb, PitcherAttributeProb,
+        PlayerAttributeProb,
+    };
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;
     use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
 
     struct RecordingRepo {
+        state: Rc<RepoState>,
+    }
+
+    struct RepoState {
         name: FullName,
         team: Team,
         random_team: Team,
-        random_name_error: bool,
-        next_team_error: bool,
-        next_team_not_found: bool,
-        next_random_team_error: bool,
+        pitch_type_probs: Vec<ItemProb<PitchType>>,
+        player_attribute_prob: PlayerAttributeProb,
+        batter_skill_prob: BatterSkillProb,
+        defensive_skill_prob: DefensiveSkillProb,
+        pitcher_attribute_prob: PitcherAttributeProb,
+        random_name_error: Cell<bool>,
+        next_team_error: Cell<bool>,
+        next_team_not_found: Cell<bool>,
+        next_random_team_error: Cell<bool>,
+        player_attribute_prob_error: Cell<bool>,
+        batter_skill_prob_error: Cell<bool>,
         position_probs: Vec<ItemProb<Position>>,
-        position_probs_error: bool,
+        position_probs_error: Cell<bool>,
+        defensive_skill_prob_error: Cell<bool>,
         pitcher_style_probs: Vec<ItemProb<PitcherStyle>>,
-        pitcher_style_probs_error: bool,
-        item_prob_categories: RefCell<Vec<String>>,
-        save_error_at: Option<usize>,
+        pitcher_style_probs_error: Cell<bool>,
+        pitcher_attribute_prob_error: Cell<bool>,
+        pitch_type_probs_error: Cell<bool>,
+        pitch_skill_prob_error: Cell<bool>,
+        save_error_at: Cell<Option<usize>>,
         random_name_languages: RefCell<Vec<String>>,
         next_team_positions: RefCell<Vec<Position>>,
+        pitch_type_prob_styles: RefCell<Vec<PitcherStyle>>,
+        pitch_skill_prob_types: RefCell<Vec<PitchType>>,
         next_team_calls: Cell<usize>,
         next_random_team_calls: Cell<usize>,
+        player_attribute_prob_calls: Cell<usize>,
+        batter_skill_prob_calls: Cell<usize>,
         position_probs_calls: Cell<usize>,
+        defensive_skill_prob_calls: Cell<usize>,
         pitcher_style_probs_calls: Cell<usize>,
-        save_calls: usize,
-        saved: Vec<(Team, Player)>,
+        pitcher_attribute_prob_calls: Cell<usize>,
+        pitch_type_probs_calls: Cell<usize>,
+        pitch_skill_prob_calls: Cell<usize>,
+        save_calls: Cell<usize>,
+        saved: RefCell<Vec<(Team, Player)>>,
     }
 
     impl RecordingRepo {
-        fn new() -> Self {
-            Self {
+        fn new() -> (Self, Rc<RepoState>) {
+            let state = Rc::new(RepoState {
                 name: FullName {
-                    first: "翔平".into(),
-                    last: "大谷".into(),
+                    first: "Shohei".into(),
+                    last: "Ohtani".into(),
                 },
-                team: Team::min(1, "ライオンズ"),
-                random_team: Team::min(99, "ランダムズ"),
-                random_name_error: false,
-                next_team_error: false,
-                next_team_not_found: false,
-                next_random_team_error: false,
+                team: Team::min(1, "Lions"),
+                random_team: Team::min(99, "Randoms"),
+                pitch_type_probs: vec![ItemProb {
+                    name: PitchType::Slider,
+                    prob: 1.0,
+                }],
+                player_attribute_prob: PlayerAttributeProb {
+                    age_shape: 2.5,
+                    age_scale: 2.5,
+                    age_offset: 18.0,
+                    throw_lefty: 0.2,
+                    bat_lefty: 0.4,
+                },
+                batter_skill_prob: BatterSkillProb {
+                    ba_skew: 0.2,
+                    slg_skew: 0.3,
+                },
+                defensive_skill_prob: DefensiveSkillProb { uzr_skew: 0.4 },
+                pitcher_attribute_prob: PitcherAttributeProb {
+                    velocity_skew: 0.5,
+                    control_skew: 0.6,
+                    stamina_skew: 0.7,
+                    injury_proneness_skew: 0.8,
+                    clutch_skew: 0.9,
+                    hpp_skew: 1.0,
+                    platoon_splitting_skew: 1.1,
+                },
+                random_name_error: Cell::new(false),
+                next_team_error: Cell::new(false),
+                next_team_not_found: Cell::new(false),
+                next_random_team_error: Cell::new(false),
+                player_attribute_prob_error: Cell::new(false),
+                batter_skill_prob_error: Cell::new(false),
                 position_probs: vec![ItemProb {
                     name: Position::P,
                     prob: 1.0,
                 }],
-                position_probs_error: false,
+                position_probs_error: Cell::new(false),
+                defensive_skill_prob_error: Cell::new(false),
                 pitcher_style_probs: vec![ItemProb {
                     name: PitcherStyle::BalancedPitcher,
                     prob: 1.0,
                 }],
-                pitcher_style_probs_error: false,
-                item_prob_categories: RefCell::new(Vec::new()),
-                save_error_at: None,
+                pitcher_style_probs_error: Cell::new(false),
+                pitcher_attribute_prob_error: Cell::new(false),
+                pitch_type_probs_error: Cell::new(false),
+                pitch_skill_prob_error: Cell::new(false),
+                save_error_at: Cell::new(None),
                 random_name_languages: RefCell::new(Vec::new()),
                 next_team_positions: RefCell::new(Vec::new()),
+                pitch_type_prob_styles: RefCell::new(Vec::new()),
+                pitch_skill_prob_types: RefCell::new(Vec::new()),
                 next_team_calls: Cell::new(0),
                 next_random_team_calls: Cell::new(0),
+                player_attribute_prob_calls: Cell::new(0),
+                batter_skill_prob_calls: Cell::new(0),
                 position_probs_calls: Cell::new(0),
+                defensive_skill_prob_calls: Cell::new(0),
                 pitcher_style_probs_calls: Cell::new(0),
-                save_calls: 0,
-                saved: Vec::new(),
-            }
+                pitcher_attribute_prob_calls: Cell::new(0),
+                pitch_type_probs_calls: Cell::new(0),
+                pitch_skill_prob_calls: Cell::new(0),
+                save_calls: Cell::new(0),
+                saved: RefCell::new(Vec::new()),
+            });
+
+            (
+                Self {
+                    state: Rc::clone(&state),
+                },
+                state,
+            )
         }
     }
 
     impl PlayerRepository for RecordingRepo {
         fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
-            let call_index = self.save_calls;
-            self.save_calls += 1;
+            let call_index = self.state.save_calls.get();
+            self.state.save_calls.set(call_index + 1);
 
-            if self.save_error_at == Some(call_index) {
+            if self.state.save_error_at.get() == Some(call_index) {
                 return Err(AppError::Internal(anyhow!("save failed")));
             }
 
-            self.saved.push((team, player));
+            self.state.saved.borrow_mut().push((team, player));
             Ok(())
         }
 
-        fn random_name(&self, _language: String) -> Result<FullName, AppError> {
-            if self.random_name_error {
+        fn random_name(&self, language: String) -> Result<FullName, AppError> {
+            if self.state.random_name_error.get() {
                 return Err(AppError::Internal(anyhow!("random name failed")));
             }
 
-            self.random_name_languages.borrow_mut().push(_language);
-            Ok(self.name.clone())
+            self.state.random_name_languages.borrow_mut().push(language);
+            Ok(self.state.name.clone())
         }
 
         fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError> {
-            self.next_team_positions.borrow_mut().push(position);
-            self.next_team_calls.set(self.next_team_calls.get() + 1);
+            self.state.next_team_positions.borrow_mut().push(position);
+            self.state
+                .next_team_calls
+                .set(self.state.next_team_calls.get() + 1);
 
-            if self.next_team_not_found {
+            if self.state.next_team_not_found.get() {
                 return Err(AppError::NotFound("position not found".to_string()));
             }
 
-            if self.next_team_error {
+            if self.state.next_team_error.get() {
                 return Err(AppError::Internal(anyhow!("next team failed")));
             }
 
-            Ok(self.team.clone())
+            Ok(self.state.team.clone())
         }
 
         fn next_random_team(&self) -> Result<Team, AppError> {
-            self.next_random_team_calls
-                .set(self.next_random_team_calls.get() + 1);
+            self.state
+                .next_random_team_calls
+                .set(self.state.next_random_team_calls.get() + 1);
 
-            if self.next_random_team_error {
+            if self.state.next_random_team_error.get() {
                 return Err(AppError::Internal(anyhow!("next random team failed")));
             }
 
-            Ok(self.random_team.clone())
+            Ok(self.state.random_team.clone())
         }
 
         fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError> {
-            self.position_probs_calls
-                .set(self.position_probs_calls.get() + 1);
-            self.item_prob_categories
-                .borrow_mut()
-                .push("position".to_string());
+            self.state
+                .position_probs_calls
+                .set(self.state.position_probs_calls.get() + 1);
 
-            if self.position_probs_error {
+            if self.state.position_probs_error.get() {
                 return Err(AppError::Internal(anyhow!("position probs failed")));
             }
 
-            Ok(self.position_probs.clone())
+            Ok(self.state.position_probs.clone())
         }
 
         fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError> {
-            self.pitcher_style_probs_calls
-                .set(self.pitcher_style_probs_calls.get() + 1);
-            self.item_prob_categories
-                .borrow_mut()
-                .push("pitcher_style".to_string());
+            self.state
+                .pitcher_style_probs_calls
+                .set(self.state.pitcher_style_probs_calls.get() + 1);
 
-            if self.pitcher_style_probs_error {
+            if self.state.pitcher_style_probs_error.get() {
                 return Err(AppError::Internal(anyhow!("pitcher style probs failed")));
             }
 
-            Ok(self.pitcher_style_probs.clone())
+            Ok(self.state.pitcher_style_probs.clone())
         }
 
         fn pitch_type_probs(
             &self,
-            _pitch_style: &PitcherStyle,
+            pitch_style: &PitcherStyle,
         ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
-            Ok(Vec::new())
+            self.state
+                .pitch_type_probs_calls
+                .set(self.state.pitch_type_probs_calls.get() + 1);
+            self.state
+                .pitch_type_prob_styles
+                .borrow_mut()
+                .push(pitch_style.clone());
+
+            if self.state.pitch_type_probs_error.get() {
+                return Err(AppError::Internal(anyhow!("pitch type probs failed")));
+            }
+
+            Ok(self.state.pitch_type_probs.clone())
         }
 
         fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
+            self.state
+                .pitch_skill_prob_calls
+                .set(self.state.pitch_skill_prob_calls.get() + 1);
+            self.state
+                .pitch_skill_prob_types
+                .borrow_mut()
+                .push(pitch_type.clone());
+
+            if self.state.pitch_skill_prob_error.get() {
+                return Err(AppError::Internal(anyhow!("pitch skill prob failed")));
+            }
+
             Ok(PitchSkillProb {
                 pitch_type: pitch_type.clone(),
                 velocity_skew: 0.0,
@@ -340,365 +322,205 @@ mod tests {
         }
 
         fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError> {
-            Ok(PlayerAttributeProb {
-                age_shape: 2.5,
-                age_scale: 2.5,
-                age_offset: 18.0,
-                throw_lefty: 0.2,
-                bat_lefty: 0.4,
-            })
+            self.state
+                .player_attribute_prob_calls
+                .set(self.state.player_attribute_prob_calls.get() + 1);
+
+            if self.state.player_attribute_prob_error.get() {
+                return Err(AppError::Internal(anyhow!("player attribute prob failed")));
+            }
+
+            Ok(self.state.player_attribute_prob.clone())
         }
 
         fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError> {
-            Ok(BatterSkillProb {
-                ba_skew: 0.2,
-                slg_skew: 0.2,
-            })
+            self.state
+                .batter_skill_prob_calls
+                .set(self.state.batter_skill_prob_calls.get() + 1);
+
+            if self.state.batter_skill_prob_error.get() {
+                return Err(AppError::Internal(anyhow!("batter skill prob failed")));
+            }
+
+            Ok(self.state.batter_skill_prob.clone())
         }
 
         fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError> {
-            Ok(DefensiveSkillProb { uzr_skew: 0.2 })
+            self.state
+                .defensive_skill_prob_calls
+                .set(self.state.defensive_skill_prob_calls.get() + 1);
+
+            if self.state.defensive_skill_prob_error.get() {
+                return Err(AppError::Internal(anyhow!("defensive skill prob failed")));
+            }
+
+            Ok(self.state.defensive_skill_prob.clone())
         }
 
         fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError> {
-            Ok(PitcherAttributeProb {
-                velocity_skew: 0.2,
-                control_skew: 0.2,
-                stamina_skew: 0.2,
-                injury_proneness_skew: 0.0,
-                clutch_skew: 0.0,
-                hpp_skew: 0.0,
-                platoon_splitting_skew: 0.0,
-            })
+            self.state
+                .pitcher_attribute_prob_calls
+                .set(self.state.pitcher_attribute_prob_calls.get() + 1);
+
+            if self.state.pitcher_attribute_prob_error.get() {
+                return Err(AppError::Internal(anyhow!("pitcher attribute prob failed")));
+            }
+
+            Ok(self.state.pitcher_attribute_prob.clone())
         }
     }
 
-    fn assert_pitcher_skill_is_finite(pitcher_skill: &PitcherAttribute) {
+    fn service_with_repo() -> (PlayerService<RecordingRepo>, Rc<RepoState>) {
+        let (repo, state) = RecordingRepo::new();
+        (PlayerService { repo }, state)
+    }
+
+    #[test]
+    fn load_player_probs_loads_all_probability_groups() {
+        let (service, state) = service_with_repo();
+
+        let player_prob = service.load_player_probs().unwrap();
+
+        assert_eq!(player_prob.player_attribute_prob.age_offset, 18.0);
+        assert_eq!(player_prob.batter_skill_prob.slg_skew, 0.3);
+        assert_eq!(player_prob.position_probs[0].name, Position::P);
+        assert_eq!(player_prob.defensive_skill_prob.uzr_skew, 0.4);
         assert!(matches!(
-            pitcher_skill.pitcher_style,
+            player_prob.pitcher_style_probs[0].name,
             PitcherStyle::BalancedPitcher
         ));
-        assert!(pitcher_skill.mod_velocity.is_finite());
-        assert!(pitcher_skill.mod_control.is_finite());
-        assert!(pitcher_skill.mod_stamina.is_finite());
-        assert!(pitcher_skill.mod_injury_proneness.is_finite());
-        assert!(pitcher_skill.mod_clutch.is_finite());
-        assert!(pitcher_skill.mod_hpp.is_finite());
-        assert!(pitcher_skill.mod_platoon_splitting.is_finite());
-        assert!(pitcher_skill.pitch_skills.is_empty());
+        assert_eq!(player_prob.pitcher_attribute_prob.velocity_skew, 0.5);
+        assert_eq!(state.player_attribute_prob_calls.get(), 1);
+        assert_eq!(state.batter_skill_prob_calls.get(), 1);
+        assert_eq!(state.position_probs_calls.get(), 1);
+        assert_eq!(state.defensive_skill_prob_calls.get(), 1);
+        assert_eq!(state.pitcher_style_probs_calls.get(), 1);
+        assert_eq!(state.pitcher_attribute_prob_calls.get(), 1);
     }
 
     #[test]
-    fn generate_players_saves_requested_number_of_players() {
-        let mut service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
+    fn load_player_probs_returns_error_from_repository() {
+        let (repo, state) = RecordingRepo::new();
+        state.position_probs_error.set(true);
+        let service = PlayerService { repo };
 
-        let result = service.generate_players(3);
+        assert!(service.load_player_probs().is_err());
+        assert_eq!(state.position_probs_calls.get(), 1);
+        assert_eq!(state.defensive_skill_prob_calls.get(), 0);
+    }
 
-        assert!(result.is_ok());
-        assert_eq!(service.repo.random_name_languages.borrow().len(), 3);
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
+    #[test]
+    fn load_random_name_passes_current_i18n_language() {
+        let (service, state) = service_with_repo();
+
+        let name = service.load_random_name().unwrap();
+
+        assert_eq!(name.first.as_ref(), "Shohei");
+        assert_eq!(name.last.as_ref(), "Ohtani");
         assert_eq!(
-            *service.repo.item_prob_categories.borrow(),
-            vec!["position".to_string(), "pitcher_style".to_string()]
-        );
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 3);
-        assert_eq!(service.repo.next_random_team_calls.get(), 0);
-        assert_eq!(service.repo.save_calls, 3);
-        assert_eq!(service.repo.saved.len(), 3);
-    }
-
-    #[test]
-    fn generate_players_saves_players_with_names_from_repository() {
-        let mut service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-
-        service.generate_players(1).unwrap();
-
-        let (_, player) = &service.repo.saved[0];
-        assert_eq!(player.first_name.as_ref(), "翔平");
-        assert_eq!(player.last_name.as_ref(), "大谷");
-    }
-
-    #[test]
-    fn generate_players_assigns_team_from_repository() {
-        let mut repo = RecordingRepo::new();
-        repo.team = Team::min(7, "ライオンズ");
-        let mut service = PlayerService { repo };
-
-        service.generate_players(1).unwrap();
-
-        let (team, _) = &service.repo.saved[0];
-        assert_eq!(team.id, 7);
-        assert_eq!(team.name.as_ref(), "ライオンズ");
-    }
-
-    #[test]
-    fn generate_players_sets_generated_player_defaults() {
-        let mut service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-
-        service.generate_players(1).unwrap();
-
-        let (_, player) = &service.repo.saved[0];
-        assert_eq!(player.id, 0);
-        assert_eq!(player.defensive_skills.len(), 1);
-        assert!(player.age >= 18);
-        assert!(player.mod_ba.is_finite());
-        assert!(player.mod_slg.is_finite());
-        assert!(player.defensive_skills[0].mod_uzr.is_finite());
-    }
-
-    #[test]
-    fn generate_players_with_zero_players_does_nothing() {
-        let mut service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-
-        let result = service.generate_players(0);
-
-        assert!(result.is_ok());
-        assert!(service.repo.random_name_languages.borrow().is_empty());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 0);
-        assert_eq!(service.repo.next_random_team_calls.get(), 0);
-        assert_eq!(service.repo.save_calls, 0);
-        assert!(service.repo.saved.is_empty());
-    }
-
-    #[test]
-    fn generate_players_returns_error_when_random_name_fails() {
-        let mut repo = RecordingRepo::new();
-        repo.random_name_error = true;
-        let mut service = PlayerService { repo };
-
-        let result = service.generate_players(3);
-
-        assert!(result.is_err());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 0);
-        assert_eq!(service.repo.next_random_team_calls.get(), 0);
-        assert_eq!(service.repo.save_calls, 0);
-        assert!(service.repo.saved.is_empty());
-    }
-
-    #[test]
-    fn generate_players_returns_error_when_position_probs_fails() {
-        let mut repo = RecordingRepo::new();
-        repo.position_probs_error = true;
-        let mut service = PlayerService { repo };
-
-        let result = service.generate_players(3);
-
-        assert!(result.is_err());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.random_name_languages.borrow().len(), 0);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 0);
-        assert_eq!(service.repo.next_team_calls.get(), 0);
-        assert_eq!(service.repo.next_random_team_calls.get(), 0);
-        assert_eq!(service.repo.save_calls, 0);
-        assert!(service.repo.saved.is_empty());
-    }
-
-    #[test]
-    fn generate_players_returns_error_when_next_player_dist_team_fails() {
-        let mut repo = RecordingRepo::new();
-        repo.next_team_error = true;
-        let mut service = PlayerService { repo };
-
-        let result = service.generate_players(3);
-
-        assert!(result.is_err());
-        assert_eq!(service.repo.random_name_languages.borrow().len(), 1);
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 1);
-        assert_eq!(service.repo.next_random_team_calls.get(), 0);
-        assert_eq!(service.repo.save_calls, 0);
-        assert!(service.repo.saved.is_empty());
-    }
-
-    #[test]
-    fn generate_players_falls_back_to_random_team_when_position_team_not_found() {
-        let mut repo = RecordingRepo::new();
-        repo.next_team_not_found = true;
-        repo.random_team = Team::min(42, "フォールバックズ");
-        let mut service = PlayerService { repo };
-
-        let result = service.generate_players(1);
-
-        assert!(result.is_ok());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 1);
-        assert_eq!(service.repo.next_random_team_calls.get(), 1);
-        assert_eq!(service.repo.save_calls, 1);
-        assert_eq!(service.repo.saved[0].0.id, 42);
-        assert_eq!(service.repo.saved[0].0.name.as_ref(), "フォールバックズ");
-    }
-
-    #[test]
-    fn generate_players_returns_error_when_random_team_fallback_fails() {
-        let mut repo = RecordingRepo::new();
-        repo.next_team_not_found = true;
-        repo.next_random_team_error = true;
-        let mut service = PlayerService { repo };
-
-        let result = service.generate_players(1);
-
-        assert!(result.is_err());
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 1);
-        assert_eq!(service.repo.next_random_team_calls.get(), 1);
-        assert_eq!(service.repo.save_calls, 0);
-        assert!(service.repo.saved.is_empty());
-    }
-
-    #[test]
-    fn generate_players_returns_error_when_save_player_fails() {
-        let mut repo = RecordingRepo::new();
-        repo.save_error_at = Some(1);
-        let mut service = PlayerService { repo };
-
-        let result = service.generate_players(3);
-
-        assert!(result.is_err());
-        assert_eq!(service.repo.random_name_languages.borrow().len(), 2);
-        assert_eq!(service.repo.position_probs_calls.get(), 1);
-        assert_eq!(service.repo.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(service.repo.next_team_calls.get(), 2);
-        assert_eq!(service.repo.next_random_team_calls.get(), 0);
-        assert_eq!(service.repo.save_calls, 2);
-        assert_eq!(service.repo.saved.len(), 1);
-    }
-
-    #[test]
-    fn generate_players_uses_current_i18n_language_for_random_name() {
-        let mut service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-
-        service.generate_players(1).unwrap();
-
-        assert_eq!(
-            *service.repo.random_name_languages.borrow(),
+            *state.random_name_languages.borrow(),
             vec!["us".to_string()]
         );
     }
 
     #[test]
-    fn generate_players_passes_assigned_position_to_next_team_lookup() {
-        let mut service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
+    fn next_team_returns_position_distribution_team() {
+        let (service, state) = service_with_repo();
 
-        service.generate_players(1).unwrap();
+        let team = service.next_team(Position::CF).unwrap();
 
-        let saved_position = service.repo.saved[0].1.defensive_skills[0].position.clone();
-        assert_eq!(
-            *service.repo.next_team_positions.borrow(),
-            vec![saved_position]
-        );
+        assert_eq!(team.id, 1);
+        assert_eq!(team.name.as_ref(), "Lions");
+        assert_eq!(*state.next_team_positions.borrow(), vec![Position::CF]);
+        assert_eq!(state.next_team_calls.get(), 1);
+        assert_eq!(state.next_random_team_calls.get(), 0);
     }
 
     #[test]
-    fn generate_players_assigns_pitcher_skill_for_pitchers() {
-        let mut repo = RecordingRepo::new();
-        repo.position_probs = vec![ItemProb {
-            name: Position::P,
-            prob: 1.0,
-        }];
-        let mut service = PlayerService { repo };
+    fn next_team_falls_back_to_random_team_when_distribution_team_not_found() {
+        let (repo, state) = RecordingRepo::new();
+        state.next_team_not_found.set(true);
+        let service = PlayerService { repo };
 
-        service.generate_players(1).unwrap();
+        let team = service.next_team(Position::P).unwrap();
 
-        let (_, player) = &service.repo.saved[0];
-        assert_eq!(player.defensive_skills[0].position, Position::P);
-        let pitcher_skill = player.pitcher_attribute.as_ref().unwrap();
-        assert_pitcher_skill_is_finite(pitcher_skill);
+        assert_eq!(team.id, 99);
+        assert_eq!(team.name.as_ref(), "Randoms");
+        assert_eq!(state.next_team_calls.get(), 1);
+        assert_eq!(state.next_random_team_calls.get(), 1);
     }
 
     #[test]
-    fn generate_players_does_not_assign_pitcher_skill_for_non_pitchers() {
-        let mut repo = RecordingRepo::new();
-        repo.position_probs = vec![ItemProb {
-            name: Position::CF,
-            prob: 1.0,
-        }];
-        let mut service = PlayerService { repo };
+    fn next_team_returns_internal_error_when_distribution_lookup_fails() {
+        let (repo, state) = RecordingRepo::new();
+        state.next_team_error.set(true);
+        let service = PlayerService { repo };
 
-        service.generate_players(1).unwrap();
+        let result = service.next_team(Position::P);
 
-        let (_, player) = &service.repo.saved[0];
-        assert_eq!(player.defensive_skills[0].position, Position::CF);
-        assert!(player.pitcher_attribute.is_none());
+        assert!(matches!(result, Err(AppError::Internal(_))));
+        assert_eq!(state.next_team_calls.get(), 1);
+        assert_eq!(state.next_random_team_calls.get(), 0);
     }
 
     #[test]
-    fn assign_defensive_skills_uses_position_probs_with_finite_uzr() {
-        let service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-        let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
-        let position_probs = vec![ItemProb {
-            name: Position::CF,
-            prob: 1.0,
-        }];
+    fn next_team_returns_error_when_random_fallback_fails() {
+        let (repo, state) = RecordingRepo::new();
+        state.next_team_not_found.set(true);
+        state.next_random_team_error.set(true);
+        let service = PlayerService { repo };
 
-        let defensive_skill = service
-            .assign_defensive_skills(&position_probs, &defensive_skill_prob)
+        let result = service.next_team(Position::P);
+
+        assert!(matches!(result, Err(AppError::Internal(_))));
+        assert_eq!(state.next_team_calls.get(), 1);
+        assert_eq!(state.next_random_team_calls.get(), 1);
+    }
+
+    #[test]
+    fn pitch_type_probs_delegates_to_repository() {
+        let (service, state) = service_with_repo();
+
+        let probs = service
+            .pitch_type_probs(&PitcherStyle::PowerPitcher)
             .unwrap();
 
-        assert_eq!(defensive_skill.position, Position::CF);
-        assert!(defensive_skill.mod_uzr.is_finite());
-        assert_eq!(service.repo.position_probs_calls.get(), 0);
-        assert!(service.repo.item_prob_categories.borrow().is_empty());
+        assert!(matches!(probs[0].name, PitchType::Slider));
+        assert_eq!(state.pitch_type_probs_calls.get(), 1);
+        assert!(matches!(
+            state.pitch_type_prob_styles.borrow()[0],
+            PitcherStyle::PowerPitcher
+        ));
     }
 
     #[test]
-    fn assign_defensive_skills_returns_error_when_position_probs_are_empty() {
-        let service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-        let defensive_skill_prob = DefensiveSkillProb { uzr_skew: 0.2 };
-        let position_probs = Vec::new();
+    fn pitch_skill_prob_delegates_to_repository() {
+        let (service, state) = service_with_repo();
 
-        let result = service.assign_defensive_skills(&position_probs, &defensive_skill_prob);
+        let prob = service.pitch_skill_prob(&PitchType::Changeup).unwrap();
 
-        assert!(result.is_err());
-        assert_eq!(service.repo.position_probs_calls.get(), 0);
+        assert!(matches!(prob.pitch_type, PitchType::Changeup));
+        assert_eq!(state.pitch_skill_prob_calls.get(), 1);
+        assert!(matches!(
+            state.pitch_skill_prob_types.borrow()[0],
+            PitchType::Changeup
+        ));
     }
 
     #[test]
-    fn assign_pitcher_skill_returns_finite_base_skill() {
-        let service = PlayerService {
-            repo: RecordingRepo::new(),
-        };
-        let pitcher_base_skill_prob = PitcherAttributeProb {
-            velocity_skew: 0.11,
-            control_skew: 0.12,
-            stamina_skew: 0.13,
-            injury_proneness_skew: 0.14,
-            clutch_skew: 0.15,
-            hpp_skew: 0.16,
-            platoon_splitting_skew: 0.17,
-        };
-        let pitcher_style_probs = vec![ItemProb {
-            name: PitcherStyle::BalancedPitcher,
-            prob: 1.0,
-        }];
+    fn save_player_delegates_to_repository() {
+        let (mut service, state) = service_with_repo();
+        let mut player = Player::min(7, "First", "Last");
+        player.throw = RL::Left;
+        let team = Team::min(3, "Tigers");
 
-        let pitcher_skill = service
-            .assign_pitcher_skill(&pitcher_style_probs, &pitcher_base_skill_prob)
-            .unwrap();
+        service.save_player(team, player).unwrap();
 
-        assert_pitcher_skill_is_finite(&pitcher_skill);
+        let saved = state.saved.borrow();
+        assert_eq!(state.save_calls.get(), 1);
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].0.id, 3);
+        assert_eq!(saved[0].1.id, 7);
+        assert_eq!(saved[0].1.first_name.as_ref(), "First");
     }
 }

@@ -1,4 +1,4 @@
-use super::player::PitchType;
+use crate::domain::shared::player::{PitchType, PitcherStyle, Position};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -54,4 +54,14 @@ pub struct PitchSkillProb {
     pub vertical_movement_skew: f64,
     pub spin_rate_skew: f64,
     pub usage_skew: f64,
+}
+
+#[derive(Debug)]
+pub struct PlayerProb {
+    pub player_attribute_prob: PlayerAttributeProb,
+    pub batter_skill_prob: BatterSkillProb,
+    pub position_probs: Vec<ItemProb<Position>>,
+    pub defensive_skill_prob: DefensiveSkillProb,
+    pub pitcher_style_probs: Vec<ItemProb<PitcherStyle>>,
+    pub pitcher_attribute_prob: PitcherAttributeProb,
 }

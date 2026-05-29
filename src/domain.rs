@@ -1,4 +1,5 @@
 pub mod game_service;
+pub mod player_factory;
 pub mod player_service;
 pub mod resolver;
 pub mod schedule_service;

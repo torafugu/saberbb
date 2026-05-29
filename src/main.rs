@@ -20,6 +20,8 @@ use repositories::statistics_repository::SqlStatRepository;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
+use crate::domain::player_factory::PlayerFactory;
+
 #[derive(Serialize, Deserialize, Debug)]
 struct AppConfig {
     version: u8,
@@ -76,10 +78,11 @@ fn main() -> Result<()> {
 
     // Player Generate Mode
     if let Some(num_of_players) = args.generate {
-        let mut player_service = PlayerService {
+        let player_service = PlayerService {
             repo: APP_CONTEXT.get().unwrap().player_repository.clone(),
         };
-        if let Err(e) = player_service.generate_players(num_of_players) {
+        let mut player_factory = PlayerFactory::new(player_service);
+        if let Err(e) = player_factory.generate_players(num_of_players) {
             let error_msg = t!("error", "function" => "generate_players");
             bail!("{}, {}", error_msg, e);
         }
