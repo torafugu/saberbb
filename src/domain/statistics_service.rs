@@ -16,7 +16,7 @@ impl<R: StatRepository> StatService<R> {
 
         // 1. Sort by pct
         // partial_cmp is used to compare f32
-        standings.sort_by(|a, b| b.pct.partial_cmp(&a.pct).unwrap());
+        standings.sort_by(|a, b| b.pct.partial_cmp(&a.pct).expect("Failed to retrieve pct"));
 
         // 2. Get wins and loses of leader team
         // standings must not be null

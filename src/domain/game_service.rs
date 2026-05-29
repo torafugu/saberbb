@@ -1,4 +1,6 @@
-use super::shared::game_state::{GameProgress, GameState, InningProgress, InningState, Lineup};
+use super::shared::game_state::{
+    Fielder, GameProgress, GameState, InningProgress, InningState, Lineup,
+};
 use crate::domain::shared::{game::GameResult, player::Player};
 use crate::repositories::game_repository::GameRepository;
 use crate::t;
@@ -20,7 +22,14 @@ impl<R: GameRepository> GameService<R> {
         // 2. Procees games in the game round
         for mut game_schedule in game_schedules {
             // Initiate the game
-            let mut game_state = GameState::new();
+            // TODO: Implement No DH case
+            // TODO: Implement starting fielders
+            let mut game_state = GameState::new(
+                Lineup::new(game_schedule.away_team.lineup(true)?)?,
+                Lineup::new(game_schedule.home_team.lineup(true)?)?,
+                Fielder::default(),
+                Fielder::default(),
+            )?;
             let mut game_result = GameResult {
                 id: game_schedule.id,
                 actual_date: game_schedule.planned_date,
@@ -28,10 +37,6 @@ impl<R: GameRepository> GameService<R> {
                 away_points: 0,
                 home_points: 0,
             };
-
-            // TODO: Implement No DH case
-            game_state.away_batters = Lineup::new(game_schedule.away_team.lineup(true));
-            game_state.home_batters = Lineup::new(game_schedule.home_team.lineup(true));
 
             // loop for an innning
             while let GameProgress::Ongoing = game_state.progress() {
@@ -43,7 +48,7 @@ impl<R: GameRepository> GameService<R> {
                     inning_state.add_count_seq();
 
                     let count = inning_state.batting_resolve(
-                        &game_state.current_batter(),
+                        &game_state.current_batter()?,
                         &game_state.current_fielders(),
                     );
                     game_state.add_point(count.point);

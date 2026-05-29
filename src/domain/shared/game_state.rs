@@ -2,12 +2,20 @@ use super::game::{Base, BattingResult, Count, Inning, TB};
 use super::player::Player;
 use crate::domain::resolver::simulate_batting;
 use crate::domain::utils::is_base_occupied;
-use crate::t;
 use std::sync::Arc;
 
 pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BATTING_ORDER: usize = 9;
+
+#[derive(thiserror::Error, Debug)]
+pub enum GameError {
+    #[error("Failed to initialize lineup")]
+    Lineup,
+
+    #[error("Failed to retrieve current batter")]
+    CurrentBatter,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum GameProgress {
@@ -23,31 +31,30 @@ pub struct GameState {
     pub inning_tb: TB,
     pub away_total_point: u8,
     pub home_total_point: u8,
-    pub away_batters: Lineup,
-    pub home_batters: Lineup,
+    pub away_lineup: Lineup,
+    pub home_lineup: Lineup,
     pub away_fielders: Fielder,
     pub home_fielders: Fielder,
 }
 impl GameState {
-    pub fn new() -> GameState {
-        GameState {
+    pub fn new(
+        away_lineup: Lineup,
+        home_lineup: Lineup,
+        away_fielders: Fielder,
+        home_fielders: Fielder,
+    ) -> Result<GameState, GameError> {
+        Ok(GameState {
             // Initialization: 1 should be set at the beginning of the game
             inning_seq: 0,
             // Initialization: Top should be set at the beginning of the game
             inning_tb: TB::Bottom,
             away_total_point: 0,
             home_total_point: 0,
-            away_batters: Lineup {
-                current_index: 0,
-                batters: Vec::new(),
-            },
-            home_batters: Lineup {
-                current_index: 0,
-                batters: Vec::new(),
-            },
-            away_fielders: Fielder::default(),
-            home_fielders: Fielder::default(),
-        }
+            away_lineup: away_lineup,
+            home_lineup: home_lineup,
+            away_fielders: away_fielders,
+            home_fielders: home_fielders,
+        })
     }
 
     fn is_top(&self) -> bool {
@@ -107,19 +114,27 @@ impl GameState {
         }
     }
 
-    pub fn current_batter(&mut self) -> Player {
+    pub fn current_batter(&mut self) -> Result<Player, GameError> {
         if self.inning_tb == TB::Top {
-            self.away_batters.next().expect(&t!("away_lineup_failed"))
+            if let Some(player) = self.away_lineup.next() {
+                Ok(player)
+            } else {
+                return Err(GameError::CurrentBatter);
+            }
         } else {
-            self.home_batters.next().expect(&t!("home_lineup_failed"))
+            if let Some(player) = self.home_lineup.next() {
+                Ok(player)
+            } else {
+                return Err(GameError::CurrentBatter);
+            }
         }
     }
 
     pub fn current_fielders(&mut self) -> &Fielder {
         if self.inning_tb == TB::Top {
-            &self.away_fielders
-        } else {
             &self.home_fielders
+        } else {
+            &self.away_fielders
         }
     }
 
@@ -251,11 +266,16 @@ pub struct Lineup {
     pub batters: Vec<Player>,
 }
 impl Lineup {
-    pub fn new(batters: Vec<Player>) -> Self {
-        Self {
+    pub fn new(batters: Vec<Player>) -> Result<Self, GameError> {
+        if batters.is_empty() {
+            return Err(GameError::Lineup);
+        } else if batters.len() != MAX_BATTING_ORDER {
+            return Err(GameError::Lineup);
+        }
+        Ok(Self {
             current_index: 0,
             batters,
-        }
+        })
     }
 }
 impl Iterator for Lineup {
@@ -269,7 +289,7 @@ impl Iterator for Lineup {
         let player = self.batters[self.current_index].clone();
 
         // Use the modulo operator (%) to rotate the index around the range 0..N
-        self.current_index = (self.current_index + 1) % MAX_BATTING_ORDER;
+        self.current_index = (self.current_index + 1) % self.batters.len();
         Some(player)
     }
 }
@@ -287,7 +307,7 @@ pub struct Fielder {
     pub right_fielder: Player,
 }
 impl Fielder {
-    fn default() -> Self {
+    pub fn default() -> Self {
         Self {
             pitcher: Player::default(),
             catcher: Player::default(),
