@@ -5,4 +5,3 @@ pub mod player;
 pub mod prob;
 pub mod stat;
 pub mod team;
-pub mod types;

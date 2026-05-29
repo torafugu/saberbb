@@ -6,12 +6,12 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use strum_macros::EnumString;
+use strum_macros::{AsRefStr, EnumString};
 use validator::Validate;
 
 pub const TOTAL_GAMES: u16 = 140;
 
-#[derive(Clone, Serialize, Deserialize, Debug, EnumString)]
+#[derive(Clone, Serialize, Deserialize, Debug, EnumString, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum GameType {
     Exhibition,
@@ -28,7 +28,7 @@ impl fmt::Display for GameType {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum TB {
     Top,
@@ -141,7 +141,7 @@ pub struct Count {
     pub out: u8,
 }
 
-#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum BattingResult {
     Single,

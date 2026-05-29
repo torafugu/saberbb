@@ -6,19 +6,7 @@ use validator::Validate;
 
 impl ToSql for Position {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            Position::P => "P",
-            Position::C => "C",
-            Position::FB => "1B",
-            Position::SB => "2B",
-            Position::TB => "3B",
-            Position::SS => "SS",
-            Position::LF => "LF",
-            Position::CF => "CF",
-            Position::RF => "RF",
-            Position::DH => "DH",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 
@@ -35,11 +23,7 @@ impl FromSql for Position {
 
 impl ToSql for RL {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            RL::Right => "Right",
-            RL::Left => "Left",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 
@@ -71,19 +55,7 @@ impl FromRow for FullName {
 
 impl ToSql for PitchType {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            PitchType::FourSeamFastball => "FourSeamFastball",
-            PitchType::TwoSeamFastball => "TwoSeamFastball",
-            PitchType::Cutter => "Cutter",
-            PitchType::Curveball => "Curveball",
-            PitchType::Slider => "Slider",
-            PitchType::Sweeper => "Sweeper",
-            PitchType::Changeup => "Changeup",
-            PitchType::Forkball => "Forkball",
-            PitchType::SplitFingerFastball => "SplitFingerFastball",
-            PitchType::Knuckleball => "Knuckleball",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 
@@ -111,12 +83,7 @@ impl FromSql for PitcherStyle {
 
 impl ToSql for PitcherStyle {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            PitcherStyle::PowerPitcher => "PowerPitcher",
-            PitcherStyle::FinessePitcher => "FinessePitcher",
-            PitcherStyle::BalancedPitcher => "BalancedPitcher",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 

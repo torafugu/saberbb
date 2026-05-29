@@ -13,7 +13,7 @@ const BATTING_MAX_SLG: f64 = 0.55;
 const PLAYER_NAME_DEFAULT: &str = "DEAFULT";
 const PLAYER_AGE_DEFAULT: u8 = 25;
 
-#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum Position {
     P,
@@ -70,7 +70,7 @@ impl std::fmt::Display for Position {
     }
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, EnumString, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum RL {
     Right,
@@ -160,7 +160,7 @@ pub struct DefensiveSkill {
     pub mod_uzr: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, EnumString, Debug)]
+#[derive(Clone, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum PitchType {
     FourSeamFastball,

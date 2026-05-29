@@ -11,12 +11,7 @@ use validator::Validate;
 
 impl ToSql for GameType {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            GameType::Exhibition => "Exhibition",
-            GameType::Regular => "Regular",
-            GameType::Postseason => "Postseason",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 
@@ -33,11 +28,7 @@ impl FromSql for GameType {
 
 impl ToSql for TB {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            TB::Top => "Top",
-            TB::Bottom => "Bottom",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 
@@ -54,14 +45,7 @@ impl FromSql for TB {
 
 impl ToSql for BattingResult {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let s = match self {
-            BattingResult::Single => "Single",
-            BattingResult::Double => "Double",
-            BattingResult::Triple => "Triple",
-            BattingResult::HomeRun => "HomeRun",
-            BattingResult::Out => "Out",
-        };
-        Ok(ToSqlOutput::from(s))
+        Ok(ToSqlOutput::from(self.as_ref()))
     }
 }
 
