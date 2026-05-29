@@ -51,17 +51,8 @@ impl GameRepository for SqlGameRepository {
                 ],
             )?;
 
-            for inning in &game.innings {
-                let insert_inning_sql = "INSERT INTO inning (game_id, seq, tb) VALUES (?1, ?2, ?3)";
-
-                self.db_client.execute_tx(
-                    tx,
-                    insert_inning_sql,
-                    params![game.id, inning.seq, inning.tb],
-                )?;
-
-                for count in &inning.counts {
-                    let insert_count_sql = "INSERT INTO count (
+            let insert_inning_sql = "INSERT INTO inning (game_id, seq, tb) VALUES (?1, ?2, ?3)";
+            let insert_count_sql = "INSERT INTO count (
                             game_id, inning_seq, inning_tb, seq, bases_occupied, 
                             pitcher_id, catcher_id, 
                             first_baseman_id, second_baseman_id, third_baseman_id, shortstop_id, 
@@ -76,6 +67,14 @@ impl GameRepository for SqlGameRepository {
                             ?15,
                             ?16, ?17, ?18)";
 
+            for inning in &game.innings {
+                self.db_client.execute_tx(
+                    tx,
+                    insert_inning_sql,
+                    params![game.id, inning.seq, inning.tb],
+                )?;
+
+                for count in &inning.counts {
                     self.db_client.execute_tx(
                         tx,
                         insert_count_sql,

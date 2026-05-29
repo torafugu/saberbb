@@ -1,7 +1,23 @@
-use crate::domain::shared::team::Team;
+use crate::domain::shared::team::{League, Team};
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use validator::Validate;
+
+impl FromRow for League {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let league = League {
+            id: row.get("id")?,
+            name: row.get("name")?,
+            teams: Vec::new(),
+        };
+
+        league.validate()?;
+
+        Ok(league)
+    }
+}
 
 impl FromRow for Team {
     type Error = AppError;

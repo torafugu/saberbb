@@ -125,6 +125,7 @@ mod tests {
     use super::*;
     use crate::domain::shared::game::GameSeason;
     use crate::domain::shared::team::{League, Team};
+    use crate::error::AppError;
     use anyhow::anyhow;
     use std::cell::{Cell, RefCell};
 
@@ -164,13 +165,13 @@ mod tests {
     }
 
     impl ScheduleRepository for RecordingRepo {
-        fn load_game_season(&self) -> Result<GameSeason> {
+        fn load_game_season(&self) -> Result<GameSeason, AppError> {
             self.call_log.borrow_mut().push("load_game_season");
             self.load_game_season_calls
                 .set(self.load_game_season_calls.get() + 1);
 
             if self.load_game_season_error {
-                return Err(anyhow!("load game season failed"));
+                return Err(AppError::Internal(anyhow!("load game season failed")));
             }
 
             Ok(GameSeason {
@@ -179,39 +180,44 @@ mod tests {
             })
         }
 
-        fn load_all_leagues(&self) -> Result<Vec<League>> {
+        fn load_all_leagues(&self) -> Result<Vec<League>, AppError> {
             self.call_log.borrow_mut().push("load_all_leagues");
             self.load_all_leagues_calls
                 .set(self.load_all_leagues_calls.get() + 1);
 
             if self.load_all_leagues_error {
-                return Err(anyhow!("load all leagues failed"));
+                return Err(AppError::Internal(anyhow!("load all leagues failed")));
             }
 
             Ok(self.leagues.clone())
         }
 
-        fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<()> {
+        fn save_game_schedules(
+            &mut self,
+            game_schedules: Vec<GameScheduler>,
+        ) -> Result<(), AppError> {
             self.call_log.borrow_mut().push("save_game_schedules");
             let call_index = self.saved_batches.len();
 
             if self.save_error_at == Some(call_index) {
-                return Err(anyhow!("save game schedules failed"));
+                return Err(AppError::Internal(anyhow!("save game schedules failed")));
             }
 
             self.saved_batches.push(game_schedules);
             Ok(())
         }
 
-        fn update_scheduled_season(&self) -> Result<()> {
+        fn update_scheduled_season(&self) -> Result<usize, AppError> {
             self.call_log.borrow_mut().push("update_scheduled_season");
             self.update_calls.set(self.update_calls.get() + 1);
 
             if self.update_error {
-                return Err(anyhow!("update scheduled season failed"));
+                return Err(AppError::Internal(anyhow!(
+                    "update scheduled season failed"
+                )));
             }
 
-            Ok(())
+            Ok(1)
         }
     }
 

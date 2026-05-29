@@ -1,5 +1,5 @@
 use crate::domain::shared::game::{
-    BattingResult, Count, GameHeader, GameRow, GameScheduler, GameType, Inning, TB,
+    BattingResult, Count, GameHeader, GameRow, GameScheduler, GameSeason, GameType, Inning, TB,
 };
 use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
@@ -73,6 +73,21 @@ impl FromSql for BattingResult {
             eprintln!("{} {}: {:?}", "Parse error at ", br, e);
             rusqlite::types::FromSqlError::InvalidType
         })
+    }
+}
+
+impl FromRow for GameSeason {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let game_season = GameSeason {
+            start_date: row.get("season_start_date")?,
+            season: row.get("scheduled_season")?,
+        };
+
+        game_season.validate()?;
+
+        Ok(game_season)
     }
 }
 

@@ -1,109 +1,57 @@
 use crate::domain::shared::game::{GameScheduler, GameSeason};
 use crate::domain::shared::team::{League, Team};
-use crate::repositories::db::{DbError, SqlDb, SqliteManager};
-use crate::t;
-use anyhow::{Result, bail};
-use deadpool::managed::Object;
+use crate::error::AppError;
+use crate::repositories::db::{DbClient, SqlDb};
+use anyhow::Result;
 use rusqlite::params;
 
 pub trait ScheduleRepository {
-    fn load_game_season(&self) -> Result<GameSeason>;
-    fn load_all_leagues(&self) -> Result<Vec<League>>;
-    fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<()>;
-    fn update_scheduled_season(&self) -> Result<()>;
+    fn load_game_season(&self) -> Result<GameSeason, AppError>;
+    fn load_all_leagues(&self) -> Result<Vec<League>, AppError>;
+    fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<(), AppError>;
+    fn update_scheduled_season(&self) -> Result<usize, AppError>;
 }
 
 #[derive(Clone)]
 pub struct SqlScheduleRepository {
-    db: SqlDb,
+    db_client: DbClient,
 }
 impl SqlScheduleRepository {
     pub fn new() -> Result<Self> {
-        let db = SqlDb::new()?;
-        Ok(Self { db })
-    }
-
-    pub fn get_conn(&self) -> Result<Object<SqliteManager>, DbError> {
-        self.db.get_conn()
+        let db_client = DbClient { db: SqlDb::new()? };
+        Ok(Self { db_client })
     }
 }
 
 impl ScheduleRepository for SqlScheduleRepository {
-    fn load_game_season(&self) -> Result<GameSeason> {
-        let conn = self.get_conn()?;
-
-        let start_date = conn.query_row(
-            "SELECT season_start_date, scheduled_season + 1 AS scheduled_season FROM game_season LIMIT 1",
-            params![],
-            |row| {
-                Ok(GameSeason {
-                    start_date: row.get("season_start_date")?,
-                    season: row.get("scheduled_season")?,
-                })
-            },
-        );
-        if let Err(e) = &start_date {
-            let error_msg = t!("error", "function" => "load_game_season : SELECT game_season");
-            bail!("{}, {}", error_msg, e);
-        }
-        Ok(start_date?)
+    fn load_game_season(&self) -> Result<GameSeason, AppError> {
+        let query = "SELECT season_start_date, scheduled_season FROM game_season";
+        self.db_client.query_row::<GameSeason>(query, params![])
     }
 
-    fn load_all_leagues(&self) -> Result<Vec<League>> {
-        let conn = self.get_conn()?;
+    fn load_all_leagues(&self) -> Result<Vec<League>, AppError> {
+        let leagues_query = "SELECT id, name FROM league ORDER BY id";
+        let mut leagues = self
+            .db_client
+            .query_rows::<League>(leagues_query, params![])?;
 
-        let mut stmt_league = conn.prepare("SELECT id, name FROM league ORDER BY id")?;
-        let league_iter = stmt_league.query_map([], |row| {
-            Ok(League {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                teams: Vec::new(),
-            })
-        });
-        if let Err(e) = &league_iter {
-            let error_msg = t!("error", "function" => "load_all_leagues : SELECT league");
-            bail!("{}, {}", error_msg, e);
+        let teams_query = "SELECT id, name FROM team WHERE league_id = ?1";
+        for league in &mut leagues {
+            league.teams = self
+                .db_client
+                .query_rows::<Team>(teams_query, params![league.id])?;
         }
-
-        let mut leagues: Vec<League> = Vec::new();
-
-        for league in league_iter? {
-            let conn = self.get_conn()?;
-
-            let mut league = league?;
-            let mut stmt_team = conn.prepare("SELECT id, name FROM team WHERE league_id = ?1")?;
-            let team_iter = stmt_team.query_map(params![league.id], |row| {
-                Ok(Team {
-                    id: row.get("id")?,
-                    name: row.get("name")?,
-                    players: Vec::new(),
-                })
-            });
-            if let Err(e) = &team_iter {
-                let error_msg = t!("error", "function" => "load_all_leagues : SELECT team");
-                bail!("{}, {}", error_msg, e);
-            }
-
-            for team in team_iter? {
-                league.teams.push(team?);
-            }
-
-            leagues.push(league);
-        }
-
         Ok(leagues)
     }
 
-    fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<()> {
-        let conn = self.get_conn()?;
-
+    fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<(), AppError> {
+        let insert_game_sql = "INSERT INTO game (
+            season, round_seq, seq, planned_date, away_team_id, home_team_id, game_type
+            ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7)";
         for game_schedule in game_schedules {
-            if let Err(e) = conn.execute(
-                "INSERT INTO game (
-                season, round_seq, seq, planned_date, away_team_id, home_team_id, game_type
-                ) VALUES (
-                 ?1, ?2, ?3, ?4, ?5, ?6, ?7
-                 )",
+            self.db_client.execute(
+                insert_game_sql,
                 params![
                     game_schedule.season,
                     game_schedule.round_seq,
@@ -111,29 +59,17 @@ impl ScheduleRepository for SqlScheduleRepository {
                     game_schedule.planned_date,
                     game_schedule.away_team.id,
                     game_schedule.home_team.id,
-                    game_schedule.game_type,
+                    game_schedule.game_type
                 ],
-            ) {
-                let error_msg = t!("error", "function" => "save_game_schedules : INSERT INTO game");
-                bail!("{}, {}", error_msg, e);
-            };
+            )?;
         }
-
         Ok(())
     }
 
-    fn update_scheduled_season(&self) -> Result<()> {
-        let conn = self.get_conn()?;
-
-        if let Err(e) = conn.execute(
-            "Update game_season SET scheduled_season = scheduled_season + 1",
-            params![],
-        ) {
-            let error_msg =
-                t!("error", "function" => "update_scheduled_season : Update game_season");
-            bail!("{}, {}", error_msg, e);
-        };
-        Ok(())
+    fn update_scheduled_season(&self) -> Result<usize, AppError> {
+        let update_game_season_sql =
+            "Update game_season SET scheduled_season = scheduled_season + 1";
+        self.db_client.execute(update_game_season_sql, params![])
     }
 }
 
@@ -141,6 +77,7 @@ impl ScheduleRepository for SqlScheduleRepository {
 mod tests {
     use super::*;
     use crate::domain::shared::game::GameType;
+    use crate::repositories::db::SqliteManager;
     use chrono::NaiveDate;
     use deadpool::managed::Pool;
     use rusqlite::{Connection, params};
@@ -212,7 +149,9 @@ mod tests {
         let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
         (
             SqlScheduleRepository {
-                db: SqlDb::from_pool(pool),
+                db_client: DbClient {
+                    db: SqlDb::from_pool(pool),
+                },
             },
             path,
         )
@@ -231,7 +170,7 @@ mod tests {
     }
 
     fn conn(repo: &SqlScheduleRepository) -> deadpool::managed::Object<SqliteManager> {
-        repo.get_conn().unwrap()
+        repo.db_client.get_conn().unwrap()
     }
 
     fn seed_game_season(repo: &SqlScheduleRepository, start_date: &str, scheduled_season: u16) {
@@ -277,9 +216,9 @@ mod tests {
     }
 
     #[test]
-    fn load_game_season_returns_next_scheduled_season() {
+    fn load_game_season_returns_scheduled_season() {
         let (repo, path) = setup_repo();
-        seed_game_season(&repo, "2026-01-01", 2025);
+        seed_game_season(&repo, "2026-01-01", 2026);
 
         let game_season = repo.load_game_season().unwrap();
 
@@ -431,13 +370,14 @@ mod tests {
         let (repo, path) = setup_repo();
         seed_game_season(&repo, "2026-01-01", 2025);
 
-        repo.update_scheduled_season().unwrap();
+        let updated = repo.update_scheduled_season().unwrap();
 
         let scheduled_season: u16 = conn(&repo)
             .query_row("SELECT scheduled_season FROM game_season", [], |row| {
                 row.get(0)
             })
             .unwrap();
+        assert_eq!(updated, 1);
         assert_eq!(scheduled_season, 2026);
         std::fs::remove_file(path).ok();
     }
@@ -448,7 +388,7 @@ mod tests {
 
         let result = repo.update_scheduled_season();
 
-        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
         std::fs::remove_file(path).ok();
     }
 
