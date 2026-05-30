@@ -67,6 +67,7 @@ mod tests {
     };
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
+    use crate::repositories::db::FromRow;
     use anyhow::anyhow;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
@@ -114,6 +115,7 @@ mod tests {
         pitch_type_probs_calls: Cell<usize>,
         pitch_skill_prob_calls: Cell<usize>,
         save_calls: Cell<usize>,
+        item_probs_calls: Cell<usize>,
         saved: RefCell<Vec<(Team, Player)>>,
     }
 
@@ -187,6 +189,7 @@ mod tests {
                 pitch_type_probs_calls: Cell::new(0),
                 pitch_skill_prob_calls: Cell::new(0),
                 save_calls: Cell::new(0),
+                item_probs_calls: Cell::new(0),
                 saved: RefCell::new(Vec::new()),
             });
 
@@ -332,6 +335,17 @@ mod tests {
             }
 
             Ok(self.state.player_attribute_prob.clone())
+        }
+
+        fn item_probs<T>(&self, category: &str) -> Result<Vec<ItemProb<T>>, AppError>
+        where
+            ItemProb<T>: FromRow<Error = AppError>,
+        {
+            self.state
+                .item_probs_calls
+                .set(self.state.item_probs_calls.get() + 1);
+
+            panic!("item_probs should not be called directly in PlayerService tests: {category}");
         }
 
         fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError> {

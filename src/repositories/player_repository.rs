@@ -5,6 +5,7 @@ use crate::domain::shared::prob::{
 };
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
+use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
 use rusqlite::params;
@@ -21,6 +22,9 @@ pub trait PlayerRepository {
         &self,
         pitch_style: &PitcherStyle,
     ) -> Result<Vec<ItemProb<PitchType>>, AppError>;
+    fn item_probs<T>(&self, category: &str) -> Result<Vec<ItemProb<T>>, AppError>
+    where
+        ItemProb<T>: FromRow<Error = AppError>;
     fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError>;
     fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError>;
     fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError>;
@@ -198,24 +202,27 @@ impl PlayerRepository for SqlPlayerRepository {
     }
 
     fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError> {
-        let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
-        self.db_client
-            .query_rows::<ItemProb<Position>>(query, params!["position"])
+        self.item_probs("position")
     }
 
     fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError> {
-        let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
-        self.db_client
-            .query_rows::<ItemProb<PitcherStyle>>(query, params!["pitcher_style"])
+        self.item_probs("pitcher_style")
     }
 
     fn pitch_type_probs(
         &self,
         pitch_style: &PitcherStyle,
     ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
+        self.item_probs(pitch_style.as_ref())
+    }
+
+    fn item_probs<T>(&self, category: &str) -> Result<Vec<ItemProb<T>>, AppError>
+    where
+        ItemProb<T>: FromRow<Error = AppError>,
+    {
         let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
         self.db_client
-            .query_rows::<ItemProb<PitchType>>(query, params![pitch_style.as_ref()])
+            .query_rows::<ItemProb<T>>(query, params![category])
     }
 
     fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError> {
