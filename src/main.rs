@@ -14,6 +14,7 @@ use saberbb::repositories::schedule_repository::SqlScheduleRepository;
 use saberbb::repositories::statistics_repository::SqlStatRepository;
 use saberbb::{AppContext, app_context, init_app_context, t};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AppConfig {
@@ -41,24 +42,29 @@ fn main() -> Result<()> {
         schedule_repository: SqlScheduleRepository::new()?,
         statistics_repository: SqlStatRepository::new()?,
     };
-
     init_app_context(ctx);
+
+    let file_appender = tracing_appender::rolling::daily("log", "app.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::fmt().with_writer(non_blocking).init();
 
     let args = Args::parse();
 
     // Game Process Mode
-    if let Some(num_of_rounds) = args.process {
+    if let Some(num_of_games) = args.process {
         let mut game_service = GameService {
             repo: app_context().game_repository.clone(),
         };
 
-        for _ in 0..num_of_rounds {
+        for _ in 0..num_of_games {
             if let Err(e) = game_service.process_game_round() {
                 let error_msg = t!("error", "function" => "process_game");
                 bail!("{}, {}", error_msg, e);
             }
+            info!("1 game processed.");
         }
-        display_game_rounds_processed(num_of_rounds);
+        display_game_rounds_processed(num_of_games);
     }
 
     // Player Generate Mode
@@ -88,6 +94,7 @@ fn main() -> Result<()> {
                 let error_msg = t!("error", "function" => "schedule_season");
                 bail!("{}, {}", error_msg, e);
             }
+            info!("1 season scheduled.");
         }
         display_game_seasons_scheduled(num_of_schedules);
     }
