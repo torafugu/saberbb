@@ -7,7 +7,6 @@ use crate::error::AppError;
 use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
 use anyhow::Result;
-use anyhow::anyhow;
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,

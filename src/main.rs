@@ -82,7 +82,7 @@ fn main() -> Result<()> {
             repo: APP_CONTEXT.get().unwrap().player_repository.clone(),
         };
         let mut player_factory = PlayerFactory::new(player_service);
-        if let Err(e) = player_factory.generate_players(num_of_players) {
+        if let Err(e) = player_factory.generate_and_save_players(num_of_players) {
             let error_msg = t!("error", "function" => "generate_players");
             bail!("{}, {}", error_msg, e);
         }
