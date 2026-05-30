@@ -1,4 +1,7 @@
-use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Player, Position};
+use crate::domain::shared::player::{
+    DefensiveSkill, FullName, PitchSkill, PitchType, PitcherAttribute, PitcherStyle, Player,
+    Position,
+};
 use crate::domain::shared::prob::ItemProb;
 use crate::domain::shared::prob::{
     BatterSkillProb, DefensiveSkillProb, PitchSkillProb, PitcherAttributeProb, PlayerAttributeProb,
@@ -8,10 +11,28 @@ use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::params;
+use rusqlite::{Transaction, params};
 
 pub trait PlayerRepository {
-    fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError>;
+    fn insert_player(&mut self, team: Team, player: Player) -> Result<(), AppError>;
+    fn insert_defensive_skill(
+        &self,
+        tx: &Transaction,
+        player_id: u32,
+        defensive_skill: &DefensiveSkill,
+    ) -> Result<usize, AppError>;
+    fn insert_pitcher_attribute(
+        &self,
+        tx: &Transaction,
+        player_id: u32,
+        pitcher_attribute: &PitcherAttribute,
+    ) -> Result<usize, AppError>;
+    fn insert_pitch_skill(
+        &self,
+        tx: &Transaction,
+        player_id: u32,
+        pitch_skill: &PitchSkill,
+    ) -> Result<usize, AppError>;
     fn random_name(&self, language: String) -> Result<FullName, AppError>;
     fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError>;
     fn next_random_team(&self) -> Result<Team, AppError>;
@@ -43,7 +64,7 @@ impl SqlPlayerRepository {
 }
 
 impl PlayerRepository for SqlPlayerRepository {
-    fn save_player(&mut self, team: Team, mut player: Player) -> Result<(), AppError> {
+    fn insert_player(&mut self, team: Team, mut player: Player) -> Result<(), AppError> {
         self.db_client.transaction(|tx| {
             let insert_player_sql = "INSERT INTO player (
                                         team_id, first_name, last_name,
@@ -66,24 +87,45 @@ impl PlayerRepository for SqlPlayerRepository {
                 ],
             )?;
 
-            for defensive_skill in player.defensive_skills.iter() {
-                let insert_defensive_skill_sql = "INSERT INTO defensive_skill (
-                                                player_id, position, mod_uzr
-                                                ) VALUES (
-                                                ?1, ?2, ?3)";
-                self.db_client.execute_tx(
-                    tx,
-                    insert_defensive_skill_sql,
-                    params![
-                        generated_id,
-                        defensive_skill.position,
-                        defensive_skill.mod_uzr
-                    ],
-                )?;
+            for defensive_skill in player.defensive_skills {
+                self.insert_defensive_skill(tx, generated_id as u32, &defensive_skill)?;
             }
 
             if let Some(pitcher_attribute) = player.pitcher_attribute.take() {
-                let insert_pitcher_attribute_sql = "INSERT INTO pitcher_attribute (
+                self.insert_pitcher_attribute(tx, generated_id as u32, &pitcher_attribute)?;
+
+                for pitch_skill in pitcher_attribute.pitch_skills {
+                    self.insert_pitch_skill(tx, generated_id as u32, &pitch_skill)?;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn insert_defensive_skill(
+        &self,
+        tx: &Transaction,
+        player_id: u32,
+        defensive_skill: &DefensiveSkill,
+    ) -> Result<usize, AppError> {
+        let insert_defensive_skill_sql = "INSERT INTO defensive_skill (
+                                                player_id, position, mod_uzr
+                                                ) VALUES (
+                                                ?1, ?2, ?3)";
+        self.db_client.execute_tx(
+            tx,
+            insert_defensive_skill_sql,
+            params![player_id, defensive_skill.position, defensive_skill.mod_uzr],
+        )
+    }
+
+    fn insert_pitcher_attribute(
+        &self,
+        tx: &Transaction,
+        player_id: u32,
+        pitcher_attribute: &PitcherAttribute,
+    ) -> Result<usize, AppError> {
+        let insert_pitcher_attribute_sql = "INSERT INTO pitcher_attribute (
                                                             player_id,
                                                             pitcher_style,
                                                             mod_velocity,
@@ -95,24 +137,30 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             mod_platoon_splitting
                                                             ) VALUES (
                                                             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
-                self.db_client.execute_tx(
-                    tx,
-                    insert_pitcher_attribute_sql,
-                    params![
-                        generated_id,
-                        pitcher_attribute.pitcher_style,
-                        pitcher_attribute.mod_velocity,
-                        pitcher_attribute.mod_control,
-                        pitcher_attribute.mod_stamina,
-                        pitcher_attribute.mod_injury_proneness,
-                        pitcher_attribute.mod_clutch,
-                        pitcher_attribute.mod_hpp,
-                        pitcher_attribute.mod_platoon_splitting,
-                    ],
-                )?;
+        self.db_client.execute_tx(
+            tx,
+            insert_pitcher_attribute_sql,
+            params![
+                player_id,
+                pitcher_attribute.pitcher_style,
+                pitcher_attribute.mod_velocity,
+                pitcher_attribute.mod_control,
+                pitcher_attribute.mod_stamina,
+                pitcher_attribute.mod_injury_proneness,
+                pitcher_attribute.mod_clutch,
+                pitcher_attribute.mod_hpp,
+                pitcher_attribute.mod_platoon_splitting,
+            ],
+        )
+    }
 
-                for pitch_skill in pitcher_attribute.pitch_skills {
-                    let insert_pitch_skill_sql = "INSERT INTO pitch_skill (
+    fn insert_pitch_skill(
+        &self,
+        tx: &Transaction,
+        player_id: u32,
+        pitch_skill: &PitchSkill,
+    ) -> Result<usize, AppError> {
+        let insert_pitch_skill_sql = "INSERT INTO pitch_skill (
                                                             player_id,
                                                             pitch_type,
                                                             mod_velocity,
@@ -128,29 +176,25 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             mod_usage
                                                         ) VALUES (
                                                             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
-                    self.db_client.execute_tx(
-                        tx,
-                        insert_pitch_skill_sql,
-                        params![
-                            generated_id,
-                            pitch_skill.pitch_type,
-                            pitch_skill.mod_velocity,
-                            pitch_skill.mod_control,
-                            pitch_skill.mod_stamina,
-                            pitch_skill.mod_injury_proneness,
-                            pitch_skill.mod_stuff,
-                            pitch_skill.mod_fb,
-                            pitch_skill.mod_gp,
-                            pitch_skill.mod_horizontal_movement,
-                            pitch_skill.mod_vertical_movement,
-                            pitch_skill.mod_spin_rate,
-                            pitch_skill.mod_usage,
-                        ],
-                    )?;
-                }
-            }
-            Ok(())
-        })
+        self.db_client.execute_tx(
+            tx,
+            insert_pitch_skill_sql,
+            params![
+                player_id,
+                pitch_skill.pitch_type,
+                pitch_skill.mod_velocity,
+                pitch_skill.mod_control,
+                pitch_skill.mod_stamina,
+                pitch_skill.mod_injury_proneness,
+                pitch_skill.mod_stuff,
+                pitch_skill.mod_fb,
+                pitch_skill.mod_gp,
+                pitch_skill.mod_horizontal_movement,
+                pitch_skill.mod_vertical_movement,
+                pitch_skill.mod_spin_rate,
+                pitch_skill.mod_usage,
+            ],
+        )
     }
 
     fn random_name(&self, language: String) -> Result<FullName, AppError> {
@@ -599,7 +643,7 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
 
-        repo.save_player(Team::min(1, "ライオンズ"), player())
+        repo.insert_player(Team::min(1, "ライオンズ"), player())
             .unwrap();
 
         let conn = conn(&repo);
@@ -651,7 +695,7 @@ mod tests {
             },
         ];
 
-        repo.save_player(Team::min(1, "ライオンズ"), player)
+        repo.insert_player(Team::min(1, "ライオンズ"), player)
             .unwrap();
 
         let conn = conn(&repo);
@@ -689,7 +733,7 @@ mod tests {
             pitch_skills: Vec::new(),
         });
 
-        repo.save_player(Team::min(1, "ライオンズ"), player)
+        repo.insert_player(Team::min(1, "ライオンズ"), player)
             .unwrap();
 
         let conn = conn(&repo);
@@ -762,7 +806,7 @@ mod tests {
             }],
         });
 
-        repo.save_player(Team::min(1, "ライオンズ"), player)
+        repo.insert_player(Team::min(1, "ライオンズ"), player)
             .unwrap();
 
         let conn = conn(&repo);
@@ -823,7 +867,7 @@ mod tests {
         let (mut repo, path) = setup_repo_without_player_table();
         seed_team(&repo, 1, "ライオンズ");
 
-        let result = repo.save_player(Team::min(1, "ライオンズ"), player());
+        let result = repo.insert_player(Team::min(1, "ライオンズ"), player());
 
         assert!(result.is_err());
         std::fs::remove_file(path).ok();

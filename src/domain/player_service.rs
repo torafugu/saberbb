@@ -53,14 +53,17 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     pub fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
-        self.repo.save_player(team, player)
+        self.repo.insert_player(team, player)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Position, RL};
+    use crate::domain::shared::player::{
+        DefensiveSkill, FullName, PitchSkill, PitchType, PitcherAttribute, PitcherStyle, Position,
+        RL,
+    };
     use crate::domain::shared::prob::{
         BatterSkillProb, DefensiveSkillProb, ItemProb, PitchSkillProb, PitcherAttributeProb,
         PlayerAttributeProb,
@@ -69,6 +72,7 @@ mod tests {
     use crate::error::AppError;
     use crate::repositories::db::FromRow;
     use anyhow::anyhow;
+    use rusqlite::Transaction;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -203,7 +207,7 @@ mod tests {
     }
 
     impl PlayerRepository for RecordingRepo {
-        fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
+        fn insert_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
             let call_index = self.state.save_calls.get();
             self.state.save_calls.set(call_index + 1);
 
@@ -213,6 +217,33 @@ mod tests {
 
             self.state.saved.borrow_mut().push((team, player));
             Ok(())
+        }
+
+        fn insert_defensive_skill(
+            &self,
+            _tx: &Transaction,
+            _player_id: u32,
+            _defensive_skill: &DefensiveSkill,
+        ) -> Result<usize, AppError> {
+            Ok(1)
+        }
+
+        fn insert_pitcher_attribute(
+            &self,
+            _tx: &Transaction,
+            _player_id: u32,
+            _pitcher_attribute: &PitcherAttribute,
+        ) -> Result<usize, AppError> {
+            Ok(1)
+        }
+
+        fn insert_pitch_skill(
+            &self,
+            _tx: &Transaction,
+            _player_id: u32,
+            _pitch_skill: &PitchSkill,
+        ) -> Result<usize, AppError> {
+            Ok(1)
         }
 
         fn random_name(&self, language: String) -> Result<FullName, AppError> {

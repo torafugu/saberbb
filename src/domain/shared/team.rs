@@ -1,5 +1,4 @@
 use super::player::Position;
-use crate::domain::shared::game_state::MAX_BATTING_ORDER;
 use crate::domain::shared::player::Player;
 use crate::error::AppError;
 use rand::prelude::SliceRandom;
