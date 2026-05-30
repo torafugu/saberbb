@@ -68,7 +68,7 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                             // last_game_id += 1;
                             game_schedules.push(GameScheduler {
                                 id: 0, // Dummy
-                                season: game_season.season,
+                                season: game_season.season + 1,
                                 round_seq: round_seq,
                                 seq: day_offset + 1,
                                 planned_date: game_date,

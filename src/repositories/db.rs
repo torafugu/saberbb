@@ -245,7 +245,7 @@ impl DbClient {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare(query).map_err(|e| AppError::Database(e))?;
 
-        let mut mapped_rows = stmt
+        let mapped_rows = stmt
             .query_map(params, |row| Ok(T::from_row_with_ctx(row, ctx)))
             .map_err(|e| AppError::Database(e))?;
 

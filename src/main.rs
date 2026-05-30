@@ -1,26 +1,19 @@
-mod adapters;
-mod domain;
-mod error;
-mod i18n;
-mod repositories;
-
-use adapters::game_presenter::display_game_rounds_processed;
-use adapters::schedule_presenter::display_game_seasons_scheduled;
-use adapters::topmenu_presenter::display_menu;
 use anyhow::{Result, bail};
 use clap::Parser;
-use domain::game_service::GameService;
-use domain::player_service::PlayerService;
-use domain::schedule_service::ScheduleService;
-use i18n::I18nManager;
-use repositories::game_repository::SqlGameRepository;
-use repositories::player_repository::SqlPlayerRepository;
-use repositories::schedule_repository::SqlScheduleRepository;
-use repositories::statistics_repository::SqlStatRepository;
+use saberbb::adapters::game_presenter::display_game_rounds_processed;
+use saberbb::adapters::schedule_presenter::display_game_seasons_scheduled;
+use saberbb::adapters::topmenu_presenter::display_menu;
+use saberbb::domain::game_service::GameService;
+use saberbb::domain::player_factory::PlayerFactory;
+use saberbb::domain::player_service::PlayerService;
+use saberbb::domain::schedule_service::ScheduleService;
+use saberbb::i18n::I18nManager;
+use saberbb::repositories::game_repository::SqlGameRepository;
+use saberbb::repositories::player_repository::SqlPlayerRepository;
+use saberbb::repositories::schedule_repository::SqlScheduleRepository;
+use saberbb::repositories::statistics_repository::SqlStatRepository;
+use saberbb::{AppContext, app_context, init_app_context, t};
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
-
-use crate::domain::player_factory::PlayerFactory;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AppConfig {
@@ -36,15 +29,6 @@ impl Default for AppConfig {
     }
 }
 
-struct AppContext {
-    game_repository: SqlGameRepository,
-    player_repository: SqlPlayerRepository,
-    schedule_repository: SqlScheduleRepository,
-    statistics_repository: SqlStatRepository,
-}
-
-static APP_CONTEXT: OnceLock<AppContext> = OnceLock::new();
-
 fn main() -> Result<()> {
     // load default-config.toml and initialize I18nManager
     let cfg: AppConfig = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
@@ -57,14 +41,15 @@ fn main() -> Result<()> {
         schedule_repository: SqlScheduleRepository::new()?,
         statistics_repository: SqlStatRepository::new()?,
     };
-    APP_CONTEXT.set(ctx).ok();
+
+    init_app_context(ctx);
 
     let args = Args::parse();
 
     // Game Process Mode
     if let Some(num_of_rounds) = args.process {
         let mut game_service = GameService {
-            repo: APP_CONTEXT.get().unwrap().game_repository.clone(),
+            repo: app_context().game_repository.clone(),
         };
 
         for _ in 0..num_of_rounds {
@@ -79,7 +64,7 @@ fn main() -> Result<()> {
     // Player Generate Mode
     if let Some(num_of_players) = args.generate {
         let player_service = PlayerService {
-            repo: APP_CONTEXT.get().unwrap().player_repository.clone(),
+            repo: app_context().player_repository.clone(),
         };
         let mut player_factory = PlayerFactory::new(player_service);
         if let Err(e) = player_factory.generate_and_save_players(num_of_players) {
@@ -96,7 +81,7 @@ fn main() -> Result<()> {
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
         let mut schedule_service = ScheduleService {
-            repo: APP_CONTEXT.get().unwrap().schedule_repository.clone(),
+            repo: app_context().schedule_repository.clone(),
         };
         for _ in 0..num_of_schedules {
             if let Err(e) = schedule_service.schedule_season() {
