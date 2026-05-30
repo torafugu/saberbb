@@ -43,7 +43,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let mod_slg = skewed_normal_random(probs.batter_skill_prob.slg_skew);
 
         let mut defensive_skills = Vec::new();
-        // TODO: Should be changed to multiple skills
+        // TODO: Should be changed to multiple defence skills
         let defensive_skill =
             self.assign_defensive_skills(&probs.position_probs, &probs.defensive_skill_prob)?;
 
@@ -57,21 +57,17 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         };
         defensive_skills.push(defensive_skill);
 
-        let player = Player {
-            id: 0,
-            first_name: name.first,
-            last_name: name.last,
-            age: age,
-            throw: throw,
-            // TODO: consider multiple skill holder
-            defensive_skills: defensive_skills,
-            pitcher_attribute: pitcher_skill,
-            bat: bat,
-            mod_ba: mod_ba,
-            mod_slg: mod_slg,
-        };
-
-        Ok(player)
+        Ok(Player::new_unsaved(
+            &name.first,
+            &name.last,
+            age,
+            throw,
+            defensive_skills,
+            pitcher_skill,
+            bat,
+            mod_ba,
+            mod_slg,
+        ))
     }
 
     fn assign_defensive_skills(
@@ -108,54 +104,39 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
         let pitch_type_probs = self.service.pitch_type_probs(&pitcher_style)?;
 
-        let mut pitcher_skill = PitcherAttribute {
-            pitcher_style: pitcher_style,
-            mod_velocity: skewed_normal_random(pitcher_base_skill_prob.velocity_skew),
-            mod_control: skewed_normal_random(pitcher_base_skill_prob.control_skew),
-            mod_stamina: skewed_normal_random(pitcher_base_skill_prob.control_skew),
-            mod_injury_proneness: skewed_normal_random(
-                pitcher_base_skill_prob.injury_proneness_skew,
-            ),
-            mod_clutch: skewed_normal_random(pitcher_base_skill_prob.clutch_skew),
-            mod_hpp: skewed_normal_random(pitcher_base_skill_prob.hpp_skew),
-            mod_platoon_splitting: skewed_normal_random(
-                pitcher_base_skill_prob.platoon_splitting_skew,
-            ),
-            pitch_skills: Vec::new(),
-        };
-
         let mut pitch_skills: Vec<PitchSkill> = Vec::new();
         for pitch_type_prob in pitch_type_probs {
             let rng: f64 = rand::random();
             if rng < pitch_type_prob.prob {
                 let pitch_skill_prob = self.service.pitch_skill_prob(&pitch_type_prob.name)?;
-                let pitch_skill = PitchSkill {
-                    pitch_type: pitch_type_prob.name.clone(),
-                    mod_velocity: skewed_normal_random(pitch_skill_prob.velocity_skew),
-                    mod_control: skewed_normal_random(pitch_skill_prob.control_skew),
-                    mod_stamina: skewed_normal_random(pitch_skill_prob.stamina_skew),
-                    mod_injury_proneness: skewed_normal_random(
-                        pitch_skill_prob.injury_proneness_skew,
-                    ),
-                    mod_stuff: skewed_normal_random(pitch_skill_prob.stuff_skew),
-                    mod_fb: skewed_normal_random(pitch_skill_prob.fb_skew),
-                    mod_gp: skewed_normal_random(pitch_skill_prob.gp_skew),
-                    mod_horizontal_movement: skewed_normal_random(
-                        pitch_skill_prob.horizontal_movement_skew,
-                    ),
-                    mod_vertical_movement: skewed_normal_random(
-                        pitch_skill_prob.vertical_movement_skew,
-                    ),
-                    mod_spin_rate: skewed_normal_random(pitch_skill_prob.spin_rate_skew),
-                    mod_usage: skewed_normal_random(pitch_skill_prob.usage_skew),
-                };
-                pitch_skills.push(pitch_skill);
+                pitch_skills.push(PitchSkill::from_prob(
+                    pitch_type_prob.name.clone(),
+                    skewed_normal_random(pitch_skill_prob.velocity_skew),
+                    skewed_normal_random(pitch_skill_prob.control_skew),
+                    skewed_normal_random(pitch_skill_prob.stamina_skew),
+                    skewed_normal_random(pitch_skill_prob.injury_proneness_skew),
+                    skewed_normal_random(pitch_skill_prob.stuff_skew),
+                    skewed_normal_random(pitch_skill_prob.fb_skew),
+                    skewed_normal_random(pitch_skill_prob.gp_skew),
+                    skewed_normal_random(pitch_skill_prob.horizontal_movement_skew),
+                    skewed_normal_random(pitch_skill_prob.vertical_movement_skew),
+                    skewed_normal_random(pitch_skill_prob.spin_rate_skew),
+                    skewed_normal_random(pitch_skill_prob.usage_skew),
+                ));
             }
         }
 
-        pitcher_skill.pitch_skills = pitch_skills;
-
-        Ok(pitcher_skill)
+        Ok(PitcherAttribute::from_prob(
+            pitcher_style,
+            skewed_normal_random(pitcher_base_skill_prob.velocity_skew),
+            skewed_normal_random(pitcher_base_skill_prob.control_skew),
+            skewed_normal_random(pitcher_base_skill_prob.stamina_skew),
+            skewed_normal_random(pitcher_base_skill_prob.injury_proneness_skew),
+            skewed_normal_random(pitcher_base_skill_prob.clutch_skew),
+            skewed_normal_random(pitcher_base_skill_prob.hpp_skew),
+            skewed_normal_random(pitcher_base_skill_prob.platoon_splitting_skew),
+            pitch_skills,
+        ))
     }
 
     fn assign_team(&self, player: &Player) -> Result<Team, AppError> {

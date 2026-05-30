@@ -106,6 +106,30 @@ pub struct Player {
 }
 
 impl Player {
+    pub fn new_unsaved(
+        first_name: &str,
+        last_name: &str,
+        age: u8,
+        throw: RL,
+        defensive_skills: Vec<DefensiveSkill>,
+        pitcher_attribute: Option<PitcherAttribute>,
+        bat: RL,
+        mod_ba: f64,
+        mod_slg: f64,
+    ) -> Self {
+        Self {
+            id: 0,
+            first_name: Arc::from(first_name),
+            last_name: Arc::from(last_name),
+            age: age,
+            throw: throw,
+            defensive_skills: defensive_skills,
+            pitcher_attribute: pitcher_attribute,
+            bat: bat,
+            mod_ba: mod_ba,
+            mod_slg: mod_slg,
+        }
+    }
     pub fn default() -> Self {
         Player::min(1, PLAYER_NAME_DEFAULT, PLAYER_NAME_DEFAULT)
     }
@@ -220,6 +244,31 @@ pub struct PitcherAttribute {
     pub mod_platoon_splitting: f64,
     pub pitch_skills: Vec<PitchSkill>,
 }
+impl PitcherAttribute {
+    pub fn from_prob(
+        pitcher_style: PitcherStyle,
+        mod_velocity: f64,
+        mod_control: f64,
+        mod_stamina: f64,
+        mod_injury_proneness: f64,
+        mod_clutch: f64,
+        mod_hpp: f64,
+        mod_platoon_splitting: f64,
+        pitch_skills: Vec<PitchSkill>,
+    ) -> Self {
+        Self {
+            pitcher_style: pitcher_style,
+            mod_velocity: mod_velocity,
+            mod_control: mod_control,
+            mod_stamina: mod_stamina,
+            mod_injury_proneness: mod_injury_proneness,
+            mod_clutch: mod_clutch,
+            mod_hpp: mod_hpp,
+            mod_platoon_splitting: mod_platoon_splitting,
+            pitch_skills: pitch_skills,
+        }
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitchSkill {
@@ -235,4 +284,36 @@ pub struct PitchSkill {
     pub mod_vertical_movement: f64,
     pub mod_spin_rate: f64,
     pub mod_usage: f64, // TODO: Should be over written by strategy
+}
+
+impl PitchSkill {
+    pub fn from_prob(
+        pitch_type: PitchType,
+        mod_velocity: f64,
+        mod_control: f64,
+        mod_stamina: f64,
+        mod_injury_proneness: f64,
+        mod_stuff: f64,
+        mod_fb: f64,
+        mod_gp: f64,
+        mod_horizontal_movement: f64,
+        mod_vertical_movement: f64,
+        mod_spin_rate: f64,
+        mod_usage: f64,
+    ) -> Self {
+        Self {
+            pitch_type: pitch_type,
+            mod_velocity: mod_velocity,
+            mod_control: mod_control,
+            mod_stamina: mod_stamina,
+            mod_injury_proneness: mod_injury_proneness,
+            mod_stuff: mod_stuff,
+            mod_fb: mod_fb,
+            mod_gp: mod_gp,
+            mod_horizontal_movement: mod_horizontal_movement,
+            mod_vertical_movement: mod_vertical_movement,
+            mod_spin_rate: mod_spin_rate,
+            mod_usage: mod_usage,
+        }
+    }
 }
