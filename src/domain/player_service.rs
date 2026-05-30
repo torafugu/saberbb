@@ -34,7 +34,9 @@ impl<R: PlayerRepository> PlayerService<R> {
             Ok(team) => team,
             Err(AppError::NotFound(_)) => self.repo.next_random_team()?,
             Err(e) => {
-                return Err(AppError::Internal(anyhow!("Failed to fetch next team")));
+                return Err(AppError::Internal(
+                    anyhow::Error::new(e).context("Failed to fetch next team"),
+                ));
             }
         };
         Ok(team)
