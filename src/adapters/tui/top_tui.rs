@@ -6,7 +6,7 @@ const FRAME_RATE: f64 = 1.0;
 
 #[tokio::main]
 pub async fn menu() -> Result<()> {
-    // crate::errors::init()?;
+    super::errors::init()?;
     // crate::logging::init()?;
 
     // let args = Cli::parse();
