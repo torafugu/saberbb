@@ -1,4 +1,4 @@
-use super::menu_component::{init_terminal, restore_terminal};
+use super::menu_cui::{init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
 use crate::domain::statistics_service::StatService;
 use crate::i18n::I18nManager;

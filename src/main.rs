@@ -1,8 +1,9 @@
 use anyhow::{Result, bail};
 use clap::Parser;
-use saberbb::adapters::game_presenter::display_game_rounds_processed;
-use saberbb::adapters::schedule_presenter::display_game_seasons_scheduled;
-use saberbb::adapters::topmenu_presenter::display_menu;
+use saberbb::adapters::cui::game_cui::display_game_rounds_processed;
+use saberbb::adapters::cui::schedule_cui::display_game_seasons_scheduled;
+use saberbb::adapters::cui::top_cui::display_menu;
+use saberbb::adapters::tui::top_tui::menu;
 use saberbb::domain::game_service::GameService;
 use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
@@ -98,6 +99,11 @@ fn main() -> Result<()> {
         }
         display_game_seasons_scheduled(num_of_schedules);
     }
+
+    if args.top {
+        let _ = menu();
+    }
+
     Ok(())
 }
 
@@ -119,6 +125,10 @@ struct Args {
     /// View game result interactively
     #[arg(short, long)]
     menu: bool,
+
+    /// TUI game menu
+    #[arg(short, long)]
+    top: bool,
 
     /// Schedule games
     #[arg(short, long)]

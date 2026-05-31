@@ -1,4 +1,4 @@
-use super::menu_component::{MenuItem, init_terminal, restore_terminal};
+use super::menu_cui::{MenuItem, init_terminal, restore_terminal};
 use crate::APP_CONTEXT;
 use crate::domain::shared::game::{Base, Count, GameHeader, GameRow, TB};
 use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
