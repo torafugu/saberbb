@@ -11,6 +11,7 @@ error = {$function}() でエラーが発生しました。
 screen_io_error = 画面IOエラー
 date_parse_error = 日付パースエラー
 not_initialized = {$struct} は初期化されていません。
+select_menu = メニューを選択してEnterキーを押してください。
 select_season = 表示するシーズンを選択してください。
 select_game = 表示する試合を選択してください。
 interrupted = この処理は Ctrl + C で中断されました。

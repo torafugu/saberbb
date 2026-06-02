@@ -11,6 +11,7 @@ error = An error occurred in {$function}()
 screen_io_error = Screen IO error
 date_parse_error = Date parse error
 not_initialized = {$struct} is not initialized.
+select_menu = Press Enter to select a menu item.
 select_season = Please select the season to show.
 select_game = Please select the game to show.
 interrupted = This process was interrupted by Ctrl + C.

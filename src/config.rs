@@ -46,6 +46,9 @@ fn default_keybindings() -> KeybindingConfig {
             ("<Ctrl-d>".to_string(), "Quit".to_string()),
             ("<Ctrl-c>".to_string(), "Quit".to_string()),
             ("<Ctrl-z>".to_string(), "Suspend".to_string()),
+            ("<down>".to_string(), "SelectNext".to_string()),
+            ("<up>".to_string(), "SelectPrevious".to_string()),
+            ("<enter>".to_string(), "ConfirmSelection".to_string()),
         ]),
     )])
 }
