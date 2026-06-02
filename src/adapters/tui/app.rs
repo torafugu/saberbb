@@ -3,6 +3,7 @@ use super::components::Component;
 use super::components::home::Home;
 use super::config::Config;
 use super::tui::{Event, Tui};
+use crate::config::AppConfig;
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
@@ -29,7 +30,7 @@ pub enum Mode {
 }
 
 impl App {
-    pub fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+    pub fn new(tick_rate: f64, frame_rate: f64, app_config: AppConfig) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Ok(Self {
             tick_rate,
@@ -37,7 +38,7 @@ impl App {
             components: vec![Box::new(Home::new())],
             should_quit: false,
             should_suspend: false,
-            config: Config::new()?,
+            config: Config::from_app_config(app_config)?,
             mode: Mode::Home,
             last_tick_key_events: Vec::new(),
             action_tx,

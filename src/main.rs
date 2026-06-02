@@ -15,7 +15,6 @@ use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
 use saberbb::repositories::statistics_repository::SqlStatRepository;
 use saberbb::{AppContext, app_context, init_app_context, t};
-use serde::{Deserialize, Serialize};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -92,7 +91,7 @@ fn main() -> Result<()> {
     }
 
     if args.top {
-        let _ = menu();
+        let _ = menu(cfg.clone());
     }
 
     Ok(())

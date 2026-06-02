@@ -1,29 +1,16 @@
 #![allow(dead_code)] // Remove this once you start using the code
 
-use std::{collections::HashMap, env, path::PathBuf};
+use std::collections::HashMap;
 
 use super::action::Action;
 use super::app::Mode;
+use crate::config::{AppConfig, KeybindingConfig};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use directories::ProjectDirs;
-use lazy_static::lazy_static;
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, de::Deserializer};
-use tracing::error;
-
-const CONFIG: &str = include_str!("../../../.config/config.json5");
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
-    #[serde(default)]
-    pub data_dir: PathBuf,
-    #[serde(default)]
-    pub config_dir: PathBuf,
-}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
-    #[serde(default, flatten)]
     pub config: AppConfig,
     #[serde(default)]
     pub keybindings: KeyBindings,
@@ -31,97 +18,41 @@ pub struct Config {
     pub styles: Styles,
 }
 
-lazy_static! {
-    pub static ref PROJECT_NAME: String = env!("CARGO_CRATE_NAME").to_uppercase().to_string();
-    pub static ref DATA_FOLDER: Option<PathBuf> =
-        env::var(format!("{}_DATA", PROJECT_NAME.clone()))
-            .ok()
-            .map(PathBuf::from);
-    pub static ref CONFIG_FOLDER: Option<PathBuf> =
-        env::var(format!("{}_CONFIG", PROJECT_NAME.clone()))
-            .ok()
-            .map(PathBuf::from);
-}
-
 impl Config {
-    pub fn new() -> color_eyre::Result<Self, config::ConfigError> {
-        let default_config: Config = json5::from_str(CONFIG).unwrap();
-        let data_dir = get_data_dir();
-        let config_dir = get_config_dir();
-        let mut builder = config::Config::builder()
-            .set_default("data_dir", data_dir.to_str().unwrap())?
-            .set_default("config_dir", config_dir.to_str().unwrap())?;
+    pub fn from_app_config(app_config: AppConfig) -> color_eyre::Result<Self> {
+        let keybindings = KeyBindings::try_from(&app_config.keybindings)
+            .map_err(|e| color_eyre::eyre::eyre!(e))?;
 
-        let config_files = [
-            ("config.json5", config::FileFormat::Json5),
-            ("config.json", config::FileFormat::Json),
-            ("config.yaml", config::FileFormat::Yaml),
-            ("config.toml", config::FileFormat::Toml),
-            ("config.ini", config::FileFormat::Ini),
-        ];
-        let mut found_config = false;
-        for (file, format) in &config_files {
-            let source = config::File::from(config_dir.join(file))
-                .format(*format)
-                .required(false);
-            builder = builder.add_source(source);
-            if config_dir.join(file).exists() {
-                found_config = true
-            }
-        }
-        if !found_config {
-            error!("No configuration file found. Application may not behave as expected");
-        }
-
-        let mut cfg: Self = builder.build()?.try_deserialize()?;
-
-        for (mode, default_bindings) in default_config.keybindings.0.iter() {
-            let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
-            for (key, cmd) in default_bindings.iter() {
-                user_bindings
-                    .entry(key.clone())
-                    .or_insert_with(|| cmd.clone());
-            }
-        }
-        for (mode, default_styles) in default_config.styles.0.iter() {
-            let user_styles = cfg.styles.0.entry(*mode).or_default();
-            for (style_key, style) in default_styles.iter() {
-                user_styles.entry(style_key.clone()).or_insert(*style);
-            }
-        }
-
-        Ok(cfg)
+        Ok(Self {
+            config: app_config,
+            keybindings,
+            styles: Styles::default(),
+        })
     }
-}
-
-pub fn get_data_dir() -> PathBuf {
-    let directory = if let Some(s) = DATA_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.data_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".data")
-    };
-    directory
-}
-
-pub fn get_config_dir() -> PathBuf {
-    let directory = if let Some(s) = CONFIG_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.config_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".config")
-    };
-    directory
-}
-
-fn project_directory() -> Option<ProjectDirs> {
-    ProjectDirs::from("com", "kdheepak", env!("CARGO_PKG_NAME"))
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
+
+impl TryFrom<&KeybindingConfig> for KeyBindings {
+    type Error = String;
+
+    fn try_from(raw: &KeybindingConfig) -> Result<Self, Self::Error> {
+        let keybindings = raw
+            .iter()
+            .map(|(mode, inner_map)| {
+                let mode = parse_mode(mode)?;
+                let converted_inner_map = inner_map
+                    .iter()
+                    .map(|(key_str, cmd)| Ok((parse_key_sequence(key_str)?, parse_action(cmd)?)))
+                    .collect::<Result<HashMap<_, _>, String>>()?;
+                Ok((mode, converted_inner_map))
+            })
+            .collect::<Result<HashMap<_, _>, String>>()?;
+
+        Ok(KeyBindings(keybindings))
+    }
+}
 
 impl<'de> Deserialize<'de> for KeyBindings {
     fn deserialize<D>(deserializer: D) -> color_eyre::Result<Self, D::Error>
@@ -142,6 +73,26 @@ impl<'de> Deserialize<'de> for KeyBindings {
             .collect();
 
         Ok(KeyBindings(keybindings))
+    }
+}
+
+fn parse_mode(raw: &str) -> color_eyre::Result<Mode, String> {
+    match raw {
+        "Home" => Ok(Mode::Home),
+        _ => Err(format!("Unable to parse mode {raw}")),
+    }
+}
+
+fn parse_action(raw: &str) -> color_eyre::Result<Action, String> {
+    match raw {
+        "Tick" => Ok(Action::Tick),
+        "Render" => Ok(Action::Render),
+        "Suspend" => Ok(Action::Suspend),
+        "Resume" => Ok(Action::Resume),
+        "Quit" => Ok(Action::Quit),
+        "ClearScreen" => Ok(Action::ClearScreen),
+        "Help" => Ok(Action::Help),
+        _ => Err(format!("Unable to parse action {raw}")),
     }
 }
 
@@ -500,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_config() -> color_eyre::Result<()> {
-        let c = Config::new()?;
+        let c = Config::from_app_config(AppConfig::default())?;
         assert_eq!(
             c.keybindings
                 .0
