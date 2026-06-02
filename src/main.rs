@@ -4,6 +4,7 @@ use saberbb::adapters::cui::game_cui::display_game_rounds_processed;
 use saberbb::adapters::cui::schedule_cui::display_game_seasons_scheduled;
 use saberbb::adapters::cui::top_cui::display_menu;
 use saberbb::adapters::tui::top_tui::menu;
+use saberbb::config::load_app_config;
 use saberbb::domain::game_service::GameService;
 use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
@@ -16,24 +17,11 @@ use saberbb::repositories::statistics_repository::SqlStatRepository;
 use saberbb::{AppContext, app_context, init_app_context, t};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct AppConfig {
-    version: u8,
-    language: String,
-}
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            version: 1,
-            language: String::from("en-US"),
-        }
-    }
-}
+use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     // load default-config.toml and initialize I18nManager
-    let cfg: AppConfig = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
+    let cfg = load_app_config()?;
 
     I18nManager::init(&cfg.language);
 
@@ -48,7 +36,10 @@ fn main() -> Result<()> {
     let file_appender = tracing_appender::rolling::daily("log", "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    tracing_subscriber::fmt().with_writer(non_blocking).init();
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 
     let args = Args::parse();
 

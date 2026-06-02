@@ -1,7 +1,7 @@
+use crate::config::load_app_config;
 use crate::error::AppError;
 use anyhow::Result;
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
-use directories::ProjectDirs;
 use rusqlite::Connection;
 use rusqlite::types::FromSql;
 use std::fs;
@@ -66,13 +66,10 @@ impl SqlDb {
 }
 
 pub fn create_sqlite_pool() -> Result<Pool<SqliteManager>> {
-    let proj_dirs =
-        ProjectDirs::from("jp", "cosmi", "saberbb").expect("Data directory is not found");
-
-    let data_dir = proj_dirs.data_dir();
-    fs::create_dir_all(data_dir)?;
-
-    let db_path = data_dir.join("saberbb.db");
+    let db_path = load_app_config()?.database_path;
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
     let manager = SqliteManager { path: db_path };
 

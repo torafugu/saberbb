@@ -267,7 +267,7 @@ mod tests {
         assert!(!schedules.is_empty());
         for schedule in schedules {
             assert_eq!(schedule.id, 0);
-            assert_eq!(schedule.season, 2026);
+            assert_eq!(schedule.season, 2027); // 2026 + 1
             assert!(matches!(schedule.game_type, GameType::Regular));
         }
     }

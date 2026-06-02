@@ -1,5 +1,4 @@
 use super::game::{Count, GameRow, Inning, TB};
-use crate::t;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -117,7 +116,7 @@ impl GameCursor {
             .innings
             .iter()
             .find(|i| i.is(self.inning_seq, self.inning_tb))
-            .expect(&t!("not_found", "property" => "Inning"))
+            .expect("Inning is not found")
             .clone()
     }
 
@@ -126,7 +125,7 @@ impl GameCursor {
             .counts
             .iter()
             .find(|i| i.seq == self.count_seq)
-            .expect(&t!("not_found", "property" => "Count"))
+            .expect("Count is not found")
             .clone()
     }
 

@@ -266,7 +266,7 @@ impl GameRepository for SqlGameRepository {
                                     ON count.right_fielder_id = rf.id 
                                 WHERE game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3";
         self.db_client
-            .query_rows::<Count>(query, params![game_id, inning_seq, inning_tb])
+            .query_rows::<Count>(query, params![game_id, inning_seq, inning_tb.as_ref()])
     }
 }
 
