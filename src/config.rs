@@ -48,6 +48,8 @@ fn default_keybindings() -> KeybindingConfig {
             ("<Ctrl-z>".to_string(), "Suspend".to_string()),
             ("<down>".to_string(), "SelectNext".to_string()),
             ("<up>".to_string(), "SelectPrevious".to_string()),
+            ("<right>".to_string(), "NextCount".to_string()),
+            ("<left>".to_string(), "PreviousCount".to_string()),
             ("<enter>".to_string(), "ConfirmSelection".to_string()),
         ]),
     )])

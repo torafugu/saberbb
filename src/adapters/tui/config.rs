@@ -95,6 +95,8 @@ fn parse_action(raw: &str) -> color_eyre::Result<Action, String> {
         "SelectNext" => Ok(Action::SelectNext),
         "SelectPrevious" => Ok(Action::SelectPrevious),
         "ConfirmSelection" => Ok(Action::ConfirmSelection),
+        "NextCount" => Ok(Action::NextCount),
+        "PreviousCount" => Ok(Action::PreviousCount),
         _ => Err(format!("Unable to parse action {raw}")),
     }
 }

@@ -14,9 +14,9 @@ pub enum MenuOption {
 impl fmt::Display for MenuOption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
-            Self::ViewStandings => t!("view_standings"),
-            Self::ViewGameResults => t!("view_game_results"),
-            Self::ViewBattingStat => t!("view_batting_stat"),
+            Self::ViewStandings => t!("standings"),
+            Self::ViewGameResults => t!("game_results"),
+            Self::ViewBattingStat => t!("batting_stat"),
         };
         write!(f, "{label}")
     }
@@ -36,5 +36,7 @@ pub enum Action {
     SelectNext,
     SelectPrevious,
     ConfirmSelection,
+    NextCount,
+    PreviousCount,
     MenuItemSelected(MenuOption),
 }

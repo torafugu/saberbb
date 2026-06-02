@@ -1,8 +1,11 @@
-use super::standings::StandingsWidget;
+use super::super::app::Mode;
 use super::Component;
+use super::game_results::GameResultsWidget;
+use super::standings::StandingsWidget;
 use crate::adapters::tui::action::{Action, MenuOption};
 use crate::adapters::tui::config::Config;
 use crate::t;
+use crossterm::event::KeyEvent;
 use ratatui::{prelude::*, widgets::*};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc::UnboundedSender;
@@ -14,6 +17,7 @@ pub struct Home {
     menu_items: Vec<MenuOption>,
     menu_state: ListState,
     selected_item: Option<MenuOption>,
+    game_results: GameResultsWidget,
 }
 
 impl Home {
@@ -24,6 +28,7 @@ impl Home {
         Self {
             menu_items: MenuOption::iter().collect(),
             menu_state,
+            game_results: GameResultsWidget::new(),
             ..Default::default()
         }
     }
@@ -57,16 +62,54 @@ impl Home {
 
 impl Component for Home {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
-        self.command_tx = Some(tx);
+        self.command_tx = Some(tx.clone());
+        self.game_results.register_action_handler(tx)?;
         Ok(())
     }
 
     fn register_config_handler(&mut self, config: Config) -> color_eyre::Result<()> {
-        self.config = config;
+        self.config = config.clone();
+        self.game_results.register_config_handler(config)?;
         Ok(())
     }
 
+    fn init(&mut self, area: Size) -> color_eyre::Result<()> {
+        self.game_results.init(area)?;
+        Ok(())
+    }
+
+    fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
+        if matches!(self.selected_item, Some(MenuOption::ViewGameResults)) {
+            if self
+                .config
+                .keybindings
+                .0
+                .get(&Mode::Home)
+                .is_some_and(|keymap| keymap.contains_key(&vec![key]))
+            {
+                return Ok(None);
+            }
+
+            return self.game_results.handle_key_event(key);
+        }
+
+        Ok(None)
+    }
+
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
+        if matches!(self.selected_item, Some(MenuOption::ViewGameResults))
+            && matches!(
+                action,
+                Action::SelectNext
+                    | Action::SelectPrevious
+                    | Action::ConfirmSelection
+                    | Action::NextCount
+                    | Action::PreviousCount
+            )
+        {
+            return self.game_results.update(action);
+        }
+
         match action {
             Action::Tick => {
                 // add any logic here that should run on every tick
@@ -119,6 +162,7 @@ impl Component for Home {
 
         match self.selected_item {
             Some(MenuOption::ViewStandings) => frame.render_widget(StandingsWidget, layout[1]),
+            Some(MenuOption::ViewGameResults) => self.game_results.draw(frame, layout[1])?,
             _ => {
                 let details = self.detail_text();
                 frame.render_widget(

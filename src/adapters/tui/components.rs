@@ -10,6 +10,7 @@ use super::config::Config;
 use super::tui::Event;
 
 // pub mod fps;
+pub mod game_results;
 pub mod home;
 pub mod standings;
 
