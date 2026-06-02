@@ -11,6 +11,10 @@ pub struct AppConfig {
     pub version: u8,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_tick_rate")]
+    pub tick_rate: f64,
+    #[serde(default = "default_frame_rate")]
+    pub frame_rate: f64,
     #[serde(default = "default_database_path")]
     pub database_path: PathBuf,
     #[serde(default = "default_keybindings")]
@@ -21,6 +25,8 @@ impl Default for AppConfig {
         Self {
             version: default_version(),
             language: default_language(),
+            tick_rate: default_tick_rate(),
+            frame_rate: default_frame_rate(),
             database_path: default_database_path(),
             keybindings: default_keybindings(),
         }
@@ -50,6 +56,14 @@ fn default_version() -> u8 {
 
 fn default_language() -> String {
     String::from("en-US")
+}
+
+fn default_tick_rate() -> f64 {
+    1.0
+}
+
+fn default_frame_rate() -> f64 {
+    1.0
 }
 
 fn default_database_path() -> PathBuf {

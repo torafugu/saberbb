@@ -30,8 +30,10 @@ pub enum Mode {
 }
 
 impl App {
-    pub fn new(tick_rate: f64, frame_rate: f64, app_config: AppConfig) -> color_eyre::Result<Self> {
+    pub fn new(app_config: AppConfig) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
+        let tick_rate = app_config.tick_rate;
+        let frame_rate = app_config.frame_rate;
         Ok(Self {
             tick_rate,
             frame_rate,
