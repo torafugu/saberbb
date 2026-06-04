@@ -2,21 +2,22 @@
 
 ## Tables
 
-| Name                                      | Columns | Comment | Type  |
-| ----------------------------------------- | ------- | ------- | ----- |
-| [first_names](first_names.md)             | 5       |         | table |
-| [last_names](last_names.md)               | 4       |         | table |
-| [count](count.md)                         | 18      |         | table |
-| [inning](inning.md)                       | 3       |         | table |
-| [league](league.md)                       | 2       |         | table |
-| [team](team.md)                           | 3       |         | table |
-| [game_season](game_season.md)             | 4       |         | table |
-| [game](game.md)                           | 11      |         | table |
-| [defensive_skill](defensive_skill.md)     | 3       |         | table |
-| [item_prob](item_prob.md)                 | 3       |         | table |
-| [player](player.md)                       | 9       |         | table |
-| [pitch_skill](pitch_skill.md)             | 13      |         | table |
-| [pitcher_attribute](pitcher_attribute.md) | 9       |         | table |
+| Name                                              | Columns | Comment | Type  |
+| ------------------------------------------------- | ------- | ------- | ----- |
+| [first_names](first_names.md)                     | 5       |         | table |
+| [last_names](last_names.md)                       | 4       |         | table |
+| [inning](inning.md)                               | 3       |         | table |
+| [league](league.md)                               | 2       |         | table |
+| [team](team.md)                                   | 3       |         | table |
+| [game_season](game_season.md)                     | 4       |         | table |
+| [game](game.md)                                   | 11      |         | table |
+| [defensive_skill](defensive_skill.md)             | 3       |         | table |
+| [item_prob](item_prob.md)                         | 3       |         | table |
+| [player](player.md)                               | 9       |         | table |
+| [pitch_skill](pitch_skill.md)                     | 13      |         | table |
+| [pitcher_attribute](pitcher_attribute.md)         | 9       |         | table |
+| [count](count.md)                                 | 8       |         | table |
+| [batting_order_history](batting_order_history.md) | 11      |         | table |
 
 ## Relations
 

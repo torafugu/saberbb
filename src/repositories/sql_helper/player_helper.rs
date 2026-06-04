@@ -1,4 +1,6 @@
-use crate::domain::shared::player::{FullName, PitchType, PitcherStyle, Player, Position, RL};
+use crate::domain::shared::player::{
+    DefensiveSkill, FullName, PitchType, PitcherStyle, Player, Position, RL,
+};
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -102,5 +104,20 @@ impl FromRow for Player {
         player.validate()?;
 
         Ok(player)
+    }
+}
+
+impl FromRow for DefensiveSkill {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let defensive_skill = DefensiveSkill {
+            position: row.get("position")?,
+            mod_uzr: row.get("mod_uzr")?,
+        };
+
+        defensive_skill.validate()?;
+
+        Ok(defensive_skill)
     }
 }

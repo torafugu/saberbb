@@ -1,11 +1,10 @@
+use super::game_history::BattingOrderHistory;
 use super::game_state::GameState;
-use super::player::Player;
 use super::team::Team;
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::Arc;
 use strum_macros::{AsRefStr, EnumString};
 use validator::Validate;
 
@@ -79,8 +78,23 @@ pub struct GameResult {
     pub innings: Vec<Inning>,
     pub away_points: u8,
     pub home_points: u8,
+    pub batting_order_histories: Vec<BattingOrderHistory>,
 }
 impl GameResult {
+    pub fn new(
+        id: u32,
+        actual_date: NaiveDate,
+        batting_order_histories: Vec<BattingOrderHistory>,
+    ) -> Self {
+        Self {
+            id: id,
+            actual_date: actual_date,
+            innings: Vec::new(),
+            away_points: 0,
+            home_points: 0,
+            batting_order_histories: batting_order_histories,
+        }
+    }
     pub fn update_point(&mut self, game_state: &GameState) {
         if game_state.inning_tb == TB::Bottom {
             self.home_points = game_state.home_total_point;
@@ -126,16 +140,6 @@ impl Inning {
 pub struct Count {
     pub seq: u8,
     pub bases_occupied: u8,
-    pub pitcher: Arc<Player>,
-    pub catcher: Arc<Player>,
-    pub first_baseman: Arc<Player>,
-    pub second_baseman: Arc<Player>,
-    pub third_baseman: Arc<Player>,
-    pub shortstop: Arc<Player>,
-    pub left_fielder: Arc<Player>,
-    pub center_fielder: Arc<Player>,
-    pub right_fielder: Arc<Player>,
-    pub batter: Arc<Player>,
     pub result: BattingResult,
     pub point: u8,
     pub out: u8,

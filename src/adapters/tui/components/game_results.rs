@@ -368,17 +368,22 @@ impl GameResultsWidget {
         formatted_count.push_str(&format!(
             "{}: {}\n",
             t!("batter"),
-            I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+            "Batter" // TODO: Shoudl be retrieved from BattingOrderHistory
+                     // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
         ));
-        formatted_count.push_str(&format!(
-            "{}: .{}\n",
-            t!("ba"),
-            (count.batter.hit_average() * 1000.0).round()
-        ));
+        formatted_count.push_str(
+            &format!(
+                "{}: .{}\n",
+                t!("ba"),
+                // TODO: Shoudl be retrieved from BattingOrderHistory
+                "0.3"
+            ), // (count.batter.hit_average() * 1000.0).round())
+        );
         formatted_count.push_str(&format!(
             "{}: .{}\n",
             t!("slg"),
-            (count.batter.slg() * 1000.0).round()
+            // TODO: Shoudl be retrieved from BattingOrderHistory
+            "0.3" // (count.batter.slg() * 1000.0).round()
         ));
         formatted_count.push_str(&format!("{}: {}\n", t!("batting_result"), count.result));
         if count.point > 0 {

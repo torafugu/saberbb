@@ -1,12 +1,10 @@
 use crate::domain::shared::game::{
     BattingResult, Count, GameHeader, GameRow, GameScheduler, GameSeason, GameType, Inning, TB,
 };
-use crate::domain::shared::player::Player;
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use std::sync::Arc;
 use validator::Validate;
 
 impl ToSql for GameType {
@@ -183,58 +181,6 @@ impl FromRow for Count {
             seq: row.get("seq")?,
             bases_occupied: row.get("bases_occupied")?,
             result: row.get::<_, BattingResult>("result")?,
-            pitcher: Arc::from(Player::min(
-                row.get("p_id")?,
-                &row.get::<_, String>("p_first_name")?,
-                &row.get::<_, String>("p_last_name")?,
-            )),
-            catcher: Arc::from(Player::min(
-                row.get("c_id")?,
-                &row.get::<_, String>("c_first_name")?,
-                &row.get::<_, String>("c_last_name")?,
-            )),
-            first_baseman: Arc::from(Player::min(
-                row.get("fb_id")?,
-                &row.get::<_, String>("fb_first_name")?,
-                &row.get::<_, String>("fb_last_name")?,
-            )),
-            second_baseman: Arc::from(Player::min(
-                row.get("sb_id")?,
-                &row.get::<_, String>("sb_first_name")?,
-                &row.get::<_, String>("sb_last_name")?,
-            )),
-            third_baseman: Arc::from(Player::min(
-                row.get("tb_id")?,
-                &row.get::<_, String>("tb_first_name")?,
-                &row.get::<_, String>("tb_last_name")?,
-            )),
-            shortstop: Arc::from(Player::min(
-                row.get("ss_id")?,
-                &row.get::<_, String>("ss_first_name")?,
-                &row.get::<_, String>("ss_last_name")?,
-            )),
-            left_fielder: Arc::from(Player::min(
-                row.get("lf_id")?,
-                &row.get::<_, String>("lf_first_name")?,
-                &row.get::<_, String>("lf_last_name")?,
-            )),
-            center_fielder: Arc::from(Player::min(
-                row.get("cf_id")?,
-                &row.get::<_, String>("cf_first_name")?,
-                &row.get::<_, String>("cf_last_name")?,
-            )),
-            right_fielder: Arc::from(Player::min(
-                row.get("rf_id")?,
-                &row.get::<_, String>("rf_first_name")?,
-                &row.get::<_, String>("rf_last_name")?,
-            )),
-            batter: Arc::from(Player::batter(
-                row.get("b_id")?,
-                &row.get::<_, String>("b_first_name")?,
-                &row.get::<_, String>("b_last_name")?,
-                row.get("ba")?,
-                row.get("slg")?,
-            )),
             point: row.get("point")?,
             out: row.get("out")?,
         };

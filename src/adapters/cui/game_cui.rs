@@ -161,12 +161,13 @@ fn format_count(count: &Count) -> String {
     formated_count.push_str(&format!(
         "{}: {}\n",
         t!("batter"),
-        I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+        "Batter" // TODO: Shoudl be retrieved from BattingOrderHistory
+                 // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
     ));
-    let rounded_ba = (count.batter.hit_average() * 1000.0).round();
-    formated_count.push_str(&format!(" {} : .{}\n", t!("ba"), rounded_ba));
-    let rounded_slg = (count.batter.slg() * 1000.0).round();
-    formated_count.push_str(&format!(" {}: .{}\n", t!("slg"), rounded_slg));
+    // let rounded_ba = (count.batter.hit_average() * 1000.0).round();
+    // formated_count.push_str(&format!(" {} : .{}\n", t!("ba"), rounded_ba));
+    // let rounded_slg = (count.batter.slg() * 1000.0).round();
+    // formated_count.push_str(&format!(" {}: .{}\n", t!("slg"), rounded_slg));
     formated_count.push_str(&format!("{}: {}\n", t!("batting_result"), count.result));
     if count.point > 0 {
         formated_count.push_str(&format!("{}: +{}\n", t!("score"), count.point));
@@ -286,11 +287,13 @@ pub fn display_batting_results(game: &GameRow) {
     let mut _top_results: BTreeMap<String, String> = BTreeMap::new();
     let mut _bottom_results: BTreeMap<String, String> = BTreeMap::new();
 
+    // TODO: Shoudl be retrieved from BattingOrderHistory
     for inning in game.innings.iter() {
         for count in inning.counts.iter() {
             if inning.tb == TB::Top {
                 _top_results
-                    .entry(count.batter.last_name.to_string())
+                    // .entry(count.batter.last_name.to_string())
+                    .entry("AAA".to_string())
                     .and_modify(|e| {
                         e.push_str(SPACE);
                         e.push_str(count.result.to_string().as_str());
@@ -298,7 +301,8 @@ pub fn display_batting_results(game: &GameRow) {
                     .or_insert(count.result.to_string());
             } else {
                 _bottom_results
-                    .entry(count.batter.last_name.to_string())
+                    // .entry(count.batter.last_name.to_string())
+                    .entry("BBB".to_string())
                     .and_modify(|e| {
                         e.push_str(SPACE);
                         e.push_str(count.result.to_string().as_str());

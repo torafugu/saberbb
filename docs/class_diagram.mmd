@@ -12,6 +12,16 @@ classDiagram
         +f64 mod_slg
     }
 
+    class FullName {
+        +Arc~str~ first
+        +Arc~str~ last
+    }
+
+    class ItemProb~T~ {
+        +T name
+        +f64 prob
+    }
+
     class PlayerAttributeProb {
         +f64 age_shape
         +f64 age_scale
@@ -86,6 +96,15 @@ classDiagram
         +f64 usage_skew
     }
 
+    class PlayerProb {
+        +PlayerAttributeProb player_attribute_prob
+        +BatterSkillProb batter_skill_prob
+        +Vec~ItemProb(Position)~ position_probs
+        +DefensiveSkillProb defensive_skill_prob
+        +Vec~ItemProb(PitcherStyle)~ pitcher_style_probs
+        +PitcherAttributeProb pitcher_attribute_prob
+    }
+
     class League {
         +u16 id
         +Arc~str~ name
@@ -142,6 +161,7 @@ classDiagram
         +Vec~Inning~ innings
         +u8 away_points
         +u8 home_points
+        +Vec~BattingOrderHistory~ batting_order_histories
     }
 
     class GameRow {
@@ -161,23 +181,13 @@ classDiagram
 
     class Inning {
         +u8 seq
-        +InningType tb
+        +TB tb
         +Vec~Count~ counts
     }
 
     class Count {
         +u8 seq
         +u8 bases_occupied
-        +Arc~Player~ pitcher
-        +Arc~Player~ catcher
-        +Arc~Player~ first_baseman
-        +Arc~Player~ second_baseman
-        +Arc~Player~ third_baseman
-        +Arc~Player~ shortstop
-        +Arc~Player~ left_fielder
-        +Arc~Player~ center_fielder
-        +Arc~Player~ right_fielder
-        +Arc~Player~ batter
         +BattingResult result
         +u8 point
         +u8 out
@@ -185,13 +195,11 @@ classDiagram
 
     class GameState {
         +u8 inning_seq
-        +InningType inning_tb
+        +TB inning_tb
         +u8 away_total_point
         +u8 home_total_point
-        +Lineup away_batters
-        +Lineup home_batters
-        +Fielder away_fielders
-        +Fielder home_fielders
+        +Lineup away_lineup
+        +Lineup home_lineup
     }
 
     class InningState {
@@ -202,25 +210,32 @@ classDiagram
 
     class Lineup {
         +usize current_index
-        +Vec~Player~ batters
+        +Vec~BattingOrder~ batters
     }
 
-    class Fielder {
-        +Player pitcher
-        +Player catcher
-        +Player first_baseman
-        +Player second_baseman
-        +Player third_baseman
-        +Player shortstop
-        +Player left_fielder
-        +Player center_fielder
-        +Player right_fielder
+    class BattingOrder {
+        +u8 index
+        +Position position
+        +Player player
+    }
+
+    class BattingOrderHistory {
+        +u8 start_inning_seq
+        +TB start_inning_tb
+        +u8 start_count_seq
+        +Option~u8~ end_inning_seq
+        +Option~TB~ end_inning_tb
+        +Option~u8~ end_count_seq
+        +u16 team_id
+        +u8 index
+        +Position position
+        +u32 player_id
     }
 
     class GameCursor {
         -Arc~GameRow~ game
         +u8 inning_seq
-        +InningType inning_tb
+        +TB inning_tb
         +u8 count_seq
         +bool is_last_bottom_inning_skiped
     }
@@ -288,7 +303,7 @@ classDiagram
         DH
     }
 
-    class InningType {
+    class TB {
         <<enumeration>>
         Top
         Bottom
@@ -340,6 +355,12 @@ classDiagram
     PitcherAttribute "1" --> "0..*" PitchSkill : pitch_skills
     PitchSkill --> PitchType : pitch_type
     PitchSkillProb --> PitchType : pitch_type
+    PlayerProb --> PlayerAttributeProb : player_attribute_prob
+    PlayerProb --> BatterSkillProb : batter_skill_prob
+    PlayerProb --> ItemProb : position_probs
+    PlayerProb --> DefensiveSkillProb : defensive_skill_prob
+    PlayerProb --> ItemProb : pitcher_style_probs
+    PlayerProb --> PitcherAttributeProb : pitcher_attribute_prob
 
     League "1" --> "0..*" Team : teams
     Team "1" --> "0..*" Player : players
@@ -354,6 +375,7 @@ classDiagram
     GameHeader --> GameType : game_type
 
     GameResult "1" --> "0..*" Inning : innings
+    GameResult "1" --> "0..*" BattingOrderHistory : batting_order_histories
     GameResult --> GameState : update_point
 
     GameRow --> Team : away_team
@@ -361,26 +383,14 @@ classDiagram
     GameRow --> GameType : game_type
     GameRow "1" --> "0..*" Inning : innings
 
-    Inning --> InningType : tb
+    Inning --> TB : tb
     Inning "1" --> "0..*" Count : counts
 
-    Count --> Player : pitcher
-    Count --> Player : catcher
-    Count --> Player : first_baseman
-    Count --> Player : second_baseman
-    Count --> Player : third_baseman
-    Count --> Player : shortstop
-    Count --> Player : left_fielder
-    Count --> Player : center_fielder
-    Count --> Player : right_fielder
-    Count --> Player : batter
     Count --> BattingResult : result
 
-    GameState --> InningType : inning_tb
-    GameState --> Lineup : away_batters
-    GameState --> Lineup : home_batters
-    GameState --> Fielder : away_fielders
-    GameState --> Fielder : home_fielders
+    GameState --> TB : inning_tb
+    GameState --> Lineup : away_lineup
+    GameState --> Lineup : home_lineup
     GameState --> GameProgress : progress
     GameState --> Inning : advance_half_inning
 
@@ -388,19 +398,15 @@ classDiagram
     InningState --> BattingResult : advance
     InningState --> Count : batting_resolve
 
-    Lineup "1" --> "0..*" Player : batters
-    Fielder --> Player : pitcher
-    Fielder --> Player : catcher
-    Fielder --> Player : first_baseman
-    Fielder --> Player : second_baseman
-    Fielder --> Player : third_baseman
-    Fielder --> Player : shortstop
-    Fielder --> Player : left_fielder
-    Fielder --> Player : center_fielder
-    Fielder --> Player : right_fielder
+    Lineup "1" --> "1..*" BattingOrder : batters
+    BattingOrder --> Position : position
+    BattingOrder --> Player : player
+    BattingOrderHistory --> TB : start_inning_tb
+    BattingOrderHistory --> TB : end_inning_tb
+    BattingOrderHistory --> Position : position
 
     GameCursor --> GameRow : game
-    GameCursor --> InningType : inning_tb
+    GameCursor --> TB : inning_tb
     GameCursor --> Count : current_count
     GameCursor --> ScoreBoard : current_scoreboard
 

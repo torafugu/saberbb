@@ -1,17 +1,20 @@
 use super::game::{Base, BattingResult, Count, Inning, TB};
-use super::player::Player;
+use super::game_history::BattingOrderHistory;
+use super::player::{Player, Position};
+use super::team::{BattingOrder, Lineup};
 use crate::domain::resolver::simulate_batting;
 use crate::domain::utils::is_base_occupied;
-use std::sync::Arc;
 
 pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
-pub const MAX_BATTING_ORDER: usize = 9;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GameError {
-    #[error("Failed to initialize lineup")]
-    Lineup,
+    #[error("No players for position: {0}")]
+    NoPlayerFor(String),
+
+    #[error("Failed to initialize lineup at {0}")]
+    Lineup(String),
 
     #[error("Failed to retrieve current batter")]
     CurrentBatter,
@@ -33,16 +36,9 @@ pub struct GameState {
     pub home_total_point: u8,
     pub away_lineup: Lineup,
     pub home_lineup: Lineup,
-    pub away_fielders: Fielder,
-    pub home_fielders: Fielder,
 }
 impl GameState {
-    pub fn new(
-        away_lineup: Lineup,
-        home_lineup: Lineup,
-        away_fielders: Fielder,
-        home_fielders: Fielder,
-    ) -> Result<GameState, GameError> {
+    pub fn new(away_lineup: Lineup, home_lineup: Lineup) -> Result<GameState, GameError> {
         Ok(GameState {
             // Initialization: 1 should be set at the beginning of the game
             inning_seq: 0,
@@ -52,8 +48,6 @@ impl GameState {
             home_total_point: 0,
             away_lineup: away_lineup,
             home_lineup: home_lineup,
-            away_fielders: away_fielders,
-            home_fielders: home_fielders,
         })
     }
 
@@ -114,6 +108,21 @@ impl GameState {
         }
     }
 
+    pub fn current_pitcher(&mut self) -> Result<Player, GameError> {
+        let lineup = if self.inning_tb == TB::Top {
+            &self.home_lineup
+        } else {
+            &self.away_lineup
+        };
+
+        lineup
+            .batters
+            .iter()
+            .find(|i| i.is(Position::P))
+            .map(|i| i.player.clone())
+            .ok_or_else(|| GameError::NoPlayerFor(Position::P.to_string()))
+    }
+
     pub fn current_batter(&mut self) -> Result<Player, GameError> {
         if self.inning_tb == TB::Top {
             if let Some(player) = self.away_lineup.next() {
@@ -130,12 +139,36 @@ impl GameState {
         }
     }
 
-    pub fn current_fielders(&mut self) -> &Fielder {
-        if self.inning_tb == TB::Top {
-            &self.home_fielders
-        } else {
-            &self.away_fielders
+    pub fn init_batting_order_histories(
+        away_team_id: u16,
+        home_team_id: u16,
+        away_team_batting_orders: &Vec<BattingOrder>,
+        home_team_batting_orders: &Vec<BattingOrder>,
+    ) -> Vec<BattingOrderHistory> {
+        let mut batting_order_histories = Vec::new();
+        for away_team_batting_order in away_team_batting_orders {
+            batting_order_histories.push(BattingOrderHistory::new(
+                1,
+                TB::Top,
+                1,
+                away_team_id,
+                away_team_batting_order.index,
+                away_team_batting_order.position.clone(),
+                away_team_batting_order.player.id,
+            ));
         }
+        for home_team_batting_order in home_team_batting_orders {
+            batting_order_histories.push(BattingOrderHistory::new(
+                1,
+                TB::Bottom,
+                1,
+                home_team_id,
+                home_team_batting_order.index,
+                home_team_batting_order.position.clone(),
+                home_team_batting_order.player.id,
+            ));
+        }
+        batting_order_histories
     }
 
     pub fn add_point(&mut self, point: u8) {
@@ -175,7 +208,7 @@ impl InningState {
         InningProgress::Ongoing
     }
 
-    pub fn batting_resolve(&mut self, batter: &Player, fielders: &Fielder) -> Count {
+    pub fn batting_resolve(&mut self, pitcher: &Player, batter: &Player) -> Count {
         let batting_result = simulate_batting(batter);
         if batting_result.is_out() {
             self.add_out(1);
@@ -184,16 +217,6 @@ impl InningState {
         Count {
             seq: self.count_seq,
             bases_occupied: self.bases_occupied,
-            pitcher: Arc::new(fielders.pitcher.clone()),
-            catcher: Arc::new(fielders.catcher.clone()),
-            first_baseman: Arc::new(fielders.first_baseman.clone()),
-            second_baseman: Arc::new(fielders.second_baseman.clone()),
-            third_baseman: Arc::new(fielders.third_baseman.clone()),
-            shortstop: Arc::new(fielders.shortstop.clone()),
-            left_fielder: Arc::new(fielders.left_fielder.clone()),
-            center_fielder: Arc::new(fielders.center_fielder.clone()),
-            right_fielder: Arc::new(fielders.right_fielder.clone()),
-            batter: Arc::new(batter.clone()),
             result: batting_result,
             point: point,
             out: self.out,
@@ -260,64 +283,259 @@ impl InningState {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Lineup {
-    pub current_index: usize,
-    pub batters: Vec<Player>,
-}
-impl Lineup {
-    pub fn new(batters: Vec<Player>) -> Result<Self, GameError> {
-        if batters.is_empty() {
-            return Err(GameError::Lineup);
-        } else if batters.len() != MAX_BATTING_ORDER {
-            return Err(GameError::Lineup);
-        }
-        Ok(Self {
-            current_index: 0,
-            batters,
-        })
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::team::BattingOrder;
+
+    fn lineup(first_player_id: u32) -> Lineup {
+        let batters = Position::ALL_NO_DH
+            .into_iter()
+            .enumerate()
+            .map(|(index, position)| BattingOrder {
+                index: (index + 1) as u8,
+                position,
+                player: Player::min(
+                    first_player_id + index as u32,
+                    &format!("Player{}", first_player_id + index as u32),
+                    "Test",
+                ),
+            })
+            .collect();
+
+        Lineup::new(batters).unwrap()
     }
-}
-impl Iterator for Lineup {
-    type Item = Player;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.batters.is_empty() {
-            return None;
-        }
-
-        let player = self.batters[self.current_index].clone();
-
-        // Use the modulo operator (%) to rotate the index around the range 0..N
-        self.current_index = (self.current_index + 1) % self.batters.len();
-        Some(player)
+    fn game_state() -> GameState {
+        GameState::new(lineup(1), lineup(101)).unwrap()
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct Fielder {
-    pub pitcher: Player,
-    pub catcher: Player,
-    pub first_baseman: Player,
-    pub second_baseman: Player,
-    pub third_baseman: Player,
-    pub shortstop: Player,
-    pub left_fielder: Player,
-    pub center_fielder: Player,
-    pub right_fielder: Player,
-}
-impl Fielder {
-    pub fn default() -> Self {
-        Self {
-            pitcher: Player::default(),
-            catcher: Player::default(),
-            first_baseman: Player::default(),
-            second_baseman: Player::default(),
-            third_baseman: Player::default(),
-            shortstop: Player::default(),
-            left_fielder: Player::default(),
-            center_fielder: Player::default(),
-            right_fielder: Player::default(),
+    #[test]
+    fn new_initializes_game_before_first_inning() {
+        let game = game_state();
+
+        assert_eq!(game.inning_seq, 0);
+        assert_eq!(game.inning_tb, TB::Bottom);
+        assert_eq!(game.away_total_point, 0);
+        assert_eq!(game.home_total_point, 0);
+        assert_eq!(game.away_lineup.batters.len(), 9);
+        assert_eq!(game.home_lineup.batters.len(), 9);
+        assert_eq!(game.away_lineup.current_index, 0);
+        assert_eq!(game.home_lineup.current_index, 0);
+    }
+
+    #[test]
+    fn advance_half_inning_cycles_top_and_bottom() {
+        let mut game = game_state();
+
+        let first_top = game.advance_half_inning();
+        assert_eq!(first_top.seq, 1);
+        assert_eq!(first_top.tb, TB::Top);
+        assert!(first_top.counts.is_empty());
+
+        let first_bottom = game.advance_half_inning();
+        assert_eq!(first_bottom.seq, 1);
+        assert_eq!(first_bottom.tb, TB::Bottom);
+
+        let second_top = game.advance_half_inning();
+        assert_eq!(second_top.seq, 2);
+        assert_eq!(second_top.tb, TB::Top);
+    }
+
+    #[test]
+    fn add_point_updates_current_batting_team_only() {
+        let mut game = game_state();
+
+        game.advance_half_inning();
+        game.add_point(2);
+        assert_eq!(game.away_total_point, 2);
+        assert_eq!(game.home_total_point, 0);
+
+        game.advance_half_inning();
+        game.add_point(3);
+        assert_eq!(game.away_total_point, 2);
+        assert_eq!(game.home_total_point, 3);
+    }
+
+    #[test]
+    fn current_batter_uses_correct_lineup_and_wraps_after_nine_batters() {
+        let mut game = game_state();
+
+        game.advance_half_inning();
+        for expected_id in 1..=9 {
+            assert_eq!(game.current_batter().unwrap().id, expected_id);
+        }
+        assert_eq!(game.current_batter().unwrap().id, 1);
+
+        game.advance_half_inning();
+        assert_eq!(game.current_batter().unwrap().id, 101);
+    }
+
+    #[test]
+    fn current_pitcher_returns_fielding_teams_pitcher() {
+        let mut game = game_state();
+
+        game.advance_half_inning();
+        assert_eq!(game.current_pitcher().unwrap().id, 101);
+
+        game.advance_half_inning();
+        assert_eq!(game.current_pitcher().unwrap().id, 1);
+    }
+
+    #[test]
+    fn current_pitcher_returns_error_when_lineup_has_no_pitcher() {
+        let mut game = game_state();
+        game.home_lineup.batters[0].position = Position::C;
+        game.advance_half_inning();
+
+        assert!(matches!(
+            game.current_pitcher(),
+            Err(GameError::NoPlayerFor(_))
+        ));
+    }
+
+    #[test]
+    fn progress_is_ongoing_before_ninth_inning_regardless_of_score() {
+        let mut game = game_state();
+        game.inning_seq = MAX_INNING - 1;
+        game.inning_tb = TB::Bottom;
+        game.home_total_point = 10;
+
+        assert_eq!(game.progress(), GameProgress::Ongoing);
+    }
+
+    #[test]
+    fn progress_is_game_set_at_top_of_ninth_when_home_leads() {
+        let mut game = game_state();
+        game.inning_seq = MAX_INNING;
+        game.inning_tb = TB::Top;
+        game.home_total_point = 1;
+
+        assert_eq!(game.progress(), GameProgress::GameSet);
+    }
+
+    #[test]
+    fn progress_is_ongoing_at_top_of_ninth_when_home_does_not_lead() {
+        let mut game = game_state();
+        game.inning_seq = MAX_INNING;
+        game.inning_tb = TB::Top;
+
+        assert_eq!(game.progress(), GameProgress::Ongoing);
+
+        game.away_total_point = 1;
+        assert_eq!(game.progress(), GameProgress::Ongoing);
+    }
+
+    #[test]
+    fn progress_is_walk_off_at_bottom_of_ninth_when_home_takes_lead() {
+        let mut game = game_state();
+        game.inning_seq = MAX_INNING;
+        game.inning_tb = TB::Bottom;
+        game.home_total_point = 1;
+
+        assert_eq!(game.progress(), GameProgress::WalkOff);
+    }
+
+    #[test]
+    fn inning_state_initializes_empty_and_tracks_counts_and_outs() {
+        let mut inning = InningState::new();
+
+        assert_eq!(inning.count_seq, 0);
+        assert_eq!(inning.bases_occupied, 0);
+        assert_eq!(inning.out, 0);
+        assert_eq!(inning.progress(), InningProgress::Ongoing);
+
+        inning.add_count_seq();
+        inning.add_out(2);
+        assert_eq!(inning.count_seq, 1);
+        assert_eq!(inning.out, 2);
+        assert_eq!(inning.progress(), InningProgress::Ongoing);
+
+        inning.add_out(1);
+        assert_eq!(inning.progress(), InningProgress::HalfInningOver);
+
+        inning.add_out(1);
+        assert_eq!(inning.progress(), InningProgress::HalfInningOver);
+    }
+
+    #[test]
+    fn advance_handles_every_base_occupancy_for_every_result() {
+        for bases in 0u8..=0b111 {
+            let runners = bases.count_ones() as u8;
+            let runner_on_second = (bases >> Base::Second as u8) & 1;
+            let runner_on_third = (bases >> Base::Third as u8) & 1;
+
+            let cases = [
+                (
+                    BattingResult::Single,
+                    ((bases << 1) & 0b111) | 0b001,
+                    runner_on_third,
+                ),
+                (
+                    BattingResult::Double,
+                    ((bases << 2) & 0b111) | 0b010,
+                    runner_on_second + runner_on_third,
+                ),
+                (BattingResult::Triple, 0b100, runners),
+                (BattingResult::HomeRun, 0b000, runners + 1),
+                (BattingResult::Out, bases, 0),
+            ];
+
+            for (result, expected_bases, expected_points) in cases {
+                let mut inning = InningState {
+                    count_seq: 0,
+                    bases_occupied: bases,
+                    out: 0,
+                };
+
+                assert_eq!(
+                    inning.advance(&result),
+                    expected_points,
+                    "{result:?} with bases {bases:03b}"
+                );
+                assert_eq!(
+                    inning.bases_occupied, expected_bases,
+                    "{result:?} with bases {bases:03b}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn init_batting_order_histories_keeps_initial_batting_orders() {
+        let game = game_state();
+        let histories = GameState::init_batting_order_histories(
+            1,
+            2,
+            &game.away_lineup.batters,
+            &game.home_lineup.batters,
+        );
+
+        assert_eq!(histories.len(), 18);
+
+        for (index, history) in histories.iter().enumerate() {
+            let is_away = index < 9;
+            let lineup_index = index % 9;
+
+            assert_eq!(history.start_inning_seq, 1);
+            assert_eq!(
+                history.start_inning_tb,
+                if is_away { TB::Top } else { TB::Bottom }
+            );
+            assert_eq!(history.start_count_seq, 1);
+            assert!(history.end_inning_seq.is_none());
+            assert!(history.end_inning_tb.is_none());
+            assert!(history.end_count_seq.is_none());
+            assert_eq!(history.team_id, if is_away { 1 } else { 2 });
+            assert_eq!(history.index as usize, lineup_index + 1);
+            assert_eq!(
+                history.player_id,
+                if is_away {
+                    lineup_index as u32 + 1
+                } else {
+                    lineup_index as u32 + 101
+                }
+            );
         }
     }
 }

@@ -1,7 +1,6 @@
-use super::shared::game_state::{
-    Fielder, GameProgress, GameState, InningProgress, InningState, Lineup,
-};
-use crate::domain::shared::{game::GameResult, player::Player};
+use super::shared::game_state::{GameProgress, GameState, InningProgress, InningState};
+use crate::domain::shared::game::{self, GameResult};
+use crate::domain::shared::player::Player;
 use crate::repositories::game_repository::GameRepository;
 use crate::t;
 use anyhow::{Context, Result};
@@ -22,21 +21,22 @@ impl<R: GameRepository> GameService<R> {
         // 2. Procees games in the game round
         for mut game_schedule in game_schedules {
             // Initiate the game
-            // TODO: Implement No DH case
+            // TODO: Implement DH case
             // TODO: Implement starting fielders
             let mut game_state = GameState::new(
-                Lineup::new(game_schedule.away_team.lineup(true)?)?,
-                Lineup::new(game_schedule.home_team.lineup(true)?)?,
-                Fielder::default(),
-                Fielder::default(),
+                game_schedule.away_team.lineup(false)?,
+                game_schedule.home_team.lineup(false)?,
             )?;
-            let mut game_result = GameResult {
-                id: game_schedule.id,
-                actual_date: game_schedule.planned_date,
-                innings: Vec::new(),
-                away_points: 0,
-                home_points: 0,
-            };
+            let mut game_result = GameResult::new(
+                game_schedule.id,
+                game_schedule.planned_date,
+                GameState::init_batting_order_histories(
+                    game_schedule.away_team.id,
+                    game_schedule.home_team.id,
+                    &game_state.away_lineup.batters,
+                    &game_state.home_lineup.batters,
+                ),
+            );
 
             // loop for an innning
             while let GameProgress::Ongoing = game_state.progress() {
@@ -48,8 +48,8 @@ impl<R: GameRepository> GameService<R> {
                     inning_state.add_count_seq();
 
                     let count = inning_state.batting_resolve(
+                        &game_state.current_pitcher()?,
                         &game_state.current_batter()?,
-                        &game_state.current_fielders(),
                     );
                     game_state.add_point(count.point);
                     inning.add_count(count);
@@ -72,7 +72,7 @@ impl<R: GameRepository> GameService<R> {
             }
         }
 
-        if let Err(e) = self.repo.updated_game_result() {
+        if let Err(e) = self.repo.update_current_round_seq() {
             eprintln!("{}:{}", t!("error", "function" => "updated_game_result"), e);
             return Err(e.into());
         }
@@ -86,6 +86,7 @@ mod tests {
     use crate::domain::shared::game::{
         Count, GameHeader, GameRow, GameScheduler, GameType, Inning, TB,
     };
+    use crate::domain::shared::player::{DefensiveSkill, Position};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;
@@ -128,7 +129,7 @@ mod tests {
             Ok(())
         }
 
-        fn updated_game_result(&mut self) -> std::result::Result<usize, AppError> {
+        fn update_current_round_seq(&mut self) -> std::result::Result<usize, AppError> {
             self.update_calls += 1;
 
             if self.update_error {
@@ -170,6 +171,13 @@ mod tests {
             unimplemented!("not used by GameService::process_game_round")
         }
 
+        fn load_defensive_skills(
+            &self,
+            _player_id: u32,
+        ) -> std::result::Result<Vec<DefensiveSkill>, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
         fn load_innings(&self, _game_id: u32) -> std::result::Result<Vec<Inning>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
@@ -185,7 +193,23 @@ mod tests {
     }
 
     fn player(id: u32) -> Player {
-        Player::batter(id, &format!("First{id}"), &format!("Last{id}"), 0.0, 0.0)
+        let positions = [
+            Position::P,
+            Position::C,
+            Position::FB,
+            Position::SB,
+            Position::TB,
+            Position::SS,
+            Position::LF,
+            Position::CF,
+            Position::RF,
+        ];
+        let mut player = Player::batter(id, &format!("First{id}"), &format!("Last{id}"), 0.0, 0.0);
+        player.defensive_skills = vec![DefensiveSkill {
+            position: positions[((id - 1) as usize) % positions.len()].clone(),
+            mod_uzr: 0.0,
+        }];
+        player
     }
 
     fn team(id: u16, name: &str, first_player_id: u32) -> Team {
