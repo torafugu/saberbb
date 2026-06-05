@@ -37,6 +37,8 @@ fn main() -> Result<()> {
 
     tracing_subscriber::fmt()
         .json()
+        .with_ansi(false)
+        .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(non_blocking)
         .init();

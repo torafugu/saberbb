@@ -35,6 +35,6 @@ tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
 tracing = "0.1"
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
 unic-langid = "0.9"
 validator = { version = "0.20.0", features = ["derive"] }

@@ -253,38 +253,8 @@ impl GameRepository for SqlGameRepository {
         inning_seq: u8,
         inning_tb: TB,
     ) -> Result<Vec<Count>, AppError> {
-        let query = "SELECT seq, bases_occupied, result, point, out, 
-                                b.id as b_id, b.first_name as b_first_name, b.last_name as b_last_name, b.mod_ba as ba, b.mod_slg as slg, 
-                                p.id as p_id, p.first_name as p_first_name, p.last_name as p_last_name,
-                                c.id as c_id, c.first_name as c_first_name, c.last_name as c_last_name,
-                                fb.id as fb_id, fb.first_name as fb_first_name, fb.last_name as fb_last_name,
-                                sb.id as sb_id, sb.first_name as sb_first_name, sb.last_name as sb_last_name,
-                                tb.id as tb_id, tb.first_name as tb_first_name, tb.last_name as tb_last_name,
-                                ss.id as ss_id, ss.first_name as ss_first_name, ss.last_name as ss_last_name,
-                                lf.id as lf_id, lf.first_name as lf_first_name, lf.last_name as lf_last_name,
-                                cf.id as cf_id, cf.first_name as cf_first_name, cf.last_name as cf_last_name,
-                                rf.id as rf_id, rf.first_name as rf_first_name, rf.last_name as rf_last_name
+        let query = "SELECT seq, bases_occupied, result, point, out 
                                 FROM count
-                                INNER JOIN player AS b
-                                    ON count.batter_id = b.id
-                                INNER JOIN player AS p
-                                    ON count.pitcher_id = p.id
-                                INNER JOIN player AS c
-                                    ON count.catcher_id = c.id
-                                INNER JOIN player AS fb
-                                    ON count.first_baseman_id = fb.id
-                                INNER JOIN player AS sb
-                                    ON count.second_baseman_id = sb.id
-                                INNER JOIN player AS tb
-                                    ON count.third_baseman_id = tb.id
-                                INNER JOIN player AS ss
-                                    ON count.shortstop_id = ss.id
-                                INNER JOIN player AS lf
-                                    ON count.left_fielder_id = lf.id
-                                INNER JOIN player AS cf
-                                    ON count.center_fielder_id = cf.id
-                                INNER JOIN player AS rf
-                                    ON count.right_fielder_id = rf.id 
                                 WHERE game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3";
         self.db_client
             .query_rows::<Count>(query, params![game_id, inning_seq, inning_tb.as_ref()])

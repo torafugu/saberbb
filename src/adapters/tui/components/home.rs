@@ -9,6 +9,7 @@ use crossterm::event::KeyEvent;
 use ratatui::{prelude::*, widgets::*};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::info;
 
 #[derive(Default)]
 pub struct Home {
@@ -22,6 +23,8 @@ pub struct Home {
 
 impl Home {
     pub fn new() -> Self {
+        info!("Home component started.");
+
         let mut menu_state = ListState::default();
         menu_state.select(Some(0));
 

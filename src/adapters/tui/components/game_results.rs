@@ -4,19 +4,21 @@ use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::{Base, Count, GameHeader};
 use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
 use crate::domain::utils::is_base_occupied;
-use crate::i18n::I18nManager;
 use crate::repositories::game_repository::GameRepository;
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{prelude::*, widgets::*};
+use ratatui::layout::{Constraint, Flex, Layout};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table};
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::{error, info};
 
 const RUNNER: &str = "R";
 const NO_RUNNER: &str = "-";
 const WALK_OFF: &str = "x";
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 enum GameResultsView {
     #[default]
     SelectSeason,
@@ -24,7 +26,7 @@ enum GameResultsView {
     GameDetail,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct GameResultsWidget {
     view: GameResultsView,
     command_tx: Option<UnboundedSender<Action>>,
@@ -41,6 +43,8 @@ pub struct GameResultsWidget {
 
 impl GameResultsWidget {
     pub fn new() -> Self {
+        info!("Game Result component started.");
+
         let mut season_state = ListState::default();
         season_state.select(Some(0));
 
@@ -51,6 +55,7 @@ impl GameResultsWidget {
     }
 
     fn load_processed_seasons(&mut self) {
+        info!("load_processed_seasons started.");
         let load_processed_seasons_res = APP_CONTEXT
             .get()
             .context("App context is not initialized")
@@ -85,6 +90,7 @@ impl GameResultsWidget {
     }
 
     fn load_games(&mut self, season: u16) {
+        info!("load_games started.");
         let game_headers_res = APP_CONTEXT
             .get()
             .context("App context is not initialized")
@@ -108,7 +114,7 @@ impl GameResultsWidget {
                 self.games.clear();
                 self.game_state.select(None);
                 self.error = Some(format!(
-                    "{}: {}",
+                    "{}: \n{}",
                     t!("error", "function" => "load_processed_game_headers"),
                     err
                 ));
@@ -121,7 +127,9 @@ impl GameResultsWidget {
         }
     }
 
+    #[tracing::instrument(skip(game), fields(game_id = %game.id))]
     fn load_game_detail(&mut self, game: &GameHeader) {
+        info!("load_games started.");
         let game_row_res = APP_CONTEXT
             .get()
             .context("App context is not initialized")
@@ -141,10 +149,12 @@ impl GameResultsWidget {
                     t!("error", "function" => "load_game_row"),
                     err
                 ));
+                error!(self.error);
             }
             Err(err) => {
                 self.game_cursor = None;
                 self.error = Some(err.to_string());
+                error!(self.error);
             }
         }
     }
@@ -287,10 +297,10 @@ impl GameResultsWidget {
             ])
             .split(area);
 
+        let navigator = format!("<- {} {} ->", t!("prev_count"), t!("next_count"),);
+
         let header = format!(
-            "<- {} {} ->\n<{}> {}:{}({}) {}:{}",
-            t!("prev_count"),
-            t!("next_count"),
+            "\n\n<{}> {}:{}({}) {}:{}",
             cursor.game_type(),
             t!("current_inning"),
             cursor.inning_seq,
@@ -298,32 +308,54 @@ impl GameResultsWidget {
             t!("current_count"),
             cursor.count_seq
         );
+        frame.render_widget(Paragraph::new(navigator), layout[0]);
         frame.render_widget(Paragraph::new(header), layout[0]);
 
         let scoreboard = cursor.current_scoreboard();
         Self::draw_scoreboard(frame, layout[1], &scoreboard);
 
         let count = cursor.current_count();
-        frame.render_widget(Paragraph::new(Self::format_count(&count)), layout[2]);
+        let count_left_and_right_areas =
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)])
+                .split(layout[2]);
+
+        let count_left_area = count_left_and_right_areas[0];
+        let count_right_area = count_left_and_right_areas[1];
+
+        // frame.render_widget(Paragraph::new(Self::format_count(&count)), layout[2]);
+        frame.render_widget(Paragraph::new(Self::format_count(&count)), count_left_area);
+        frame.render_widget(Paragraph::new(Self::format_lineup()), count_right_area);
     }
 
     fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
         let mut header_cells = vec![Cell::from(t!("team"))];
         for inning_seq in 1..=scoreboard.max_inning_num {
-            header_cells.push(Cell::from(inning_seq.to_string()));
+            header_cells.push(Cell::from(
+                Line::from(inning_seq.to_string()).alignment(Alignment::Center),
+            ));
         }
-        header_cells.push(Cell::from(t!("total_score")));
+        header_cells.push(Cell::from(
+            Line::from(t!("total_score")).alignment(Alignment::Center),
+        ));
+
+        let mut team_name_length = scoreboard.away_team_name.len();
+        if scoreboard.home_team_name.len() > team_name_length {
+            team_name_length = scoreboard.home_team_name.len()
+        }
 
         let mut away_cells = vec![Cell::from(scoreboard.away_team_name.clone())];
         let mut home_cells = vec![Cell::from(scoreboard.home_team_name.clone())];
 
         for inning_index in 0..scoreboard.max_inning_num as usize {
             away_cells.push(Cell::from(
-                scoreboard
-                    .away_innning_points
-                    .get(inning_index)
-                    .map(u8::to_string)
-                    .unwrap_or_default(),
+                Line::from(
+                    scoreboard
+                        .away_innning_points
+                        .get(inning_index)
+                        .map(u8::to_string)
+                        .unwrap_or_default(),
+                )
+                .alignment(Alignment::Center),
             ));
 
             if scoreboard.is_last_bottom_inning_skiped
@@ -332,17 +364,24 @@ impl GameResultsWidget {
                 home_cells.push(Cell::from(WALK_OFF));
             } else {
                 home_cells.push(Cell::from(
-                    scoreboard
-                        .home_innning_points
-                        .get(inning_index)
-                        .map(u8::to_string)
-                        .unwrap_or_default(),
+                    Line::from(
+                        scoreboard
+                            .home_innning_points
+                            .get(inning_index)
+                            .map(u8::to_string)
+                            .unwrap_or_default(),
+                    )
+                    .alignment(Alignment::Center),
                 ));
             }
         }
 
-        away_cells.push(Cell::from(scoreboard.away_total_point.to_string()));
-        home_cells.push(Cell::from(scoreboard.home_total_point.to_string()));
+        away_cells.push(Cell::from(
+            Line::from(scoreboard.away_total_point.to_string()).alignment(Alignment::Center),
+        ));
+        home_cells.push(Cell::from(
+            Line::from(scoreboard.home_total_point.to_string()).alignment(Alignment::Center),
+        ));
 
         let mut widths = vec![Constraint::Min(8)];
         widths.extend(std::iter::repeat_n(
@@ -350,11 +389,21 @@ impl GameResultsWidget {
             scoreboard.max_inning_num as usize + 1,
         ));
 
+        let [table_area, _remaining_area] = Layout::horizontal([
+            Constraint::Length(
+                ((team_name_length as usize + 5) + (scoreboard.max_inning_num as usize * 4) + 4)
+                    as u16,
+            ),
+            Constraint::Min(0),
+        ])
+        .flex(Flex::Start)
+        .areas(area);
+
         let table = Table::new([Row::new(away_cells), Row::new(home_cells)], widths)
             .header(Row::new(header_cells).style(Style::default().add_modifier(Modifier::BOLD)))
-            .column_spacing(1);
+            .block(Block::default().borders(Borders::ALL));
 
-        frame.render_widget(table, area);
+        frame.render_widget(table, table_area);
     }
 
     fn format_count(count: &Count) -> String {
@@ -364,14 +413,26 @@ impl GameResultsWidget {
             Self::display_runner(count.bases_occupied, Base::Third),
             Self::display_runner(count.bases_occupied, Base::First)
         );
-        formatted_count.push_str(&format!("{}: {}\n", t!("out_count"), count.out));
-        formatted_count.push_str(&format!(
+        formatted_count.push_str(&format!("\n{}: {}\n", t!("ball"), 0));
+        formatted_count.push_str(&format!("{}: {}\n", t!("strike"), 0));
+        formatted_count.push_str(&format!("{}: {}\n", t!("out"), count.out));
+
+        formatted_count.push_str(&format!("{}: {}\n", t!("batting_result"), count.result));
+        if count.point > 0 {
+            formatted_count.push_str(&format!("{}: +{}\n", t!("score"), count.point));
+        }
+
+        formatted_count
+    }
+
+    fn format_lineup() -> String {
+        let mut formatted_lineup = format!(
             "{}: {}\n",
             t!("batter"),
-            "Batter" // TODO: Shoudl be retrieved from BattingOrderHistory
-                     // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
-        ));
-        formatted_count.push_str(
+            "Pitcher" // TODO: Shoudl be retrieved from BattingOrderHistory
+                      // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+        );
+        formatted_lineup.push_str(
             &format!(
                 "{}: .{}\n",
                 t!("ba"),
@@ -379,18 +440,27 @@ impl GameResultsWidget {
                 "0.3"
             ), // (count.batter.hit_average() * 1000.0).round())
         );
-        formatted_count.push_str(&format!(
+        formatted_lineup.push_str(&format!(
+            "{}: {}\n",
+            t!("batter"),
+            "Batter", // TODO: Shoudl be retrieved from BattingOrderHistory
+                      // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+        ));
+        formatted_lineup.push_str(
+            &format!(
+                "{}: .{}\n",
+                t!("ba"),
+                // TODO: Shoudl be retrieved from BattingOrderHistory
+                "0.3"
+            ), // (count.batter.hit_average() * 1000.0).round())
+        );
+        formatted_lineup.push_str(&format!(
             "{}: .{}\n",
             t!("slg"),
             // TODO: Shoudl be retrieved from BattingOrderHistory
             "0.3" // (count.batter.slg() * 1000.0).round()
         ));
-        formatted_count.push_str(&format!("{}: {}\n", t!("batting_result"), count.result));
-        if count.point > 0 {
-            formatted_count.push_str(&format!("{}: +{}\n", t!("score"), count.point));
-        }
-
-        formatted_count
+        formatted_lineup
     }
 
     fn display_runner(bases_occupied: u8, base: Base) -> &'static str {
