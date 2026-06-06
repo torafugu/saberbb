@@ -1,8 +1,5 @@
 use anyhow::{Result, bail};
 use clap::Parser;
-use saberbb::adapters::cui::game_cui::display_game_rounds_processed;
-use saberbb::adapters::cui::schedule_cui::display_game_seasons_scheduled;
-use saberbb::adapters::cui::top_cui::display_menu;
 use saberbb::adapters::tui::top_tui::menu;
 use saberbb::config::load_app_config;
 use saberbb::domain::game_service::GameService;
@@ -58,7 +55,10 @@ fn main() -> Result<()> {
             }
             info!("1 game processed.");
         }
-        display_game_rounds_processed(num_of_games);
+        println!(
+            "{}",
+            t!("game_rounds_processed", "num_of_rounds" => num_of_games.to_string())
+        );
     }
 
     // Player Generate Mode
@@ -73,11 +73,6 @@ fn main() -> Result<()> {
         }
     }
 
-    // Game Display Mode　(Show the game result interactively)
-    if args.menu {
-        display_menu();
-    }
-
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
         let mut schedule_service = ScheduleService {
@@ -90,7 +85,10 @@ fn main() -> Result<()> {
             }
             info!("1 season scheduled.");
         }
-        display_game_seasons_scheduled(num_of_schedules);
+        println!(
+            "{}",
+            t!("game_seasons_scheduled", "num_of_seasons" => num_of_schedules.to_string())
+        );
     }
 
     if args.top {
@@ -114,10 +112,6 @@ struct Args {
     /// Generate players
     #[arg(short, long)]
     generate: Option<u16>,
-
-    /// View game result interactively
-    #[arg(short, long)]
-    menu: bool,
 
     /// TUI game menu
     #[arg(short, long)]

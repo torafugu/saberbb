@@ -9,16 +9,13 @@ better-panic = "0.3.0" # TODO: to beremoved
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"] }
 color-eyre = "0.6"
-comfy-table = "7.2.2"
 confy = "2.0.0"
 console = "0.16.3"
 crossterm = { version = "0.29.0", features = ["serde", "event-stream"] }
 deadpool = "0.13.0"
-dialoguer = "0.12.0"
 directories = "6.0"
 fluent-templates = "0.14.0"
 futures = "0.3.31"
-inquire = "0.9.4"
 pretty_assertions = "1.4.1"
 rand = { version = "0.10.1", features = ["std"] }
 rand_distr = "0.6.0"
