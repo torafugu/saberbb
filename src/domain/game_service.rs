@@ -1,5 +1,5 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress, InningState};
-use crate::domain::shared::game::{self, GameResult};
+use crate::domain::shared::game::GameResult;
 use crate::domain::shared::player::Player;
 use crate::repositories::game_repository::GameRepository;
 use crate::t;
@@ -11,18 +11,14 @@ pub struct GameService<R: GameRepository> {
 
 impl<R: GameRepository> GameService<R> {
     pub fn process_game_round(&mut self) -> Result<()> {
-        // 1. Get game round to process
         let game_schedules = self
             .repo
             .load_game_schedules_to_process()
             .context(t!("error", "function" => "load_game_schedules_to_process"))?;
 
         // TODO: Check postponement
-        // 2. Procees games in the game round
         for mut game_schedule in game_schedules {
-            // Initiate the game
             // TODO: Implement DH case
-            // TODO: Implement starting fielders
             let mut game_state = GameState::new(
                 game_schedule.away_team.lineup(false)?,
                 game_schedule.home_team.lineup(false)?,
@@ -38,12 +34,10 @@ impl<R: GameRepository> GameService<R> {
                 ),
             );
 
-            // loop for an innning
             while let GameProgress::Ongoing = game_state.progress() {
                 let mut inning = game_state.advance_half_inning();
                 let mut inning_state = InningState::new();
 
-                // loop for a count
                 while let InningProgress::Ongoing = inning_state.progress() {
                     inning_state.add_count_seq();
 
