@@ -1,6 +1,6 @@
 use super::game_history::BattingOrderHistory;
 use super::game_state::GameState;
-use super::team::Team;
+use super::team::{BattingOrder, Team};
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -84,8 +84,17 @@ impl GameResult {
     pub fn new(
         id: u32,
         actual_date: NaiveDate,
-        batting_order_histories: Vec<BattingOrderHistory>,
+        away_team_id: u16,
+        home_team_id: u16,
+        away_batting_orders: Vec<BattingOrder>,
+        home_batting_orders: Vec<BattingOrder>,
     ) -> Self {
+        let batting_order_histories = Self::init_batting_order_histories(
+            away_team_id,
+            home_team_id,
+            away_batting_orders,
+            home_batting_orders,
+        );
         Self {
             id: id,
             actual_date: actual_date,
@@ -102,6 +111,66 @@ impl GameResult {
             self.away_points = game_state.away_total_point;
         }
     }
+
+    fn init_batting_order_histories(
+        away_team_id: u16,
+        home_team_id: u16,
+        away_team_batting_orders: Vec<BattingOrder>,
+        home_team_batting_orders: Vec<BattingOrder>,
+    ) -> Vec<BattingOrderHistory> {
+        let mut batting_order_histories = Vec::new();
+
+        for away_team_batting_order in away_team_batting_orders {
+            batting_order_histories.push(Self::add_batting_order_hitstory(
+                1,
+                TB::Top,
+                1,
+                None,
+                None,
+                None,
+                away_team_id,
+                away_team_batting_order,
+            ));
+        }
+        for home_team_batting_order in home_team_batting_orders {
+            batting_order_histories.push(Self::add_batting_order_hitstory(
+                1,
+                TB::Bottom,
+                1,
+                None,
+                None,
+                None,
+                home_team_id,
+                home_team_batting_order,
+            ));
+        }
+
+        batting_order_histories
+    }
+
+    fn add_batting_order_hitstory(
+        start_inning_seq: u8,
+        start_inning_tb: TB,
+        start_count_seq: u8,
+        end_inning_seq: Option<u8>,
+        end_inning_tb: Option<TB>,
+        end_count_seq: Option<u8>,
+        team_id: u16,
+        batting_order: BattingOrder,
+    ) -> BattingOrderHistory {
+        BattingOrderHistory::new(
+            start_inning_seq,
+            start_inning_tb,
+            start_count_seq,
+            end_inning_seq,
+            end_inning_tb,
+            end_count_seq,
+            team_id,
+            batting_order.index,
+            batting_order.position,
+            batting_order.player,
+        )
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
@@ -112,6 +181,8 @@ pub struct GameDetail {
     pub home_team: Team,
     pub game_type: GameType,
     pub innings: Vec<Inning>,
+    pub away_points: u8,
+    pub home_points: u8,
     pub batting_order_histories: Vec<BattingOrderHistory>,
 }
 

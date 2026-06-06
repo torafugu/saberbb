@@ -1,5 +1,5 @@
 use crate::domain::shared::game::{
-    Count, GameDetail, GameHeader, GameResult, GameRow, GameScheduler, Inning, TB,
+    Count, GameDetail, GameHeader, GameResult, GameScheduler, Inning, TB,
 };
 use crate::domain::shared::game_history::BattingOrderHistory;
 use crate::domain::shared::player::{DefensiveSkill, Player};
@@ -15,7 +15,6 @@ pub trait GameRepository {
     fn load_processed_game_headers(&self, season: u16) -> Result<Vec<GameHeader>, AppError>;
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>, AppError>;
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError>;
-    fn load_game_row(&self, game_id: u32) -> Result<GameRow, AppError>;
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError>;
     fn load_defensive_skills(&self, player_id: u32) -> Result<Vec<DefensiveSkill>, AppError>;
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError>;
@@ -111,7 +110,7 @@ impl GameRepository for SqlGameRepository {
                         batting_order_history.team_id,
                         batting_order_history.index,
                         batting_order_history.position,
-                        batting_order_history.player_id
+                        batting_order_history.player.id
                     ],
                 )?;
             }
@@ -206,7 +205,9 @@ impl GameRepository for SqlGameRepository {
                 t_away.name AS away_team_name,
                 g.home_team_id, 
                 t_home.name AS home_team_name,
-                g.game_type
+                g.game_type,
+                g.away_points,
+                g.home_points
                 FROM game g
                 LEFT JOIN 
                     team t_away ON g.away_team_id = t_away.id
@@ -218,44 +219,11 @@ impl GameRepository for SqlGameRepository {
             .query_row::<GameDetail>(query, params![game_id])?;
 
         game.innings = self.load_innings(game.id)?;
-        game.batting_order_histories = self.load_batting_order_histories(game.id)?;
-
-        Ok(game)
-    }
-
-    fn load_game_row(&self, game_id: u32) -> Result<GameRow, AppError> {
-        let query = "SELECT 
-                g.id,
-                g.season,
-    			g.round_seq,
-    			g.seq,
-                g.planned_date,
-                g.actual_date,
-                g.away_team_id, 
-                t_away.name AS away_team_name,
-                g.home_team_id, 
-                t_home.name AS home_team_name,
-                g.game_type,
-                g.away_points,
-                g.home_points
-                FROM game g
-                LEFT JOIN 
-                    team t_away ON g.away_team_id = t_away.id
-                LEFT JOIN 
-                    team t_home ON g.home_team_id = t_home.id
-                WHERE g.id = ?1 
-                ORDER BY g.id";
-        let mut game = self
-            .db_client
-            .query_row::<GameRow>(query, params![game_id])?;
-
-        game.away_team.players = self.load_team_players(game.away_team.id)?;
-        game.home_team.players = self.load_team_players(game.home_team.id)?;
-
-        game.innings = self.load_innings(game.id)?;
         for inning in &mut game.innings {
             inning.counts = self.load_counts(game.id, inning.seq, inning.tb)?;
         }
+
+        game.batting_order_histories = self.load_batting_order_histories(game.id)?;
 
         Ok(game)
     }
@@ -296,11 +264,27 @@ impl GameRepository for SqlGameRepository {
         game_id: u32,
     ) -> Result<Vec<BattingOrderHistory>, AppError> {
         let query = "SELECT 
-                start_inning_seq, start_inning_tb, start_count_seq, start_count_seq, 
-                end_inning_seq, end_inning_tb, end_count_seq, 
-                team_id, index_num, position, player_id 
-            FROM batting_order_history
-            WHERE game_id = ?1";
+                boh.start_inning_seq,
+                boh.start_inning_tb,
+                boh.start_count_seq,
+                boh.end_inning_seq,
+                boh.end_inning_tb,
+                boh.end_count_seq,
+                boh.team_id,
+                boh.index_num,
+                boh.position,
+                boh.player_id,
+                p.first_name AS player_first_name,
+                p.last_name AS player_last_name,
+                p.age AS player_age,
+                p.throw AS player_throw,
+                p.bat AS player_bat,
+                p.mod_ba AS player_mod_ba,
+                p.mod_slg AS player_mod_slg
+            FROM batting_order_history boh
+            LEFT JOIN player p
+                ON p.id = boh.player_id
+            WHERE boh.game_id = ?1";
         self.db_client
             .query_rows::<BattingOrderHistory>(query, params![game_id])
     }
@@ -309,10 +293,9 @@ impl GameRepository for SqlGameRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::game::{BattingResult, GameHeader, GameType, TB};
+    use crate::domain::shared::game::{BattingResult, GameType, TB};
     use crate::domain::shared::game_history::BattingOrderHistory;
-    use crate::domain::shared::player::Position;
-    use crate::domain::shared::team::Team;
+    use crate::domain::shared::player::{Player, Position, RL};
     use crate::repositories::db::{DbClient, SqliteManager};
     use deadpool::managed::Pool;
     use rusqlite::Connection;
@@ -594,6 +577,19 @@ mod tests {
             .unwrap();
     }
 
+    fn player(id: u32) -> Player {
+        Player::new(
+            id,
+            &format!("First{id}"),
+            &format!("Last{id}"),
+            25,
+            RL::Right,
+            RL::Right,
+            0.0,
+            0.0,
+        )
+    }
+
     #[test]
     fn load_processed_seasons_returns_only_processed_seasons() {
         let (repo, path) = setup_repo();
@@ -687,42 +683,6 @@ mod tests {
     }
 
     #[test]
-    fn load_game_row_loads_game_teams_innings_and_counts() {
-        let (repo, path) = setup_repo();
-        seed_teams(&repo);
-        seed_players(&repo);
-        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
-        seed_inning(&repo, 1, 1, "Top");
-        seed_count(&repo, 1, 1, "Top");
-        let header = GameHeader {
-            id: 1,
-            actual_date: "2026-04-01".parse().unwrap(),
-            away_team: Team::min(1, "Away"),
-            home_team: Team::min(2, "Home"),
-            game_type: GameType::Regular,
-            away_points: 3,
-            home_points: 2,
-        };
-
-        let game = repo.load_game_row(header.id).unwrap();
-
-        assert_eq!(game.id, 1);
-        assert_eq!(game.away_team.players.len(), 9);
-        assert_eq!(game.home_team.players.len(), 9);
-        assert_eq!(game.innings.len(), 1);
-        assert_eq!(game.innings[0].seq, 1);
-        assert!(matches!(game.innings[0].tb, TB::Top));
-        assert_eq!(game.innings[0].counts.len(), 1);
-        let count = &game.innings[0].counts[0];
-        assert_eq!(count.seq, 1);
-        assert_eq!(count.bases_occupied, 5);
-        assert!(matches!(count.result, BattingResult::Double));
-        assert_eq!(count.point, 2);
-        assert_eq!(count.out, 1);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
     fn load_game_detail_loads_game_innings_and_batting_order_histories() {
         let (repo, path) = setup_repo();
         seed_teams(&repo);
@@ -740,10 +700,12 @@ mod tests {
         assert_eq!(game.home_team.id, 2);
         assert_eq!(game.home_team.name.as_ref(), "Home");
         assert!(matches!(game.game_type, GameType::Regular));
+        assert_eq!(game.away_points, 3);
+        assert_eq!(game.home_points, 2);
         assert_eq!(game.innings.len(), 1);
         assert_eq!(game.innings[0].seq, 1);
         assert!(matches!(game.innings[0].tb, TB::Top));
-        assert!(game.innings[0].counts.is_empty());
+        assert_eq!(game.innings[0].counts.len(), 1);
         assert_eq!(game.batting_order_histories.len(), 1);
         assert_eq!(game.batting_order_histories[0].team_id, 1);
         assert_eq!(game.batting_order_histories[0].index, 1);
@@ -751,7 +713,7 @@ mod tests {
             game.batting_order_histories[0].position,
             Position::P
         ));
-        assert_eq!(game.batting_order_histories[0].player_id, 1);
+        assert_eq!(game.batting_order_histories[0].player.id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -798,7 +760,7 @@ mod tests {
         assert_eq!(history.team_id, 1);
         assert_eq!(history.index, 1);
         assert!(matches!(history.position, Position::P));
-        assert_eq!(history.player_id, 1);
+        assert_eq!(history.player.id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -861,10 +823,18 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_teams(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
-        let mut ended_history = BattingOrderHistory::new(1, TB::Top, 1, 1, 1, Position::P, 1);
-        ended_history.end_inning_seq = Some(4);
-        ended_history.end_inning_tb = Some(TB::Bottom);
-        ended_history.end_count_seq = Some(3);
+        let ended_history = BattingOrderHistory::new(
+            1,
+            TB::Top,
+            1,
+            Some(4),
+            Some(TB::Bottom),
+            Some(3),
+            1,
+            1,
+            Position::P,
+            player(1),
+        );
         let game = GameResult {
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
@@ -873,7 +843,18 @@ mod tests {
             innings: Vec::new(),
             batting_order_histories: vec![
                 ended_history,
-                BattingOrderHistory::new(1, TB::Bottom, 1, 2, 2, Position::C, 10),
+                BattingOrderHistory::new(
+                    1,
+                    TB::Bottom,
+                    1,
+                    None,
+                    None,
+                    None,
+                    2,
+                    2,
+                    Position::C,
+                    player(10),
+                ),
             ],
         };
 

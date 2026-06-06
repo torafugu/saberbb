@@ -31,33 +31,33 @@ impl FromRow for Standing {
     }
 }
 
-impl FromRow for BattingStats {
-    type Error = AppError;
+// impl FromRow for BattingStats {
+//     type Error = AppError;
 
-    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let first_name: String = row
-            .get("batter_first_name")
-            .map_err(|e| AppError::Database(e))?;
-        let last_name: String = row
-            .get("batter_last_name")
-            .map_err(|e| AppError::Database(e))?;
-        let batting_stats = BattingStats {
-            batter: Player::min(
-                row.get("batter_id").map_err(|e| AppError::Database(e))?,
-                &first_name,
-                &last_name,
-            ),
-            ab: row.get("ab").map_err(|e| AppError::Database(e))?,
-            single: row.get("single").map_err(|e| AppError::Database(e))?,
-            double: row.get("double").map_err(|e| AppError::Database(e))?,
-            triple: row.get("triple").map_err(|e| AppError::Database(e))?,
-            homerun: row.get("homerun").map_err(|e| AppError::Database(e))?,
-            ba: row.get("ba").map_err(|e| AppError::Database(e))?,
-            rbi: row.get("rbi").map_err(|e| AppError::Database(e))?,
-        };
+//     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+//         let first_name: String = row
+//             .get("batter_first_name")
+//             .map_err(|e| AppError::Database(e))?;
+//         let last_name: String = row
+//             .get("batter_last_name")
+//             .map_err(|e| AppError::Database(e))?;
+//         let batting_stats = BattingStats {
+//             batter: Player::new(
+//                 row.get("player_id").map_err(|e| AppError::Database(e))?,
+//                 &first_name,
+//                 &last_name,
+//             ),
+//             ab: row.get("ab").map_err(|e| AppError::Database(e))?,
+//             single: row.get("single").map_err(|e| AppError::Database(e))?,
+//             double: row.get("double").map_err(|e| AppError::Database(e))?,
+//             triple: row.get("triple").map_err(|e| AppError::Database(e))?,
+//             homerun: row.get("homerun").map_err(|e| AppError::Database(e))?,
+//             ba: row.get("ba").map_err(|e| AppError::Database(e))?,
+//             rbi: row.get("rbi").map_err(|e| AppError::Database(e))?,
+//         };
 
-        batting_stats.validate()?;
+//         batting_stats.validate()?;
 
-        Ok(batting_stats)
-    }
-}
+//         Ok(batting_stats)
+//     }
+// }

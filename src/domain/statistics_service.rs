@@ -32,12 +32,12 @@ impl<R: StatRepository> StatService<R> {
 
         Ok(standings)
     }
-    pub fn show_batting_stats(&self) -> Result<Vec<BattingStats>> {
-        let batting_stats = self
-            .repo
-            .load_batting_stats()
-            .context(t!("error", "function" => "load_batting_stats"))?;
+    // pub fn show_batting_stats(&self) -> Result<Vec<BattingStats>> {
+    //     let batting_stats = self
+    //         .repo
+    //         .load_batting_stats()
+    //         .context(t!("error", "function" => "load_batting_stats"))?;
 
-        Ok(batting_stats)
-    }
+    //     Ok(batting_stats)
+    // }
 }

@@ -7,7 +7,6 @@ pub fn init() -> color_eyre::Result<()> {
             "This is a bug. Consider reporting it at {}",
             env!("CARGO_PKG_REPOSITORY")
         ))
-        .capture_span_trace_by_default(false)
         .display_location_section(false)
         .display_env_section(false)
         .into_hooks();

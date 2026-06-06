@@ -41,6 +41,7 @@ next_count = 次のカウント
 current_inning = イニング
 current_count = カウント
 batter = 打者
+pitcher = 投手
 ba = 打率
 slg =  長打率
 batting_result = 打撃結果

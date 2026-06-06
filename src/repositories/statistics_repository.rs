@@ -6,7 +6,7 @@ use rusqlite::params;
 
 pub trait StatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
-    fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
+    // fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
 }
 
 #[derive(Clone)]
@@ -68,25 +68,30 @@ impl StatRepository for SqlStatRepository {
         self.db_client.query_rows::<Standing>(query, params![])
     }
 
-    fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError> {
-        let query = "SELECT 
-                            batter_id,
-                            b.first_name AS batter_first_name,
-                            b.last_name AS batter_last_name,
-                            SUM(1) AS AB,
-                            SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
-                            SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
-                            SUM(CASE WHEN result = 'Triple' THEN 1 ELSE 0 END) AS triple,
-                            SUM(CASE WHEN result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
-                            COALESCE(ROUND(CAST(SUM(CASE WHEN result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
-                            SUM(point) AS rbi
-                            FROM count
-                            LEFT JOIN 
-                                Player b ON count.batter_id = b.id
-                            GROUP BY batter_id
-                            ORDER BY batter_id";
-        self.db_client.query_rows::<BattingStats>(query, params![])
-    }
+    // fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError> {
+    //     let query = "SELECT
+    //                         player_id,
+    //                         p.first_name AS player_first_name,
+    //                         p.last_name AS player_last_name,
+    //                         p.age AS player_last_age,
+    //                         p.throw AS player_throw,
+    //                         p.bat AS player_bat,
+    //                         p.mod_ba AS player_mod_ba,
+    //                         p.mod_slg AS player_mod_slg,
+    //                         SUM(1) AS AB,
+    //                         SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
+    //                         SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
+    //                         SUM(CASE WHEN result = 'Triple' THEN 1 ELSE 0 END) AS triple,
+    //                         SUM(CASE WHEN result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
+    //                         COALESCE(ROUND(CAST(SUM(CASE WHEN result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
+    //                         SUM(point) AS rbi
+    //                         FROM count
+    //                         LEFT JOIN
+    //                             Player p ON count.player_id = p.id
+    //                         GROUP BY player_id
+    //                         ORDER BY player_id";
+    //     self.db_client.query_rows::<BattingStats>(query, params![])
+    // }
 }
 
 #[cfg(test)]
@@ -346,81 +351,81 @@ mod tests {
         std::fs::remove_file(path).ok();
     }
 
-    #[test]
-    fn load_batting_stats_aggregates_results_by_batter() {
-        let (repo, path) = setup_repo();
-        seed_player(&repo, 10, "Shohei", "Ohtani");
-        seed_count(&repo, 1, 1, 10, "Single", 1);
-        seed_count(&repo, 1, 2, 10, "Double", 2);
-        seed_count(&repo, 1, 3, 10, "Triple", 3);
-        seed_count(&repo, 1, 4, 10, "HomeRun", 4);
-        seed_count(&repo, 1, 5, 10, "Out", 0);
+    // #[test]
+    // fn load_batting_stats_aggregates_results_by_batter() {
+    //     let (repo, path) = setup_repo();
+    //     seed_player(&repo, 10, "Shohei", "Ohtani");
+    //     seed_count(&repo, 1, 1, 10, "Single", 1);
+    //     seed_count(&repo, 1, 2, 10, "Double", 2);
+    //     seed_count(&repo, 1, 3, 10, "Triple", 3);
+    //     seed_count(&repo, 1, 4, 10, "HomeRun", 4);
+    //     seed_count(&repo, 1, 5, 10, "Out", 0);
 
-        let stats = repo.load_batting_stats().unwrap();
+    //     let stats = repo.load_batting_stats().unwrap();
 
-        assert_eq!(stats.len(), 1);
-        assert_eq!(stats[0].batter.id, 10);
-        assert_eq!(stats[0].batter.first_name.as_ref(), "Shohei");
-        assert_eq!(stats[0].batter.last_name.as_ref(), "Ohtani");
-        assert_eq!(stats[0].ab, 5);
-        assert_eq!(stats[0].single, 1);
-        assert_eq!(stats[0].double, 1);
-        assert_eq!(stats[0].triple, 1);
-        assert_eq!(stats[0].homerun, 1);
-        assert_eq!(stats[0].ba, 0.8);
-        assert_eq!(stats[0].rbi, 10.0);
-        std::fs::remove_file(path).ok();
-    }
+    //     assert_eq!(stats.len(), 1);
+    //     assert_eq!(stats[0].batter.id, 10);
+    //     assert_eq!(stats[0].batter.first_name.as_ref(), "Shohei");
+    //     assert_eq!(stats[0].batter.last_name.as_ref(), "Ohtani");
+    //     assert_eq!(stats[0].ab, 5);
+    //     assert_eq!(stats[0].single, 1);
+    //     assert_eq!(stats[0].double, 1);
+    //     assert_eq!(stats[0].triple, 1);
+    //     assert_eq!(stats[0].homerun, 1);
+    //     assert_eq!(stats[0].ba, 0.8);
+    //     assert_eq!(stats[0].rbi, 10.0);
+    //     std::fs::remove_file(path).ok();
+    // }
 
-    #[test]
-    fn load_batting_stats_calculates_ba_including_homeruns() {
-        let (repo, path) = setup_repo();
-        seed_player(&repo, 10, "Shohei", "Ohtani");
-        seed_count(&repo, 1, 1, 10, "Single", 0);
-        seed_count(&repo, 1, 2, 10, "HomeRun", 1);
-        seed_count(&repo, 1, 3, 10, "Out", 0);
-        seed_count(&repo, 1, 4, 10, "Out", 0);
+    // #[test]
+    // fn load_batting_stats_calculates_ba_including_homeruns() {
+    //     let (repo, path) = setup_repo();
+    //     seed_player(&repo, 10, "Shohei", "Ohtani");
+    //     seed_count(&repo, 1, 1, 10, "Single", 0);
+    //     seed_count(&repo, 1, 2, 10, "HomeRun", 1);
+    //     seed_count(&repo, 1, 3, 10, "Out", 0);
+    //     seed_count(&repo, 1, 4, 10, "Out", 0);
 
-        let stats = repo.load_batting_stats().unwrap();
+    //     let stats = repo.load_batting_stats().unwrap();
 
-        assert_eq!(stats.len(), 1);
-        assert_eq!(stats[0].ab, 4);
-        assert_eq!(stats[0].homerun, 1);
-        assert_eq!(stats[0].ba, 0.5);
-        std::fs::remove_file(path).ok();
-    }
+    //     assert_eq!(stats.len(), 1);
+    //     assert_eq!(stats[0].ab, 4);
+    //     assert_eq!(stats[0].homerun, 1);
+    //     assert_eq!(stats[0].ba, 0.5);
+    //     std::fs::remove_file(path).ok();
+    // }
 
-    #[test]
-    fn load_batting_stats_groups_multiple_batters_ordered_by_batter_id() {
-        let (repo, path) = setup_repo();
-        seed_player(&repo, 10, "First10", "Last10");
-        seed_player(&repo, 20, "First20", "Last20");
-        seed_count(&repo, 1, 1, 20, "Double", 2);
-        seed_count(&repo, 1, 2, 10, "Out", 0);
-        seed_count(&repo, 1, 3, 10, "Single", 1);
+    // #[test]
+    // fn load_batting_stats_groups_multiple_batters_ordered_by_batter_id() {
+    //     let (repo, path) = setup_repo();
+    //     seed_player(&repo, 10, "First10", "Last10");
+    //     seed_player(&repo, 20, "First20", "Last20");
+    //     seed_count(&repo, 1, 1, 20, "Double", 2);
+    //     seed_count(&repo, 1, 2, 10, "Out", 0);
+    //     seed_count(&repo, 1, 3, 10, "Single", 1);
 
-        let stats = repo.load_batting_stats().unwrap();
+    //     let stats = repo.load_batting_stats().unwrap();
 
-        assert_eq!(stats.len(), 2);
-        assert_eq!(stats[0].batter.id, 10);
-        assert_eq!(stats[0].ab, 2);
-        assert_eq!(stats[0].single, 1);
-        assert_eq!(stats[0].ba, 0.5);
-        assert_eq!(stats[1].batter.id, 20);
-        assert_eq!(stats[1].ab, 1);
-        assert_eq!(stats[1].double, 1);
-        assert_eq!(stats[1].ba, 1.0);
-        std::fs::remove_file(path).ok();
-    }
+    //     assert_eq!(stats.len(), 2);
+    //     assert_eq!(stats[0].batter.id, 10);
+    //     assert_eq!(stats[0].ab, 2);
+    //     assert_eq!(stats[0].single, 1);
+    //     assert_eq!(stats[0].ba, 0.5);
+    //     assert_eq!(stats[1].batter.id, 20);
+    //     assert_eq!(stats[1].ab, 1);
+    //     assert_eq!(stats[1].double, 1);
+    //     assert_eq!(stats[1].ba, 1.0);
+    //     std::fs::remove_file(path).ok();
+    // }
 
-    #[test]
-    fn load_batting_stats_returns_empty_when_no_counts() {
-        let (repo, path) = setup_repo();
-        seed_player(&repo, 10, "Shohei", "Ohtani");
+    // #[test]
+    // fn load_batting_stats_returns_empty_when_no_counts() {
+    //     let (repo, path) = setup_repo();
+    //     seed_player(&repo, 10, "Shohei", "Ohtani");
 
-        let stats = repo.load_batting_stats().unwrap();
+    //     let stats = repo.load_batting_stats().unwrap();
 
-        assert!(stats.is_empty());
-        std::fs::remove_file(path).ok();
-    }
+    //     assert!(stats.is_empty());
+    //     std::fs::remove_file(path).ok();
+    // }
 }

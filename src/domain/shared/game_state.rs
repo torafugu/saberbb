@@ -1,7 +1,6 @@
 use super::game::{Base, BattingResult, Count, Inning, TB};
-use super::game_history::BattingOrderHistory;
 use super::player::{Player, Position};
-use super::team::{BattingOrder, Lineup};
+use super::team::Lineup;
 use crate::domain::resolver::simulate_batting;
 use crate::domain::utils::is_base_occupied;
 
@@ -138,39 +137,6 @@ impl GameState {
             }
         }
     }
-
-    pub fn init_batting_order_histories(
-        away_team_id: u16,
-        home_team_id: u16,
-        away_team_batting_orders: &Vec<BattingOrder>,
-        home_team_batting_orders: &Vec<BattingOrder>,
-    ) -> Vec<BattingOrderHistory> {
-        let mut batting_order_histories = Vec::new();
-        for away_team_batting_order in away_team_batting_orders {
-            batting_order_histories.push(BattingOrderHistory::new(
-                1,
-                TB::Top,
-                1,
-                away_team_id,
-                away_team_batting_order.index,
-                away_team_batting_order.position.clone(),
-                away_team_batting_order.player.id,
-            ));
-        }
-        for home_team_batting_order in home_team_batting_orders {
-            batting_order_histories.push(BattingOrderHistory::new(
-                1,
-                TB::Bottom,
-                1,
-                home_team_id,
-                home_team_batting_order.index,
-                home_team_batting_order.position.clone(),
-                home_team_batting_order.player.id,
-            ));
-        }
-        batting_order_histories
-    }
-
     pub fn add_point(&mut self, point: u8) {
         match self.inning_tb {
             TB::Top => self.away_total_point += point,
@@ -286,6 +252,7 @@ impl InningState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::player::RL;
     use crate::domain::shared::team::BattingOrder;
 
     fn lineup(first_player_id: u32) -> Lineup {
@@ -295,10 +262,15 @@ mod tests {
             .map(|(index, position)| BattingOrder {
                 index: (index + 1) as u8,
                 position,
-                player: Player::min(
+                player: Player::new(
                     first_player_id + index as u32,
                     &format!("Player{}", first_player_id + index as u32),
                     "Test",
+                    25,
+                    RL::Right,
+                    RL::Right,
+                    0.0,
+                    0.0,
                 ),
             })
             .collect();
@@ -498,44 +470,6 @@ mod tests {
                     "{result:?} with bases {bases:03b}"
                 );
             }
-        }
-    }
-
-    #[test]
-    fn init_batting_order_histories_keeps_initial_batting_orders() {
-        let game = game_state();
-        let histories = GameState::init_batting_order_histories(
-            1,
-            2,
-            &game.away_lineup.batters,
-            &game.home_lineup.batters,
-        );
-
-        assert_eq!(histories.len(), 18);
-
-        for (index, history) in histories.iter().enumerate() {
-            let is_away = index < 9;
-            let lineup_index = index % 9;
-
-            assert_eq!(history.start_inning_seq, 1);
-            assert_eq!(
-                history.start_inning_tb,
-                if is_away { TB::Top } else { TB::Bottom }
-            );
-            assert_eq!(history.start_count_seq, 1);
-            assert!(history.end_inning_seq.is_none());
-            assert!(history.end_inning_tb.is_none());
-            assert!(history.end_count_seq.is_none());
-            assert_eq!(history.team_id, if is_away { 1 } else { 2 });
-            assert_eq!(history.index as usize, lineup_index + 1);
-            assert_eq!(
-                history.player_id,
-                if is_away {
-                    lineup_index as u32 + 1
-                } else {
-                    lineup_index as u32 + 101
-                }
-            );
         }
     }
 }

@@ -1,16 +1,27 @@
-use super::game::{Count, GameRow, Inning, TB};
+use super::game::{Count, GameDetail, Inning, TB};
+use super::player::{Player, Position};
+use super::team::Team;
 use std::sync::Arc;
+
+#[derive(thiserror::Error, Debug)]
+pub enum GameViewError {
+    #[error("No players for position: {0}")]
+    NoPlayerFor(String),
+
+    #[error("Failed to retrieve current batter")]
+    CurrentBatter,
+}
 
 #[derive(Debug)]
 pub struct GameCursor {
-    game: Arc<GameRow>,
+    game: Arc<GameDetail>,
     pub inning_seq: u8,
     pub inning_tb: TB,
     pub count_seq: u8,
     pub is_last_bottom_inning_skiped: bool,
 }
 impl GameCursor {
-    pub fn new(game: GameRow) -> Self {
+    pub fn new(game: GameDetail) -> Self {
         Self {
             game: game.into(),
             inning_seq: 1,
@@ -166,6 +177,30 @@ impl GameCursor {
         }
 
         scoreboard
+    }
+
+    fn current_team(&self) -> &Team {
+        if self.inning_tb == TB::Top {
+            &self.game.away_team
+        } else {
+            &self.game.home_team
+        }
+    }
+
+    pub fn current_pitcher(&mut self) -> Result<Player, GameViewError> {
+        self.game
+            .batting_order_histories
+            .iter()
+            .find(|i| {
+                i.is_position(
+                    self.current_team().id,
+                    Position::P,
+                    self.inning_seq,
+                    self.count_seq,
+                )
+            })
+            .map(|i| i.player.clone())
+            .ok_or_else(|| GameViewError::NoPlayerFor(Position::P.to_string()))
     }
 }
 

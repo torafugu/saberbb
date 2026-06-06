@@ -41,6 +41,7 @@ ball = Ball
 strike = Strike
 out = Out
 batter = Batter
+pitcher = Pitcher 
 ba = BA
 slg =  SLG
 batting_result = Batting Result

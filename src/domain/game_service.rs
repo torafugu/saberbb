@@ -26,12 +26,10 @@ impl<R: GameRepository> GameService<R> {
             let mut game_result = GameResult::new(
                 game_schedule.id,
                 game_schedule.planned_date,
-                GameState::init_batting_order_histories(
-                    game_schedule.away_team.id,
-                    game_schedule.home_team.id,
-                    &game_state.away_lineup.batters,
-                    &game_state.home_lineup.batters,
-                ),
+                game_schedule.away_team.id,
+                game_schedule.home_team.id,
+                game_state.away_lineup.batters.clone(),
+                game_state.home_lineup.batters.clone(),
             );
 
             while let GameProgress::Ongoing = game_state.progress() {
@@ -78,10 +76,10 @@ impl<R: GameRepository> GameService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::game::{
-        Count, GameDetail, GameHeader, GameRow, GameScheduler, GameType, Inning, TB,
+        Count, GameDetail, GameHeader, GameScheduler, GameType, Inning, TB,
     };
     use crate::domain::shared::game_history::BattingOrderHistory;
-    use crate::domain::shared::player::{DefensiveSkill, Position};
+    use crate::domain::shared::player::{DefensiveSkill, Position, RL};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;
@@ -159,10 +157,6 @@ mod tests {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_game_row(&self, _game_id: u32) -> std::result::Result<GameRow, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
         fn load_team_players(&self, _team_id: u16) -> std::result::Result<Vec<Player>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
@@ -207,7 +201,16 @@ mod tests {
             Position::CF,
             Position::RF,
         ];
-        let mut player = Player::batter(id, &format!("First{id}"), &format!("Last{id}"), 0.0, 0.0);
+        let mut player = Player::new(
+            id,
+            &format!("First{id}"),
+            &format!("Last{id}"),
+            25,
+            RL::Right,
+            RL::Right,
+            0.0,
+            0.0,
+        );
         player.defensive_skills = vec![DefensiveSkill {
             position: positions[((id - 1) as usize) % positions.len()].clone(),
             mod_uzr: 0.0,

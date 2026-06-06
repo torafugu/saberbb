@@ -144,6 +144,8 @@ impl FromRow for GameDetail {
             ),
             game_type: row.get::<_, GameType>("game_type")?,
             innings: Vec::new(),
+            away_points: row.get("away_points")?,
+            home_points: row.get("home_points")?,
             batting_order_histories: Vec::new(),
         };
 

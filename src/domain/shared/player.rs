@@ -10,8 +10,6 @@ const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
 const BATTING_MAX_HIT_AVERAGE: f64 = 0.32;
 const BATTING_MIN_SLG: f64 = 0.3;
 const BATTING_MAX_SLG: f64 = 0.55;
-const PLAYER_NAME_DEFAULT: &str = "DEAFULT";
-const PLAYER_AGE_DEFAULT: u8 = 25;
 
 #[derive(Clone, Hash, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
@@ -130,35 +128,26 @@ impl Player {
             mod_slg: mod_slg,
         }
     }
-    pub fn default() -> Self {
-        Player::min(1, PLAYER_NAME_DEFAULT, PLAYER_NAME_DEFAULT)
-    }
 
-    pub fn min(id: u32, first_name: &str, last_name: &str) -> Self {
+    pub fn new(
+        id: u32,
+        first_name: &str,
+        last_name: &str,
+        age: u8,
+        throw: RL,
+        bat: RL,
+        mod_ba: f64,
+        mod_slg: f64,
+    ) -> Self {
         Self {
             id: id,
             first_name: Arc::from(first_name),
             last_name: Arc::from(last_name),
-            age: PLAYER_AGE_DEFAULT,
-            throw: RL::Right,
-            pitcher_attribute: None,
-            defensive_skills: Vec::new(),
-            bat: RL::Right,
-            mod_ba: 0.0,
-            mod_slg: 0.0,
-        }
-    }
-
-    pub fn batter(id: u32, first_name: &str, last_name: &str, mod_ba: f64, mod_slg: f64) -> Self {
-        Self {
-            id: id,
-            first_name: Arc::from(first_name),
-            last_name: Arc::from(last_name),
-            age: 25,
-            throw: RL::Right,
+            age: age,
+            throw: throw,
             defensive_skills: Vec::new(),
             pitcher_attribute: None,
-            bat: RL::Right,
+            bat: bat,
             mod_ba: mod_ba,
             mod_slg: mod_slg,
         }

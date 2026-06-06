@@ -93,12 +93,15 @@ impl FromRow for Player {
     type Error = AppError;
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let player = Player::batter(
-            row.get("id")?,
-            &row.get::<_, String>("first_name")?,
-            &row.get::<_, String>("last_name")?,
-            row.get("mod_ba")?,
-            row.get("mod_slg")?,
+        let player = Player::new(
+            row.get("player_id")?,
+            &row.get::<_, String>("player_first_name")?,
+            &row.get::<_, String>("player_last_name")?,
+            row.get("player_age")?,
+            row.get("player_throw")?,
+            row.get("player_bat")?,
+            row.get("player_mod_ba")?,
+            row.get("player_mod_slg")?,
         );
 
         player.validate()?;

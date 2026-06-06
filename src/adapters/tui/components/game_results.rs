@@ -1,4 +1,5 @@
 use super::Component;
+use crate::I18nManager;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::{Base, Count, GameHeader};
@@ -133,7 +134,7 @@ impl GameResultsWidget {
         let game_row_res = APP_CONTEXT
             .get()
             .context("App context is not initialized")
-            .map(|app_context| app_context.game_repository.load_game_row(game_id));
+            .map(|app_context| app_context.game_repository.load_game_detail(game_id));
 
         match game_row_res {
             Ok(Ok(game_row)) => {
@@ -324,7 +325,10 @@ impl GameResultsWidget {
 
         // frame.render_widget(Paragraph::new(Self::format_count(&count)), layout[2]);
         frame.render_widget(Paragraph::new(Self::format_count(&count)), count_left_area);
-        frame.render_widget(Paragraph::new(Self::format_lineup()), count_right_area);
+        frame.render_widget(
+            Paragraph::new(Self::format_lineup(cursor)),
+            count_right_area,
+        );
     }
 
     fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
@@ -425,12 +429,15 @@ impl GameResultsWidget {
         formatted_count
     }
 
-    fn format_lineup() -> String {
+    fn format_lineup(game_cursor: &mut GameCursor) -> String {
+        // TODO: Error shoudl be caught instead of unwrap
+        let pitcher = game_cursor.current_pitcher().unwrap();
+
         let mut formatted_lineup = format!(
             "{}: {}\n",
-            t!("batter"),
-            "Pitcher" // TODO: Shoudl be retrieved from BattingOrderHistory
-                      // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
+            t!("pitcher"),
+            // game_cursor.current_pitcher().unwrap().last_name // "Pitcher"
+            I18nManager::global().full_name(&pitcher.first_name, &pitcher.last_name)
         );
         formatted_lineup.push_str(
             &format!(
