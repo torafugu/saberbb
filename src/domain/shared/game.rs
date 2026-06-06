@@ -105,6 +105,17 @@ impl GameResult {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct GameDetail {
+    pub id: u32,
+    pub actual_date: NaiveDate,
+    pub away_team: Team,
+    pub home_team: Team,
+    pub game_type: GameType,
+    pub innings: Vec<Inning>,
+    pub batting_order_histories: Vec<BattingOrderHistory>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameRow {
     pub id: u32,
     pub season: u16,

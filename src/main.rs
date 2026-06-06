@@ -91,7 +91,7 @@ fn main() -> Result<()> {
         );
     }
 
-    if args.top {
+    if args.menu {
         let _ = menu(cfg.clone());
     }
 
@@ -105,17 +105,13 @@ struct Args {
     #[arg(short, long)]
     process: Option<i8>,
 
-    /// Display the last game result
-    #[arg(short, long)]
-    display: bool,
-
     /// Generate players
     #[arg(short, long)]
     generate: Option<u16>,
 
     /// TUI game menu
     #[arg(short, long)]
-    top: bool,
+    menu: bool,
 
     /// Schedule games
     #[arg(short, long)]

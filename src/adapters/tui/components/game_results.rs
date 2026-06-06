@@ -36,7 +36,7 @@ pub struct GameResultsWidget {
     selected_season: Option<u16>,
     games: Vec<GameHeader>,
     game_state: ListState,
-    selected_game: Option<GameHeader>,
+    selected_game_id: Option<u32>,
     game_cursor: Option<GameCursor>,
     error: Option<String>,
 }
@@ -105,7 +105,7 @@ impl GameResultsWidget {
                 self.games = games;
                 self.game_state
                     .select(if self.games.is_empty() { None } else { Some(0) });
-                self.selected_game = None;
+                self.selected_game_id = None;
                 self.game_cursor = None;
                 self.error = None;
                 self.view = GameResultsView::SelectGame;
@@ -127,17 +127,17 @@ impl GameResultsWidget {
         }
     }
 
-    #[tracing::instrument(skip(game), fields(game_id = %game.id))]
-    fn load_game_detail(&mut self, game: &GameHeader) {
+    #[tracing::instrument(fields(game_id = %game_id))]
+    fn load_game_detail(&mut self, game_id: u32) {
         info!("load_games started.");
         let game_row_res = APP_CONTEXT
             .get()
             .context("App context is not initialized")
-            .map(|app_context| app_context.game_repository.load_game_row(game));
+            .map(|app_context| app_context.game_repository.load_game_row(game_id));
 
         match game_row_res {
             Ok(Ok(game_row)) => {
-                self.selected_game = Some(game.clone());
+                self.selected_game_id = Some(game_id);
                 self.game_cursor = Some(GameCursor::new(game_row));
                 self.error = None;
                 self.view = GameResultsView::GameDetail;
@@ -225,7 +225,7 @@ impl GameResultsWidget {
             }
             GameResultsView::SelectGame => {
                 if let Some(game) = self.selected_game() {
-                    self.load_game_detail(&game);
+                    self.load_game_detail(game.id);
                 }
             }
             GameResultsView::GameDetail => {}

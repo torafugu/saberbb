@@ -78,8 +78,9 @@ impl<R: GameRepository> GameService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::game::{
-        Count, GameHeader, GameRow, GameScheduler, GameType, Inning, TB,
+        Count, GameDetail, GameHeader, GameRow, GameScheduler, GameType, Inning, TB,
     };
+    use crate::domain::shared::game_history::BattingOrderHistory;
     use crate::domain::shared::player::{DefensiveSkill, Position};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
@@ -154,10 +155,11 @@ mod tests {
             Ok(self.schedules.clone())
         }
 
-        fn load_game_row(
-            &self,
-            _game_header: &GameHeader,
-        ) -> std::result::Result<GameRow, AppError> {
+        fn load_game_detail(&self, _game_id: u32) -> std::result::Result<GameDetail, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_game_row(&self, _game_id: u32) -> std::result::Result<GameRow, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
@@ -182,6 +184,13 @@ mod tests {
             _inning_seq: u8,
             _inning_tb: TB,
         ) -> std::result::Result<Vec<Count>, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_batting_order_histories(
+            &self,
+            _game_id: u32,
+        ) -> std::result::Result<Vec<BattingOrderHistory>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }
