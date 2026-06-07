@@ -12,6 +12,7 @@ use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
 use saberbb::repositories::statistics_repository::SqlStatRepository;
 use saberbb::{AppContext, app_context, init_app_context, t};
+use std::backtrace::Backtrace;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -20,14 +21,6 @@ fn main() -> Result<()> {
     let cfg = load_app_config()?;
 
     I18nManager::init(&cfg.language);
-
-    let ctx = AppContext {
-        game_repository: SqlGameRepository::new()?,
-        player_repository: SqlPlayerRepository::new()?,
-        schedule_repository: SqlScheduleRepository::new()?,
-        statistics_repository: SqlStatRepository::new()?,
-    };
-    init_app_context(ctx);
 
     let file_appender = tracing_appender::rolling::daily("log", "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -40,7 +33,22 @@ fn main() -> Result<()> {
         .with_writer(non_blocking)
         .init();
 
+    std::panic::set_hook(Box::new(|panic_info| {
+        let backtrace = Backtrace::force_capture();
+        tracing::error!(%panic_info, %backtrace, "panic occurred");
+    }));
+
+    let ctx = AppContext {
+        game_repository: SqlGameRepository::new()?,
+        player_repository: SqlPlayerRepository::new()?,
+        schedule_repository: SqlScheduleRepository::new()?,
+        statistics_repository: SqlStatRepository::new()?,
+    };
+    init_app_context(ctx);
+
     let args = Args::parse();
+
+    info!("game started.");
 
     // Game Process Mode
     if let Some(num_of_games) = args.process {

@@ -8,6 +8,8 @@ CREATE TABLE count (
     bases_occupied INTEGER NOT NULL DEFAULT 0,
     result TEXT NOT NULL,
     point INTEGER NOT NULL,
+    ball INTEGER NOT NULL,
+    strike INTEGER NOT NULL,
     out INTEGER NOT NULL,
     PRIMARY KEY (
         game_id,

@@ -211,6 +211,8 @@ impl FromRow for Count {
             bases_occupied: row.get("bases_occupied")?,
             result: row.get::<_, BattingResult>("result")?,
             point: row.get("point")?,
+            ball: row.get("ball")?,
+            strike: row.get("strike")?,
             out: row.get("out")?,
         };
 

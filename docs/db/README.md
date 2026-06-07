@@ -16,8 +16,8 @@
 | [player](player.md)                               | 9       |         | table |
 | [pitch_skill](pitch_skill.md)                     | 13      |         | table |
 | [pitcher_attribute](pitcher_attribute.md)         | 9       |         | table |
-| [count](count.md)                                 | 8       |         | table |
 | [batting_order_history](batting_order_history.md) | 11      |         | table |
+| [count](count.md)                                 | 10      |         | table |
 
 ## Relations
 

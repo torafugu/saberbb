@@ -224,6 +224,8 @@ pub struct Count {
     pub bases_occupied: u8,
     pub result: BattingResult,
     pub point: u8,
+    pub ball: u8,
+    pub strike: u8,
     pub out: u8,
 }
 

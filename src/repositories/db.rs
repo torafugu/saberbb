@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use rusqlite::types::FromSql;
 use std::fs;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SqliteManager {
     path: std::path::PathBuf,
 }
@@ -43,7 +43,7 @@ pub enum DbError {
     Pool(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SqlDb {
     pool: SqlitePool,
 }
@@ -100,7 +100,7 @@ pub trait FromRowWithCtx<Ctx>: Sized {
     fn from_row_with_ctx(row: &rusqlite::Row, ctx: &Ctx) -> Result<Self, Self::Error>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DbClient {
     pub db: SqlDb,
 }

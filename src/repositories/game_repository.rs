@@ -7,6 +7,7 @@ use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
 use rusqlite::params;
+use tracing::{error, info};
 
 pub trait GameRepository {
     fn save_game_result(&mut self, game: &GameResult) -> Result<(), AppError>;
@@ -30,7 +31,7 @@ pub trait GameRepository {
     ) -> Result<Vec<Count>, AppError>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SqlGameRepository {
     db_client: DbClient,
 }
@@ -42,7 +43,9 @@ impl SqlGameRepository {
     }
 }
 impl GameRepository for SqlGameRepository {
+    #[tracing::instrument(skip(self), fields(game_id = %game.id))]
     fn save_game_result(&mut self, game: &GameResult) -> Result<(), AppError> {
+        info!("save_game_result() started");
         self.db_client.transaction(|tx| {
             let update_game_sql =
                 "UPDATE game SET actual_date = ?1, away_points = ?2, home_points = ?3 WHERE id = ?4";
@@ -60,10 +63,10 @@ impl GameRepository for SqlGameRepository {
             let insert_inning_sql = "INSERT INTO inning (game_id, seq, tb) VALUES (?1, ?2, ?3)";
             let insert_count_sql = "INSERT INTO count (
                             game_id, inning_seq, inning_tb, seq, bases_occupied,
-                            result, point, out
+                            result, point, ball, strike, out
                             ) VALUES (
                             ?1, ?2, ?3, ?4, ?5,
-                            ?6, ?7, ?8)";
+                            ?6, ?7, ?8, ?9, ?10)";
 
             for inning in &game.innings {
                 self.db_client.execute_tx(
@@ -84,6 +87,8 @@ impl GameRepository for SqlGameRepository {
                             count.bases_occupied,
                             count.result,
                             count.point,
+                            count.ball,
+                            count.strike,
                             count.out
                         ],
                     )?;
@@ -119,6 +124,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn update_current_round_seq(&mut self) -> Result<usize, AppError> {
+        info!("update_current_round_seq() started");
         let update_game_season_sql =
             "UPDATE game_season SET current_round_seq = current_round_seq + 1";
         self.db_client.execute(update_game_season_sql, params![])
@@ -159,6 +165,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>, AppError> {
+        info!("load_game_schedules_to_process() started");
         let query = "SELECT 
                             g.id,
                             g.season,
@@ -228,13 +235,26 @@ impl GameRepository for SqlGameRepository {
         Ok(game)
     }
 
+    #[tracing::instrument(skip(self), fields(team_id = %team_id))]
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError> {
-        let query =
-            "SELECT id, first_name, last_name, mod_ba, mod_slg FROM player WHERE team_id = ?1";
+        info!("load_team_players() started");
+        let query = "SELECT 
+                id AS player_id,
+                first_name AS player_first_name,
+                last_name AS player_last_name,
+                age AS player_age,
+                throw AS player_throw,
+                bat AS player_bat,
+                mod_ba AS player_mod_ba,
+                mod_slg AS player_mod_slg
+            FROM player
+            WHERE team_id = ?1";
         self.db_client.query_rows::<Player>(query, params![team_id])
     }
 
+    #[tracing::instrument(skip(self), fields(player_id = %player_id))]
     fn load_defensive_skills(&self, player_id: u32) -> Result<Vec<DefensiveSkill>, AppError> {
+        info!("load_defensive_skills() started");
         let query = "SELECT position, mod_uzr FROM defensive_skill WHERE player_id = ?1";
         self.db_client
             .query_rows::<DefensiveSkill>(query, params![player_id])
@@ -252,7 +272,7 @@ impl GameRepository for SqlGameRepository {
         inning_seq: u8,
         inning_tb: TB,
     ) -> Result<Vec<Count>, AppError> {
-        let query = "SELECT seq, bases_occupied, result, point, out 
+        let query = "SELECT seq, bases_occupied, result, point, ball, strike, out 
                                 FROM count
                                 WHERE game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3";
         self.db_client
@@ -384,18 +404,10 @@ mod tests {
                 inning_tb TEXT,
                 seq INTEGER,
                 bases_occupied INTEGER NOT NULL DEFAULT 0,
-                pitcher_id INTEGER,
-                catcher_id INTEGER,
-                first_baseman_id INTEGER,
-                second_baseman_id INTEGER,
-                third_baseman_id INTEGER,
-                shortstop_id INTEGER,
-                left_fielder_id INTEGER,
-                center_fielder_id INTEGER,
-                right_fielder_id INTEGER,
-                batter_id INTEGER,
                 result TEXT NOT NULL,
                 point INTEGER NOT NULL,
+                ball INTEGER NOT NULL,
+                strike INTEGER NOT NULL,
                 out INTEGER NOT NULL,
                 PRIMARY KEY (game_id, inning_seq, inning_tb, seq)
             );
@@ -474,12 +486,15 @@ mod tests {
                 "INSERT INTO player (
                     id, team_id, first_name, last_name, age, throw,
                     bat, mod_ba, mod_slg
-                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 'Right', ?5, ?6)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     id,
                     team_id,
                     format!("First{id}"),
                     format!("Last{id}"),
+                    20 + id,
+                    if id % 2 == 0 { RL::Left } else { RL::Right },
+                    if id % 3 == 0 { RL::Left } else { RL::Right },
                     id as f64 / 100.0,
                     id as f64 / 50.0,
                 ],
@@ -548,10 +563,8 @@ mod tests {
             .execute(
                 "INSERT INTO count (
                     game_id, inning_seq, inning_tb, seq, bases_occupied,
-                    pitcher_id, catcher_id, first_baseman_id, second_baseman_id,
-                    third_baseman_id, shortstop_id, left_fielder_id, center_fielder_id,
-                    right_fielder_id, batter_id, result, point, out
-                ) VALUES (?1, ?2, ?3, 1, 5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 'Double', 2, 1)",
+                    result, point, ball, strike, out
+                ) VALUES (?1, ?2, ?3, 1, 5, 'Double', 2, 1, 2, 1)",
                 params![game_id, inning_seq, inning_tb],
             )
             .unwrap();
@@ -686,6 +699,7 @@ mod tests {
     fn load_game_detail_loads_game_innings_and_batting_order_histories() {
         let (repo, path) = setup_repo();
         seed_teams(&repo);
+        seed_players(&repo);
         seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
         seed_inning(&repo, 1, 1, "Top");
         seed_count(&repo, 1, 1, "Top");
@@ -742,6 +756,7 @@ mod tests {
     fn load_batting_order_histories_returns_histories_for_game() {
         let (repo, path) = setup_repo();
         seed_teams(&repo);
+        seed_players(&repo);
         seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
         seed_game(&repo, 2, 2026, 1, 2, Some("2026-04-02"));
         seed_batting_order_history(&repo, 1, 1, 1, "P", 1);
@@ -782,6 +797,8 @@ mod tests {
                     seq: 1,
                     bases_occupied: 3,
                     result: BattingResult::Single,
+                    ball: 1,
+                    strike: 1,
                     point: 1,
                     out: 0,
                 }],
@@ -935,6 +952,8 @@ mod tests {
             seq: 1,
             bases_occupied: 0,
             result: BattingResult::Single,
+            ball: 1,
+            strike: 1,
             point: 1,
             out: 0,
         };
@@ -1008,6 +1027,9 @@ mod tests {
         assert_eq!(players[0].id, 10);
         assert_eq!(players[0].first_name.as_ref(), "First10");
         assert_eq!(players[0].last_name.as_ref(), "Last10");
+        assert_eq!(players[0].age, 30);
+        assert_eq!(players[0].throw, RL::Left);
+        assert_eq!(players[0].bat, RL::Right);
         assert_eq!(players[0].mod_ba, 0.10);
         assert_eq!(players[0].mod_slg, 0.20);
         std::fs::remove_file(path).ok();

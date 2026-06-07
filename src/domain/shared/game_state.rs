@@ -180,10 +180,13 @@ impl InningState {
             self.add_out(1);
         }
         let point = self.advance(&batting_result);
+        // TODO: ball and strike should be considered
         Count {
             seq: self.count_seq,
             bases_occupied: self.bases_occupied,
             result: batting_result,
+            ball: 0,
+            strike: 0,
             point: point,
             out: self.out,
         }
