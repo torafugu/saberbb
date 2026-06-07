@@ -188,19 +188,55 @@ impl GameCursor {
     }
 
     pub fn current_pitcher(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::P)
+    }
+
+    pub fn current_catcher(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::C)
+    }
+
+    pub fn current_fb(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::FB)
+    }
+
+    pub fn current_sb(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::SB)
+    }
+
+    pub fn current_tb(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::TB)
+    }
+
+    pub fn current_ss(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::SS)
+    }
+
+    pub fn current_rf(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::RF)
+    }
+
+    pub fn current_cf(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::CF)
+    }
+
+    pub fn current_lf(&mut self) -> Result<Player, GameViewError> {
+        self.current_position(Position::LF)
+    }
+
+    fn current_position(&mut self, position: Position) -> Result<Player, GameViewError> {
         self.game
             .batting_order_histories
             .iter()
             .find(|i| {
                 i.is_position(
                     self.current_team().id,
-                    Position::P,
+                    position.clone(),
                     self.inning_seq,
                     self.count_seq,
                 )
             })
             .map(|i| i.player.clone())
-            .ok_or_else(|| GameViewError::NoPlayerFor(Position::P.to_string()))
+            .ok_or_else(|| GameViewError::NoPlayerFor(position.to_string()))
     }
 }
 

@@ -1,5 +1,4 @@
 use super::Component;
-use crate::I18nManager;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::{Base, Count, GameHeader};
@@ -294,6 +293,7 @@ impl GameResultsWidget {
             .constraints([
                 Constraint::Length(3),
                 Constraint::Length(5),
+                Constraint::Length(1),
                 Constraint::Min(8),
             ])
             .split(area);
@@ -316,19 +316,24 @@ impl GameResultsWidget {
         Self::draw_scoreboard(frame, layout[1], &scoreboard);
 
         let count = cursor.current_count();
-        let count_left_and_right_areas =
-            Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)])
-                .split(layout[2]);
+        let game_status_areas = Layout::horizontal([
+            Constraint::Percentage(15),
+            Constraint::Percentage(15),
+            Constraint::Percentage(35),
+            Constraint::Percentage(35),
+        ])
+        .split(layout[3]);
 
-        let count_left_area = count_left_and_right_areas[0];
-        let count_right_area = count_left_and_right_areas[1];
+        let count_area = game_status_areas[0];
+        let runner_area = game_status_areas[1];
+        let batter_area = game_status_areas[2];
+        let lineup_area = game_status_areas[3];
 
         // frame.render_widget(Paragraph::new(Self::format_count(&count)), layout[2]);
-        frame.render_widget(Paragraph::new(Self::format_count(&count)), count_left_area);
-        frame.render_widget(
-            Paragraph::new(Self::format_lineup(cursor)),
-            count_right_area,
-        );
+        frame.render_widget(Paragraph::new(Self::format_count(&count)), count_area);
+        frame.render_widget(Paragraph::new(Self::format_runner(&count)), runner_area);
+        frame.render_widget(Paragraph::new(Self::format_batter(cursor)), batter_area);
+        frame.render_widget(Paragraph::new(Self::format_lineup(cursor)), lineup_area);
     }
 
     fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
@@ -411,62 +416,65 @@ impl GameResultsWidget {
     }
 
     fn format_count(count: &Count) -> String {
-        let mut formatted_count = format!(
+        let mut formatted_count = format!("{}: {}\n", "B", Self::display_count_number(0));
+        formatted_count.push_str(&format!("{}: {}\n", "S", Self::display_count_number(0)));
+        formatted_count.push_str(&format!(
+            "{}: {}\n",
+            "O",
+            Self::display_count_number(count.out)
+        ));
+        formatted_count
+    }
+
+    fn format_runner(count: &Count) -> String {
+        format!(
             "  <{}>\n<{}> <{}>\n  <H>\n",
             Self::display_runner(count.bases_occupied, Base::Second),
             Self::display_runner(count.bases_occupied, Base::Third),
             Self::display_runner(count.bases_occupied, Base::First)
-        );
-        formatted_count.push_str(&format!("\n{}: {}\n", t!("ball"), 0));
-        formatted_count.push_str(&format!("{}: {}\n", t!("strike"), 0));
-        formatted_count.push_str(&format!("{}: {}\n", t!("out"), count.out));
-
-        formatted_count.push_str(&format!("{}: {}\n", t!("batting_result"), count.result));
-        if count.point > 0 {
-            formatted_count.push_str(&format!("{}: +{}\n", t!("score"), count.point));
-        }
-
-        formatted_count
+        )
     }
 
-    fn format_lineup(game_cursor: &mut GameCursor) -> String {
-        // TODO: Error shoudl be caught instead of unwrap
+    fn format_batter(game_cursor: &mut GameCursor) -> String {
         let pitcher = game_cursor.current_pitcher().unwrap();
 
         let mut formatted_lineup = format!(
             "{}: {}\n",
             t!("pitcher"),
             // game_cursor.current_pitcher().unwrap().last_name // "Pitcher"
-            I18nManager::global().full_name(&pitcher.first_name, &pitcher.last_name)
+            pitcher.full_name()
         );
-        formatted_lineup.push_str(
-            &format!(
-                "{}: .{}\n",
-                t!("ba"),
-                // TODO: Shoudl be retrieved from BattingOrderHistory
-                "0.3"
-            ), // (count.batter.hit_average() * 1000.0).round())
+
+        formatted_lineup
+    }
+
+    fn format_lineup(game_cursor: &mut GameCursor) -> String {
+        // TODO: Error shoudl be caught instead of unwrap
+        let pitcher = game_cursor.current_pitcher().unwrap();
+        let catcher = game_cursor.current_catcher().unwrap();
+        let fb = game_cursor.current_fb().unwrap();
+        let sb = game_cursor.current_sb().unwrap();
+        let tb = game_cursor.current_tb().unwrap();
+        let ss = game_cursor.current_ss().unwrap();
+        let rf = game_cursor.current_rf().unwrap();
+        let cf = game_cursor.current_cf().unwrap();
+        let lf = game_cursor.current_lf().unwrap();
+
+        let mut formatted_lineup = format!(
+            "({}) {}\n",
+            t!("p"),
+            // game_cursor.current_pitcher().unwrap().last_name // "Pitcher"
+            pitcher.full_name()
         );
-        formatted_lineup.push_str(&format!(
-            "{}: {}\n",
-            t!("batter"),
-            "Batter", // TODO: Shoudl be retrieved from BattingOrderHistory
-                      // I18nManager::global().full_name(&count.batter.first_name, &count.batter.last_name)
-        ));
-        formatted_lineup.push_str(
-            &format!(
-                "{}: .{}\n",
-                t!("ba"),
-                // TODO: Shoudl be retrieved from BattingOrderHistory
-                "0.3"
-            ), // (count.batter.hit_average() * 1000.0).round())
-        );
-        formatted_lineup.push_str(&format!(
-            "{}: .{}\n",
-            t!("slg"),
-            // TODO: Shoudl be retrieved from BattingOrderHistory
-            "0.3" // (count.batter.slg() * 1000.0).round()
-        ));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("c"), catcher.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("fb"), fb.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("sb"), sb.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("tb"), tb.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("ss"), ss.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("rf"), rf.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("cf"), cf.full_name()));
+        formatted_lineup.push_str(&format!("({}) {}\n", t!("lf"), lf.full_name()));
+
         formatted_lineup
     }
 
@@ -476,6 +484,14 @@ impl GameResultsWidget {
         } else {
             NO_RUNNER
         }
+    }
+
+    fn display_count_number(number: u8) -> String {
+        let mut count_number = "".to_string();
+        for _ in 0..number {
+            count_number.push_str("●");
+        }
+        count_number
     }
 
     fn game_label(game: &GameHeader) -> String {

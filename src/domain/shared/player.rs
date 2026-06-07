@@ -1,3 +1,4 @@
+use crate::I18nManager;
 use crate::domain::utils;
 use crate::t;
 use serde::{Deserialize, Serialize};
@@ -151,6 +152,10 @@ impl Player {
             mod_ba: mod_ba,
             mod_slg: mod_slg,
         }
+    }
+
+    pub fn full_name(&self) -> String {
+        I18nManager::global().full_name(&self.first_name, &self.last_name)
     }
 
     pub fn hit_average(&self) -> f64 {
