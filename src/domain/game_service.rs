@@ -20,6 +20,8 @@ impl<R: GameRepository> GameService<R> {
         for mut game_schedule in game_schedules {
             // TODO: Implement DH case
             let mut game_state = GameState::new(
+                game_schedule.away_team.id,
+                game_schedule.home_team.id,
                 game_schedule.away_team.lineup(false)?,
                 game_schedule.home_team.lineup(false)?,
             )?;
@@ -37,13 +39,14 @@ impl<R: GameRepository> GameService<R> {
                 let mut inning_state = InningState::new();
 
                 while let InningProgress::Ongoing = inning_state.progress() {
-                    inning_state.add_count_seq();
+                    let batting_result = game_state.batting_resolve()?;
 
-                    let count = inning_state.batting_resolve(
-                        &game_state.current_pitcher()?,
-                        &game_state.current_batter()?,
-                    );
+                    let mut count = inning_state.add_count(&batting_result);
+
                     game_state.add_point(count.point);
+                    game_result
+                        .batting_result_histories
+                        .push(game_state.add_batting_result_hisrory(count.seq, &batting_result)?);
                     inning.add_count(count);
 
                     if let GameProgress::WalkOff = game_state.progress() {
@@ -78,7 +81,7 @@ mod tests {
     use crate::domain::shared::game::{
         Count, GameDetail, GameHeader, GameScheduler, GameType, Inning, TB,
     };
-    use crate::domain::shared::game_history::BattingOrderHistory;
+    use crate::domain::shared::game_history::{BattingOrderHistory, BattingResultHistory};
     use crate::domain::shared::player::{DefensiveSkill, Position, RL};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
@@ -185,6 +188,13 @@ mod tests {
             &self,
             _game_id: u32,
         ) -> std::result::Result<Vec<BattingOrderHistory>, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_batting_result_histories(
+            &self,
+            _game_id: u32,
+        ) -> std::result::Result<Vec<BattingResultHistory>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }

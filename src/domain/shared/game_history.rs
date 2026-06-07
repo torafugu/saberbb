@@ -1,4 +1,4 @@
-use super::game::TB;
+use super::game::{BattingResult, TB};
 use super::player::{Player, Position};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
@@ -72,5 +72,21 @@ impl BattingOrderHistory {
         } else {
             u8::MAX
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct BattingResultHistory {
+    pub inning_seq: u8,
+    pub inning_tb: TB,
+    pub count_seq: u8,
+    pub team_id: u16,
+    pub pitcher: Player,
+    pub batter: Player,
+    pub result: BattingResult,
+}
+impl BattingResultHistory {
+    pub fn is(&self, team_id: u16, inning_seq: u8, count_seq: u8) -> bool {
+        self.team_id == team_id && self.inning_seq == inning_seq && self.count_seq == count_seq
     }
 }

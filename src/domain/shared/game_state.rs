@@ -2,6 +2,7 @@ use super::game::{Base, BattingResult, Count, Inning, TB};
 use super::player::{Player, Position};
 use super::team::Lineup;
 use crate::domain::resolver::simulate_batting;
+use crate::domain::shared::game_history::BattingResultHistory;
 use crate::domain::utils::is_base_occupied;
 
 pub const MAX_INNING: u8 = 9;
@@ -29,6 +30,8 @@ pub enum GameProgress {
 
 #[derive(Debug)]
 pub struct GameState {
+    away_team_id: u16,
+    home_team_id: u16,
     pub inning_seq: u8,
     pub inning_tb: TB,
     pub away_total_point: u8,
@@ -37,12 +40,17 @@ pub struct GameState {
     pub home_lineup: Lineup,
 }
 impl GameState {
-    pub fn new(away_lineup: Lineup, home_lineup: Lineup) -> Result<GameState, GameError> {
+    pub fn new(
+        away_team_id: u16,
+        home_team_id: u16,
+        away_lineup: Lineup,
+        home_lineup: Lineup,
+    ) -> Result<GameState, GameError> {
         Ok(GameState {
-            // Initialization: 1 should be set at the beginning of the game
-            inning_seq: 0,
-            // Initialization: Top should be set at the beginning of the game
-            inning_tb: TB::Bottom,
+            away_team_id: away_team_id,
+            home_team_id: home_team_id,
+            inning_seq: 0, // Initialization: 1 should be set at the beginning of the game
+            inning_tb: TB::Bottom, // Initialization: Top should be set at the beginning of the game
             away_total_point: 0,
             home_total_point: 0,
             away_lineup: away_lineup,
@@ -107,6 +115,14 @@ impl GameState {
         }
     }
 
+    fn current_team_id(&self) -> u16 {
+        if self.inning_tb == TB::Top {
+            self.away_team_id
+        } else {
+            self.home_team_id
+        }
+    }
+
     pub fn current_pitcher(&mut self) -> Result<Player, GameError> {
         let lineup = if self.inning_tb == TB::Top {
             &self.home_lineup
@@ -137,6 +153,27 @@ impl GameState {
             }
         }
     }
+
+    pub fn batting_resolve(&mut self) -> Result<BattingResult, GameError> {
+        Ok(simulate_batting(&self.current_batter()?))
+    }
+
+    pub fn add_batting_result_hisrory(
+        &mut self,
+        count_seq: u8,
+        batting_result: &BattingResult,
+    ) -> Result<BattingResultHistory, GameError> {
+        Ok(BattingResultHistory {
+            inning_seq: self.inning_seq,
+            inning_tb: self.inning_tb,
+            count_seq: count_seq,
+            team_id: self.current_team_id(),
+            pitcher: self.current_pitcher()?,
+            batter: self.current_batter()?,
+            result: batting_result.clone(),
+        })
+    }
+
     pub fn add_point(&mut self, point: u8) {
         match self.inning_tb {
             TB::Top => self.away_total_point += point,
@@ -155,6 +192,8 @@ pub enum InningProgress {
 pub struct InningState {
     pub count_seq: u8,
     pub bases_occupied: u8,
+    pub ball: u8,
+    pub strike: u8,
     pub out: u8,
 }
 impl InningState {
@@ -162,6 +201,8 @@ impl InningState {
         InningState {
             count_seq: 0,
             bases_occupied: 0,
+            ball: 0,
+            strike: 0,
             out: 0,
         }
     }
@@ -172,24 +213,6 @@ impl InningState {
         }
 
         InningProgress::Ongoing
-    }
-
-    pub fn batting_resolve(&mut self, pitcher: &Player, batter: &Player) -> Count {
-        let batting_result = simulate_batting(batter);
-        if batting_result.is_out() {
-            self.add_out(1);
-        }
-        let point = self.advance(&batting_result);
-        // TODO: ball and strike should be considered
-        Count {
-            seq: self.count_seq,
-            bases_occupied: self.bases_occupied,
-            result: batting_result,
-            ball: 0,
-            strike: 0,
-            point: point,
-            out: self.out,
-        }
     }
 
     pub fn advance(&mut self, result: &BattingResult) -> u8 {
@@ -243,8 +266,24 @@ impl InningState {
         self.bases_occupied.count_ones() as u8
     }
 
-    pub fn add_count_seq(&mut self) {
+    pub fn add_count(&mut self, batting_result: &BattingResult) -> Count {
         self.count_seq += 1;
+
+        if batting_result.is_out() {
+            self.add_out(1);
+        }
+        let point = self.advance(&batting_result);
+
+        // TODO: Consider ball updatet
+        // TODO: Consider strike updatet
+        Count {
+            seq: self.count_seq,
+            bases_occupied: self.bases_occupied,
+            ball: self.ball,
+            strike: self.strike,
+            out: self.out,
+            point: point,
+        }
     }
 
     pub fn add_out(&mut self, additional: u8) {
@@ -282,7 +321,7 @@ mod tests {
     }
 
     fn game_state() -> GameState {
-        GameState::new(lineup(1), lineup(101)).unwrap()
+        GameState::new(1, 4, lineup(1), lineup(101)).unwrap()
     }
 
     #[test]
@@ -420,7 +459,7 @@ mod tests {
         assert_eq!(inning.out, 0);
         assert_eq!(inning.progress(), InningProgress::Ongoing);
 
-        inning.add_count_seq();
+        inning.add_count(&BattingResult::Single);
         inning.add_out(2);
         assert_eq!(inning.count_seq, 1);
         assert_eq!(inning.out, 2);
@@ -460,6 +499,8 @@ mod tests {
                 let mut inning = InningState {
                     count_seq: 0,
                     bases_occupied: bases,
+                    ball: 0,
+                    strike: 0,
                     out: 0,
                 };
 

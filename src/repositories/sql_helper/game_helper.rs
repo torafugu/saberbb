@@ -1,6 +1,5 @@
 use crate::domain::shared::game::{
-    BattingResult, Count, GameDetail, GameHeader, GameRow, GameScheduler, GameSeason, GameType,
-    Inning, TB,
+    BattingResult, Count, GameDetail, GameHeader, GameScheduler, GameSeason, GameType, Inning, TB,
 };
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
@@ -147,42 +146,12 @@ impl FromRow for GameDetail {
             away_points: row.get("away_points")?,
             home_points: row.get("home_points")?,
             batting_order_histories: Vec::new(),
+            batting_result_histories: Vec::new(),
         };
 
         game_detail.validate()?;
 
         Ok(game_detail)
-    }
-}
-
-impl FromRow for GameRow {
-    type Error = AppError;
-
-    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let game_row = GameRow {
-            id: row.get("id")?,
-            season: row.get("season")?,
-            round_seq: row.get("round_seq")?,
-            seq: row.get("seq")?,
-            planned_date: row.get("planned_date")?,
-            actual_date: row.get("actual_date")?,
-            away_team: Team::min(
-                row.get("away_team_id")?,
-                &row.get::<_, String>("away_team_name")?,
-            ),
-            home_team: Team::min(
-                row.get("home_team_id")?,
-                &row.get::<_, String>("home_team_name")?,
-            ),
-            game_type: row.get::<_, GameType>("game_type")?,
-            innings: Vec::new(),
-            away_points: row.get("away_points")?,
-            home_points: row.get("home_points")?,
-        };
-
-        game_row.validate()?;
-
-        Ok(game_row)
     }
 }
 
@@ -209,7 +178,6 @@ impl FromRow for Count {
         let count = Count {
             seq: row.get("seq")?,
             bases_occupied: row.get("bases_occupied")?,
-            result: row.get::<_, BattingResult>("result")?,
             point: row.get("point")?,
             ball: row.get("ball")?,
             strike: row.get("strike")?,

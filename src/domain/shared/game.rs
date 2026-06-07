@@ -1,4 +1,4 @@
-use super::game_history::BattingOrderHistory;
+use super::game_history::{BattingOrderHistory, BattingResultHistory};
 use super::game_state::GameState;
 use super::team::{BattingOrder, Team};
 use crate::t;
@@ -79,6 +79,7 @@ pub struct GameResult {
     pub away_points: u8,
     pub home_points: u8,
     pub batting_order_histories: Vec<BattingOrderHistory>,
+    pub batting_result_histories: Vec<BattingResultHistory>,
 }
 impl GameResult {
     pub fn new(
@@ -102,6 +103,7 @@ impl GameResult {
             away_points: 0,
             home_points: 0,
             batting_order_histories: batting_order_histories,
+            batting_result_histories: Vec::new(),
         }
     }
     pub fn update_point(&mut self, game_state: &GameState) {
@@ -184,22 +186,7 @@ pub struct GameDetail {
     pub away_points: u8,
     pub home_points: u8,
     pub batting_order_histories: Vec<BattingOrderHistory>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct GameRow {
-    pub id: u32,
-    pub season: u16,
-    pub round_seq: u16,
-    pub seq: u16,
-    pub planned_date: NaiveDate,
-    pub actual_date: NaiveDate,
-    pub away_team: Team,
-    pub home_team: Team,
-    pub game_type: GameType,
-    pub innings: Vec<Inning>,
-    pub away_points: u8,
-    pub home_points: u8,
+    pub batting_result_histories: Vec<BattingResultHistory>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
@@ -222,7 +209,6 @@ impl Inning {
 pub struct Count {
     pub seq: u8,
     pub bases_occupied: u8,
-    pub result: BattingResult,
     pub point: u8,
     pub ball: u8,
     pub strike: u8,

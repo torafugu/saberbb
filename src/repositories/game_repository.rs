@@ -1,7 +1,7 @@
 use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameScheduler, Inning, TB,
 };
-use crate::domain::shared::game_history::BattingOrderHistory;
+use crate::domain::shared::game_history::{BattingOrderHistory, BattingResultHistory};
 use crate::domain::shared::player::{DefensiveSkill, Player};
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
@@ -23,6 +23,10 @@ pub trait GameRepository {
         &self,
         game_id: u32,
     ) -> Result<Vec<BattingOrderHistory>, AppError>;
+    fn load_batting_result_histories(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<BattingResultHistory>, AppError>;
     fn load_counts(
         &self,
         game_id: u32,
@@ -63,10 +67,10 @@ impl GameRepository for SqlGameRepository {
             let insert_inning_sql = "INSERT INTO inning (game_id, seq, tb) VALUES (?1, ?2, ?3)";
             let insert_count_sql = "INSERT INTO count (
                             game_id, inning_seq, inning_tb, seq, bases_occupied,
-                            result, point, ball, strike, out
+                            point, ball, strike, out
                             ) VALUES (
                             ?1, ?2, ?3, ?4, ?5,
-                            ?6, ?7, ?8, ?9, ?10)";
+                            ?6, ?7, ?8, ?9)";
 
             for inning in &game.innings {
                 self.db_client.execute_tx(
@@ -85,7 +89,6 @@ impl GameRepository for SqlGameRepository {
                             inning.tb,
                             count.seq,
                             count.bases_occupied,
-                            count.result,
                             count.point,
                             count.ball,
                             count.strike,
@@ -116,6 +119,28 @@ impl GameRepository for SqlGameRepository {
                         batting_order_history.index,
                         batting_order_history.position,
                         batting_order_history.player.id
+                    ],
+                )?;
+            }
+
+            let insert_batting_result_history_sql =
+                "INSERT INTO batting_result_history (
+                    game_id, inning_seq, inning_tb, count_seq, team_id, pitcher_id, batter_id, result
+                    ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+            for batting_result_history in &game.batting_result_histories {
+                self.db_client.execute_tx(
+                    tx,
+                    insert_batting_result_history_sql,
+                    params![
+                        game.id,
+                        batting_result_history.inning_seq,
+                        batting_result_history.inning_tb,
+                        batting_result_history.count_seq,
+                        batting_result_history.team_id,
+                        batting_result_history.pitcher.id,
+                        batting_result_history.batter.id,
+                        batting_result_history.result
                     ],
                 )?;
             }
@@ -204,7 +229,9 @@ impl GameRepository for SqlGameRepository {
         Ok(game_schedules)
     }
 
+    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError> {
+        info!("load_game_detail() started");
         let query = "SELECT 
                 g.id,
                 g.actual_date,
@@ -231,6 +258,7 @@ impl GameRepository for SqlGameRepository {
         }
 
         game.batting_order_histories = self.load_batting_order_histories(game.id)?;
+        game.batting_result_histories = self.load_batting_result_histories(game.id)?;
 
         Ok(game)
     }
@@ -260,29 +288,35 @@ impl GameRepository for SqlGameRepository {
             .query_rows::<DefensiveSkill>(query, params![player_id])
     }
 
+    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError> {
+        info!("load_innings() started");
         let query =
             "SELECT seq, tb FROM inning WHERE game_id = ?1 ORDER BY game_id ASC, seq ASC, tb DESC";
         self.db_client.query_rows::<Inning>(query, params![game_id])
     }
 
+    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
     fn load_counts(
         &self,
         game_id: u32,
         inning_seq: u8,
         inning_tb: TB,
     ) -> Result<Vec<Count>, AppError> {
-        let query = "SELECT seq, bases_occupied, result, point, ball, strike, out 
+        info!("load_counts() started");
+        let query = "SELECT seq, bases_occupied, point, ball, strike, out 
                                 FROM count
                                 WHERE game_id = ?1 AND inning_seq = ?2 AND inning_tb = ?3";
         self.db_client
             .query_rows::<Count>(query, params![game_id, inning_seq, inning_tb.as_ref()])
     }
 
+    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
     fn load_batting_order_histories(
         &self,
         game_id: u32,
     ) -> Result<Vec<BattingOrderHistory>, AppError> {
+        info!("load_batting_order_histories() started");
         let query = "SELECT 
                 boh.start_inning_seq,
                 boh.start_inning_tb,
@@ -307,6 +341,44 @@ impl GameRepository for SqlGameRepository {
             WHERE boh.game_id = ?1";
         self.db_client
             .query_rows::<BattingOrderHistory>(query, params![game_id])
+    }
+
+    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    fn load_batting_result_histories(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<BattingResultHistory>, AppError> {
+        info!("load_batting_result_histories() started");
+        let query = "SELECT 
+                brh.inning_seq,
+                brh.inning_tb,
+                brh.count_seq,
+                brh.team_id,
+                brh.pitcher_id,
+                brh.batter_id,
+                brh.result,
+                p.first_name AS pitcher_first_name,
+                p.last_name AS pitcher_last_name,
+                p.age AS pitcher_age,
+                p.throw AS pitcher_throw,
+                p.bat AS pitcher_bat,
+                p.mod_ba AS pitcher_mod_ba,
+                p.mod_slg AS pitcher_mod_slg,
+                b.first_name AS batter_first_name,
+                b.last_name AS batter_last_name,
+                b.age AS batter_age,
+                b.throw AS batter_throw,
+                b.bat AS batter_bat,
+                b.mod_ba AS batter_mod_ba,
+                b.mod_slg AS batter_mod_slg
+            FROM batting_result_history brh
+            LEFT JOIN player p
+                ON p.id = brh.pitcher_id
+            LEFT JOIN player b
+                ON b.id = brh.batter_id
+            WHERE brh.game_id = ?1";
+        self.db_client
+            .query_rows::<BattingResultHistory>(query, params![game_id])
     }
 }
 
@@ -404,7 +476,6 @@ mod tests {
                 inning_tb TEXT,
                 seq INTEGER,
                 bases_occupied INTEGER NOT NULL DEFAULT 0,
-                result TEXT NOT NULL,
                 point INTEGER NOT NULL,
                 ball INTEGER NOT NULL,
                 strike INTEGER NOT NULL,
@@ -430,6 +501,24 @@ mod tests {
                     start_inning_tb,
                     start_count_seq,
                     index_num
+                )
+            );
+
+            CREATE TABLE batting_result_history (
+                game_id INTEGER,
+                inning_seq INTEGER,
+                inning_tb TEXT,
+                count_seq INTEGER,
+                team_id INTEGER,
+                pitcher_id INTEGER,
+                batter_id INTEGER,
+                result TEXT NOT NULL,
+                PRIMARY KEY (
+                    game_id,
+                    inning_seq,
+                    inning_tb,
+                    count_seq,
+                    batter_id
                 )
             );
             ",
@@ -563,8 +652,8 @@ mod tests {
             .execute(
                 "INSERT INTO count (
                     game_id, inning_seq, inning_tb, seq, bases_occupied,
-                    result, point, ball, strike, out
-                ) VALUES (?1, ?2, ?3, 1, 5, 'Double', 2, 1, 2, 1)",
+                    point, ball, strike, out
+                ) VALUES (?1, ?2, ?3, 1, 5, 2, 1, 2, 1)",
                 params![game_id, inning_seq, inning_tb],
             )
             .unwrap();
@@ -586,6 +675,31 @@ mod tests {
                     team_id, index_num, position, player_id
                 ) VALUES (?1, 1, 'Top', 1, 2, 'Bottom', 3, ?2, ?3, ?4, ?5)",
                 params![game_id, team_id, index_num, position, player_id],
+            )
+            .unwrap();
+    }
+
+    fn seed_batting_result_history(
+        repo: &SqlGameRepository,
+        game_id: u32,
+        inning_seq: u8,
+        inning_tb: &str,
+        count_seq: u8,
+        team_id: u16,
+        pitcher_id: u32,
+        batter_id: u32,
+        result: &str,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO batting_result_history (
+                    game_id, inning_seq, inning_tb, count_seq,
+                    team_id, pitcher_id, batter_id, result
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    game_id, inning_seq, inning_tb, count_seq, team_id, pitcher_id, batter_id,
+                    result
+                ],
             )
             .unwrap();
     }
@@ -780,6 +894,32 @@ mod tests {
     }
 
     #[test]
+    fn load_batting_result_histories_returns_histories_for_game() {
+        let (repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
+        seed_game(&repo, 2, 2026, 1, 2, Some("2026-04-02"));
+        seed_batting_result_history(&repo, 1, 1, "Top", 1, 1, 10, 1, "Double");
+        seed_batting_result_history(&repo, 2, 1, "Bottom", 1, 2, 1, 10, "Single");
+
+        let histories = repo.load_batting_result_histories(1).unwrap();
+
+        assert_eq!(histories.len(), 1);
+        let history = &histories[0];
+        assert_eq!(history.inning_seq, 1);
+        assert!(matches!(history.inning_tb, TB::Top));
+        assert_eq!(history.count_seq, 1);
+        assert_eq!(history.team_id, 1);
+        assert_eq!(history.pitcher.id, 10);
+        assert_eq!(history.pitcher.first_name.as_ref(), "First10");
+        assert_eq!(history.batter.id, 1);
+        assert_eq!(history.batter.last_name.as_ref(), "Last1");
+        assert!(matches!(history.result, BattingResult::Double));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn save_game_result_updates_game_and_inserts_innings_counts() {
         let (mut repo, path) = setup_repo();
         seed_teams(&repo);
@@ -796,7 +936,6 @@ mod tests {
                 counts: vec![Count {
                     seq: 1,
                     bases_occupied: 3,
-                    result: BattingResult::Single,
                     ball: 1,
                     strike: 1,
                     point: 1,
@@ -804,6 +943,7 @@ mod tests {
                 }],
             }],
             batting_order_histories: Vec::new(),
+            batting_result_histories: Vec::new(),
         };
 
         repo.save_game_result(&game).unwrap();
@@ -873,6 +1013,7 @@ mod tests {
                     player(10),
                 ),
             ],
+            batting_result_histories: Vec::new(),
         };
 
         repo.save_game_result(&game).unwrap();
@@ -951,7 +1092,6 @@ mod tests {
         let count = Count {
             seq: 1,
             bases_occupied: 0,
-            result: BattingResult::Single,
             ball: 1,
             strike: 1,
             point: 1,
@@ -968,6 +1108,7 @@ mod tests {
                 counts: vec![count.clone(), count],
             }],
             batting_order_histories: Vec::new(),
+            batting_result_histories: Vec::new(),
         };
 
         assert!(repo.save_game_result(&game).is_err());

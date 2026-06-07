@@ -282,10 +282,10 @@ impl GameResultsWidget {
         frame.render_stateful_widget(list, area, &mut self.game_state);
     }
 
-    fn draw_game_detail(&mut self, frame: &mut Frame, area: Rect) {
+    fn draw_game_detail(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
         let Some(cursor) = &mut self.game_cursor else {
             frame.render_widget(Paragraph::new(t!("select_game")), area);
-            return;
+            return Ok(());
         };
 
         let layout = Layout::default()
@@ -332,8 +332,13 @@ impl GameResultsWidget {
         // frame.render_widget(Paragraph::new(Self::format_count(&count)), layout[2]);
         frame.render_widget(Paragraph::new(Self::format_count(&count)), count_area);
         frame.render_widget(Paragraph::new(Self::format_runner(&count)), runner_area);
-        frame.render_widget(Paragraph::new(Self::format_batter(cursor)), batter_area);
-        frame.render_widget(Paragraph::new(Self::format_lineup(cursor)), lineup_area);
+        frame.render_widget(
+            Paragraph::new(Self::format_batter_and_pitcher(cursor)?),
+            batter_area,
+        );
+        frame.render_widget(Paragraph::new(Self::format_lineup(cursor)?), lineup_area);
+
+        Ok(())
     }
 
     fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
@@ -435,30 +440,34 @@ impl GameResultsWidget {
         )
     }
 
-    fn format_batter(game_cursor: &mut GameCursor) -> String {
-        let pitcher = game_cursor.current_pitcher().unwrap();
-
-        let mut formatted_lineup = format!(
+    fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<(String)> {
+        let pitcher = game_cursor.current_pitcher()?;
+        let batter = game_cursor.current_batter()?;
+        let mut formatted_batter_and_pitcher = format!(
             "{}: {}\n",
             t!("pitcher"),
             // game_cursor.current_pitcher().unwrap().last_name // "Pitcher"
             pitcher.full_name()
         );
+        formatted_batter_and_pitcher.push_str(&format!(
+            "{}: {}\n",
+            t!("batter"),
+            batter.full_name()
+        ));
 
-        formatted_lineup
+        Ok(formatted_batter_and_pitcher)
     }
 
-    fn format_lineup(game_cursor: &mut GameCursor) -> String {
-        // TODO: Error shoudl be caught instead of unwrap
-        let pitcher = game_cursor.current_pitcher().unwrap();
-        let catcher = game_cursor.current_catcher().unwrap();
-        let fb = game_cursor.current_fb().unwrap();
-        let sb = game_cursor.current_sb().unwrap();
-        let tb = game_cursor.current_tb().unwrap();
-        let ss = game_cursor.current_ss().unwrap();
-        let rf = game_cursor.current_rf().unwrap();
-        let cf = game_cursor.current_cf().unwrap();
-        let lf = game_cursor.current_lf().unwrap();
+    fn format_lineup(game_cursor: &mut GameCursor) -> color_eyre::Result<(String)> {
+        let pitcher = game_cursor.current_pitcher()?;
+        let catcher = game_cursor.current_catcher()?;
+        let fb = game_cursor.current_fb()?;
+        let sb = game_cursor.current_sb()?;
+        let tb = game_cursor.current_tb()?;
+        let ss = game_cursor.current_ss()?;
+        let rf = game_cursor.current_rf()?;
+        let cf = game_cursor.current_cf()?;
+        let lf = game_cursor.current_lf()?;
 
         let mut formatted_lineup = format!(
             "({}) {}\n",
@@ -475,7 +484,7 @@ impl GameResultsWidget {
         formatted_lineup.push_str(&format!("({}) {}\n", t!("cf"), cf.full_name()));
         formatted_lineup.push_str(&format!("({}) {}\n", t!("lf"), lf.full_name()));
 
-        formatted_lineup
+        Ok(formatted_lineup)
     }
 
     fn display_runner(bases_occupied: u8, base: Base) -> &'static str {
@@ -586,7 +595,7 @@ impl Component for GameResultsWidget {
         match self.view {
             GameResultsView::SelectSeason => self.draw_season_list(frame, inner),
             GameResultsView::SelectGame => self.draw_game_list(frame, inner),
-            GameResultsView::GameDetail => self.draw_game_detail(frame, inner),
+            GameResultsView::GameDetail => self.draw_game_detail(frame, inner)?,
         }
 
         Ok(())

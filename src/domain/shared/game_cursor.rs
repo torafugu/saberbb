@@ -238,6 +238,15 @@ impl GameCursor {
             .map(|i| i.player.clone())
             .ok_or_else(|| GameViewError::NoPlayerFor(position.to_string()))
     }
+
+    pub fn current_batter(&mut self) -> Result<Player, GameViewError> {
+        self.game
+            .batting_result_histories
+            .iter()
+            .find(|i| i.is(self.current_team().id, self.inning_seq, self.count_seq))
+            .map(|i| i.batter.clone())
+            .ok_or_else(|| GameViewError::NoPlayerFor("batter".to_string()))
+    }
 }
 
 #[derive(Debug)]
