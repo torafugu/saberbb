@@ -10,7 +10,12 @@ use anyhow::Context;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Flex, Layout};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table};
+use ratatui::style::Color;
+use ratatui::symbols::Marker;
+use ratatui::widgets::canvas::{Canvas, Rectangle};
+use ratatui::widgets::{
+    Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table,
+};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
 
@@ -317,23 +322,54 @@ impl GameResultsWidget {
 
         let count = cursor.current_count();
         let game_status_areas = Layout::horizontal([
+            Constraint::Percentage(13),
             Constraint::Percentage(15),
-            Constraint::Percentage(15),
-            Constraint::Percentage(35),
+            Constraint::Percentage(37),
             Constraint::Percentage(35),
         ])
         .split(layout[3]);
 
         let count_area = game_status_areas[0];
         let runner_area = game_status_areas[1];
-        let batter_area = game_status_areas[2];
+        let strike_zone_and_batter_area = game_status_areas[2];
         let lineup_area = game_status_areas[3];
 
-        // frame.render_widget(Paragraph::new(Self::format_count(&count)), layout[2]);
-        frame.render_widget(Paragraph::new(Self::format_count(&count)), count_area);
-        frame.render_widget(Paragraph::new(Self::format_runner(&count)), runner_area);
         frame.render_widget(
-            Paragraph::new(Self::format_batter_and_pitcher(cursor)?),
+            Paragraph::new(Self::format_count(&count)).block(Block::new().padding(Padding {
+                left: 1,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            })),
+            count_area,
+        );
+        frame.render_widget(
+            Paragraph::new(Self::format_runner(&count)).block(Block::new().padding(Padding {
+                left: 1,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            })),
+            runner_area,
+        );
+
+        let strike_zone_and_batter_areas =
+            Layout::vertical([Constraint::Percentage(48), Constraint::Percentage(52)])
+                .split(strike_zone_and_batter_area);
+
+        let strike_zone_area = strike_zone_and_batter_areas[0];
+        let batter_area = strike_zone_and_batter_areas[1];
+
+        Self::draw_strike_zone(frame, strike_zone_area, cursor);
+        frame.render_widget(
+            Paragraph::new(Self::format_batter_and_pitcher(cursor)?).block(Block::new().padding(
+                Padding {
+                    left: 2,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                },
+            )),
             batter_area,
         );
         frame.render_widget(Paragraph::new(Self::format_lineup(cursor)?), lineup_area);
@@ -440,15 +476,132 @@ impl GameResultsWidget {
         )
     }
 
+    fn draw_strike_zone(frame: &mut Frame, area: Rect, game_cursor: &mut GameCursor) {
+        // println!("width:{}, height:{}", area.width, area.height);
+        let canvas = Canvas::default()
+            .marker(Marker::Braille) // これ大事！ 細かい図形ならBraille推奨
+            .x_bounds([0.0, area.width as f64])
+            .y_bounds([0.0, area.height as f64])
+            .paint(|ctx| {
+                ctx.draw(&Rectangle {
+                    x: 3.0,
+                    y: 3.0,
+                    width: 15.0,
+                    height: 7.0,
+                    color: Color::Gray,
+                });
+
+                ctx.print(
+                    1.0,
+                    10.0,
+                    Span::styled("[1]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    10.0,
+                    10.0,
+                    Span::styled("[2]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    19.0,
+                    10.0,
+                    Span::styled("[3]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    1.0,
+                    6.0,
+                    Span::styled("[4]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    19.0,
+                    6.0,
+                    Span::styled("[5]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    1.0,
+                    2.0,
+                    Span::styled("[6]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    10.0,
+                    2.0,
+                    Span::styled("[7]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    19.0,
+                    2.0,
+                    Span::styled("[8]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    6.0,
+                    8.0,
+                    Span::styled("<1>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    10.0,
+                    8.0,
+                    Span::styled("<2>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    14.0,
+                    8.0,
+                    Span::styled("<3>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    6.0,
+                    6.0,
+                    Span::styled("<4>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    10.0,
+                    6.0,
+                    Span::styled("<5>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    14.0,
+                    6.0,
+                    Span::styled("<6>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    6.0,
+                    4.0,
+                    Span::styled("<7>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    10.0,
+                    4.0,
+                    Span::styled("<8>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+
+                ctx.print(
+                    14.0,
+                    4.0,
+                    Span::styled("<9>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
+                );
+            });
+
+        frame.render_widget(canvas, area);
+    }
+
     fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<(String)> {
         let pitcher = game_cursor.current_pitcher()?;
         let batter = game_cursor.current_batter()?;
-        let mut formatted_batter_and_pitcher = format!(
-            "{}: {}\n",
-            t!("pitcher"),
-            // game_cursor.current_pitcher().unwrap().last_name // "Pitcher"
-            pitcher.full_name()
-        );
+        let mut formatted_batter_and_pitcher =
+            format!("{}: {}\n", t!("pitcher"), pitcher.full_name());
         formatted_batter_and_pitcher.push_str(&format!(
             "{}: {}\n",
             t!("batter"),
@@ -469,12 +622,7 @@ impl GameResultsWidget {
         let cf = game_cursor.current_cf()?;
         let lf = game_cursor.current_lf()?;
 
-        let mut formatted_lineup = format!(
-            "({}) {}\n",
-            t!("p"),
-            // game_cursor.current_pitcher().unwrap().last_name // "Pitcher"
-            pitcher.full_name()
-        );
+        let mut formatted_lineup = format!("({}) {}\n", t!("p"), pitcher.full_name());
         formatted_lineup.push_str(&format!("({}) {}\n", t!("c"), catcher.full_name()));
         formatted_lineup.push_str(&format!("({}) {}\n", t!("fb"), fb.full_name()));
         formatted_lineup.push_str(&format!("({}) {}\n", t!("sb"), sb.full_name()));
