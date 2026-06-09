@@ -1,3 +1,4 @@
+pub mod ball;
 pub mod game;
 pub mod game_cursor;
 pub mod game_history;

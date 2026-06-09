@@ -1,0 +1,27 @@
+flowchart TD
+  subgraph pitcher["Pitcher"]
+    pitch_ball
+  end
+
+  pitch_ball --> swing
+  pitch_ball --> take_pitch
+    
+  subgraph batter["Batter"]
+    direction TB
+    take_pitch
+    swing --> swing_miss
+    swing --> calculate_batted_ball
+  end
+
+  calculate_batted_ball --> fielder
+  calculate_batted_ball --> runner
+
+  subgraph fielder["Fielder"]
+    direction TB
+    try_catch --> throw --> touch
+  end
+
+  subgraph runner["Runner"]
+    direction TB
+    run
+  end

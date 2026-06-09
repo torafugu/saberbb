@@ -1,6 +1,7 @@
 use super::game_history::{BattingOrderHistory, BattingResultHistory};
 use super::game_state::GameState;
 use super::team::{BattingOrder, Team};
+use crate::domain::shared::player::Position;
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -246,4 +247,27 @@ pub enum Base {
     First = 0,
     Second = 1,
     Third = 2,
+}
+
+pub struct FielderPoint {
+    pub position: Position,
+    pub distance: f32,
+    pub angle: f32,
+}
+impl FielderPoint {
+    // Calculate the straight-line distance to another FielderPoint.
+    fn distance_to(&self, other: &FielderPoint) -> f32 {
+        let r1 = self.distance;
+        let r2 = other.distance;
+
+        // Convert the difference between the two angles to radians.
+        let angle_diff_rad = (self.angle - other.angle).to_radians();
+
+        // Apply the law of cosines.
+        let cos_val = angle_diff_rad.cos();
+        let distance_squared = (r1 * r1) + (r2 * r2) - (2.0 * r1 * r2 * cos_val);
+
+        // Guard against rare negative values caused by floating-point error.
+        distance_squared.max(0.0).sqrt()
+    }
 }

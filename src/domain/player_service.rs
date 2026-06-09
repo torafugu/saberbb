@@ -556,16 +556,7 @@ mod tests {
     #[test]
     fn save_player_delegates_to_repository() {
         let (mut service, state) = service_with_repo();
-        let mut player = Player::new(
-            7,
-            "First",
-            "Last",
-            25,
-            RL::Right,
-            RL::Right,
-            0.0,
-            0.0,
-        );
+        let mut player = Player::new(7, "First", "Last", 25, RL::Right, RL::Right, 0.0, 0.0);
         player.throw = RL::Left;
         let team = Team::min(3, "Tigers");
 
