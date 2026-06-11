@@ -5,6 +5,7 @@ use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use rusqlite::Connection;
 use rusqlite::types::FromSql;
 use std::fs;
+use tracing::info;
 
 #[derive(Clone, Debug)]
 pub struct SqliteManager {
@@ -255,4 +256,20 @@ impl DbClient {
 
         Ok(result)
     }
+}
+
+pub fn maintenance() -> Result<()> {
+    let conn = SqlDb::new()?.get_conn()?;
+
+    // Vacuum in case there are many blank pages
+    let freelist: i64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+    let page_count: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+
+    if freelist as f64 / page_count as f64 > 0.2 {
+        info!("run a vacuum process to fix database bloat.");
+        conn.execute("VACUUM;", [])?;
+    }
+
+    conn.execute("PRAGMA optimize;", [])?;
+    Ok(())
 }

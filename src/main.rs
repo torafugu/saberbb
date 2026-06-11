@@ -7,6 +7,7 @@ use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
 use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::i18n::I18nManager;
+use saberbb::repositories::db::maintenance;
 use saberbb::repositories::game_repository::SqlGameRepository;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
@@ -99,7 +100,13 @@ fn main() -> Result<()> {
         );
     }
 
-    if args.menu {
+    // Execute VACUUM and PRAGMA optimize
+    if args.maintenance {
+        maintenance()?;
+    }
+
+    // TUI mode
+    if args.view {
         let _ = menu(cfg.clone());
     }
 
@@ -117,11 +124,15 @@ struct Args {
     #[arg(short, long)]
     generate: Option<u16>,
 
-    /// TUI game menu
+    /// DB maintenance
     #[arg(short, long)]
-    menu: bool,
+    maintenance: bool,
 
     /// Schedule games
     #[arg(short, long)]
     schedule: Option<u8>,
+
+    /// Show TUI game menu
+    #[arg(short, long)]
+    view: bool,
 }
