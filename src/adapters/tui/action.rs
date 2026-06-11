@@ -16,7 +16,7 @@ impl fmt::Display for MenuOption {
         let label = match self {
             Self::ViewStandings => t!("standings"),
             Self::ViewGameResults => t!("game_results"),
-            Self::ViewBattingStat => t!("batting_stat"),
+            Self::ViewBattingStat => t!("batting_stats"),
         };
         write!(f, "{label}")
     }
@@ -24,7 +24,6 @@ impl fmt::Display for MenuOption {
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
 pub enum Action {
-    Tick,
     Render,
     Resize(u16, u16),
     Suspend,
@@ -36,6 +35,7 @@ pub enum Action {
     SelectNext,
     SelectPrevious,
     ConfirmSelection,
+    SelectGameDetailTab(usize),
     NextCount,
     PreviousCount,
     MenuItemSelected(MenuOption),

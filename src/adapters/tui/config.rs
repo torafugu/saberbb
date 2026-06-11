@@ -85,7 +85,6 @@ fn parse_mode(raw: &str) -> color_eyre::Result<Mode, String> {
 
 fn parse_action(raw: &str) -> color_eyre::Result<Action, String> {
     match raw {
-        "Tick" => Ok(Action::Tick),
         "Render" => Ok(Action::Render),
         "Suspend" => Ok(Action::Suspend),
         "Resume" => Ok(Action::Resume),

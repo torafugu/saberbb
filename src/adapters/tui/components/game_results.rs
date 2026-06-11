@@ -14,7 +14,7 @@ use ratatui::style::Color;
 use ratatui::symbols::Marker;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
 use ratatui::widgets::{
-    Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table,
+    Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table, Tabs,
 };
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
@@ -22,6 +22,32 @@ use tracing::{error, info};
 const RUNNER: &str = "R";
 const NO_RUNNER: &str = "-";
 const WALK_OFF: &str = "x";
+
+#[derive(Default, Debug, Clone, Copy)]
+enum GameDetailTab {
+    #[default]
+    GameResult,
+    BattingStats,
+    PitchingStats,
+}
+impl GameDetailTab {
+    fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(Self::GameResult),
+            1 => Some(Self::BattingStats),
+            2 => Some(Self::PitchingStats),
+            _ => None,
+        }
+    }
+
+    fn selected_index(self) -> usize {
+        match self {
+            Self::GameResult => 0,
+            Self::BattingStats => 1,
+            Self::PitchingStats => 2,
+        }
+    }
+}
 
 #[derive(Default, Debug)]
 enum GameResultsView {
@@ -43,6 +69,7 @@ pub struct GameResultsWidget {
     game_state: ListState,
     selected_game_id: Option<u32>,
     game_cursor: Option<GameCursor>,
+    selected_tab: GameDetailTab,
     error: Option<String>,
 }
 
@@ -145,6 +172,7 @@ impl GameResultsWidget {
                 self.selected_game_id = Some(game_id);
                 self.game_cursor = Some(GameCursor::new(game_row));
                 self.error = None;
+                self.selected_tab = GameDetailTab::GameResult;
                 self.view = GameResultsView::GameDetail;
             }
             Ok(Err(err)) => {
@@ -288,6 +316,36 @@ impl GameResultsWidget {
     }
 
     fn draw_game_detail(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
+        let layout = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
+
+        let game_results_tab_name = format!("{}(1)", t!("game_results"));
+        let batting_stats_tab_name = format!("{}(2)", t!("batting_stats"));
+        let pitching_stats_tab_name = format!("{}(3)", t!("pitching_stats"));
+        let tabs = Tabs::new(vec![
+            Line::from(game_results_tab_name),
+            Line::from(batting_stats_tab_name),
+            Line::from(pitching_stats_tab_name),
+        ])
+        .select(self.selected_tab.selected_index())
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(Block::new().borders(Borders::BOTTOM));
+
+        frame.render_widget(tabs, layout[0]);
+
+        match self.selected_tab {
+            GameDetailTab::GameResult => self.draw_game_result_tab(frame, layout[1])?,
+            GameDetailTab::BattingStats => self.draw_batting_stats_tab(frame, layout[1]),
+            GameDetailTab::PitchingStats => self.draw_pitching_stats_tab(frame, layout[1]),
+        }
+
+        Ok(())
+    }
+
+    fn draw_game_result_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
         let Some(cursor) = &mut self.game_cursor else {
             frame.render_widget(Paragraph::new(t!("select_game")), area);
             return Ok(());
@@ -375,6 +433,14 @@ impl GameResultsWidget {
         frame.render_widget(Paragraph::new(Self::format_lineup(cursor)?), lineup_area);
 
         Ok(())
+    }
+
+    fn draw_batting_stats_tab(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(Paragraph::new(t!("batting_stats")), area);
+    }
+
+    fn draw_pitching_stats_tab(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(Paragraph::new(t!("pitching_stats")), area);
     }
 
     fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
@@ -694,6 +760,15 @@ impl Component for GameResultsWidget {
 
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
         match key.code {
+            KeyCode::Char('1') if matches!(self.view, GameResultsView::GameDetail) => {
+                Ok(Some(Action::SelectGameDetailTab(0)))
+            }
+            KeyCode::Char('2') if matches!(self.view, GameResultsView::GameDetail) => {
+                Ok(Some(Action::SelectGameDetailTab(1)))
+            }
+            KeyCode::Char('3') if matches!(self.view, GameResultsView::GameDetail) => {
+                Ok(Some(Action::SelectGameDetailTab(2)))
+            }
             KeyCode::Left if matches!(self.view, GameResultsView::GameDetail) => {
                 Ok(Some(Action::PreviousCount))
             }
@@ -706,6 +781,12 @@ impl Component for GameResultsWidget {
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
         match action {
+            Action::SelectGameDetailTab(index) => {
+                if let Some(tab) = GameDetailTab::from_index(index) {
+                    self.selected_tab = tab;
+                }
+                Ok(Some(Action::Render))
+            }
             Action::SelectNext => {
                 self.select_next();
                 Ok(Some(Action::Render))

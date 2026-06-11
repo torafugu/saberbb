@@ -106,6 +106,7 @@ impl Component for Home {
                 Action::SelectNext
                     | Action::SelectPrevious
                     | Action::ConfirmSelection
+                    | Action::SelectGameDetailTab(_)
                     | Action::NextCount
                     | Action::PreviousCount
             )
@@ -114,10 +115,6 @@ impl Component for Home {
         }
 
         match action {
-            Action::Tick => {
-                // add any logic here that should run on every tick
-                Ok(None)
-            }
             Action::Render => {
                 // add any logic here that should run on every render
                 Ok(None)
