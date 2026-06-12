@@ -9,6 +9,7 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 use validator::Validate;
 
+pub const BASE_DISTANCE: f64 = 27.431;
 pub const TOTAL_GAMES: u16 = 140;
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString, AsRefStr)]
@@ -256,7 +257,7 @@ pub struct FielderPoint {
 }
 impl FielderPoint {
     // Calculate the straight-line distance to another FielderPoint.
-    fn distance_to(&self, other: &FielderPoint) -> f32 {
+    pub fn distance_to(&self, other: &FielderPoint) -> f32 {
         let r1 = self.distance;
         let r2 = other.distance;
 

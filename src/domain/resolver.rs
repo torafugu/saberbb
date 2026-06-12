@@ -23,7 +23,7 @@ pub fn simulate_batting(batter: &Player) -> BattingResult {
     result
 }
 
-fn calculate_batted_ball(swing_speed: f32, pitch_speed: f32) -> Ball {
+pub fn calculate_batted_ball(swing_speed: f32, pitch_speed: f32) -> Ball {
     let mut rng = rand::rng();
 
     // TODO: decide TrajectoryType mod_slg and meet type should be considered
@@ -110,48 +110,46 @@ mod tests {
     use crate::domain::shared::game::FielderPoint;
     use crate::domain::shared::player::Position;
 
-    type CurrentPosition = Position;
-
     #[test]
     fn test_ball_play() {
         let fb_point = FielderPoint {
-            position: CurrentPosition::FB,
+            position: Position::FB,
             angle: 33.0,
             distance: 21.0,
         };
 
         let sb_point = FielderPoint {
-            position: CurrentPosition::SB,
+            position: Position::SB,
             angle: 18.0,
             distance: 41.0,
         };
 
         let tb_point = FielderPoint {
-            position: CurrentPosition::TB,
+            position: Position::TB,
             angle: -33.0,
             distance: 21.0,
         };
 
         let ss_point = FielderPoint {
-            position: CurrentPosition::SS,
+            position: Position::SS,
             angle: -18.0,
             distance: 41.0,
         };
 
         let lf_point = FielderPoint {
-            position: CurrentPosition::LF,
+            position: Position::LF,
             angle: -25.0,
             distance: 90.0,
         };
 
         let cf_point = FielderPoint {
-            position: CurrentPosition::CF,
+            position: Position::CF,
             angle: 0.0,
             distance: 100.0,
         };
 
         let rf_point = FielderPoint {
-            position: CurrentPosition::RF,
+            position: Position::RF,
             angle: 25.0,
             distance: 90.0,
         };
