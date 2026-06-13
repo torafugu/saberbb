@@ -5,5 +5,6 @@ pub mod game_history;
 pub mod game_state;
 pub mod player;
 pub mod prob;
+pub mod stadium;
 pub mod stat;
 pub mod team;

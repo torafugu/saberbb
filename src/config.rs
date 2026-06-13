@@ -1,4 +1,4 @@
-use directories::ProjectDirs;
+use crate::proj_dirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -72,7 +72,5 @@ fn default_frame_rate() -> f64 {
 }
 
 fn default_database_path() -> PathBuf {
-    let proj_dirs =
-        ProjectDirs::from("jp", "cosmi", "saberbb").expect("Data directory is not found");
-    proj_dirs.config_dir().join("saberbb.db")
+    proj_dirs().config_dir().join("saberbb.db")
 }

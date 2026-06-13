@@ -13,6 +13,7 @@ use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
 use saberbb::repositories::statistics_repository::SqlStatRepository;
 use saberbb::{AppContext, app_context, init_app_context, t};
+use saberbb::{init_dirs, proj_dirs};
 use std::backtrace::Backtrace;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -20,10 +21,12 @@ use tracing_subscriber::EnvFilter;
 fn main() -> Result<()> {
     // load default-config.toml and initialize I18nManager
     let cfg = load_app_config()?;
-
     I18nManager::init(&cfg.language);
 
-    let file_appender = tracing_appender::rolling::daily("log", "app.log");
+    init_dirs()?;
+    let log_dir = proj_dirs().data_dir();
+
+    let file_appender = tracing_appender::rolling::daily(log_dir, "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()
