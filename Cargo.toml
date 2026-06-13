@@ -15,6 +15,7 @@ deadpool = "0.13.0"
 directories = "6.0"
 fluent-templates = "0.14.0"
 futures = "0.3.31"
+kurbo = "0.13.1"
 pretty_assertions = "1.4.1"
 rand = { version = "0.10.1", features = ["std"] }
 rand_distr = "0.6.0"

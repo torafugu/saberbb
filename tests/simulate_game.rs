@@ -1,11 +1,25 @@
+use kurbo::Point;
 use saberbb::domain::resolver::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::stadium::*;
 use saberbb::repositories::db::*;
 
 #[test]
+fn test_stand_in() {
+    let stadium = Stadium::new("AAA".to_string(), 98.0, 120.0);
+
+    if stadium.is_inside_fence_line(Point::new(65.0, 70.0)) {
+        println!("In ground !"); // Hit, Direct hit on the fence
+    } else {
+        println!("Stand In !");
+    }
+}
+
+#[test]
 fn test_draw_stadium() {
-    draw(generate_svg());
+    let stadium = Stadium::new("AAA".to_string(), 98.0, 120.0);
+
+    stadium.draw_fence();
 }
 
 #[test]

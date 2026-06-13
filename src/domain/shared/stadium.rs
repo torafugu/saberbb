@@ -1,9 +1,108 @@
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::proj_dirs;
+use kurbo::{Affine, BezPath, Point, Shape, Vec2};
 use std::f64::consts::SQRT_2;
 use svg::Document;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Line, Path, Rectangle, Text};
+
+pub struct Stadium {
+    pub name: String,
+    pub foul_pole_distance: f64,
+    pub center_fence_distance: f64,
+    // pub fair_zone: kurbo::BezPath,
+    fence_line: kurbo::BezPath,
+    // pub fence_height: f64,
+}
+impl Stadium {
+    pub fn new(name: String, foul_pole_distance: f64, center_fence_distance: f64) -> Self {
+        let homerun_pole_x = foul_pole_distance / SQRT_2;
+        let homerun_pole_y = foul_pole_distance / SQRT_2;
+        let center_fence_x = 0.0;
+        let center_fence_y = center_fence_distance;
+        let foul_fence_y = homerun_pole_y - foul_pole_distance * 0.065;
+
+        let backnet_x1 = 0.07 * center_fence_distance;
+        let backnet_y1 = 0.05 * center_fence_distance;
+        let backnet_x2 = 0.14 * center_fence_distance;
+        let backnet_y2 = 0.09 * center_fence_distance;
+        let infield_x = 0.41 * center_fence_distance;
+        let infield_y = 0.32 * center_fence_distance;
+        let outfield_x1 = 0.534 * center_fence_distance;
+        let outfield_y1 = 0.86 * center_fence_distance;
+        let outfield_x2 = 0.3 * center_fence_distance;
+        let outfield_y2 = 1.01 * center_fence_distance;
+
+        let mut fence_line = BezPath::new();
+        fence_line.move_to(Point::new(0.0, 0.0));
+        fence_line.curve_to(
+            Point::new(backnet_x2, backnet_y2),
+            Point::new(infield_x, infield_y),
+            Point::new(homerun_pole_x, foul_fence_y),
+        );
+        fence_line.curve_to(
+            Point::new(outfield_x1, outfield_y1),
+            Point::new(outfield_x2, outfield_y2),
+            Point::new(center_fence_x, center_fence_y),
+        );
+        fence_line.curve_to(
+            Point::new(-outfield_x2, outfield_y2),
+            Point::new(-outfield_x1, outfield_y1),
+            Point::new(-homerun_pole_x, foul_fence_y),
+        );
+        fence_line.curve_to(
+            Point::new(-infield_x, infield_y),
+            Point::new(-backnet_x2, backnet_y2),
+            Point::new(-backnet_x1, backnet_y1),
+        );
+        fence_line.curve_to(
+            Point::new(0.0, 0.0),
+            Point::new(0.0, 0.0),
+            Point::new(backnet_x1, backnet_y1),
+        );
+        fence_line.close_path();
+
+        Self {
+            name: name,
+            foul_pole_distance: foul_pole_distance,
+            center_fence_distance: center_fence_distance,
+            fence_line: fence_line,
+        }
+    }
+
+    pub fn draw_fence(&self) {
+        let scale = 4.0; // 1m = 4px
+        let svg_width = 800.0;
+        let svg_height = 800.0;
+
+        let home_x = svg_width / 2.0; // 400.0
+        let home_y = svg_height - 50.0; // 750.0
+
+        let to_svg =
+            Affine::translate(Vec2::new(home_x, home_y)) * Affine::scale_non_uniform(scale, -scale);
+        let fence_line_svg_path = to_svg * &self.fence_line;
+
+        let fence_path = Path::new()
+            .set("stroke", "white") // 白線
+            .set("stroke-width", 2)
+            .set("d", fence_line_svg_path.to_svg());
+
+        let fence_svg = Document::new()
+            .set("viewBox", (0, 0, svg_width, svg_height))
+            .set("width", svg_width)
+            .set("height", svg_height)
+            .add(fence_path);
+
+        draw(fence_svg);
+    }
+
+    pub fn is_inside_fence_line(&self, point: kurbo::Point) -> bool {
+        self.fence_line.contains(point)
+    }
+
+    // pub fn export_to_svg(&self, file_path: &str) -> std::io::Result<()> {
+    // }
+}
 
 #[derive(Debug)]
 pub struct PolarPosition {
@@ -146,7 +245,6 @@ pub fn generate_svg() -> Document {
         .line_to((infield_right_x, infield_edge_y))
         .elliptical_arc_to((px(31.0), px(31.0), 0, 0, 0, infield_left_x, infield_edge_y))
         .line_to((home_x, home_y))
-        // .line_to((infield_left_x, infield_edge_y))
         .close();
 
     document = document.add(
@@ -218,6 +316,7 @@ pub fn generate_svg() -> Document {
 
     document = document.add(
         Path::new()
+            .set("id", "fence")
             .set("d", fence)
             .set("fill", "none")
             .set("stroke", "#f8f8f8")
