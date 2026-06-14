@@ -1,3 +1,5 @@
+const FOUL_DEGREE: f32 = 45.0;
+
 pub enum TrajectoryType {
     Grounder,
     Liner,
@@ -7,7 +9,7 @@ pub enum TrajectoryType {
 
 pub struct Ball {
     pub launch_speed: f32, // km/h
-    pub launch_angle: f32, // Y arc degree
+    pub launch_angle: f32, // Z arc degree
     pub spray_angle: f32,  // X arc degree
     pub distance: f32,     // m
     pub hang_time: f32,    // second
@@ -18,5 +20,13 @@ impl Ball {
     pub fn batted(&mut self, distance: f32, hang_time: f32) {
         self.distance = distance;
         self.hang_time = hang_time;
+    }
+
+    pub fn is_foul(&self) -> bool {
+        if self.spray_angle.abs() <= FOUL_DEGREE {
+            true
+        } else {
+            false
+        }
     }
 }
