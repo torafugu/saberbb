@@ -1,8 +1,68 @@
 use crate::domain::shared::ball::{Ball, TrajectoryType};
 use crate::domain::shared::game::BattingResult;
-use crate::domain::shared::player::{Player, RL};
+use crate::domain::shared::player::{Player, Position, RL};
+use kurbo::Point;
 use rand::RngExt;
 use rand_distr::{Distribution, Normal};
+
+// TODO: merge into Player
+#[derive(Clone)]
+pub struct Fielder {
+    pub position: Position,
+    pub distance: f64,
+    pub angle: f64,
+    pub speed: f64,    // Running speed (m/s) e.g. 6.5 – 8.0 m/s
+    pub reaction: f64, // Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
+}
+impl Fielder {
+    fn try_catch(&self, ball: &Ball) -> bool {
+        // 1. Calculate straight-line distance from position to landing point
+        let required_distance =
+            calculate_distance(self.distance, self.angle, ball.distance, ball.spray_angle);
+
+        // 2. Convert to distance and angle to position
+        let p1 = calculate_position(self.distance, self.angle);
+        let p2 = calculate_position(ball.distance, ball.spray_angle);
+        let dy = p1.y - p2.y;
+
+        // 3. Adjust initial reaction speed based on hit type (secret ingredient)
+        let mut final_reaction = self.reaction;
+        if ball.trajectory == TrajectoryType::Liner && dy < 0.0 {
+            // Delay reaction when moving forward on a liner (harder to judge)
+            final_reaction += 0.15;
+        }
+
+        // 4. Calculate arrival time (seconds)
+        let arrival_time = final_reaction + (required_distance / self.speed);
+
+        // 5. Compare arrival time vs hang time
+        arrival_time <= ball.hang_time
+    }
+}
+
+pub fn calculate_distance(p1_distance: f64, p1_angle: f64, p2_distance: f64, p2_angle: f64) -> f64 {
+    // Convert the difference between the two angles to radians.
+    let angle_diff_rad = (p1_angle - p2_angle).to_radians();
+
+    // Apply the law of cosines.
+    let cos_val = angle_diff_rad.cos();
+    let distance_squared = (p1_distance * p1_distance) + (p2_distance * p2_distance)
+        - (2.0 * p1_distance * p2_distance * cos_val);
+
+    // Guard against rare negative values caused by floating-point error.
+    distance_squared.max(0.0).sqrt()
+}
+
+fn calculate_position(distance: f64, angle_deg: f64) -> Point {
+    // Rust's sin/cos require radians, so convert from degrees
+    let angle_rad = angle_deg.to_radians();
+
+    // Axes are swapped, so x is sin and y is cos
+    let x = distance * angle_rad.sin();
+    let y = distance * angle_rad.cos();
+
+    Point::new(x, y)
+}
 
 // batted-ball direction (sector)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +78,7 @@ enum FieldSector {
 // Hitter's batted-ball direction ability and tendency data
 pub struct Batter {
     pub batting_side: RL,
-    pub swing_speed: f32,
+    pub swing_speed: f64,
 
     // Weight of probability for each sector (set to sum to 1.0)
     pub weight_pull: f32,
@@ -79,7 +139,7 @@ fn inner_choose_sector(batter: &Batter) -> FieldSector {
     return FieldSector::FoulRight;
 }
 
-pub fn sample_spray_angle(tendency: &Batter) -> f32 {
+fn sample_spray_angle(tendency: &Batter) -> f64 {
     let mut rng = rand::rng();
 
     // Step 1: Decide the sector
@@ -88,14 +148,14 @@ pub fn sample_spray_angle(tendency: &Batter) -> f32 {
     // Step 2: Get the angle range for that sector
     let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
 
-    // Step 3: Randomly sample within the rangeA\
+    // Step 3: Randomly sample within the range
     // TODO: Change to normal (Gaussian) distribution
-    let final_angle = rng.random_range(min_angle..max_angle);
+    let final_angle = rng.random_range(min_angle..max_angle) as f64;
 
     final_angle
 }
 
-pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f32) -> Ball {
+pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> Ball {
     let mut rng = rand::rng();
 
     // TODO: decide TrajectoryType mod_slg and meet type should be considered
@@ -131,7 +191,7 @@ pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f32) -> Ball {
     // Cap the minimum value to prevent negative or excessively slow speeds
     let launch_speed = base_speed.max(30.0);
 
-    let launch_angle: f32 = match &trajectory {
+    let launch_angle: f64 = match &trajectory {
         TrajectoryType::Grounder => rng.random_range(0.0..10.0),
         TrajectoryType::Liner => rng.random_range(10.0..25.0),
         TrajectoryType::Fly => rng.random_range(25.0..50.0),
@@ -177,6 +237,55 @@ pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f32) -> Ball {
     }
 }
 
+pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
+    // 1. Filter candidate fielders by whether the hit is infield or outfield
+    let candidates: Vec<&Fielder> = fielders
+        .iter()
+        .filter(|f| {
+            match ball.trajectory {
+                // For grounders, infielders chase until the ball rolls past the infield
+                TrajectoryType::Grounder => {
+                    if ball.distance < 50.0 {
+                        // Infield grounder: only infielders (1B, 2B, 3B, SS) are candidates
+                        matches!(
+                            f.position,
+                            Position::FB | Position::SB | Position::TB | Position::SS
+                        )
+                    } else {
+                        // Grounder through to the outfield: outfielders handle it
+                        matches!(f.position, Position::LF | Position::CF | Position::RF)
+                    }
+                }
+                // For fly balls and liners
+                _ => {
+                    if ball.distance < 45.0 {
+                        // Shallow fly: both infielders and outfielders can chase
+                        true
+                    } else {
+                        // Deep fly: only outfielders (LF, CF, RF) are candidates
+                        matches!(f.position, Position::LF | Position::CF | Position::RF)
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // 2. Among the filtered candidates, select the closest fielder using law-of-cosines distance
+    candidates
+        .into_iter()
+        .min_by(|a, b| {
+            let dist_a = calculate_distance(a.distance, a.angle, ball.distance, ball.spray_angle);
+            let dist_b = calculate_distance(b.distance, b.angle, ball.distance, ball.spray_angle);
+
+            // Use partial_cmp safely since f64 is not a total order
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or(&fielders[1])
+        .clone() // Safety net: return second base as fallback if candidates are empty
+}
+
 pub fn simulate_batting(batter: &Player) -> BattingResult {
     let rng: f64 = rand::random();
     let result: BattingResult;
@@ -199,10 +308,109 @@ pub fn simulate_batting(batter: &Player) -> BattingResult {
 #[cfg(test)]
 mod tests {
     use crate::domain::resolver::Batter;
-    use crate::domain::resolver::{TrajectoryType, calculate_batted_ball, sample_spray_angle};
-    use crate::domain::shared::game::FielderPoint;
+    use crate::domain::resolver::{
+        Fielder, TrajectoryType, calculate_batted_ball, find_closest_fielder, sample_spray_angle,
+    };
+    use crate::domain::shared::ball::Ball;
     use crate::domain::shared::player::Position;
     use crate::domain::shared::player::RL;
+
+    #[test]
+    fn test_fielders_try_catch() {
+        let fb = Fielder {
+            position: Position::FB,
+            distance: 35.0,
+            angle: 33.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let sb = Fielder {
+            position: Position::SB,
+            distance: 40.0,
+            angle: 18.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let tb = Fielder {
+            position: Position::TB,
+            distance: 35.0,
+            angle: -33.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let ss = Fielder {
+            position: Position::SS,
+            distance: 40.0,
+            angle: -18.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let rf = Fielder {
+            position: Position::RF,
+            distance: 80.0,
+            angle: 26.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let cf = Fielder {
+            position: Position::CF,
+            distance: 90.0,
+            angle: 0.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let lf = Fielder {
+            position: Position::LF,
+            distance: 80.0,
+            angle: -26.0,
+            speed: 7.0,
+            reaction: 0.5,
+        };
+
+        let fielders: [Fielder; 7] = [fb, sb, tb, ss, rf, cf, lf];
+
+        let ball = Ball {
+            launch_speed: 100.0, // km/h
+            launch_angle: 20.0,  // Z arc degree
+            spray_angle: 15.0,   // X arc degree
+            distance: 90.0,      // m
+            hang_time: 10.0,     // second
+            trajectory: TrajectoryType::Fly,
+        };
+
+        let handler = find_closest_fielder(&fielders, &ball);
+
+        println!("Who?:{}", handler.position);
+        println!("Catch?:{}", handler.try_catch(&ball));
+    }
+
+    #[test]
+    fn test_1b_try_catch() {
+        let fb = Fielder {
+            position: Position::FB,
+            distance: 35.0,
+            angle: 33.0,
+            speed: 7.0, // Running speed (m/s) e.g. 6.5 – 8.0 m/s
+            reaction: 0.5,
+        };
+
+        let ball = Ball {
+            launch_speed: 100.0, // km/h
+            launch_angle: 20.0,  // Z arc degree
+            spray_angle: 34.0,   // X arc degree
+            distance: 20.0,      // m
+            hang_time: 3.0,      // second
+            trajectory: TrajectoryType::Grounder,
+        };
+
+        println!("Catch?:{}", fb.try_catch(&ball));
+    }
 
     #[test]
     fn test_spray_angle() {
@@ -220,65 +428,6 @@ mod tests {
         println!("angle:{}", angle);
     }
 
-    // #[test]
-    // fn test_ball_play() {
-    //     let fb_point = FielderPoint {
-    //         position: Position::FB,
-    //         angle: 33.0,
-    //         distance: 21.0,
-    //     };
-
-    //     let sb_point = FielderPoint {
-    //         position: Position::SB,
-    //         angle: 18.0,
-    //         distance: 41.0,
-    //     };
-
-    //     let tb_point = FielderPoint {
-    //         position: Position::TB,
-    //         angle: -33.0,
-    //         distance: 21.0,
-    //     };
-
-    //     let ss_point = FielderPoint {
-    //         position: Position::SS,
-    //         angle: -18.0,
-    //         distance: 41.0,
-    //     };
-
-    //     let lf_point = FielderPoint {
-    //         position: Position::LF,
-    //         angle: -25.0,
-    //         distance: 90.0,
-    //     };
-
-    //     let cf_point = FielderPoint {
-    //         position: Position::CF,
-    //         angle: 0.0,
-    //         distance: 100.0,
-    //     };
-
-    //     let rf_point = FielderPoint {
-    //         position: Position::RF,
-    //         angle: 25.0,
-    //         distance: 90.0,
-    //     };
-
-    //     let right_average_hitter = Batter {
-    //         batting_side: RL::Right,
-    //         swing_speed: 150.0,
-    //         weight_pull: 0.35,
-    //         weight_center: 0.35,
-    //         weight_opposite: 0.15,
-    //         weight_foul_left: 0.08,
-    //         weight_foul_right: 0.07,
-    //     };
-
-    //     let ball = calculate_batted_ball(&right_average_hitter, 150.0);
-    //     assert!(ball.launch_speed >= 30.0);
-    //     assert!(ball.distance > 0.0);
-    //     assert!(ball.hang_time > 0.0);
-    // }
     #[test]
     fn test_calculate_batted_ball() {
         let right_average_hitter = Batter {

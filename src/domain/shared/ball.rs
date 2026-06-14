@@ -1,5 +1,6 @@
-const FOUL_DEGREE: f32 = 45.0;
+const FOUL_DEGREE: f64 = 45.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrajectoryType {
     Grounder,
     Liner,
@@ -8,16 +9,16 @@ pub enum TrajectoryType {
 }
 
 pub struct Ball {
-    pub launch_speed: f32, // km/h
-    pub launch_angle: f32, // Z arc degree
-    pub spray_angle: f32,  // X arc degree
-    pub distance: f32,     // m
-    pub hang_time: f32,    // second
+    pub launch_speed: f64, // km/h
+    pub launch_angle: f64, // Z arc degree
+    pub spray_angle: f64,  // X arc degree
+    pub distance: f64,     // m
+    pub hang_time: f64,    // second
     pub trajectory: TrajectoryType,
 }
 
 impl Ball {
-    pub fn batted(&mut self, distance: f32, hang_time: f32) {
+    pub fn batted(&mut self, distance: f64, hang_time: f64) {
         self.distance = distance;
         self.hang_time = hang_time;
     }
