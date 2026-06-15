@@ -325,28 +325,6 @@ mod tests {
     use crate::domain::shared::player::RL;
 
     #[test]
-    fn test_1b_try_catch() {
-        let fb = Fielder {
-            position: Position::FB,
-            distance: 35.0,
-            angle: 33.0,
-            speed: 7.0, // Running speed (m/s) e.g. 6.5 – 8.0 m/s
-            reaction: 0.5,
-        };
-
-        let ball = Ball {
-            launch_speed: 100.0, // km/h
-            launch_angle: 20.0,  // Z arc degree
-            spray_angle: 34.0,   // X arc degree
-            distance: 20.0,      // m
-            hang_time: 3.0,      // second
-            trajectory: TrajectoryType::Grounder,
-        };
-
-        println!("Catch?:{}", fb.try_catch(&ball));
-    }
-
-    #[test]
     fn test_spray_angle() {
         let right_average_hitter = Batter {
             batting_side: RL::Right,

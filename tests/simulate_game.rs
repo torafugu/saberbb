@@ -1,6 +1,7 @@
 use kurbo::Point;
+use rand::RngExt;
+use rand_distr::StandardNormal;
 use saberbb::domain::resolver::*;
-use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
@@ -82,11 +83,39 @@ pub fn gennerate_default_fielders() -> [Fielder; 9] {
     [p, c, fb, sb, tb, ss, rf, cf, lf]
 }
 
-#[test]
-fn test_bat_to_catch() {
-    let right_average_hitter = Batter {
-        batting_side: RL::Right,
-        swing_speed: 150.0,
+pub fn gennerate_random_batter() -> Batter {
+    let mut rng = rand::rng();
+
+    let roll_rl = rng.random_range(0.0..1.0);
+    let weight_left = 0.3;
+
+    let mut rl = RL::Right;
+    if roll_rl < weight_left {
+        rl = RL::Left;
+    }
+
+    let min_swing_speed = 110.0;
+    let max_swing_speed = 150.0;
+
+    // TODO: Change mean by batter type
+    let mean = (min_swing_speed + max_swing_speed) * 0.5;
+    let std_dev = (max_swing_speed - min_swing_speed) / 6.0;
+    let final_swing_speed = (mean + std_dev * rng.sample::<f64, _>(StandardNormal))
+        .clamp(min_swing_speed, max_swing_speed);
+
+    let pull_hitter = Batter {
+        batting_side: rl.clone(),
+        swing_speed: final_swing_speed,
+        weight_pull: 0.55,
+        weight_center: 0.25,
+        weight_opposite: 0.05,
+        weight_foul_left: 0.12,
+        weight_foul_right: 0.03,
+    };
+
+    let ordinally_hitter = Batter {
+        batting_side: rl.clone(),
+        swing_speed: final_swing_speed,
         weight_pull: 0.35,
         weight_center: 0.35,
         weight_opposite: 0.15,
@@ -94,7 +123,42 @@ fn test_bat_to_catch() {
         weight_foul_right: 0.07,
     };
 
-    let ball = calculate_batted_ball(&right_average_hitter, 150.0);
+    let average_hitter = Batter {
+        batting_side: rl.clone(),
+        swing_speed: final_swing_speed,
+        weight_pull: 0.25,
+        weight_center: 0.45,
+        weight_opposite: 0.25,
+        weight_foul_left: 0.02,
+        weight_foul_right: 0.03,
+    };
+
+    // let batters = [pull_hitter, ordinally_hitter, average_hitter];
+
+    let weight_pull_hitter = 0.3;
+    let weight_ordinally_hitter = 0.5;
+    let weight_average_hitter = 0.2;
+
+    let total_hitter_weight = weight_pull_hitter + weight_ordinally_hitter + weight_average_hitter;
+    let mut roll_hitter = rng.random_range(0.0..total_hitter_weight);
+
+    if roll_hitter < weight_pull_hitter {
+        return pull_hitter;
+    }
+    roll_hitter -= weight_pull_hitter;
+
+    if roll_hitter < weight_ordinally_hitter {
+        return ordinally_hitter;
+    }
+    return average_hitter;
+}
+
+#[test]
+fn test_bat_to_catch() {
+    let batter = gennerate_random_batter();
+    println!("Batter:{}, {}", batter.batting_side, batter.swing_speed);
+
+    let ball = calculate_batted_ball(&batter, 150.0);
 
     println!(
         "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
