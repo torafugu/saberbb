@@ -8,76 +8,95 @@ use saberbb::domain::shared::stadium::*;
 use saberbb::repositories::db::*;
 
 pub fn gennerate_default_fielders() -> [Fielder; 9] {
+    // TODO: Randomize throw_speed, running_speed, reaction and prep_time
     let p = Fielder {
         position: Position::P,
         distance: MOUND_DISTANCE,
         angle: 0.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let c = Fielder {
         position: Position::C,
         distance: 0.0,
         angle: 0.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let fb = Fielder {
         position: Position::FB,
         distance: 35.0,
         angle: 33.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let sb = Fielder {
         position: Position::SB,
         distance: 40.0,
         angle: 18.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let tb = Fielder {
         position: Position::TB,
         distance: 35.0,
         angle: -33.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let ss = Fielder {
         position: Position::SS,
         distance: 40.0,
         angle: -18.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let rf = Fielder {
         position: Position::RF,
         distance: 80.0,
         angle: 26.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let cf = Fielder {
         position: Position::CF,
         distance: 90.0,
         angle: 0.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     let lf = Fielder {
         position: Position::LF,
         distance: 80.0,
         angle: -26.0,
-        speed: 7.0,
+        throw_speed: 40.0,
+        running_speed: 7.0,
         reaction: 0.5,
+        prep_time: 0.65,
     };
 
     [p, c, fb, sb, tb, ss, rf, cf, lf]

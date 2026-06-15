@@ -108,8 +108,8 @@ impl Stadium {
 
 #[derive(Debug)]
 pub struct PolarPosition {
-    distance: f64, // Distance from home plate in meters
-    angle: f64,    // Angle in degrees. 0° points toward second base, positive values go clockwise
+    pub distance: f64, // Distance from home plate in meters
+    pub angle: f64, // Angle in degrees. 0° points toward second base, positive values go clockwise
 }
 
 pub fn draw(document: Document) {
