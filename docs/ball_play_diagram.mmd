@@ -18,7 +18,7 @@ flowchart TD
 
   subgraph fielder["Fielder"]
     direction TB
-    try_catch --> throw --> touch
+    find_closest_fielder --> try_catch --> throw --> touch
   end
 
   subgraph runner["Runner"]

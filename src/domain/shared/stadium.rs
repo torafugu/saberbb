@@ -6,6 +6,8 @@ use svg::Document;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Line, Path, Rectangle, Text};
 
+pub const MOUND_DISTANCE: f64 = 18.44;
+
 pub struct Stadium {
     pub name: String,
     pub foul_pole_distance: f64,
@@ -427,14 +429,12 @@ pub fn generate_svg() -> Document {
             .set("stroke", "none"),
     );
 
-    let mound_distance = 18.44;
-
     // Players (polar coordinates)
     let players = vec![
         (
             "P",
             PolarPosition {
-                distance: mound_distance,
+                distance: MOUND_DISTANCE,
                 angle: 0.0,
             },
         ),

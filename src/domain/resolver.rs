@@ -3,7 +3,7 @@ use crate::domain::shared::game::BattingResult;
 use crate::domain::shared::player::{Player, Position, RL};
 use kurbo::Point;
 use rand::RngExt;
-use rand_distr::{Distribution, Normal};
+use rand_distr::{Distribution, Normal, StandardNormal};
 
 // TODO: merge into Player
 #[derive(Clone)]
@@ -15,7 +15,7 @@ pub struct Fielder {
     pub reaction: f64, // Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
 }
 impl Fielder {
-    fn try_catch(&self, ball: &Ball) -> bool {
+    pub fn try_catch(&self, ball: &Ball) -> bool {
         // 1. Calculate straight-line distance from position to landing point
         let required_distance =
             calculate_distance(self.distance, self.angle, ball.distance, ball.spray_angle);
@@ -40,7 +40,7 @@ impl Fielder {
     }
 }
 
-pub fn calculate_distance(p1_distance: f64, p1_angle: f64, p2_distance: f64, p2_angle: f64) -> f64 {
+fn calculate_distance(p1_distance: f64, p1_angle: f64, p2_distance: f64, p2_angle: f64) -> f64 {
     // Convert the difference between the two angles to radians.
     let angle_diff_rad = (p1_angle - p2_angle).to_radians();
 
@@ -147,10 +147,14 @@ fn sample_spray_angle(tendency: &Batter) -> f64 {
 
     // Step 2: Get the angle range for that sector
     let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
+    let min_angle = min_angle as f64;
+    let max_angle = max_angle as f64;
 
     // Step 3: Randomly sample within the range
-    // TODO: Change to normal (Gaussian) distribution
-    let final_angle = rng.random_range(min_angle..max_angle) as f64;
+    let mean = (min_angle + max_angle) * 0.5;
+    let std_dev = (max_angle - min_angle) / 6.0;
+    let final_angle =
+        (mean + std_dev * rng.sample::<f64, _>(StandardNormal)).clamp(min_angle, max_angle);
 
     final_angle
 }
@@ -249,7 +253,12 @@ pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
                         // Infield grounder: only infielders (1B, 2B, 3B, SS) are candidates
                         matches!(
                             f.position,
-                            Position::FB | Position::SB | Position::TB | Position::SS
+                            Position::P
+                                | Position::C
+                                | Position::FB
+                                | Position::SB
+                                | Position::TB
+                                | Position::SS
                         )
                     } else {
                         // Grounder through to the outfield: outfielders handle it
@@ -309,86 +318,11 @@ pub fn simulate_batting(batter: &Player) -> BattingResult {
 mod tests {
     use crate::domain::resolver::Batter;
     use crate::domain::resolver::{
-        Fielder, TrajectoryType, calculate_batted_ball, find_closest_fielder, sample_spray_angle,
+        Fielder, TrajectoryType, calculate_batted_ball, sample_spray_angle,
     };
     use crate::domain::shared::ball::Ball;
     use crate::domain::shared::player::Position;
     use crate::domain::shared::player::RL;
-
-    #[test]
-    fn test_fielders_try_catch() {
-        let fb = Fielder {
-            position: Position::FB,
-            distance: 35.0,
-            angle: 33.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let sb = Fielder {
-            position: Position::SB,
-            distance: 40.0,
-            angle: 18.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let tb = Fielder {
-            position: Position::TB,
-            distance: 35.0,
-            angle: -33.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let ss = Fielder {
-            position: Position::SS,
-            distance: 40.0,
-            angle: -18.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let rf = Fielder {
-            position: Position::RF,
-            distance: 80.0,
-            angle: 26.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let cf = Fielder {
-            position: Position::CF,
-            distance: 90.0,
-            angle: 0.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let lf = Fielder {
-            position: Position::LF,
-            distance: 80.0,
-            angle: -26.0,
-            speed: 7.0,
-            reaction: 0.5,
-        };
-
-        let fielders: [Fielder; 7] = [fb, sb, tb, ss, rf, cf, lf];
-
-        let ball = Ball {
-            launch_speed: 100.0, // km/h
-            launch_angle: 20.0,  // Z arc degree
-            spray_angle: 15.0,   // X arc degree
-            distance: 90.0,      // m
-            hang_time: 10.0,     // second
-            trajectory: TrajectoryType::Fly,
-        };
-
-        let handler = find_closest_fielder(&fielders, &ball);
-
-        println!("Who?:{}", handler.position);
-        println!("Catch?:{}", handler.try_catch(&ball));
-    }
 
     #[test]
     fn test_1b_try_catch() {
