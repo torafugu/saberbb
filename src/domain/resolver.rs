@@ -1,41 +1,9 @@
-use crate::domain::shared::ball::{Ball, TrajectoryType};
-use crate::domain::shared::game::BattingResult;
+use crate::domain::shared::ball::{Ball, PolarPosition, TrajectoryType};
+use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
 use crate::domain::shared::player::{Player, Position, RL};
-use crate::domain::shared::stadium::PolarPosition;
-use kurbo::Point;
+use crate::domain::shared::stadium::Base;
 use rand::RngExt;
 use rand_distr::{Distribution, Normal, StandardNormal};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Base {
-    Home,
-    First,
-    Second,
-    Third,
-}
-
-impl Base {
-    fn polar_position(&self) -> PolarPosition {
-        match self.clone() {
-            Base::Home => PolarPosition {
-                distance: 0.0,
-                angle: 0.0,
-            },
-            Base::First => PolarPosition {
-                distance: 27.43,
-                angle: 45.0,
-            },
-            Base::Second => PolarPosition {
-                distance: 38.79,
-                angle: 0.0,
-            }, // 27.43 * √2 (distance from home to second base)
-            Base::Third => PolarPosition {
-                distance: 27.43,
-                angle: -45.0,
-            },
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlayType {
@@ -59,27 +27,20 @@ struct PlayResult {
 
 fn evaluate_throw_play(
     time_to_catch: f64,
-    fielder: &Fielder,         // Fielder who caught the ball (arm strength, transfer speed)
-    catch_pos: &PolarPosition, // Coordinates where the grounder was caught (Polar)
-    target_base: Base,         // Target base for the throw
-    play_type: PlayType,       // Force play or tag play
-    runner: &Runner,           // Runner (running speed, lead distance)
-    batting_side: &RL,         // Batter's side; only used for batter-runner distance adjustment
+    fielder: &Fielder, // Fielder who caught the ball (arm strength, transfer speed)
+    catch_pos: PolarPosition, // Coordinates where the grounder was caught (Polar)
+    target_base: Base, // Target base for the throw
+    play_type: PlayType, // Force play or tag play
+    runner: &Runner,   // Runner (running speed, lead distance)
+    batting_side: RL,  // Batter's side; only used for batter-runner distance adjustment
 ) -> PlayResult {
-    // ==========================================
     // 1. Calculate total defense time (defense_total_time)
-    // ==========================================
     let base_pos = target_base.polar_position();
 
     // Common distance from catch position to target base
-    let distance_to_base = calculate_distance(
-        catch_pos.distance,
-        catch_pos.angle,
-        base_pos.distance,
-        base_pos.angle,
-    );
+    let distance_to_base = calculate_distance(&catch_pos, &base_pos);
 
-    // 1. Ball flight time = distance / throw speed (m/s)
+    // 2. Ball flight time = distance / throw speed (m/s)
     let ball_flight_time = distance_to_base / fielder.throw_speed;
 
     // Add action penalty (0.3s) for touch play
@@ -90,25 +51,25 @@ fn evaluate_throw_play(
 
     let time_via_throw = fielder.prep_time + ball_flight_time + touch_time;
 
-    // 2. Calculate time when running to the base themselves (prep time is 0)
+    // 3. Calculate time when running to the base themselves (prep time is 0)
     let time_via_run = distance_to_base / fielder.running_speed;
 
-    // 3. Automatically select the shorter (better) action
+    // 4. Automatically select the shorter (better) action
     let (defense_play_time, action) = if time_via_run < time_via_throw {
         (time_via_run, DefenseAction::SelfTouch)
     } else {
         (time_via_throw, DefenseAction::Throw)
     };
 
-    // 4. Total defense time from the moment of contact (t=0)
+    // 5. Total defense time from the moment of contact (t=0)
     let total_defense_time = time_to_catch + defense_play_time;
 
-    // 5. Total runner time (based on t=0)
+    // 6. Total runner time (based on t=0)
     // Get the remaining distance the runner needs to cover
     let initial_running_distance = runner.get_running_distance(batting_side);
     let total_runner_time = (initial_running_distance / runner.speed) + 0.5;
 
-    // 6. Determine the outcome
+    // 7. Determine the outcome
     let is_out = total_defense_time <= total_runner_time;
     let time_difference = (total_defense_time - total_runner_time).abs();
 
@@ -122,53 +83,63 @@ fn evaluate_throw_play(
 }
 
 struct Runner {
-    speed: f64,         // Base running speed (m/s) e.g. 7.7
-    current_base: u8,   // 0:batter, 1:first, 2:second, 3:third
+    speed: f64, // Base running speed (m/s) e.g. 7.7
+    current_base: Base,
     lead_distance: f64, // Current lead distance (m), valid when current_base > 0
 }
 
 impl Runner {
     // Returns the actual running distance to the next base
-    fn get_running_distance(&self, batting_side: &RL) -> f64 {
-        let base_distance = 27.431; // Exact base-to-base distance
-
+    fn get_running_distance(&self, batting_side: RL) -> f64 {
         match self.current_base {
-            0 => {
+            Base::Home => {
                 // Batter-runner case (lead is 0, distance adjusted by batting side)
                 match batting_side {
-                    RL::Right => base_distance + 2.0, // Right batter's box is farther
-                    RL::Left => base_distance,        // Left batter's box is shortest
+                    RL::Right => BASE_DISTANCE + 2.0, // Right batter's box is farther
+                    RL::Left => BASE_DISTANCE,        // Left batter's box is shortest
                 }
             }
             _ => {
                 // Runner on base case (subtract lead from base distance)
-                (base_distance - self.lead_distance).max(0.0)
+                (BASE_DISTANCE - self.lead_distance).max(0.0)
             }
         }
     }
 }
 
 // TODO: merge into Player
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Fielder {
     pub position: Position,
-    pub distance: f64,
-    pub angle: f64,
+    pub polar_position: PolarPosition,
     pub throw_speed: f64,   // Throw speed (m/s) e.g. 35.0 – 42.0 m/s
     pub running_speed: f64, // Running speed (m/s) e.g. 6.5 – 8.0 m/s
     pub reaction: f64,      // Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
     pub prep_time: f64, // Pitch preparation / transfer time (seconds) e.g. 0.5 – 0.8 s (lower is better)
 }
 impl Fielder {
+    pub fn new(
+        position: Position,
+        distance: f64,
+        angle: f64,
+        throw_speed: f64,
+        running_speed: f64,
+        reaction: f64,
+        prep_time: f64,
+    ) -> Self {
+        Self {
+            position: position,
+            polar_position: PolarPosition::new(distance, angle),
+            throw_speed: throw_speed,
+            running_speed: running_speed,
+            reaction: reaction,
+            prep_time: prep_time,
+        }
+    }
     pub fn try_catch(&self, ball: &Ball) -> f64 {
         // 1. Calculate straight-line distance from position to landing point
-        let required_distance =
-            calculate_distance(self.distance, self.angle, ball.distance, ball.spray_angle);
-
-        // 2. Convert to distance and angle to position
-        let p1 = calculate_position(self.distance, self.angle);
-        let p2 = calculate_position(ball.distance, ball.spray_angle);
-        let dy = p1.y - p2.y;
+        let required_distance = calculate_distance(&self.polar_position, &ball.polar_position);
+        let dy = self.polar_position.y - ball.polar_position.y;
 
         // 3. Adjust initial reaction speed based on hit type (secret ingredient)
         let mut final_reaction = self.reaction;
@@ -185,28 +156,17 @@ impl Fielder {
     }
 }
 
-fn calculate_distance(p1_distance: f64, p1_angle: f64, p2_distance: f64, p2_angle: f64) -> f64 {
+fn calculate_distance(p1: &PolarPosition, p2: &PolarPosition) -> f64 {
     // Convert the difference between the two angles to radians.
-    let angle_diff_rad = (p1_angle - p2_angle).to_radians();
+    let angle_diff_rad = (p1.angle - p2.angle).to_radians();
 
     // Apply the law of cosines.
     let cos_val = angle_diff_rad.cos();
-    let distance_squared = (p1_distance * p1_distance) + (p2_distance * p2_distance)
-        - (2.0 * p1_distance * p2_distance * cos_val);
+    let distance_squared = (p1.distance * p1.distance) + (p2.distance * p2.distance)
+        - (2.0 * p1.distance * p2.distance * cos_val);
 
     // Guard against rare negative values caused by floating-point error.
     distance_squared.max(0.0).sqrt()
-}
-
-fn calculate_position(distance: f64, angle_deg: f64) -> Point {
-    // Rust's sin/cos require radians, so convert from degrees
-    let angle_rad = angle_deg.to_radians();
-
-    // Axes are swapped, so x is sin and y is cos
-    let x = distance * angle_rad.sin();
-    let y = distance * angle_rad.cos();
-
-    Point::new(x, y)
 }
 
 // batted-ball direction (sector)
@@ -376,14 +336,14 @@ pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> Ball {
         }
     };
 
-    Ball {
-        launch_speed: launch_speed,
-        launch_angle: launch_angle,
-        spray_angle: spray_angle,
-        distance: distance,
-        hang_time: hang_time,
-        trajectory: trajectory,
-    }
+    Ball::new(
+        launch_speed,
+        launch_angle,
+        spray_angle,
+        distance,
+        hang_time,
+        trajectory,
+    )
 }
 
 pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
@@ -394,7 +354,7 @@ pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
             match ball.trajectory {
                 // For grounders, infielders chase until the ball rolls past the infield
                 TrajectoryType::Grounder => {
-                    if ball.distance < 50.0 {
+                    if ball.polar_position.distance < 50.0 {
                         // Infield grounder: only infielders (1B, 2B, 3B, SS) are candidates
                         matches!(
                             f.position,
@@ -412,7 +372,7 @@ pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
                 }
                 // For fly balls and liners
                 _ => {
-                    if ball.distance < 45.0 {
+                    if ball.polar_position.distance < 45.0 {
                         // Shallow fly: both infielders and outfielders can chase
                         true
                     } else {
@@ -428,8 +388,8 @@ pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
     candidates
         .into_iter()
         .min_by(|a, b| {
-            let dist_a = calculate_distance(a.distance, a.angle, ball.distance, ball.spray_angle);
-            let dist_b = calculate_distance(b.distance, b.angle, ball.distance, ball.spray_angle);
+            let dist_a = calculate_distance(&a.polar_position, &ball.polar_position);
+            let dist_b = calculate_distance(&b.polar_position, &ball.polar_position);
 
             // Use partial_cmp safely since f64 is not a total order
             dist_a
@@ -462,11 +422,7 @@ pub fn simulate_batting(batter: &Player) -> BattingResult {
 #[cfg(test)]
 mod tests {
     use crate::domain::resolver::Batter;
-    use crate::domain::resolver::{
-        Fielder, TrajectoryType, calculate_batted_ball, sample_spray_angle,
-    };
-    use crate::domain::shared::ball::Ball;
-    use crate::domain::shared::player::Position;
+    use crate::domain::resolver::{TrajectoryType, calculate_batted_ball, sample_spray_angle};
     use crate::domain::shared::player::RL;
 
     #[test]
@@ -498,7 +454,7 @@ mod tests {
         };
 
         let ball = calculate_batted_ball(&right_average_hitter, 150.0);
-        assert!((-45.0..45.0).contains(&ball.spray_angle));
+        assert!((-45.0..45.0).contains(&ball.polar_position.angle));
 
         match ball.trajectory {
             TrajectoryType::Grounder => assert!((0.0..10.0).contains(&ball.launch_angle)),

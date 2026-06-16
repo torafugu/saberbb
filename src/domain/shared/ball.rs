@@ -3,6 +3,28 @@ use std::fmt;
 
 const FOUL_DEGREE: f64 = 45.0;
 
+#[derive(Debug, Clone)]
+pub struct PolarPosition {
+    pub distance: f64, // Distance from home plate in meters
+    pub angle: f64, // Angle in degrees. 0° points toward second base, positive values go clockwise
+    pub x: f64,
+    pub y: f64,
+}
+impl PolarPosition {
+    pub fn new(distance: f64, angle: f64) -> Self {
+        let angle_rad = angle.to_radians();
+        let x = distance * angle_rad.sin();
+        let y = distance * angle_rad.cos();
+
+        Self {
+            distance: distance,
+            angle: angle,
+            x: x,
+            y: y,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrajectoryType {
     Grounder,
@@ -24,20 +46,39 @@ impl fmt::Display for TrajectoryType {
 pub struct Ball {
     pub launch_speed: f64, // km/h
     pub launch_angle: f64, // Z arc degree
-    pub spray_angle: f64,  // X arc degree
-    pub distance: f64,     // m
-    pub hang_time: f64,    // second
+    pub polar_position: PolarPosition,
+    pub hang_time: f64, // second
     pub trajectory: TrajectoryType,
 }
 
 impl Ball {
-    pub fn batted(&mut self, distance: f64, hang_time: f64) {
-        self.distance = distance;
-        self.hang_time = hang_time;
+    pub fn new(
+        launch_speed: f64,
+        launch_angle: f64,
+        spray_angle: f64,
+        distance: f64,
+        hang_time: f64,
+        trajectory: TrajectoryType,
+    ) -> Self {
+        Self {
+            launch_speed: launch_speed,
+            launch_angle: launch_angle,
+            polar_position: PolarPosition::new(distance, spray_angle),
+            hang_time: hang_time,
+            trajectory: trajectory,
+        }
+    }
+
+    pub fn distance(&self) -> f64 {
+        self.polar_position.distance
+    }
+
+    pub fn angle(&self) -> f64 {
+        self.polar_position.angle
     }
 
     pub fn is_foul(&self) -> bool {
-        if self.spray_angle.abs() <= FOUL_DEGREE {
+        if self.polar_position.angle.abs() <= FOUL_DEGREE {
             true
         } else {
             false

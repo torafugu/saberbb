@@ -1,3 +1,4 @@
+use crate::domain::shared::ball::PolarPosition;
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::proj_dirs;
 use kurbo::{Affine, BezPath, Point, Shape, Vec2};
@@ -7,6 +8,25 @@ use svg::node::element::path::Data;
 use svg::node::element::{Circle, Line, Path, Rectangle, Text};
 
 pub const MOUND_DISTANCE: f64 = 18.44;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Base {
+    Home,
+    First,
+    Second,
+    Third,
+}
+impl Base {
+    pub fn polar_position(&self) -> PolarPosition {
+        let second_base_distance = BASE_DISTANCE * SQRT_2;
+        match self.clone() {
+            Base::Home => PolarPosition::new(0.0, 0.0),
+            Base::First => PolarPosition::new(BASE_DISTANCE, 45.0),
+            Base::Second => PolarPosition::new(second_base_distance, 0.0),
+            Base::Third => PolarPosition::new(BASE_DISTANCE, -45.0),
+        }
+    }
+}
 
 pub struct Stadium {
     pub name: String,
@@ -101,15 +121,6 @@ impl Stadium {
     pub fn is_inside_fence_line(&self, point: kurbo::Point) -> bool {
         self.fence_line.contains(point)
     }
-
-    // pub fn export_to_svg(&self, file_path: &str) -> std::io::Result<()> {
-    // }
-}
-
-#[derive(Debug)]
-pub struct PolarPosition {
-    pub distance: f64, // Distance from home plate in meters
-    pub angle: f64, // Angle in degrees. 0° points toward second base, positive values go clockwise
 }
 
 pub fn draw(document: Document) {
@@ -431,69 +442,15 @@ pub fn generate_svg() -> Document {
 
     // Players (polar coordinates)
     let players = vec![
-        (
-            "P",
-            PolarPosition {
-                distance: MOUND_DISTANCE,
-                angle: 0.0,
-            },
-        ),
-        (
-            "C",
-            PolarPosition {
-                distance: 0.0,
-                angle: 0.0,
-            },
-        ),
-        (
-            "1B",
-            PolarPosition {
-                distance: 35.0,
-                angle: 33.0,
-            },
-        ),
-        (
-            "2B",
-            PolarPosition {
-                distance: 40.0,
-                angle: 18.0,
-            },
-        ),
-        (
-            "3B",
-            PolarPosition {
-                distance: 35.0,
-                angle: -33.0,
-            },
-        ),
-        (
-            "SS",
-            PolarPosition {
-                distance: 40.0,
-                angle: -18.0,
-            },
-        ),
-        (
-            "CF",
-            PolarPosition {
-                distance: 90.0,
-                angle: 0.0,
-            },
-        ),
-        (
-            "LF",
-            PolarPosition {
-                distance: 80.0,
-                angle: -26.0,
-            },
-        ),
-        (
-            "RF",
-            PolarPosition {
-                distance: 80.0,
-                angle: 26.0,
-            },
-        ),
+        ("P", PolarPosition::new(MOUND_DISTANCE, 0.0)),
+        ("C", PolarPosition::new(0.0, 0.0)),
+        ("1B", PolarPosition::new(35.0, 33.0)),
+        ("2B", PolarPosition::new(40.0, 18.0)),
+        ("3B", PolarPosition::new(35.0, -33.0)),
+        ("SS", PolarPosition::new(40.0, -18.0)),
+        ("CF", PolarPosition::new(90.0, 0.0)),
+        ("LF", PolarPosition::new(80.0, -26.0)),
+        ("RF", PolarPosition::new(80.0, 26.0)),
     ];
 
     for (name, pos) in &players {

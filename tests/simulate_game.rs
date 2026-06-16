@@ -9,95 +9,15 @@ use saberbb::repositories::db::*;
 
 pub fn gennerate_default_fielders() -> [Fielder; 9] {
     // TODO: Randomize throw_speed, running_speed, reaction and prep_time
-    let p = Fielder {
-        position: Position::P,
-        distance: MOUND_DISTANCE,
-        angle: 0.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let c = Fielder {
-        position: Position::C,
-        distance: 0.0,
-        angle: 0.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let fb = Fielder {
-        position: Position::FB,
-        distance: 35.0,
-        angle: 33.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let sb = Fielder {
-        position: Position::SB,
-        distance: 40.0,
-        angle: 18.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let tb = Fielder {
-        position: Position::TB,
-        distance: 35.0,
-        angle: -33.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let ss = Fielder {
-        position: Position::SS,
-        distance: 40.0,
-        angle: -18.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let rf = Fielder {
-        position: Position::RF,
-        distance: 80.0,
-        angle: 26.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let cf = Fielder {
-        position: Position::CF,
-        distance: 90.0,
-        angle: 0.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
-
-    let lf = Fielder {
-        position: Position::LF,
-        distance: 80.0,
-        angle: -26.0,
-        throw_speed: 40.0,
-        running_speed: 7.0,
-        reaction: 0.5,
-        prep_time: 0.65,
-    };
+    let p = Fielder::new(Position::P, MOUND_DISTANCE, 0.0, 40.0, 7.0, 0.5, 0.65);
+    let c = Fielder::new(Position::C, 0.0, 0.0, 40.0, 7.0, 0.5, 0.65);
+    let fb = Fielder::new(Position::FB, 35.0, 33.0, 40.0, 7.0, 0.5, 0.65);
+    let sb = Fielder::new(Position::SB, 40.0, 18.0, 40.0, 7.0, 0.5, 0.65);
+    let tb = Fielder::new(Position::TB, 35.0, -33.0, 40.0, 7.0, 0.5, 0.65);
+    let ss = Fielder::new(Position::SS, 35.0, -33.0, 40.0, 7.0, 0.5, 0.65);
+    let rf = Fielder::new(Position::RF, 80.0, 26.0, 40.0, 7.0, 0.5, 0.65);
+    let cf = Fielder::new(Position::CF, 90.0, 0.0, 40.0, 7.0, 0.5, 0.65);
+    let lf = Fielder::new(Position::LF, 80.0, -26.0, 40.0, 7.0, 0.5, 0.65);
 
     [p, c, fb, sb, tb, ss, rf, cf, lf]
 }
@@ -152,8 +72,6 @@ pub fn gennerate_random_batter() -> Batter {
         weight_foul_right: 0.03,
     };
 
-    // let batters = [pull_hitter, ordinally_hitter, average_hitter];
-
     let weight_pull_hitter = 0.3;
     let weight_ordinally_hitter = 0.5;
     let weight_average_hitter = 0.2;
@@ -181,13 +99,20 @@ fn test_bat_to_catch() {
 
     println!(
         "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
-        ball.spray_angle, ball.distance, ball.trajectory
+        ball.angle(),
+        ball.distance(),
+        ball.trajectory
     );
 
     let handler = find_closest_fielder(&gennerate_default_fielders(), &ball);
 
     println!("Who?:{}", handler.position);
-    println!("Catch?:{}", handler.try_catch(&ball));
+
+    let handler_arrival_time = handler.try_catch(&ball);
+
+    println!("Arrivak Time?:{}", handler_arrival_time);
+
+    // let result = evaluate_throw_play(evaluate_throw_play, handler, );
 }
 
 #[test]
@@ -232,7 +157,7 @@ fn test_catch_batted_ball() {
         let ball = calculate_batted_ball(&right_average_hitter, 150.0);
         conn.execute(
             "INSERT INTO test_batted_ball (distance, spray_angle, hang_time) VALUES (?1, ?2, ?3)",
-            [ball.distance, ball.spray_angle, ball.hang_time],
+            [ball.distance(), ball.angle(), ball.hang_time],
         )
         .unwrap();
     }
