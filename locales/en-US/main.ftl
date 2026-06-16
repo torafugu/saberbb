@@ -58,6 +58,7 @@ rbi = RBI
 regular = Regular
 rf = RF
 right = Right
+safe = Safe
 sb = 2B
 score = Score
 screen_io_error = Screen IO error

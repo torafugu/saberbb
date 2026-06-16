@@ -4,6 +4,8 @@ use super::team::Lineup;
 use crate::domain::resolver::simulate_batting;
 use crate::domain::shared::game_history::BattingResultHistory;
 use crate::domain::utils::is_base_occupied;
+use crate::t;
+use std::fmt;
 
 pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
@@ -20,7 +22,27 @@ pub enum GameError {
     CurrentBatter,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum Ruling {
+    Safe,
+    Out,
+}
+impl fmt::Display for Ruling {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Ruling::Safe => write!(f, "{}", t!("safe")),
+            Ruling::Out => write!(f, "{}", t!("out")),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BallStatus {
+    InPlay,
+    Dead,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum GameProgress {
     Ongoing,
     WalkOff,

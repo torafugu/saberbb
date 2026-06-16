@@ -77,6 +77,14 @@ impl Ball {
         self.polar_position.angle
     }
 
+    pub fn x(&self) -> f64 {
+        self.polar_position.x
+    }
+
+    pub fn y(&self) -> f64 {
+        self.polar_position.y
+    }
+
     pub fn is_foul(&self) -> bool {
         if self.polar_position.angle.abs() <= FOUL_DEGREE {
             true

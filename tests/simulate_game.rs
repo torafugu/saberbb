@@ -108,9 +108,12 @@ fn test_bat_to_catch() {
 
     println!("Who?:{}", handler.position);
 
-    let handler_arrival_time = handler.try_catch(&ball);
+    let catch_status = handler.try_catch(&ball);
 
-    println!("Arrivak Time?:{}", handler_arrival_time);
+    println!(
+        "Ruling?:{}, time_to_catch?:{}",
+        catch_status.ruling, catch_status.time_to_catch
+    );
 
     // let result = evaluate_throw_play(evaluate_throw_play, handler, );
 }

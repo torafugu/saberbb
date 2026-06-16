@@ -3,14 +3,20 @@ flowchart TD
     pitch_ball
   end
 
-  pitch_ball --> swing
-  pitch_ball --> take_pitch
+  pitch_ball --> batter
     
   subgraph batter["Batter"]
     direction TB
-    take_pitch
-    swing --> swing_miss
-    swing --> calculate_batted_ball
+    swing{Swing}
+    swing --> |No|take_pitch
+    swing --> |Yes and Miss|swing_miss
+    swing --> |Yes and Hit|calculate_batted_ball
+  end
+
+  subgraph calculate_batted_ball["Calculate Batted Ball"]
+    direction TB
+    sample_spray_angle --> inner_choose_sector --> get_angle_range
+    beyond_the_fence{Beyond The Fence?} --> |Yes|calculate_height_at_distance --> apply_fence_bounce
   end
 
   calculate_batted_ball --> fielder
@@ -18,10 +24,19 @@ flowchart TD
 
   subgraph fielder["Fielder"]
     direction TB
-    find_closest_fielder --> try_catch --> throw --> touch
+    is_ball_in_fielder_lane --> process_defensive_chain --> find_closest_fielder --> try_catch --> evaluate_throw_play
+    try_catch --> out
+    try_catch <--> process_outfield_hit
+  end
+
+  subgraph try_catch["Try Catch"]
+    calculate_height_at_distance
+    apply_fence_bounce
   end
 
   subgraph runner["Runner"]
     direction TB
-    run
+    get_running_distance
   end
+
+  get_running_distance --> evaluate_throw_play

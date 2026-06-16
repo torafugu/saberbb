@@ -58,6 +58,7 @@ rbi = 打点
 regular = 公式戦
 rf = 右
 right = 右
+safe = セーフ
 sb = 二
 score = 得点
 screen_io_error = 画面IOエラー
