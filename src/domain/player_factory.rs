@@ -3,7 +3,7 @@ use super::shared::player::{
     DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Player, Position,
 };
 use super::shared::prob::{DefensiveSkillProb, PitcherAttributeProb, PlayerProb};
-use super::utils::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
+use super::util::{age_random, choose_item_weighted, rl_random, skewed_normal_random};
 use crate::domain::shared::prob::ItemProb;
 use crate::domain::shared::team::Team;
 use crate::error::AppError;

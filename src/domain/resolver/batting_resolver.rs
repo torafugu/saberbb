@@ -1,0 +1,422 @@
+use crate::domain::shared::ball::{Ball, TrajectoryType};
+use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
+use crate::domain::shared::player::{Player, RL};
+use crate::domain::shared::stadium::Base;
+use crate::domain::util::GRAVIY;
+use rand::RngExt;
+use rand_distr::{Distribution, Normal, StandardNormal};
+
+pub struct Runner {
+    pub speed: f64, // Base running speed (m/s) e.g. 7.7
+    pub current_base: Base,
+    pub lead_distance: f64, // Current lead distance (m), valid when current_base > 0
+}
+impl Runner {
+    // Returns the actual running distance to the next base
+    pub fn get_running_distance(&self, batting_side: RL) -> f64 {
+        match self.current_base {
+            Base::Home => {
+                // Batter-runner case (lead is 0, distance adjusted by batting side)
+                match batting_side {
+                    RL::Right => BASE_DISTANCE + 2.0, // Right batter's box is farther
+                    RL::Left => BASE_DISTANCE,        // Left batter's box is shortest
+                }
+            }
+            _ => {
+                // Runner on base case (subtract lead from base distance)
+                (BASE_DISTANCE - self.lead_distance).max(0.0)
+            }
+        }
+    }
+}
+
+// batted-ball direction (sector)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FieldSector {
+    Pull,      // Pull (right-handed batter → left field, left-handed batter → right field)
+    Center,    // Center field
+    Opposite, // Opposite field (right-handed batter → right field, left-handed batter → left field)
+    FoulLeft, // Third-base-side foul
+    FoulRight, // First-base-side foul
+}
+
+// TODO: merge into Player
+// Hitter's batted-ball direction ability and tendency data
+pub struct Batter {
+    pub batting_side: RL,
+    pub swing_speed: f64,
+
+    // Weight of probability for each sector (set to sum to 1.0)
+    // TODO: Randomize based on batter type
+    pub weight_pull: f32,
+    pub weight_center: f32,
+    pub weight_opposite: f32,
+    pub weight_foul_left: f32,
+    pub weight_foul_right: f32,
+}
+impl Batter {
+    // Returns the concrete angle range (min, max) for the selected sector
+    fn get_angle_range(&self, sector: FieldSector) -> (f32, f32) {
+        match self.batting_side {
+            RL::Right => match sector {
+                FieldSector::FoulLeft => (-90.0, -45.0),
+                FieldSector::Pull => (-45.0, -15.0), // Right-handed batter's pull → left field (-)
+                FieldSector::Center => (-15.0, 15.0),
+                FieldSector::Opposite => (15.0, 45.0), // Right-handed batter's opposite → right field (+)
+                FieldSector::FoulRight => (45.0, 90.0),
+            },
+            RL::Left => match sector {
+                FieldSector::FoulLeft => (-90.0, -45.0),
+                FieldSector::Opposite => (-45.0, -15.0), // Left-handed batter's opposite → left field (-)
+                FieldSector::Center => (-15.0, 15.0),
+                FieldSector::Pull => (15.0, 45.0), // Left-handed batter's pull → right field (+)
+                FieldSector::FoulRight => (45.0, 90.0),
+            },
+        }
+    }
+}
+
+fn inner_choose_sector(batter: &Batter) -> FieldSector {
+    let mut rng = rand::rng();
+    let total_weight = batter.weight_pull
+        + batter.weight_center
+        + batter.weight_opposite
+        + batter.weight_foul_left
+        + batter.weight_foul_right;
+    let mut roll = rng.random_range(0.0..total_weight);
+
+    if roll < batter.weight_pull {
+        return FieldSector::Pull;
+    }
+    roll -= batter.weight_pull;
+
+    if roll < batter.weight_center {
+        return FieldSector::Center;
+    }
+    roll -= batter.weight_center;
+
+    if roll < batter.weight_opposite {
+        return FieldSector::Opposite;
+    }
+    roll -= batter.weight_opposite;
+
+    if roll < batter.weight_foul_left {
+        return FieldSector::FoulLeft;
+    }
+    return FieldSector::FoulRight;
+}
+
+fn sample_spray_angle(tendency: &Batter) -> f64 {
+    let mut rng = rand::rng();
+
+    // Step 1: Decide the sector
+    let chosen_sector = inner_choose_sector(tendency);
+
+    // Step 2: Get the angle range for that sector
+    let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
+    let min_angle = min_angle as f64;
+    let max_angle = max_angle as f64;
+
+    // Step 3: Randomly sample within the range
+    let mean = (min_angle + max_angle) * 0.5;
+    let std_dev = (max_angle - min_angle) / 6.0;
+    let final_angle =
+        (mean + std_dev * rng.sample::<f64, _>(StandardNormal)).clamp(min_angle, max_angle);
+
+    final_angle
+}
+
+pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> Ball {
+    let mut rng = rand::rng();
+
+    // TODO: decide TrajectoryType mod_slg and meet type should be considered
+    let trajectory = match rng.random_range(0..4) {
+        0 => TrajectoryType::Liner,
+        1 => TrajectoryType::Fly,
+        2 => TrajectoryType::Grounder,
+        _ => TrajectoryType::PopUp,
+    };
+
+    // 1. Theoretical maximum exit velocity for a squared-up ball (V_max)
+    // $$V_{\text{max}} = (A \times V_{\text{swing}}) + (B \times V_{\text{pitch}})$$
+    let a = 1.15; // Swing efficiency
+    let b = 0.20; // Rebound efficiency
+    let v_max = (a * batter.swing_speed) + (b * pitch_speed);
+
+    // 2. Randomly select the damping factor based on TrajectoryType (contact quality)
+    let contact_efficiency = match &trajectory {
+        TrajectoryType::Liner => rng.random_range(0.85..1.00),
+        TrajectoryType::Fly => rng.random_range(0.70..0.92),
+        TrajectoryType::Grounder => rng.random_range(0.65..0.90),
+        TrajectoryType::PopUp => rng.random_range(0.40..0.60),
+    };
+
+    // 3. Determine the base exit velocity
+    let mut base_speed = v_max * contact_efficiency;
+
+    // 4. Add the final variation with normally distributed noise (mean 0, standard deviation 5 km/h)
+    let normal_dist = Normal::new(0.0, 5.0).unwrap();
+    let noise = normal_dist.sample(&mut rng);
+
+    base_speed += noise;
+
+    // Cap the minimum value to prevent negative or excessively slow speeds
+    let launch_speed = base_speed.max(30.0);
+
+    let launch_angle: f64 = match &trajectory {
+        TrajectoryType::Grounder => rng.random_range(0.0..10.0),
+        TrajectoryType::Liner => rng.random_range(10.0..25.0),
+        TrajectoryType::Fly => rng.random_range(25.0..50.0),
+        TrajectoryType::PopUp => rng.random_range(50.0..80.0),
+    };
+    let spray_angle = sample_spray_angle(batter);
+
+    let v = launch_speed * 0.278; // Convert to m/s
+    let theta = launch_angle.to_radians();
+
+    let (distance, hang_time) = match trajectory {
+        TrajectoryType::Fly | TrajectoryType::PopUp => {
+            let kt = 0.95; // Hang time correction
+            let kd = 0.55; // Distance drag correction
+            let time = (2.0 * v * theta.sin()) / GRAVIY * kt;
+            let dist = (v * theta.cos() * time) * kd;
+            (dist, time)
+        }
+        TrajectoryType::Liner => {
+            let kt = 1.0;
+            let kd = 0.75; // Liner drives lose less speed
+            let time = (2.0 * v * theta.sin()) / GRAVIY * kt;
+            let dist = (v * theta.cos() * time) * kd;
+            (dist, time)
+        }
+        TrajectoryType::Grounder => {
+            // Grounder-specific calculation for infield arrival time and final rolling distance
+            let time_to_infield = 30.0 / (v * theta.cos() * 0.8);
+            let total_dist = v * 1.5 + rand::random_range(-5.0..5.0);
+            (total_dist, time_to_infield)
+        }
+    };
+
+    Ball::new(
+        launch_speed,
+        launch_angle,
+        spray_angle,
+        distance,
+        hang_time,
+        trajectory,
+    )
+}
+
+pub fn simulate_batting(batter: &Player) -> BattingResult {
+    let rng: f64 = rand::random();
+    let result: BattingResult;
+    // TODO: Adjust by mod_slg!
+    let xbh_average: f64 = batter.slg() - batter.hit_average();
+    let double_average: f64 = batter.hit_average() + xbh_average * 0.5;
+    let triple_average: f64 = batter.hit_average() + xbh_average * 0.6;
+    let home_run_average: f64 = batter.hit_average() + xbh_average;
+
+    match rng {
+        n if batter.hit_average() > n => result = BattingResult::Single,
+        n if double_average > n => result = BattingResult::Double,
+        n if triple_average > n => result = BattingResult::Triple,
+        n if home_run_average > n => result = BattingResult::HomeRun,
+        _ => result = BattingResult::Out,
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::resolver::batting_resolver::{
+        Batter, FieldSector, Runner, calculate_batted_ball, inner_choose_sector, sample_spray_angle,
+    };
+    use crate::domain::shared::ball::TrajectoryType;
+    use crate::domain::shared::game::BASE_DISTANCE;
+    use crate::domain::shared::player::RL;
+    use crate::domain::shared::stadium::Base;
+
+    fn batter_with_weights(
+        batting_side: RL,
+        weight_pull: f32,
+        weight_center: f32,
+        weight_opposite: f32,
+        weight_foul_left: f32,
+        weight_foul_right: f32,
+    ) -> Batter {
+        Batter {
+            batting_side,
+            swing_speed: 150.0,
+            weight_pull,
+            weight_center,
+            weight_opposite,
+            weight_foul_left,
+            weight_foul_right,
+        }
+    }
+
+    fn assert_between(value: f64, min: f64, max: f64) {
+        assert!(
+            value >= min && value <= max,
+            "{} was outside [{}, {}]",
+            value,
+            min,
+            max
+        );
+    }
+
+    #[test]
+    fn runner_get_running_distance_adjusts_batter_runner_by_side() {
+        let runner = Runner {
+            speed: 7.7,
+            current_base: Base::Home,
+            lead_distance: 0.0,
+        };
+
+        assert_eq!(runner.get_running_distance(RL::Left), BASE_DISTANCE);
+        assert_eq!(runner.get_running_distance(RL::Right), BASE_DISTANCE + 2.0);
+    }
+
+    #[test]
+    fn runner_get_running_distance_subtracts_lead_for_existing_runner() {
+        let runner = Runner {
+            speed: 7.7,
+            current_base: Base::First,
+            lead_distance: 4.5,
+        };
+
+        assert_eq!(
+            runner.get_running_distance(RL::Right),
+            BASE_DISTANCE - runner.lead_distance
+        );
+    }
+
+    #[test]
+    fn runner_get_running_distance_never_goes_below_zero() {
+        let runner = Runner {
+            speed: 7.7,
+            current_base: Base::Second,
+            lead_distance: BASE_DISTANCE + 1.0,
+        };
+
+        assert_eq!(runner.get_running_distance(RL::Left), 0.0);
+    }
+
+    #[test]
+    fn batter_get_angle_range_maps_pull_and_opposite_by_batting_side() {
+        let right_hitter = batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0);
+        let left_hitter = batter_with_weights(RL::Left, 1.0, 0.0, 0.0, 0.0, 0.0);
+
+        assert_eq!(
+            right_hitter.get_angle_range(FieldSector::Pull),
+            (-45.0, -15.0)
+        );
+        assert_eq!(
+            right_hitter.get_angle_range(FieldSector::Opposite),
+            (15.0, 45.0)
+        );
+        assert_eq!(left_hitter.get_angle_range(FieldSector::Pull), (15.0, 45.0));
+        assert_eq!(
+            left_hitter.get_angle_range(FieldSector::Opposite),
+            (-45.0, -15.0)
+        );
+    }
+
+    #[test]
+    fn inner_choose_sector_returns_the_only_weighted_sector() {
+        let cases = [
+            (
+                batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0),
+                FieldSector::Pull,
+            ),
+            (
+                batter_with_weights(RL::Right, 0.0, 1.0, 0.0, 0.0, 0.0),
+                FieldSector::Center,
+            ),
+            (
+                batter_with_weights(RL::Right, 0.0, 0.0, 1.0, 0.0, 0.0),
+                FieldSector::Opposite,
+            ),
+            (
+                batter_with_weights(RL::Right, 0.0, 0.0, 0.0, 1.0, 0.0),
+                FieldSector::FoulLeft,
+            ),
+            (
+                batter_with_weights(RL::Right, 0.0, 0.0, 0.0, 0.0, 1.0),
+                FieldSector::FoulRight,
+            ),
+        ];
+
+        for (batter, expected_sector) in cases {
+            assert_eq!(inner_choose_sector(&batter), expected_sector);
+        }
+    }
+
+    #[test]
+    fn sample_spray_angle_stays_inside_forced_sector_range() {
+        let cases = [
+            (
+                batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0),
+                -45.0,
+                -15.0,
+            ),
+            (
+                batter_with_weights(RL::Right, 0.0, 1.0, 0.0, 0.0, 0.0),
+                -15.0,
+                15.0,
+            ),
+            (
+                batter_with_weights(RL::Right, 0.0, 0.0, 1.0, 0.0, 0.0),
+                15.0,
+                45.0,
+            ),
+            (
+                batter_with_weights(RL::Left, 1.0, 0.0, 0.0, 0.0, 0.0),
+                15.0,
+                45.0,
+            ),
+            (
+                batter_with_weights(RL::Left, 0.0, 0.0, 1.0, 0.0, 0.0),
+                -45.0,
+                -15.0,
+            ),
+            (
+                batter_with_weights(RL::Left, 0.0, 0.0, 0.0, 1.0, 0.0),
+                -90.0,
+                -45.0,
+            ),
+            (
+                batter_with_weights(RL::Left, 0.0, 0.0, 0.0, 0.0, 1.0),
+                45.0,
+                90.0,
+            ),
+        ];
+
+        for (batter, min_angle, max_angle) in cases {
+            for _ in 0..20 {
+                assert_between(sample_spray_angle(&batter), min_angle, max_angle);
+            }
+        }
+    }
+
+    #[test]
+    fn calculate_batted_ball_sets_physical_values_and_trajectory_specific_launch_angle() {
+        let right_pull_hitter = batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0);
+
+        for _ in 0..50 {
+            let ball = calculate_batted_ball(&right_pull_hitter, 150.0);
+
+            assert!(ball.launch_speed_kmh >= 30.0);
+            assert!(ball.distance().is_finite());
+            assert!(ball.hang_time.is_finite());
+            assert_between(ball.angle(), -45.0, -15.0);
+
+            match ball.trajectory {
+                TrajectoryType::Grounder => assert_between(ball.launch_angle, 0.0, 10.0),
+                TrajectoryType::Liner => assert_between(ball.launch_angle, 10.0, 25.0),
+                TrajectoryType::Fly => assert_between(ball.launch_angle, 25.0, 50.0),
+                TrajectoryType::PopUp => assert_between(ball.launch_angle, 50.0, 80.0),
+            }
+        }
+    }
+}

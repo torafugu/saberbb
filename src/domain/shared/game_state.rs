@@ -1,9 +1,9 @@
 use super::game::{Base, BattingResult, Count, Inning, TB};
 use super::player::{Player, Position};
 use super::team::Lineup;
-use crate::domain::resolver::simulate_batting;
+use crate::domain::resolver::batting_resolver::simulate_batting;
 use crate::domain::shared::game_history::BattingResultHistory;
-use crate::domain::utils::is_base_occupied;
+use crate::domain::util::is_base_occupied;
 use crate::t;
 use std::fmt;
 

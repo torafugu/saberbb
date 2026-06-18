@@ -1,7 +1,8 @@
 use kurbo::Point;
 use rand::RngExt;
 use rand_distr::StandardNormal;
-use saberbb::domain::resolver::*;
+use saberbb::domain::resolver::batting_resolver::*;
+use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;

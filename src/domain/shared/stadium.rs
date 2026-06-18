@@ -1,5 +1,5 @@
-use crate::domain::shared::ball::PolarPosition;
 use crate::domain::shared::game::BASE_DISTANCE;
+use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
 use kurbo::{Affine, BezPath, Point, Shape, Vec2};
 use std::f64::consts::SQRT_2;

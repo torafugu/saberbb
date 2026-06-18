@@ -1,5 +1,5 @@
 use crate::I18nManager;
-use crate::domain::utils;
+use crate::domain::util;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -161,13 +161,13 @@ impl Player {
     pub fn hit_average(&self) -> f64 {
         let ba = (BATTING_MAX_HIT_AVERAGE + BATTING_MIN_HIT_AVERAGE) * 0.5
             + (BATTING_MAX_HIT_AVERAGE - BATTING_MIN_HIT_AVERAGE)
-                * (utils::sigmoid(self.mod_ba) - 0.5);
+                * (util::sigmoid(self.mod_ba) - 0.5);
         ba
     }
 
     pub fn slg(&self) -> f64 {
         let slg = (BATTING_MAX_SLG + BATTING_MIN_SLG) * 0.5
-            + (BATTING_MAX_SLG - BATTING_MIN_SLG) * (utils::sigmoid(self.mod_slg) - 0.5);
+            + (BATTING_MAX_SLG - BATTING_MIN_SLG) * (util::sigmoid(self.mod_slg) - 0.5);
         slg
     }
 }

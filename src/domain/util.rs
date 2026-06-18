@@ -4,6 +4,8 @@ use crate::domain::shared::prob::ItemProb;
 use rand::distr::weighted::WeightedIndex;
 use rand_distr::{Distribution, Gamma};
 
+pub const GRAVIY: f64 = 9.8;
+
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
@@ -56,9 +58,51 @@ pub fn choose_item_weighted<T>(items: &[ItemProb<T>]) -> Option<&T> {
     Some(&items[index].name)
 }
 
+#[derive(Debug, Clone)]
+pub struct PolarPosition {
+    pub distance: f64, // Distance from home plate in meters
+    pub angle: f64, // Angle in degrees. 0° points toward second base, positive values go clockwise
+    pub x: f64,
+    pub y: f64,
+}
+impl PolarPosition {
+    pub fn new(distance: f64, angle: f64) -> Self {
+        let angle_rad = angle.to_radians();
+        let x = distance * angle_rad.sin();
+        let y = distance * angle_rad.cos();
+
+        Self {
+            distance: distance,
+            angle: angle,
+            x: x,
+            y: y,
+        }
+    }
+}
+
+pub fn calculate_distance(p1: &PolarPosition, p2: &PolarPosition) -> f64 {
+    // Convert the difference between the two angles to radians.
+    let angle_diff_rad = (p1.angle - p2.angle).to_radians();
+
+    // Apply the law of cosines.
+    let cos_val = angle_diff_rad.cos();
+    let distance_squared = (p1.distance * p1.distance) + (p2.distance * p2.distance)
+        - (2.0 * p1.distance * p2.distance * cos_val);
+
+    // Guard against rare negative values caused by floating-point error.
+    distance_squared.max(0.0).sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_near(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "expected {actual} to be near {expected}"
+        );
+    }
 
     // ── sigmoid ──────────────────────────────────────────────
 
@@ -369,5 +413,90 @@ mod tests {
             let name = *result.unwrap();
             assert!(name == "A" || name == "B" || name == "C");
         }
+    }
+
+    // ── PolarPosition ────────────────────────────────────────
+
+    #[test]
+    fn test_polar_position_zero_angle_points_to_second_base() {
+        let position = PolarPosition::new(42.0, 0.0);
+
+        assert_eq!(position.distance, 42.0);
+        assert_eq!(position.angle, 0.0);
+        assert_near(position.x, 0.0);
+        assert_near(position.y, 42.0);
+    }
+
+    #[test]
+    fn test_polar_position_positive_angle_goes_clockwise() {
+        let position = PolarPosition::new(10.0, 90.0);
+
+        assert_near(position.x, 10.0);
+        assert_near(position.y, 0.0);
+    }
+
+    #[test]
+    fn test_polar_position_negative_angle_goes_counterclockwise() {
+        let position = PolarPosition::new(10.0, -90.0);
+
+        assert_near(position.x, -10.0);
+        assert_near(position.y, 0.0);
+    }
+
+    #[test]
+    fn test_polar_position_forty_five_degrees_uses_equal_coordinates() {
+        let position = PolarPosition::new(10.0 * 2.0_f64.sqrt(), 45.0);
+
+        assert_near(position.x, 10.0);
+        assert_near(position.y, 10.0);
+    }
+
+    #[test]
+    fn test_polar_position_zero_distance_stays_at_home_plate() {
+        let position = PolarPosition::new(0.0, 33.0);
+
+        assert_near(position.x, 0.0);
+        assert_near(position.y, 0.0);
+    }
+
+    // ── calculate_distance ───────────────────────────────────
+
+    #[test]
+    fn test_calculate_distance_same_position_is_zero() {
+        let position = PolarPosition::new(50.0, 12.0);
+
+        assert_near(calculate_distance(&position, &position), 0.0);
+    }
+
+    #[test]
+    fn test_calculate_distance_same_angle_uses_distance_difference() {
+        let p1 = PolarPosition::new(40.0, 15.0);
+        let p2 = PolarPosition::new(25.0, 15.0);
+
+        assert_near(calculate_distance(&p1, &p2), 15.0);
+    }
+
+    #[test]
+    fn test_calculate_distance_right_angle_uses_pythagorean_distance() {
+        let p1 = PolarPosition::new(3.0, 0.0);
+        let p2 = PolarPosition::new(4.0, 90.0);
+
+        assert_near(calculate_distance(&p1, &p2), 5.0);
+    }
+
+    #[test]
+    fn test_calculate_distance_opposite_angles_adds_distances() {
+        let p1 = PolarPosition::new(12.0, 0.0);
+        let p2 = PolarPosition::new(8.0, 180.0);
+
+        assert_near(calculate_distance(&p1, &p2), 20.0);
+    }
+
+    #[test]
+    fn test_calculate_distance_is_symmetric() {
+        let p1 = PolarPosition::new(90.0, -26.0);
+        let p2 = PolarPosition::new(80.0, 31.0);
+
+        assert_near(calculate_distance(&p1, &p2), calculate_distance(&p2, &p1));
     }
 }

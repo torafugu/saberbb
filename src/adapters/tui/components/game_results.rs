@@ -3,7 +3,7 @@ use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::{Base, Count, GameHeader};
 use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
-use crate::domain::utils::is_base_occupied;
+use crate::domain::util::is_base_occupied;
 use crate::repositories::game_repository::GameRepository;
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
