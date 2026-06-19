@@ -7,7 +7,7 @@ flowchart TD
     
   subgraph batter["Batter"]
     direction TB
-    swing{Swing}
+    swing{Swing?}
     swing --> |No|take_pitch
     swing --> |Yes and Miss|swing_miss
     swing --> |Yes and Hit|calculate_batted_ball
@@ -16,27 +16,40 @@ flowchart TD
   subgraph calculate_batted_ball["Calculate Batted Ball"]
     direction TB
     sample_spray_angle --> inner_choose_sector --> get_angle_range
-    beyond_the_fence{Beyond The Fence?} --> |Yes|calculate_height_at_distance --> apply_fence_bounce
   end
 
-  calculate_batted_ball --> fielder
+  calculate_batted_ball --> process_defensive_chain
   calculate_batted_ball --> runner
 
-  subgraph fielder["Fielder"]
+  subgraph process_defensive_chain["Process Defensive Chain"]
+    is_ball_in_fielder_lane --> calculate_height_at_distance1["calculate height at distance"]
+    calculate_height_at_distance1 --> find_closest_fielder
+  end
+
+  process_defensive_chain --> fielder1
+
+  subgraph fielder1["Fielder1"]
     direction TB
-    is_ball_in_fielder_lane --> process_defensive_chain --> find_closest_fielder --> try_catch --> evaluate_throw_play
-    try_catch --> out
-    try_catch <--> process_outfield_hit
+    try_catch
   end
 
   subgraph try_catch["Try Catch"]
-    calculate_height_at_distance
-    apply_fence_bounce
-  end
-
-  subgraph runner["Runner"]
     direction TB
-    get_running_distance
+    outfield{Ball is Outfield?} --> |YES|over_the_fence{Over the Fence?}
+    over_the_fence --> |YES and Fly or Liner|calculate_height_at_distance2{"calculate height at distance"}
+    calculate_height_at_distance2 --> |higher than fence|HOMERUN!
+    calculate_height_at_distance2 --> |lower than fence|process_bounded_ball
+    over_the_fence --> |YES and Grounder|process_bounded_ball
+    over_the_fence --> |NO and Fly or Liner|catch_fly{Catch?}
+    outfield{Ball is Outfield?} --> |NO and Fly or Liner|catch_fly{Catch?}
+    catch_fly --> |YES|OUT!
+    catch_fly --> |NO|process_bounded_ball
+    catch_fly --> |NO|process_bounded_ball
   end
 
-  get_running_distance --> evaluate_throw_play
+  process_bounded_ball --> fielder2
+    outfield{Ball is Outfield?} --> |NO and Grounder|fielder2
+
+  subgraph fielder2["Fielder2"]
+    judge_optimal_target_general --> evaluate_throw_play
+  end

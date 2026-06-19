@@ -1,5 +1,5 @@
-use crate::domain::resolver::batting_resolver::Runner;
 use crate::domain::shared::ball::{Ball, TrajectoryType};
+use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::player::{Position, RL};
 use crate::domain::shared::stadium::Base;
@@ -9,71 +9,207 @@ use crate::domain::util::{PolarPosition, calculate_distance};
 const FENCE_DISTANCE: f64 = 100.0; // Stadium fence distance (assumed 100m)
 const FENCE_BOUNCE_COEFF: f64 = 0.25; // Fence bounce coefficient (grounder cushion is quite damped)
 
+// 塁上のランナー状態を表すビットマスク（0〜7の値をとる）
+// 例: 一・三塁にランナーがいる場合 = 1 + 4 = 5 (101)
+const RUNNER_NONE: u8 = 0; // ランナーなし (000)
+const RUNNER_1ST: u8 = 1; // 一塁ランナー (001)
+const RUNNER_2ND: u8 = 2; // 二塁ランナー (010)
+const RUNNER_3RD: u8 = 4; // 三塁ランナー (100)
+const RUNNER_FULL: u8 = 7;
+const RUNNER_1ST_AND_2ND: u8 = 3;
+
+// 塁上の各ランナーの走力 (ランナーがいない場合は None)
+struct RunnersOnBase {
+    batter_speed: f64, // バッターは常に存在するので f32
+    runner_1st_speed: Option<f64>,
+    runner_2nd_speed: Option<f64>,
+    runner_3rd_speed: Option<f64>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlayType {
     ForcePlay,
     TouchPlay,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DefenseAction {
-    Throw,     // Threw the ball
-    SelfTouch, // Stepped on the base themselves
+#[derive(Debug)]
+struct PlayContext<'a> {
+    bases_occupied: u8,
+    fielder: &'a Fielder,
+    catch_position: PolarPosition,
+    is_hit: bool,       // 内野ゴロならfalse、外野ヒットや内野安打ならtrue
+    time_to_catch: f64, // 捕球（またはヒット処理）にかかった時間
 }
 
+#[derive(Debug)]
+struct AutoTarget {
+    base: Base,
+    play_type: PlayType,
+}
+
+// 塁上状態と、捕球した野手のポジションから、狙うべき最適なベースを自動判定する
+fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
+    // A. 内野ゴロ（アウトが取れる状況）の場合 → 以前のロジック
+    if !ctx.is_hit {
+        if ctx.bases_occupied == RUNNER_FULL {
+            return AutoTarget {
+                base: Base::Home,
+                play_type: PlayType::ForcePlay,
+            };
+        }
+        if (ctx.bases_occupied & RUNNER_3RD) == RUNNER_3RD && ctx.catch_position.distance <= 25.0 {
+            return AutoTarget {
+                base: Base::Home,
+                play_type: PlayType::TouchPlay,
+            };
+        }
+        if (ctx.bases_occupied & RUNNER_1ST_AND_2ND) == RUNNER_1ST_AND_2ND
+            && matches!(ctx.fielder.position, Position::TB | Position::SS)
+        {
+            return AutoTarget {
+                base: Base::Third,
+                play_type: PlayType::ForcePlay,
+            };
+        }
+        if (ctx.bases_occupied & RUNNER_1ST) == RUNNER_1ST {
+            if ctx.catch_position.distance <= 25.0
+                && matches!(
+                    ctx.fielder.position,
+                    Position::P | Position::C | Position::FB | Position::TB
+                )
+            {
+                return AutoTarget {
+                    base: Base::First,
+                    play_type: PlayType::ForcePlay,
+                };
+            }
+            if matches!(
+                ctx.fielder.position,
+                Position::SB | Position::SS | Position::P
+            ) {
+                return AutoTarget {
+                    base: Base::Second,
+                    play_type: PlayType::ForcePlay,
+                };
+            }
+        }
+        return AutoTarget {
+            base: Base::First,
+            play_type: PlayType::ForcePlay,
+        };
+    }
+
+    // B. 外野ヒット（長打・単打）の場合 → 今回の一般化拡張
+    // 1. 三塁（または二塁）にランナーがいて、バックホームが間に合いそうな場合
+    // ※「捕球にかかった時間」が短く、かつ外野手が比較的浅い（80m以内）ならホームで刺しにいく
+    if (ctx.bases_occupied & (RUNNER_2ND | RUNNER_3RD)) != 0 {
+        if ctx.catch_position.distance <= 80.0 && ctx.time_to_catch <= 3.5 {
+            return AutoTarget {
+                base: Base::Home,
+                play_type: PlayType::TouchPlay,
+            };
+        }
+    }
+
+    // 2. 一塁にランナーがいて、ライト前ヒットなどで三塁進塁を阻止したい場合
+    if (ctx.bases_occupied & RUNNER_1ST) == RUNNER_1ST {
+        // レフト前なら三塁は諦めることが多いが、ライト・センター前なら三塁で刺せる可能性がある
+        if matches!(ctx.fielder.position, Position::CF | Position::RF)
+            && ctx.catch_position.distance <= 75.0
+        {
+            return AutoTarget {
+                base: Base::Third,
+                play_type: PlayType::TouchPlay,
+            };
+        }
+    }
+
+    // 3. 完全な長打（長打コースを外野手がフェンス際 95m~ で処理している場合）
+    // バッターが二塁（あるいは三塁）に突っ込んでくるのを阻止する
+    if ctx.catch_position.distance >= 90.0 {
+        return AutoTarget {
+            base: Base::Second,
+            play_type: PlayType::TouchPlay,
+        };
+    }
+
+    // 4. その他（普通の単打で、ランナーの進塁も無理がない場合）
+    // 内野へ返球してプレイを落ち着かせる（便宜上一番近い内野ベースにする）
+    AutoTarget {
+        base: Base::Second,
+        play_type: PlayType::TouchPlay,
+    }
+}
+
+#[derive(Debug)]
 struct PlayResult {
     ruling: Ruling,
     defense_time: f64,
     runner_time: f64,
-    time_difference: f64,  // For determining if it's a close play
-    action: DefenseAction, // Action recorded for text commentary branching
+    time_difference: f64, // For determining if it's a close play
 }
 
-fn evaluate_throw_play(
-    time_to_catch: f64,
-    fielder: &Fielder, // Fielder who caught the ball (arm strength, transfer speed)
-    catch_pos: PolarPosition, // Coordinates where the grounder was caught (Polar)
-    target_base: Base, // Target base for the throw
-    play_type: PlayType, // Force play or tag play
-    runner: &Runner,   // Runner (running speed, lead distance)
-    batting_side: RL,  // Batter's side; only used for batter-runner distance adjustment
+fn evaluate_defense_play(
+    ctx: &PlayContext,
+    runners: &RunnersOnBase,
+    lead_distance: f64,
+    batting_side: RL, // Batter's side; only used for batter-runner distance adjustment
 ) -> PlayResult {
-    // 1. Calculate total defense time (defense_total_time)
-    let base_pos = target_base.polar_position();
+    // 1. 最適なターゲットベースとプレイ種類を自動判定
+    let target = judge_optimal_target_general(ctx);
+    let base_pos = target.base.polar_position();
 
-    // Common distance from catch position to target base
-    let distance_to_base = calculate_distance(&catch_pos, &base_pos);
-
-    // 2. Ball flight time = distance / throw speed (m/s)
-    let ball_flight_time = distance_to_base / fielder.throw_speed;
-
-    // Add action penalty (0.3s) for touch play
-    let touch_time = match play_type {
-        PlayType::ForcePlay => 0.0,
-        PlayType::TouchPlay => 0.3, // Delay for plays requiring a tag
-    };
-
-    let time_via_throw = fielder.prep_time + ball_flight_time + touch_time;
-
-    // 3. Calculate time when running to the base themselves (prep time is 0)
-    let time_via_run = distance_to_base / fielder.running_speed;
-
-    // 4. Automatically select the shorter (better) action
-    let (defense_play_time, action) = if time_via_run < time_via_throw {
-        (time_via_run, DefenseAction::SelfTouch)
+    // 2. 守備総時間の計算
+    let distance_to_base = calculate_distance(&ctx.catch_position, &base_pos);
+    let mut defense_play_time = if target.play_type == PlayType::ForcePlay {
+        let time_via_throw = ctx.fielder.prep_time + (distance_to_base / ctx.fielder.throw_speed);
+        let time_via_run = distance_to_base / ctx.fielder.running_speed;
+        time_via_run.min(time_via_throw)
     } else {
-        (time_via_throw, DefenseAction::Throw)
+        ctx.fielder.prep_time + (distance_to_base / ctx.fielder.throw_speed) + 0.3
+    };
+    let total_defense_time = ctx.time_to_catch + defense_play_time;
+
+    // 3. ターゲットに応じたランナーの「距離」と「走力」の動的抽出（Option対応版）
+    // パターンマッチで対象ベースの Option<f64> を紐解く
+    let (running_distance, target_runner_speed): (f64, Option<f64>) = match target.base {
+        Base::First => {
+            let dist = match batting_side {
+                RL::Right => BASE_DISTANCE + 2.0,
+                RL::Left => BASE_DISTANCE,
+            };
+            (dist, Some(runners.batter_speed)) // バッターは常に存在する
+        }
+        Base::Second => (
+            (BASE_DISTANCE - lead_distance).max(0.0),
+            runners.runner_1st_speed,
+        ),
+        Base::Third => (
+            (BASE_DISTANCE - lead_distance).max(0.0),
+            runners.runner_2nd_speed,
+        ),
+        Base::Home => (
+            (BASE_DISTANCE - lead_distance).max(0.0),
+            runners.runner_3rd_speed,
+        ),
     };
 
-    // 5. Total defense time from the moment of contact (t=0)
-    let total_defense_time = time_to_catch + defense_play_time;
+    // 4. ランナータイムの計算と安全弁（ガードロジック）
+    let total_runner_time = match target_runner_speed {
+        Some(speed) => {
+            // ランナーが正常に存在する場合、通常通りタイムレースの時間を計算
+            (running_distance / speed) + 0.5
+        }
+        None => {
+            // 【重要】もしランナーがいないベースに投げてしまった場合（ロジックエラーや大野選）
+            // ランナータイムを「0秒」にして、守備側を強制的にセーフ（失敗）にする安全弁
+            0.0
+        }
+    };
 
-    // 6. Total runner time (based on t=0)
-    // Get the remaining distance the runner needs to cover
-    let initial_running_distance = runner.get_running_distance(batting_side);
-    let total_runner_time = (initial_running_distance / runner.speed) + 0.5;
-
-    // 7. Determine the outcome
+    // 5. 勝敗判定
+    // ランナータイムが0.0（None）の場合は、必ず total_defense_time > 0.0 になるため、
+    // is_out = false（セーフ / 野選扱い）になり、ゲームがクラッシュするのを防ぎます。
     let ruling = if total_defense_time <= total_runner_time {
         Ruling::Out
     } else {
@@ -86,7 +222,6 @@ fn evaluate_throw_play(
         defense_time: total_defense_time,
         runner_time: total_runner_time,
         time_difference,
-        action,
     }
 }
 
@@ -97,6 +232,7 @@ pub struct FieldingResult {
     pub final_distance: f64,
 }
 
+#[derive(Debug)]
 struct BoundedBallResult {
     time_to_fumble: f64, // Total time until the fielder picks up the ball
     final_distance: f64, // Final distance where the ball stopped (or hit the fence)
@@ -215,7 +351,7 @@ impl Fielder {
         let mut total_roll_time = roll_time;
         if final_distance > FENCE_DISTANCE {
             let overflow = final_distance - FENCE_DISTANCE;
-            final_distance = FENCE_DISTANCE - (overflow * 0.25);
+            final_distance = FENCE_DISTANCE - (overflow * FENCE_BOUNCE_COEFF);
             // If it hits the fence, rolling time stops there
             total_roll_time *= (FENCE_DISTANCE - ball.distance()) / roll_distance;
         }
@@ -223,11 +359,9 @@ impl Fielder {
         // 5. Defense: time for the fielder to chase down and pick up the rolling ball
         // The fielder was initially running toward the landing point but didn't make it.
         // Simple calculation of time to loop around toward the direction the ball rolled (final_distance)
-        let ball_stop_time = ball.hang_time + total_roll_time; // Time when the ball stops
+        let fielder_distance_to_ball = (final_distance - self.distance()).abs();
 
         // Time for the fielder to reach the final resting point (or cushion treatment position)
-        let base_pos = Base::Home.polar_position(); // Simplified: same straight-line calculation
-        let fielder_distance_to_ball = (final_distance - self.distance()).abs();
         let fielder_arrival_time = self.reaction + (fielder_distance_to_ball / self.running_speed);
 
         // Time the fielder picks up the ball (either waiting for it to stop or cutting it off mid-roll)
@@ -308,6 +442,7 @@ fn is_ball_in_fielder_lane(fielder: &Fielder, ball_angle: f64) -> bool {
     (fielder.angle() - ball_angle).abs() <= coverage_angle
 }
 
+#[derive(Debug)]
 pub struct FinalClosestFielder {
     pub fielder: Fielder,
     pub ball_arrival_time: f64,
@@ -420,6 +555,24 @@ mod tests {
             hang_time,
             trajectory,
         )
+    }
+
+    fn runners_on_base(
+        runner_1st_speed: Option<f64>,
+        runner_2nd_speed: Option<f64>,
+        runner_3rd_speed: Option<f64>,
+    ) -> RunnersOnBase {
+        RunnersOnBase {
+            batter_speed: 7.0,
+            runner_1st_speed,
+            runner_2nd_speed,
+            runner_3rd_speed,
+        }
+    }
+
+    fn assert_target(target: AutoTarget, expected_base: Base, expected_play_type: PlayType) {
+        assert_eq!(target.base, expected_base);
+        assert_eq!(target.play_type, expected_play_type);
     }
 
     #[test]
@@ -570,28 +723,109 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_throw_play_records_out_when_defense_beats_runner() {
-        let first_baseman = fielder(Position::FB, 28.0, 40.0);
-        let runner = Runner {
-            speed: 7.0,
-            current_base: Base::Home,
-            lead_distance: 0.0,
+    fn judge_optimal_target_general_chooses_home_force_with_bases_loaded_grounder() {
+        let pitcher = fielder(Position::P, 18.0, 0.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_FULL,
+            fielder: &pitcher,
+            catch_position: PolarPosition::new(18.0, 0.0),
+            is_hit: false,
+            time_to_catch: 0.8,
         };
-        let catch_pos = PolarPosition::new(20.0, 35.0);
 
-        let result = evaluate_throw_play(
-            0.8,
-            &first_baseman,
-            catch_pos,
-            Base::First,
-            PlayType::ForcePlay,
-            &runner,
-            RL::Left,
-        );
+        let target = judge_optimal_target_general(&ctx);
+
+        assert_target(target, Base::Home, PlayType::ForcePlay);
+    }
+
+    #[test]
+    fn judge_optimal_target_general_chooses_third_force_for_left_side_grounder() {
+        let third_baseman = fielder(Position::TB, 32.0, -35.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_1ST_AND_2ND,
+            fielder: &third_baseman,
+            catch_position: PolarPosition::new(30.0, -35.0),
+            is_hit: false,
+            time_to_catch: 1.0,
+        };
+
+        let target = judge_optimal_target_general(&ctx);
+
+        assert_target(target, Base::Third, PlayType::ForcePlay);
+    }
+
+    #[test]
+    fn judge_optimal_target_general_throws_home_on_shallow_hit_with_lead_runner() {
+        let center_fielder = fielder(Position::CF, 75.0, 0.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_3RD,
+            fielder: &center_fielder,
+            catch_position: PolarPosition::new(70.0, 0.0),
+            is_hit: true,
+            time_to_catch: 3.0,
+        };
+
+        let target = judge_optimal_target_general(&ctx);
+
+        assert_target(target, Base::Home, PlayType::TouchPlay);
+    }
+
+    #[test]
+    fn judge_optimal_target_general_chooses_third_on_shallow_center_hit_with_runner_on_first() {
+        let center_fielder = fielder(Position::CF, 75.0, 0.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_1ST,
+            fielder: &center_fielder,
+            catch_position: PolarPosition::new(72.0, 5.0),
+            is_hit: true,
+            time_to_catch: 3.8,
+        };
+
+        let target = judge_optimal_target_general(&ctx);
+
+        assert_target(target, Base::Third, PlayType::TouchPlay);
+    }
+
+    #[test]
+    fn judge_optimal_target_general_chooses_second_for_deep_extra_base_hit() {
+        let left_fielder = fielder(Position::LF, 90.0, -25.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_NONE,
+            fielder: &left_fielder,
+            catch_position: PolarPosition::new(95.0, -20.0),
+            is_hit: true,
+            time_to_catch: 5.0,
+        };
+
+        let target = judge_optimal_target_general(&ctx);
+
+        assert_target(target, Base::Second, PlayType::TouchPlay);
+    }
+
+    #[test]
+    fn evaluate_defense_play_records_out_when_force_play_beats_batter_runner() {
+        let first_baseman = fielder(Position::FB, 28.0, 40.0);
+        let catch_position = PolarPosition::new(20.0, 35.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_NONE,
+            fielder: &first_baseman,
+            catch_position: catch_position.clone(),
+            is_hit: false,
+            time_to_catch: 0.8,
+        };
+        let runners = runners_on_base(None, None, None);
+
+        let result = evaluate_defense_play(&ctx, &runners, 0.0, RL::Left);
+        let throw_distance = calculate_distance(&catch_position, &Base::First.polar_position());
+        let expected_defense_time = 0.8
+            + (first_baseman.prep_time + (throw_distance / first_baseman.throw_speed))
+                .min(throw_distance / first_baseman.running_speed);
+        let expected_runner_time = BASE_DISTANCE / runners.batter_speed + 0.5;
 
         assert_eq!(result.ruling, Ruling::Out);
-        assert_eq!(result.action, DefenseAction::Throw);
         assert!(result.defense_time < result.runner_time);
+        assert_near(result.defense_time, expected_defense_time);
+        assert_near(result.runner_time, expected_runner_time);
         assert_near(
             result.time_difference,
             (result.defense_time - result.runner_time).abs(),
@@ -599,27 +833,46 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_throw_play_selects_self_touch_when_running_to_base_is_faster() {
-        let first_baseman = Fielder::new(Position::FB, 26.0, 45.0, 5.0, 8.0, 0.4, 0.9);
-        let runner = Runner {
-            speed: 8.5,
-            current_base: Base::Home,
-            lead_distance: 0.0,
+    fn evaluate_defense_play_records_safe_when_tag_play_loses_home_race() {
+        let left_fielder = fielder(Position::LF, 78.0, -20.0);
+        let catch_position = PolarPosition::new(78.0, -20.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_3RD,
+            fielder: &left_fielder,
+            catch_position: catch_position.clone(),
+            is_hit: true,
+            time_to_catch: 3.2,
         };
-        let catch_pos = PolarPosition::new(25.0, 45.0);
+        let runners = runners_on_base(None, None, Some(8.0));
 
-        let result = evaluate_throw_play(
-            5.0,
-            &first_baseman,
-            catch_pos,
-            Base::First,
-            PlayType::TouchPlay,
-            &runner,
-            RL::Right,
-        );
+        let result = evaluate_defense_play(&ctx, &runners, 4.0, RL::Right);
+        let throw_distance = calculate_distance(&catch_position, &Base::Home.polar_position());
+        let expected_defense_time =
+            3.2 + left_fielder.prep_time + (throw_distance / left_fielder.throw_speed) + 0.3;
+        let expected_runner_time = (BASE_DISTANCE - 4.0) / 8.0 + 0.5;
 
-        assert_eq!(result.action, DefenseAction::SelfTouch);
         assert_eq!(result.ruling, Ruling::Safe);
         assert!(result.defense_time > result.runner_time);
+        assert_near(result.defense_time, expected_defense_time);
+        assert_near(result.runner_time, expected_runner_time);
+    }
+
+    #[test]
+    fn evaluate_defense_play_returns_safe_when_selected_target_has_no_runner() {
+        let center_fielder = fielder(Position::CF, 90.0, 0.0);
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_NONE,
+            fielder: &center_fielder,
+            catch_position: PolarPosition::new(95.0, 0.0),
+            is_hit: true,
+            time_to_catch: 5.0,
+        };
+        let runners = runners_on_base(None, None, None);
+
+        let result = evaluate_defense_play(&ctx, &runners, 0.0, RL::Left);
+
+        assert_eq!(result.ruling, Ruling::Safe);
+        assert_near(result.runner_time, 0.0);
+        assert!(result.defense_time > 0.0);
     }
 }
