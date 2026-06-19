@@ -230,6 +230,7 @@ pub struct FieldingResult {
     pub ruling: Ruling,
     pub time_to_catch: f64,
     pub final_distance: f64,
+    pub is_fly_catch: bool,
 }
 
 #[derive(Debug)]
@@ -300,6 +301,11 @@ impl Fielder {
         // 4. Calculate arrival time (seconds)
         let arrival_time = final_reaction + (required_distance / self.running_speed);
 
+        let mut is_fly_catch = match ball.trajectory {
+            TrajectoryType::Liner | TrajectoryType::Fly | TrajectoryType::PopUp => true, // No-bounce catch
+            TrajectoryType::Grounder => false,
+        };
+
         // 5. Compare arrival time vs hang time
         let (ruling, time_to_catch, final_distance) = if ball.trajectory == TrajectoryType::Grounder
         {
@@ -308,6 +314,7 @@ impl Fielder {
         } else if arrival_time <= ball.hang_time {
             (Ruling::Out, arrival_time, ball.distance())
         } else {
+            is_fly_catch = false;
             let bounded_ball_result = self.process_bounded_ball(&ball);
             (
                 Ruling::Safe,
@@ -320,6 +327,7 @@ impl Fielder {
             ruling: ruling,
             time_to_catch: time_to_catch,
             final_distance: final_distance,
+            is_fly_catch: is_fly_catch,
         }
     }
 
@@ -338,22 +346,14 @@ impl Fielder {
 
         // 3. Additional rolling distance and time until stop
         let roll_distance = v_bounce * 1.8;
-        let roll_time = if v_bounce > 0.0 {
-            roll_distance / (v_bounce * 0.5)
-        } else {
-            0.0
-        };
 
         // 4. Provisional final resting position (landing point + roll distance)
         let mut final_distance = ball.distance() + roll_distance;
 
         // The fence bounce (cushion) logic
-        let mut total_roll_time = roll_time;
         if final_distance > FENCE_DISTANCE {
             let overflow = final_distance - FENCE_DISTANCE;
             final_distance = FENCE_DISTANCE - (overflow * FENCE_BOUNCE_COEFF);
-            // If it hits the fence, rolling time stops there
-            total_roll_time *= (FENCE_DISTANCE - ball.distance()) / roll_distance;
         }
 
         // 5. Defense: time for the fielder to chase down and pick up the rolling ball
@@ -374,7 +374,7 @@ impl Fielder {
     }
 }
 
-pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
+pub fn find_closest_fielder<'a>(fielders: &'a [Fielder], ball: &'a Ball) -> &'a Fielder {
     // 1. Filter candidate fielders by whether the hit is infield or outfield
     let candidates: Vec<&Fielder> = fielders
         .iter()
@@ -425,7 +425,6 @@ pub fn find_closest_fielder(fielders: &[Fielder], ball: &Ball) -> Fielder {
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .unwrap_or(&fielders[1])
-        .clone() // Safety net: return second base as fallback if candidates are empty
 }
 
 // Determine whether a fielder is in the ball's trajectory lane (lateral coverage)
@@ -443,14 +442,16 @@ fn is_ball_in_fielder_lane(fielder: &Fielder, ball_angle: f64) -> bool {
 }
 
 #[derive(Debug)]
-pub struct FinalClosestFielder {
-    pub fielder: Fielder,
-    pub ball_arrival_time: f64,
-    pub is_fly_catch: bool,
+pub struct FinalClosestFielder<'a> {
+    pub fielder: &'a Fielder,
+    pub ball: &'a Ball,
 }
 
 // Evaluate fielders on the trajectory lane from front to back (revised over-the-head version)
-fn process_defensive_chain(fielders: &[Fielder], ball: &Ball) -> FinalClosestFielder {
+pub fn process_defensive_chain<'a>(
+    fielders: &'a [Fielder],
+    ball: &'a mut Ball,
+) -> FinalClosestFielder<'a> {
     // 1. Sort fielders in the same lane by distance (closest first)
     let mut lane_fielders: Vec<&Fielder> = fielders
         .iter()
@@ -486,6 +487,7 @@ fn process_defensive_chain(fielders: &[Fielder], ball: &Ball) -> FinalClosestFie
             let ball_height = ball.calculate_height_at_distance(fielder_dist);
 
             // Maximum jump catch height for a fielder (2.5m)
+            // TODO: Should be changed to Player's ability
             let max_reach_height = 2.5;
 
             match ball.trajectory {
@@ -493,7 +495,6 @@ fn process_defensive_chain(fielders: &[Fielder], ball: &Ball) -> FinalClosestFie
                 TrajectoryType::Fly | TrajectoryType::PopUp | TrajectoryType::Liner => {
                     if ball_height > max_reach_height {
                         // Angle and timing are right, but it's too high even for a jump catch!
-                        // ⇒ Let it through without touching, continue the loop
                         continue;
                     }
                 }
@@ -501,26 +502,20 @@ fn process_defensive_chain(fielders: &[Fielder], ball: &Ball) -> FinalClosestFie
                 TrajectoryType::Grounder => {}
             }
 
-            // --- If we reach here, the height is within reach (catch successful)! ---
-            let is_fly_catch = match ball.trajectory {
-                TrajectoryType::Liner | TrajectoryType::Fly | TrajectoryType::PopUp => true, // No-bounce catch
-                TrajectoryType::Grounder => false,
-            };
+            ball.hang_time = ball_arrival_time;
 
             return FinalClosestFielder {
-                fielder: fielder.clone(),
-                ball_arrival_time: ball_arrival_time,
-                is_fly_catch: is_fly_catch,
+                fielder: fielder,
+                ball: ball,
             };
         }
     }
 
     // 3. Nobody touched it and it got through to the outfield (same as before: closest outfielder handles it)
-    let final_closest = find_closest_fielder(fielders, &ball);
+    let final_closest = find_closest_fielder(fielders, ball);
     FinalClosestFielder {
         fielder: final_closest,
-        ball_arrival_time: ball.hang_time,
-        is_fly_catch: false,
+        ball: ball,
     }
 }
 
@@ -685,12 +680,14 @@ mod tests {
             fielder(Position::CF, 80.0, 0.0),
         ];
         let grounder = ball(TrajectoryType::Grounder, 90.0, 0.0, 3.0, 95.0, 5.0);
+        let mut grounder = grounder;
+        let expected_arrival_time = grounder.hang_time * (28.0 / 90.0);
 
-        let result = process_defensive_chain(&fielders, &grounder);
+        let result = process_defensive_chain(&fielders, &mut grounder);
 
         assert_eq!(result.fielder.position, Position::SS);
-        assert!(!result.is_fly_catch);
-        assert_near(result.ball_arrival_time, 3.0 * (28.0 / 90.0));
+        assert_eq!(result.ball.trajectory, TrajectoryType::Grounder);
+        assert_near(result.ball.hang_time, expected_arrival_time);
     }
 
     #[test]
@@ -699,12 +696,14 @@ mod tests {
             fielder(Position::SS, 35.0, 0.0),
             fielder(Position::CF, 80.0, 0.0),
         ];
-        let fly_ball = ball(TrajectoryType::Fly, 85.0, 0.0, 3.5, 130.0, 35.0);
+        let mut fly_ball = ball(TrajectoryType::Fly, 85.0, 0.0, 3.5, 130.0, 35.0);
+        let expected_arrival_time = fly_ball.hang_time * (80.0 / 85.0);
 
-        let result = process_defensive_chain(&fielders, &fly_ball);
+        let result = process_defensive_chain(&fielders, &mut fly_ball);
 
         assert_eq!(result.fielder.position, Position::CF);
-        assert!(result.is_fly_catch);
+        assert_eq!(result.ball.trajectory, TrajectoryType::Fly);
+        assert_near(result.ball.hang_time, expected_arrival_time);
     }
 
     #[test]
@@ -713,13 +712,14 @@ mod tests {
             fielder(Position::SS, 30.0, -30.0),
             fielder(Position::CF, 78.0, 0.0),
         ];
-        let grounder = ball(TrajectoryType::Grounder, 80.0, 25.0, 2.0, 90.0, 5.0);
+        let mut grounder = ball(TrajectoryType::Grounder, 80.0, 25.0, 2.0, 90.0, 5.0);
+        let original_hang_time = grounder.hang_time;
 
-        let result = process_defensive_chain(&fielders, &grounder);
+        let result = process_defensive_chain(&fielders, &mut grounder);
 
         assert_eq!(result.fielder.position, Position::CF);
-        assert!(!result.is_fly_catch);
-        assert_near(result.ball_arrival_time, grounder.hang_time);
+        assert_eq!(result.ball.trajectory, TrajectoryType::Grounder);
+        assert_near(result.ball.hang_time, original_hang_time);
     }
 
     #[test]

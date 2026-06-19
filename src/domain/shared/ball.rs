@@ -22,6 +22,7 @@ impl fmt::Display for TrajectoryType {
     }
 }
 
+#[derive(Debug)]
 pub struct Ball {
     pub launch_speed_kmh: f64,
     pub launch_angle: f64, // Z arc degree

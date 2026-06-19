@@ -94,9 +94,12 @@ pub fn gennerate_random_batter() -> Batter {
 #[test]
 fn test_bat_to_catch() {
     let batter = gennerate_random_batter();
-    println!("Batter:{}, {}", batter.batting_side, batter.swing_speed);
+    println!(
+        "Batter:{}, Swing Speed:{}",
+        batter.batting_side, batter.swing_speed
+    );
 
-    let ball = calculate_batted_ball(&batter, 150.0);
+    let mut ball = calculate_batted_ball(&batter, 150.0);
 
     println!(
         "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
@@ -105,15 +108,23 @@ fn test_bat_to_catch() {
         ball.trajectory
     );
 
-    let handler = find_closest_fielder(&gennerate_default_fielders(), &ball);
+    let fielders = gennerate_default_fielders();
+    let handler = process_defensive_chain(&fielders, &mut ball);
 
-    println!("Who?:{}", handler.position);
+    // in case fly is caught, the ball should be dead.
+    println!(
+        "Who?:{}, Ball arrival time:{}, TrajectoryType:{}",
+        handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
+    );
 
-    let catch_status = handler.try_catch(&ball);
+    let catch_result = handler.fielder.try_catch(handler.ball);
 
     println!(
-        "Ruling?:{}, time_to_catch?:{}",
-        catch_status.ruling, catch_status.time_to_catch
+        "Ruling?:{}, time_to_catch?:{}, final_distance?:{}, is_fly_catch?:{}",
+        catch_result.ruling,
+        catch_result.time_to_catch,
+        catch_result.final_distance,
+        catch_result.is_fly_catch
     );
 
     // let result = evaluate_throw_play(evaluate_throw_play, handler, );
