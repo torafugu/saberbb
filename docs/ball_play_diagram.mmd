@@ -50,6 +50,11 @@ flowchart TD
   process_bounded_ball --> fielder2
     outfield{Ball is Outfield?} --> |NO and Grounder|fielder2
 
-  subgraph fielder2["Fielder2"]
-    judge_optimal_target_general --> evaluate_throw_play
+  subgraph fielder2["Fielder2 + Cut Off Man"]
+    judge_optimal_target_general --> evaluate_defense_play
   end
+
+  subgraph evaluate_defense_play["evaluate defense play"]
+    calculate_relay_play_time --> calculate_ball_flight_time
+  end
+

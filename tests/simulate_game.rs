@@ -93,7 +93,7 @@ pub fn gennerate_random_batter() -> Batter {
 }
 
 #[test]
-fn test_bat_to_catch() {
+fn test_bat_to_catch() -> Result<(), GameError> {
     let batter = gennerate_random_batter();
     println!(
         "Batter:{}, Swing Speed:{}",
@@ -147,7 +147,8 @@ fn test_bat_to_catch() {
             time_to_catch: catch_result.time_to_catch,
         };
 
-        let play_result = evaluate_defense_play(&ctx, &runners, 1.0, batter.batting_side);
+        let play_result =
+            evaluate_defense_play(&ctx, &fielders, &runners, 1.0, batter.batting_side)?;
 
         println!(
             "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
@@ -157,12 +158,11 @@ fn test_bat_to_catch() {
             play_result.time_difference
         );
     } else {
+        // TODO: implement Tag up
         println!("Play Result:{}", Ruling::Out);
     }
 
-    // &ball.polar_position.distance = catch_result.final_position;
-
-    // let result = evaluate_throw_play(evaluate_throw_play, handler, );
+    Ok(())
 }
 
 #[test]

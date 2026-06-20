@@ -1,14 +1,14 @@
 use crate::domain::shared::ball::{Ball, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
-use crate::domain::shared::game_state::Ruling;
+use crate::domain::shared::game_state::{GameError, Ruling};
 use crate::domain::shared::player::{Position, RL};
 use crate::domain::shared::stadium::Base;
 use crate::domain::util::{PolarPosition, calculate_distance};
 
-// TODO: fence distance should be retrieved the stadium
+// TODO: fence distance should be retrieved from the stadium
 const FENCE_DISTANCE: f64 = 100.0; // Stadium fence distance (assumed 100m)
 const FENCE_BOUNCE_COEFF: f64 = 0.25; // Fence bounce coefficient (grounder cushion is quite damped)
-const LINER_REACTION_TIME: f64 = 0.15; // TODO; should be moved to Player ability
+const LINER_REACTION_TIME: f64 = 0.15; // TODO: should be moved to Player ability
 
 // Bitmask representing runner state on bases (takes values 0–7)
 // Example: runners on first and third = 1 + 4 = 5 (101)
@@ -16,8 +16,75 @@ pub const RUNNER_NONE: u8 = 0; // No runners (000)
 pub const RUNNER_1ST: u8 = 1; // Runner on first (001)
 pub const RUNNER_2ND: u8 = 2; // Runner on second (010)
 pub const RUNNER_3RD: u8 = 4; // Runner on third (100)
-pub const RUNNER_FULL: u8 = 7;
-pub const RUNNER_1ST_AND_2ND: u8 = 3;
+pub const RUNNER_FULL: u8 = 7; // Runner on first and second and third (111)
+pub const RUNNER_1ST_AND_2ND: u8 = 3; // Runner on first and second (011)
+
+// Calculate actual ball flight time based on distance
+fn calculate_ball_flight_time(distance: f64, initial_throw_speed: f64) -> f64 {
+    // Base distance: assume top speed can be maintained up to 30m
+    if distance <= 30.0 {
+        return distance / initial_throw_speed;
+    }
+
+    // Beyond 30m, add a mild delay proportional to distance squared (air resistance penalty)
+    // A 100m direct throw takes roughly 0.5–0.8s longer than the simple calculation
+    let base_time = distance / initial_throw_speed;
+    let penalty_factor = 1.0 + (distance - 30.0).powi(2) * 0.0001;
+
+    base_time * penalty_factor
+}
+
+// Determine the optimal cutoff man position based on catch position and target base
+fn calculate_cutoff_position(catch_pos: &PolarPosition, target_base: Base) -> PolarPosition {
+    let base_pos = target_base.polar_position();
+
+    // Keep the angle aligned with the outfielder's direction (to stay on the direct line)
+    let cutoff_angle = catch_pos.angle;
+
+    // Place the cutoff man at a good relay point between the target base and the outfield
+    // Example: outfield at 90m, base at 0m (home) → place cutoff around 35–40m
+    let target_r = base_pos.distance;
+    let cutoff_distance = target_r + (catch_pos.distance - target_r) * 0.45;
+
+    PolarPosition::new(cutoff_distance, cutoff_angle)
+}
+
+fn calculate_relay_play_time(
+    fielder: &Fielder,
+    catch_pos: &PolarPosition,
+    target_base: Base,
+    cutoff: &Fielder, // Infielder data for the cutoff relay
+) -> (f64, bool) {
+    // Returns: (time in seconds, whether cutoff man was used)
+
+    let base_pos = target_base.polar_position();
+
+    // --- Pattern A: Direct throw ---
+    let direct_dist = calculate_distance(&catch_pos, &base_pos);
+    let direct_flight_time = calculate_ball_flight_time(direct_dist, fielder.throw_speed);
+    let total_direct_time = fielder.prep_time + direct_flight_time;
+
+    // --- Pattern B: Cutoff relay play ---
+    let cutoff_pos = calculate_cutoff_position(catch_pos, target_base);
+
+    // Outfielder → cutoff man throw time
+    let dist_1st = calculate_distance(&catch_pos, &cutoff_pos);
+    let flight_time_1st = calculate_ball_flight_time(dist_1st, fielder.throw_speed);
+
+    // Cutoff man → base throw time
+    let dist_2nd = calculate_distance(&catch_pos, &base_pos);
+    let flight_time_2nd = calculate_ball_flight_time(dist_2nd, cutoff.throw_speed);
+
+    // Total relay time = outfielder prep + 1st flight + cutoff prep + 2nd flight
+    let total_relay_time = fielder.prep_time + flight_time_1st + cutoff.prep_time + flight_time_2nd;
+
+    // Pick the better option
+    if total_relay_time < total_direct_time {
+        (total_relay_time, true) // Cutoff route is faster (ball doesn't slow as much)
+    } else {
+        (total_direct_time, false) // Direct throw is faster (shallow fly, tag-up situations, etc.)
+    }
+}
 
 // Running speed of each runner on base (None if no runner)
 pub struct RunnersOnBase {
@@ -38,8 +105,6 @@ pub struct PlayContext<'a> {
     pub bases_occupied: u8,
     pub fielder: &'a Fielder,
     pub ball: &'a Ball,
-    // pub catch_position: PolarPosition,
-    // pub is_hit: bool, // false for infield grounder, true for outfield hit or infield single
     pub time_to_catch: f64, // Time taken to catch (or process the hit)
 }
 
@@ -47,6 +112,7 @@ pub struct PlayContext<'a> {
 struct AutoTarget {
     base: Base,
     play_type: PlayType,
+    cutoff_fielder: Option<Position>, // TODO: Replace Position to Player
 }
 
 // Automatically determine the optimal target base based on base state and catching fielder's position
@@ -57,12 +123,14 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
             return AutoTarget {
                 base: Base::Home,
                 play_type: PlayType::ForcePlay,
+                cutoff_fielder: None,
             };
         }
         if (ctx.bases_occupied & RUNNER_3RD) == RUNNER_3RD && ctx.ball.distance() <= 25.0 {
             return AutoTarget {
                 base: Base::Home,
                 play_type: PlayType::TouchPlay,
+                cutoff_fielder: None,
             };
         }
         if (ctx.bases_occupied & RUNNER_1ST_AND_2ND) == RUNNER_1ST_AND_2ND
@@ -71,6 +139,7 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
             return AutoTarget {
                 base: Base::Third,
                 play_type: PlayType::ForcePlay,
+                cutoff_fielder: None,
             };
         }
         if (ctx.bases_occupied & RUNNER_1ST) == RUNNER_1ST {
@@ -83,6 +152,7 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
                 return AutoTarget {
                     base: Base::First,
                     play_type: PlayType::ForcePlay,
+                    cutoff_fielder: None,
                 };
             }
             if matches!(
@@ -92,12 +162,14 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
                 return AutoTarget {
                     base: Base::Second,
                     play_type: PlayType::ForcePlay,
+                    cutoff_fielder: None,
                 };
             }
         }
         return AutoTarget {
             base: Base::First,
             play_type: PlayType::ForcePlay,
+            cutoff_fielder: None,
         };
     }
 
@@ -106,9 +178,16 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
     // Note: if time_to_catch is short and the outfielder is relatively shallow (within 80m), go for home
     if (ctx.bases_occupied & (RUNNER_2ND | RUNNER_3RD)) != 0 {
         if ctx.ball.distance() <= 80.0 && ctx.time_to_catch <= 3.5 {
+            // Determine cutoff man based on hit direction (fielder position)
+            let cutoff = match ctx.fielder.position {
+                Position::RF => Some(Position::SB), // Right field: second base is cutoff
+                _ => Some(Position::SS),            // Left/Center field: shortstop is cutoff
+            };
+
             return AutoTarget {
                 base: Base::Home,
                 play_type: PlayType::TouchPlay,
+                cutoff_fielder: cutoff,
             };
         }
     }
@@ -122,6 +201,7 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
             return AutoTarget {
                 base: Base::Third,
                 play_type: PlayType::TouchPlay,
+                cutoff_fielder: Some(Position::SB),
             };
         }
     }
@@ -129,17 +209,26 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
     // 3. Extra-base hit (outfielder handling it near the fence at ~95m+)
     // Prevent the batter from advancing to second (or third)
     if ctx.ball.distance() >= 90.0 {
+        // The fielder closer to the ball charges for the cutoff; the farther one covers the base
+        let cutoff = match ctx.fielder.position {
+            Position::LF => Some(Position::SS), // Left field line: shortstop relays
+            Position::RF => Some(Position::SB), // Right field line: second base relays
+            _ => Some(Position::SS),            // Dead center: shortstop relays
+        };
         return AutoTarget {
             base: Base::Second,
             play_type: PlayType::TouchPlay,
+            cutoff_fielder: cutoff,
         };
     }
 
     // 4. Default (ordinary single, no aggressive base advancement expected)
     // Throw back to the infield to settle the play (conveniently use the nearest infield base)
+    // For shallow hits, throw directly to second without a cutoff man
     AutoTarget {
         base: Base::Second,
         play_type: PlayType::TouchPlay,
+        cutoff_fielder: None,
     }
 }
 
@@ -151,26 +240,51 @@ pub struct PlayResult {
     pub time_difference: f64, // For determining if it's a close play
 }
 
+// TODO: Return who's the Cut Off Man
 pub fn evaluate_defense_play(
     ctx: &PlayContext,
+    fielders: &[Fielder],
     runners: &RunnersOnBase,
-    lead_distance: f64,
-    batting_side: RL, // Batter's side; only used for batter-runner distance adjustment
-) -> PlayResult {
+    lead_distance: f64, // Should be set 0 in case Tag Up
+    batting_side: RL,   // Batter's side; only used for batter-runner distance adjustment
+) -> Result<PlayResult, GameError> {
     // 1. Automatically determine the optimal target base and play type
     let target = judge_optimal_target_general(ctx);
     let base_pos = target.base.polar_position();
 
     // 2. Calculate total defense time
     let distance_to_base = calculate_distance(&ctx.ball.polar_position, &base_pos);
-    let defense_play_time = if target.play_type == PlayType::ForcePlay {
-        let time_via_throw = ctx.fielder.prep_time + (distance_to_base / ctx.fielder.throw_speed);
-        let time_via_run = distance_to_base / ctx.fielder.running_speed;
-        time_via_run.min(time_via_throw)
-    } else {
-        ctx.fielder.prep_time + (distance_to_base / ctx.fielder.throw_speed) + 0.3
+
+    let (defense_play_time, _) = match target.cutoff_fielder {
+        Some(cutoff_position) => {
+            let cutoff_man = fielders
+                .iter()
+                .find(|i| i.is(cutoff_position.clone()))
+                .map(|i| i)
+                .ok_or_else(|| GameError::NoPlayerFor(Position::P.to_string()));
+
+            calculate_relay_play_time(
+                ctx.fielder,
+                &ctx.ball.polar_position,
+                target.base,
+                cutoff_man?,
+            )
+        }
+        None => {
+            // Cutoff man not needed or not specified:
+            // Calculate with direct throw (or self-run) time only
+            let defense_play_time = if target.play_type == PlayType::ForcePlay {
+                let time_via_throw = ctx.fielder.prep_time
+                    + calculate_ball_flight_time(distance_to_base, ctx.fielder.throw_speed);
+                let time_via_run = distance_to_base / ctx.fielder.running_speed;
+                time_via_run.min(time_via_throw)
+            } else {
+                ctx.fielder.prep_time + (distance_to_base / ctx.fielder.throw_speed) + 0.3
+            };
+            (defense_play_time, false)
+        }
     };
-    let total_defense_time = ctx.time_to_catch + defense_play_time;
+    let final_defense_time = ctx.time_to_catch + defense_play_time;
 
     // 3. Dynamically extract runner's distance and speed for the target (Option-aware)
     // Unwrap the Option<f64> for the target base via pattern matching
@@ -212,19 +326,19 @@ pub fn evaluate_defense_play(
     // 5. Determine the outcome
     // When runner_time is 0.0 (None case), total_defense_time > 0.0 always holds,
     // so is_out = false (Safe / fielder's choice), preventing a game crash.
-    let ruling = if total_defense_time <= total_runner_time {
+    let ruling = if final_defense_time <= total_runner_time {
         Ruling::Out
     } else {
         Ruling::Safe
     };
-    let time_difference = (total_defense_time - total_runner_time).abs();
+    let time_difference = (final_defense_time - total_runner_time).abs();
 
-    PlayResult {
+    Ok(PlayResult {
         ruling,
-        defense_time: total_defense_time,
+        defense_time: final_defense_time,
         runner_time: total_runner_time,
         time_difference,
-    }
+    })
 }
 
 #[derive(Debug)]
@@ -268,6 +382,10 @@ impl Fielder {
             reaction: reaction,
             prep_time: prep_time,
         }
+    }
+
+    pub fn is(&self, position: Position) -> bool {
+        self.position == position
     }
 
     pub fn distance(&self) -> f64 {
@@ -555,6 +673,20 @@ mod tests {
         }
     }
 
+    fn default_fielders() -> [Fielder; 9] {
+        [
+            fielder(Position::P, 18.44, 0.0),
+            fielder(Position::C, 0.0, 0.0),
+            fielder(Position::FB, 35.0, 33.0),
+            fielder(Position::SB, 40.0, 18.0),
+            fielder(Position::TB, 35.0, -33.0),
+            fielder(Position::SS, 35.0, -33.0),
+            fielder(Position::RF, 80.0, 26.0),
+            fielder(Position::CF, 90.0, 0.0),
+            fielder(Position::LF, 80.0, -26.0),
+        ]
+    }
+
     fn assert_target(target: AutoTarget, expected_base: Base, expected_play_type: PlayType) {
         assert_eq!(target.base, expected_base);
         assert_eq!(target.play_type, expected_play_type);
@@ -573,6 +705,18 @@ mod tests {
         assert_near(fielder.running_speed, 7.5);
         assert_near(fielder.reaction, 0.3);
         assert_near(fielder.prep_time, 0.5);
+    }
+
+    #[test]
+    fn calculate_cutoff_position_keeps_throw_line_and_uses_midpoint_weight() {
+        let catch_position = PolarPosition::new(90.0, -20.0);
+
+        let cutoff_position = calculate_cutoff_position(&catch_position, Base::Home);
+
+        assert_near(cutoff_position.angle, catch_position.angle);
+        assert_near(cutoff_position.distance, 90.0 * 0.45);
+        assert_near(cutoff_position.x, 40.5 * (-20.0_f64).to_radians().sin());
+        assert_near(cutoff_position.y, 40.5 * (-20.0_f64).to_radians().cos());
     }
 
     #[test]
@@ -816,8 +960,9 @@ mod tests {
             time_to_catch: 0.8,
         };
         let runners = runners_on_base(None, None, None);
+        let fielders = default_fielders();
 
-        let result = evaluate_defense_play(&ctx, &runners, 0.0, RL::Left);
+        let result = evaluate_defense_play(&ctx, &fielders, &runners, 0.0, RL::Left).unwrap();
         let throw_distance = calculate_distance(&catch_position, &Base::First.polar_position());
         let expected_defense_time = 0.8
             + (first_baseman.prep_time + (throw_distance / first_baseman.throw_speed))
@@ -853,12 +998,18 @@ mod tests {
             time_to_catch: 3.2,
         };
         let runners = runners_on_base(None, None, Some(8.0));
+        let fielders = default_fielders();
 
-        let result = evaluate_defense_play(&ctx, &runners, 4.0, RL::Right);
-        let throw_distance = calculate_distance(&catch_position, &Base::Home.polar_position());
-        let expected_defense_time =
-            3.2 + left_fielder.prep_time + (throw_distance / left_fielder.throw_speed) + 0.3;
-        let expected_runner_time = (BASE_DISTANCE - 4.0) / 8.0 + 0.5;
+        let runner_lead = 8.0;
+        let result =
+            evaluate_defense_play(&ctx, &fielders, &runners, runner_lead, RL::Right).unwrap();
+        let pitcher = fielders
+            .iter()
+            .find(|fielder| fielder.is(Position::P))
+            .unwrap();
+        let (expected_defense_time, _) =
+            calculate_relay_play_time(&left_fielder, &catch_position, Base::Home, pitcher);
+        let expected_runner_time = (BASE_DISTANCE - runner_lead) / 8.0 + 0.5;
 
         assert_eq!(result.ruling, Ruling::Safe);
         assert!(result.defense_time > result.runner_time);
@@ -877,8 +1028,9 @@ mod tests {
             time_to_catch: 5.0,
         };
         let runners = runners_on_base(None, None, None);
+        let fielders = default_fielders();
 
-        let result = evaluate_defense_play(&ctx, &runners, 0.0, RL::Left);
+        let result = evaluate_defense_play(&ctx, &fielders, &runners, 0.0, RL::Left).unwrap();
 
         assert_eq!(result.ruling, Ruling::Safe);
         assert_near(result.runner_time, 0.0);
