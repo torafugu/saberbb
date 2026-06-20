@@ -3,6 +3,8 @@ use crate::t;
 use std::fmt;
 
 const FOUL_DEGREE: f64 = 45.0;
+const INFIELD_DISTANCE: f64 = 50.0;
+const SHALLOW_DISTANCE: f64 = 45.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrajectoryType {
@@ -22,7 +24,7 @@ impl fmt::Display for TrajectoryType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ball {
     pub launch_speed_kmh: f64,
     pub launch_angle: f64, // Z arc degree
@@ -79,6 +81,14 @@ impl Ball {
         } else {
             false
         }
+    }
+
+    pub fn is_infield(&self) -> bool {
+        self.distance() < INFIELD_DISTANCE
+    }
+
+    pub fn is_shallow(&self) -> bool {
+        self.distance() < SHALLOW_DISTANCE
     }
 
     pub fn calculate_height_at_distance(

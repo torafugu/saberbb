@@ -4,6 +4,7 @@ use rand_distr::StandardNormal;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::shared::game::*;
+use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
 use saberbb::repositories::db::*;
@@ -109,23 +110,57 @@ fn test_bat_to_catch() {
     );
 
     let fielders = gennerate_default_fielders();
-    let handler = process_defensive_chain(&fielders, &mut ball);
+    let fielder = {
+        let handler = process_defensive_chain(&fielders, &mut ball);
 
-    // in case fly is caught, the ball should be dead.
+        println!(
+            "Who?:{}, Ball arrival time:{}, TrajectoryType:{}",
+            handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
+        );
+
+        handler.fielder
+    };
+
+    let catch_result = fielder.try_catch(&mut ball);
+
     println!(
-        "Who?:{}, Ball arrival time:{}, TrajectoryType:{}",
-        handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
-    );
-
-    let catch_result = handler.fielder.try_catch(handler.ball);
-
-    println!(
-        "Ruling?:{}, time_to_catch?:{}, final_distance?:{}, is_fly_catch?:{}",
-        catch_result.ruling,
+        "time_to_catch?:{}, final_distance?:{}, angle?:{}, is_fly_catch?:{}",
         catch_result.time_to_catch,
-        catch_result.final_distance,
-        catch_result.is_fly_catch
+        catch_result.ball.distance(),
+        catch_result.ball.angle(),
+        catch_result.is_fly_catch,
     );
+
+    // in case ruling is out, skip following
+    if !catch_result.is_fly_catch {
+        let runners = RunnersOnBase {
+            batter_speed: 7.0,
+            runner_1st_speed: Some(7.0),
+            runner_2nd_speed: None,
+            runner_3rd_speed: None,
+        };
+
+        let ctx = PlayContext {
+            bases_occupied: RUNNER_1ST,
+            fielder: fielder,
+            ball: catch_result.ball,
+            time_to_catch: catch_result.time_to_catch,
+        };
+
+        let play_result = evaluate_defense_play(&ctx, &runners, 1.0, batter.batting_side);
+
+        println!(
+            "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
+            play_result.ruling,
+            play_result.defense_time,
+            play_result.runner_time,
+            play_result.time_difference
+        );
+    } else {
+        println!("Play Result:{}", Ruling::Out);
+    }
+
+    // &ball.polar_position.distance = catch_result.final_position;
 
     // let result = evaluate_throw_play(evaluate_throw_play, handler, );
 }
