@@ -87,6 +87,7 @@ fn calculate_relay_play_time(
 }
 
 // Running speed of each runner on base (None if no runner)
+#[derive(Clone, Copy, Debug)]
 pub struct RunnersOnBase {
     pub batter_speed: f64, // Batter always exists
     pub runner_1st_speed: Option<f64>,
@@ -126,6 +127,8 @@ fn judge_optimal_target_general(ctx: &PlayContext) -> AutoTarget {
                 cutoff_fielder: None,
             };
         }
+
+        // TODO: Consider the case of protecting the 1-point lead
         if (ctx.bases_occupied & RUNNER_3RD) == RUNNER_3RD && ctx.ball.distance() <= 25.0 {
             return AutoTarget {
                 base: Base::Home,
@@ -238,6 +241,8 @@ pub struct PlayResult {
     pub defense_time: f64,
     pub runner_time: f64,
     pub time_difference: f64, // For determining if it's a close play
+    pub updated_runners: RunnersOnBase, // Runner state after the play completes
+    pub runs_scored: u16,     // Runs scored on this play (0–3)
 }
 
 // TODO: Return who's the Cut Off Man
@@ -248,11 +253,41 @@ pub fn evaluate_defense_play(
     lead_distance: f64, // Should be set 0 in case Tag Up
     batting_side: RL,   // Batter's side; only used for batter-runner distance adjustment
 ) -> Result<PlayResult, GameError> {
-    // 1. Automatically determine the optimal target base and play type
+    // 1. Dynamically determine how many bases the batter can advance (base_advance)
+    let base_advance: u8;
+
+    if !ctx.ball.is_infield() {
+        // Calculate the time for the batter to reach each base
+        let dist_1st = match batting_side {
+            RL::Right => BASE_DISTANCE + 2.0,
+            RL::Left => BASE_DISTANCE,
+        };
+        // TODO: 0.5 should be replaced by runner's abiliry or sign
+        let t1 = (dist_1st / runners.batter_speed) + 0.5;
+        let t2 = ((dist_1st + BASE_DISTANCE) / runners.batter_speed) + 0.5;
+        // t3 may be used for running home run
+        let _t3 = ((dist_1st + BASE_DISTANCE * 2.0) / runners.batter_speed) + 0.5;
+
+        // At the moment the fielder handles the ball, how far has the batter advanced?
+        // The slower the fielder's processing (larger time_to_catch), the more bases the batter can take
+        if ctx.time_to_catch > t2 - 0.5 {
+            base_advance = 3; // Triple
+        } else if ctx.time_to_catch > t1 - 0.5 {
+            base_advance = 2; // Double
+        } else {
+            base_advance = 1; // Single
+        }
+    } else {
+        base_advance = 0; // Infield grounder
+    }
+
+    // 2. Determine defense target based on the dynamically calculated base_advance
+    // Automatically decide which base to target based on baseball theory
+    // TODO: Change to pass base_advance to judge_optimal_target_general
     let target = judge_optimal_target_general(ctx);
     let base_pos = target.base.polar_position();
 
-    // 2. Calculate total defense time
+    // 3. Time race calculation (throw/run vs target runner)
     let distance_to_base = calculate_distance(&ctx.ball.polar_position, &base_pos);
 
     let (defense_play_time, _) = match target.cutoff_fielder {
@@ -286,7 +321,7 @@ pub fn evaluate_defense_play(
     };
     let final_defense_time = ctx.time_to_catch + defense_play_time;
 
-    // 3. Dynamically extract runner's distance and speed for the target (Option-aware)
+    // 4. Dynamically extract runner's distance and speed for the target (Option-aware)
     // Unwrap the Option<f64> for the target base via pattern matching
     let (running_distance, target_runner_speed): (f64, Option<f64>) = match target.base {
         Base::First => {
@@ -302,19 +337,24 @@ pub fn evaluate_defense_play(
         ),
         Base::Third => (
             (BASE_DISTANCE - lead_distance).max(0.0),
-            runners.runner_2nd_speed,
+            runners.runner_2nd_speed.or(runners.runner_1st_speed),
         ),
         Base::Home => (
             (BASE_DISTANCE - lead_distance).max(0.0),
-            runners.runner_3rd_speed,
+            runners
+                .runner_3rd_speed
+                .or(runners.runner_2nd_speed)
+                .or(runners.runner_1st_speed),
         ),
     };
 
     // 4. Calculate runner time with safety guard logic
     let total_runner_time = match target_runner_speed {
         Some(speed) => {
-            // Runner exists normally: calculate time race as usual
-            (running_distance / speed) + 0.5
+            // When the target is preventing extra-base advancement (e.g. runner on 1st going to 3rd, runner on 2nd heading home),
+            // the runner is already through the previous base and accelerating, so reduce the acceleration penalty slightly
+            let acceleration_lag = if target.base != Base::First { 0.2 } else { 0.5 };
+            (running_distance / speed) + acceleration_lag
         }
         None => {
             // [Important] If a throw is made to a base with no runner (logic error or poor decision)
@@ -333,11 +373,85 @@ pub fn evaluate_defense_play(
     };
     let time_difference = (final_defense_time - total_runner_time).abs();
 
+    // 5. [Fully automatic] Update runner state and calculate runs scored (same as before)
+    let mut next_1st = None;
+    let mut next_2nd = None;
+    let mut next_3rd = None;
+    let mut runs_scored: u16 = 0;
+
+    // Shift runners based on the dynamically calculated base_advance
+    if ctx.ball.is_infield() {
+        next_1st = Some(runners.batter_speed);
+        next_2nd = runners.runner_1st_speed;
+        next_3rd = runners.runner_2nd_speed;
+        if runners.runner_3rd_speed.is_some() {
+            runs_scored += 1;
+        }
+    } else {
+        match base_advance {
+            1 => {
+                // TODO: Consider the case 1st runner goes to 3rd base
+                next_1st = Some(runners.batter_speed);
+                next_2nd = runners.runner_1st_speed;
+                next_3rd = runners.runner_2nd_speed;
+                if runners.runner_3rd_speed.is_some() {
+                    runs_scored += 1;
+                }
+            }
+            2 => {
+                next_2nd = Some(runners.batter_speed);
+                next_3rd = runners.runner_1st_speed;
+                if runners.runner_2nd_speed.is_some() {
+                    runs_scored += 1;
+                }
+                if runners.runner_3rd_speed.is_some() {
+                    runs_scored += 1;
+                }
+            }
+            3 => {
+                next_3rd = Some(runners.batter_speed);
+                if runners.runner_1st_speed.is_some() {
+                    runs_scored += 1;
+                }
+                if runners.runner_2nd_speed.is_some() {
+                    runs_scored += 1;
+                }
+                if runners.runner_3rd_speed.is_some() {
+                    runs_scored += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Overwrite: remove the runner who was put out
+    if ruling == Ruling::Out {
+        match target.base {
+            Base::First => next_1st = None,
+            Base::Second => next_2nd = None,
+            Base::Third => next_3rd = None,
+            Base::Home => {
+                next_3rd = None;
+                runs_scored = runs_scored.saturating_sub(1);
+            }
+        }
+    }
+
+    // Build the new runner state struct
+    let updated_runners = RunnersOnBase {
+        batter_speed: runners.batter_speed, // Kept for the next batter (effectively reset)
+        runner_1st_speed: next_1st,
+        runner_2nd_speed: next_2nd,
+        runner_3rd_speed: next_3rd,
+    };
+
     Ok(PlayResult {
         ruling,
         defense_time: final_defense_time,
         runner_time: total_runner_time,
         time_difference,
+        updated_runners,
+        runs_scored,
     })
 }
 
