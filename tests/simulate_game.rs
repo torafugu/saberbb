@@ -1,15 +1,22 @@
-use kurbo::Point;
 use rand::RngExt;
 use rand_distr::StandardNormal;
+use rusqlite::params;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
+use saberbb::domain::shared::ball::Ball;
+use saberbb::domain::shared::ball::TrajectoryType;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
+use saberbb::domain::util::PolarPosition;
 use saberbb::repositories::db::*;
 
-pub fn gennerate_default_fielders() -> [Fielder; 9] {
+fn generate_stadium() -> Stadium {
+    Stadium::new("AAA".to_string(), 98.0, 120.0, 2.0)
+}
+
+fn generate_default_fielders() -> [Fielder; 9] {
     // TODO: Randomize throw_speed, running_speed, reaction and prep_time
     let p = Fielder::new(Position::P, MOUND_DISTANCE, 0.0, 40.0, 7.0, 0.5, 0.65);
     let c = Fielder::new(Position::C, 0.0, 0.0, 40.0, 7.0, 0.5, 0.65);
@@ -24,7 +31,7 @@ pub fn gennerate_default_fielders() -> [Fielder; 9] {
     [p, c, fb, sb, tb, ss, rf, cf, lf]
 }
 
-pub fn gennerate_random_batter() -> Batter {
+fn generate_random_batter() -> Batter {
     let mut rng = rand::rng();
 
     let roll_rl = rng.random_range(0.0..1.0);
@@ -94,7 +101,9 @@ pub fn gennerate_random_batter() -> Batter {
 
 #[test]
 fn test_bat_to_catch() -> Result<(), GameError> {
-    let batter = gennerate_random_batter();
+    let stadium = generate_stadium();
+
+    let batter = generate_random_batter();
     println!(
         "Batter:{}, Swing Speed:{}",
         batter.batting_side, batter.swing_speed
@@ -109,7 +118,15 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         ball.trajectory
     );
 
-    let fielders = gennerate_default_fielders();
+    if stadium.is_stand_in(&ball) {
+        if ball.is_foul() {
+            println!("{}", BattingResult::Foul);
+        } else {
+            println!("{}", BattingResult::HomeRun);
+        }
+    }
+
+    let fielders = generate_default_fielders();
     let fielder = {
         let handler = process_defensive_chain(&fielders, &mut ball);
 
@@ -167,18 +184,31 @@ fn test_bat_to_catch() -> Result<(), GameError> {
 
 #[test]
 fn test_stand_in() {
-    let stadium = Stadium::new("AAA".to_string(), 98.0, 120.0);
+    let stadium = generate_stadium();
+    let ball = Ball::new(170.0, 35.0, 30.0, 130.0, 5.0, TrajectoryType::Fly);
+    println!("x:{}, y:{}", ball.x(), ball.y());
 
-    if stadium.is_inside_fence_line(Point::new(65.0, 70.0)) {
-        println!("In ground !"); // Hit, Direct hit on the fence
+    if stadium.is_stand_in(&ball) {
+        if ball.is_foul() {
+            println!("{}", BattingResult::Foul);
+        } else {
+            println!("{}", BattingResult::HomeRun);
+        }
     } else {
-        println!("Stand In !");
+        println!("In ground !"); // Hit, Direct hit on the fence
     }
 }
 
 #[test]
+fn test_ball_height() {
+    let ball = Ball::new(160.0, 35.0, 30.0, 300.0, 5.0, TrajectoryType::Fly);
+    let heigt = ball.calculate_height_at_distance(100.0);
+    println!("height:{}", heigt);
+}
+
+#[test]
 fn test_draw_stadium() {
-    let stadium = Stadium::new("AAA".to_string(), 98.0, 120.0);
+    let stadium = generate_stadium();
 
     stadium.draw_fence();
 }
@@ -195,7 +225,7 @@ fn test_catch_batted_ball() {
 
     let right_average_hitter = Batter {
         batting_side: RL::Right,
-        swing_speed: 150.0,
+        swing_speed: 125.0,
         weight_pull: 0.35,
         weight_center: 0.35,
         weight_opposite: 0.15,
@@ -206,8 +236,9 @@ fn test_catch_batted_ball() {
     for _ in 0..1000 {
         let ball = calculate_batted_ball(&right_average_hitter, 150.0);
         conn.execute(
-            "INSERT INTO test_batted_ball (distance, spray_angle, hang_time) VALUES (?1, ?2, ?3)",
-            [ball.distance(), ball.angle(), ball.hang_time],
+            "INSERT INTO test_batted_ball (launch_speed_kmh, launch_angle,  spray_angle, distance, hang_time, trajectory) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![ball.launch_speed_kmh, ball.launch_angle, ball.angle(), ball.distance(),  ball.hang_time, ball.trajectory.as_ref()],
         )
         .unwrap();
     }

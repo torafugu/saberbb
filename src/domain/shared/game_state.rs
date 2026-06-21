@@ -267,6 +267,7 @@ impl InningState {
                 points += self.how_many_runners() + 1; // All runners and the batter home in
                 self.clear();
             }
+            BattingResult::Foul => {}
             BattingResult::Out => {}
         }
         points

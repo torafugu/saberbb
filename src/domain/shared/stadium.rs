@@ -1,11 +1,12 @@
+use crate::domain::shared::ball::Ball;
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
-use kurbo::{Affine, BezPath, Point, Shape, Vec2};
+use kurbo::{Affine, BezPath, CubicBez, Line, PathEl, Point, Shape, Vec2};
 use std::f64::consts::SQRT_2;
 use svg::Document;
 use svg::node::element::path::Data;
-use svg::node::element::{Circle, Line, Path, Rectangle, Text};
+use svg::node::element::{Circle, Line as svgLine, Path, Rectangle, Text};
 
 pub const MOUND_DISTANCE: f64 = 18.44;
 
@@ -34,20 +35,23 @@ pub struct Stadium {
     pub center_fence_distance: f64,
     // pub fair_zone: kurbo::BezPath,
     fence_line: kurbo::BezPath,
-    // pub fence_height: f64,
+    fence_height: f64,
 }
 impl Stadium {
-    pub fn new(name: String, foul_pole_distance: f64, center_fence_distance: f64) -> Self {
+    pub fn new(
+        name: String,
+        foul_pole_distance: f64,
+        center_fence_distance: f64,
+        fence_height: f64,
+    ) -> Self {
         let homerun_pole_x = foul_pole_distance / SQRT_2;
         let homerun_pole_y = foul_pole_distance / SQRT_2;
         let center_fence_x = 0.0;
         let center_fence_y = center_fence_distance;
         let foul_fence_y = homerun_pole_y - foul_pole_distance * 0.065;
 
-        let backnet_x1 = 0.07 * center_fence_distance;
-        let backnet_y1 = 0.05 * center_fence_distance;
-        let backnet_x2 = 0.14 * center_fence_distance;
-        let backnet_y2 = 0.09 * center_fence_distance;
+        let backnet_x = 0.14 * center_fence_distance;
+        let backnet_y = -0.09 * center_fence_distance;
         let infield_x = 0.41 * center_fence_distance;
         let infield_y = 0.32 * center_fence_distance;
         let outfield_x1 = 0.534 * center_fence_distance;
@@ -56,9 +60,9 @@ impl Stadium {
         let outfield_y2 = 1.01 * center_fence_distance;
 
         let mut fence_line = BezPath::new();
-        fence_line.move_to(Point::new(0.0, 0.0));
+        fence_line.move_to(Point::new(0.0, -10.0));
         fence_line.curve_to(
-            Point::new(backnet_x2, backnet_y2),
+            Point::new(backnet_x, backnet_y),
             Point::new(infield_x, infield_y),
             Point::new(homerun_pole_x, foul_fence_y),
         );
@@ -74,13 +78,8 @@ impl Stadium {
         );
         fence_line.curve_to(
             Point::new(-infield_x, infield_y),
-            Point::new(-backnet_x2, backnet_y2),
-            Point::new(-backnet_x1, backnet_y1),
-        );
-        fence_line.curve_to(
-            Point::new(0.0, 0.0),
-            Point::new(0.0, 0.0),
-            Point::new(backnet_x1, backnet_y1),
+            Point::new(-backnet_x, backnet_y),
+            Point::new(0.0, -10.0),
         );
         fence_line.close_path();
 
@@ -89,6 +88,7 @@ impl Stadium {
             foul_pole_distance: foul_pole_distance,
             center_fence_distance: center_fence_distance,
             fence_line: fence_line,
+            fence_height: fence_height,
         }
     }
 
@@ -105,8 +105,9 @@ impl Stadium {
         let fence_line_svg_path = to_svg * &self.fence_line;
 
         let fence_path = Path::new()
-            .set("stroke", "white") // 白線
+            .set("stroke", "white") // White line
             .set("stroke-width", 2)
+            .set("fill", "#2e8b57")
             .set("d", fence_line_svg_path.to_svg());
 
         let fence_svg = Document::new()
@@ -118,8 +119,25 @@ impl Stadium {
         draw(fence_svg);
     }
 
-    pub fn is_inside_fence_line(&self, point: kurbo::Point) -> bool {
-        self.fence_line.contains(point)
+    pub fn is_stand_in(&self, ball: &Ball) -> bool {
+        let home_point = Point { x: 0.0, y: 0.0 };
+        let final_point = Point {
+            x: ball.x(),
+            y: ball.y(),
+        };
+        let ray = Line::new(home_point, final_point);
+
+        if let Some(intersect_pt) = find_intersections(&self.fence_line, ray) {
+            let distance = intersect_pt.distance(home_point);
+            let ball_height = ball.calculate_height_at_distance(distance);
+            if ball_height > self.fence_height {
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
 }
 
@@ -340,7 +358,7 @@ pub fn generate_svg() -> Document {
 
     // Foul lines (extended to the fence)
     document = document.add(
-        Line::new()
+        svgLine::new()
             .set("x1", home_x)
             .set("y1", home_y)
             .set("x2", left_pole_x + px(0.625))
@@ -349,7 +367,7 @@ pub fn generate_svg() -> Document {
             .set("stroke-width", 5),
     );
     document = document.add(
-        Line::new()
+        svgLine::new()
             .set("x1", home_x)
             .set("y1", home_y)
             .set("x2", right_pole_x - px(0.625))
@@ -358,7 +376,7 @@ pub fn generate_svg() -> Document {
             .set("stroke-width", 5),
     );
     document = document.add(
-        Line::new()
+        svgLine::new()
             .set("x1", p1b_x)
             .set("y1", p1b_y)
             .set("x2", p2b_x - px(0.25))
@@ -367,7 +385,7 @@ pub fn generate_svg() -> Document {
             .set("stroke-width", 5),
     );
     document = document.add(
-        Line::new()
+        svgLine::new()
             .set("x1", p2b_x + px(0.25))
             .set("y1", p2b_y - px(0.25))
             .set("x2", p3b_x)
@@ -476,8 +494,6 @@ pub fn generate_svg() -> Document {
     }
 
     document
-
-    // svg::save("baseball_field.svg", &document).unwrap();
 }
 
 fn polar_to_svg(home_x: f64, home_y: f64, pos: &PolarPosition, scale: f64) -> (f64, f64) {
@@ -487,4 +503,78 @@ fn polar_to_svg(home_x: f64, home_y: f64, pos: &PolarPosition, scale: f64) -> (f
     let x = home_x + dist_px * rad.sin();
     let y = home_y - dist_px * rad.cos();
     (x, y)
+}
+
+// Helper function to mathematically calculate the intersection of two line segments
+fn line_intersection(line1: Line, line2: Line) -> Option<Point> {
+    let p0 = line1.p0;
+    let p1 = line1.p1;
+    let q0 = line2.p0;
+    let q1 = line2.p1;
+
+    // Use cross product to determine the intersection
+    let s1_x = p1.x - p0.x;
+    let s1_y = p1.y - p0.y;
+    let s2_x = q1.x - q0.x;
+    let s2_y = q1.y - q0.y;
+
+    let denom = s1_x * s2_y - s2_x * s1_y;
+    if denom.abs() < 1e-9 {
+        return None; // Parallel or overlapping — no intersection
+    }
+
+    let s = (-s1_y * (p0.x - q0.x) + s1_x * (p0.y - q0.y)) / denom;
+    let t = (s2_x * (p0.y - q0.y) - s2_y * (p0.x - q0.x)) / denom;
+
+    // If both parameters s and t are between 0.0 and 1.0, the line segments intersect
+    if (0.0..=1.0).contains(&s) && (0.0..=1.0).contains(&t) {
+        // Calculate intersection coordinates
+        Some(Point::new(p0.x + (t * s1_x), p0.y + (t * s1_y)))
+    } else {
+        None // Lines intersect as infinite lines, but outside the finite segment range
+    }
+}
+
+// Return the first intersection found between a BezPath and a Line
+// All elements are curves, so PathEl::LineTo(p) cases are not handled.
+fn find_intersections(path: &BezPath, ray: Line) -> Option<Point> {
+    let mut last_point = Point::ORIGIN;
+
+    // Iterate over each element in the path (checking whether it's a line or Bezier curve)
+    for el in path.elements() {
+        match *el {
+            PathEl::MoveTo(p) => {
+                last_point = p;
+            }
+            PathEl::CurveTo(p1, p2, p) => {
+                let cubic = CubicBez::new(last_point, p1, p2, p);
+                let mut flattened = Vec::new();
+                kurbo::flatten(cubic.path_elements(0.1), 0.1, |flattened_el| {
+                    flattened.push(flattened_el);
+                });
+
+                let mut segment_last = last_point;
+
+                for flattened_el in flattened {
+                    match flattened_el {
+                        PathEl::MoveTo(pt) => {
+                            segment_last = pt;
+                        }
+                        PathEl::LineTo(pt) => {
+                            let sub_line = Line::new(segment_last, pt);
+                            if let Some(intersect_pt) = line_intersection(sub_line, ray) {
+                                return Some(intersect_pt);
+                            }
+                            segment_last = pt;
+                        }
+                        _ => {}
+                    }
+                }
+                last_point = p;
+            }
+            _ => {}
+        }
+    }
+
+    None
 }

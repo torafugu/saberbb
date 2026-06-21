@@ -22,6 +22,7 @@ exit = Exit
 fb = 1B
 finesse_pitcher = Finesse
 fly = Fly
+foul = Foul
 forkball = Forkball
 four_seam_fastball = Four Seam Fastball
 game_results = Game Results

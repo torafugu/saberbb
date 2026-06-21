@@ -22,6 +22,7 @@ exit = 終了
 fb = 一
 finesse_pitcher = 軟投派
 fly = フライ
+foul = ファウル
 forkball = フォーク
 four_seam_fastball = ストレート
 game_results = 試合結果
