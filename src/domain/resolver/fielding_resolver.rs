@@ -54,9 +54,7 @@ fn calculate_relay_play_time(
     catch_pos: &PolarPosition,
     target_base: Base,
     cutoff: &Fielder, // Infielder data for the cutoff relay
-) -> (f64, bool) {
-    // Returns: (time in seconds, whether cutoff man was used)
-
+) -> f64 {
     let base_pos = target_base.polar_position();
 
     // --- Pattern A: Direct throw ---
@@ -80,9 +78,9 @@ fn calculate_relay_play_time(
 
     // Pick the better option
     if total_relay_time < total_direct_time {
-        (total_relay_time, true) // Cutoff route is faster (ball doesn't slow as much)
+        total_relay_time // Cutoff route is faster (ball doesn't slow as much)
     } else {
-        (total_direct_time, false) // Direct throw is faster (shallow fly, tag-up situations, etc.)
+        total_direct_time // Direct throw is faster (shallow fly, tag-up situations, etc.)
     }
 }
 
@@ -103,7 +101,7 @@ enum PlayType {
 
 #[derive(Debug)]
 pub struct StealResult {
-    is_out: bool,
+    ruling: Ruling,
     defense_time: f64,
     runner_time: f64,
     updated_runners: RunnersOnBase,
@@ -130,9 +128,7 @@ pub fn evaluate_base_stealing(
     start_reaction: f64,   // Start reaction time (seconds; 0.1 for good jump, 0.6 if picked off)
     current_runners: &RunnersOnBase,
 ) -> StealResult {
-    // ========================================================
     // 1. Defense side: total time from pitch to throw completion to 2nd (or 3rd)
-    // ========================================================
     // Pitcher's motion time (1.0s for quick motion, ~1.3s for normal)
     let pitch_delivery_time = pitcher.delivery_motion_time;
 
@@ -147,25 +143,24 @@ pub fn evaluate_base_stealing(
     // Total defense time = pitcher motion + catcher pop time + tag play (0.3s)
     let total_defense_time = pitch_delivery_time + catcher_pop_time + 0.3;
 
-    // ========================================================
     // 2. Runner side: total time to slide into the next base
-    // ========================================================
-    let base_distance = 27.431;
-    let running_distance = base_distance - lead_distance;
+    let running_distance = BASE_DISTANCE - lead_distance;
 
     // Runner total time = reaction delay + actual running time
     let total_runner_time = start_reaction + (running_distance / runner_speed);
 
-    // ========================================================
     // 3. Outcome judgment and runner state update
-    // ========================================================
-    let is_out = total_defense_time <= total_runner_time;
+    let ruling = if total_defense_time <= total_runner_time {
+        Ruling::Out
+    } else {
+        Ruling::Safe
+    };
 
     let mut next_1st = current_runners.runner_1st_speed;
     let mut next_2nd = current_runners.runner_2nd_speed;
     let mut next_3rd = current_runners.runner_3rd_speed;
 
-    if is_out {
+    if ruling == Ruling::Out {
         // [Out]: the runner who attempted to advance is removed
         match target_base {
             Base::Second => next_1st = None,
@@ -188,7 +183,7 @@ pub fn evaluate_base_stealing(
     }
 
     StealResult {
-        is_out,
+        ruling: ruling,
         defense_time: total_defense_time,
         runner_time: total_runner_time,
         updated_runners: RunnersOnBase {
@@ -401,7 +396,7 @@ pub fn evaluate_double_play(
     // The second throw target is always first base (Base::First)
     let first_base_pos = Base::First.polar_position();
 
-    // 3. Time race calculation (throw/run vs target runner)
+    // 2. Time race calculation (throw/run vs target runner)
     let distance_to_base = calculate_distance(&base_pos, &first_base_pos);
 
     let thrower = fielders
@@ -443,8 +438,8 @@ pub fn evaluate_double_play(
     let time_difference = (defense_play_time - total_runner_time).abs();
 
     let mut next_1st = Some(runners.batter_speed);
-    let mut next_2nd = runners.runner_1st_speed;
-    let mut next_3rd = runners.runner_2nd_speed;
+    let next_2nd = runners.runner_1st_speed;
+    let next_3rd = runners.runner_2nd_speed;
     let mut runs_scored: u16 = 0;
 
     if runners.runner_3rd_speed.is_some() {
@@ -487,7 +482,7 @@ fn evaluate_tagup_play(
     // 1. Calculate total defense time (based on t=0)
     let distance_to_base = calculate_distance(&ctx.ball.polar_position, &base_pos);
 
-    let (defense_play_time, _) = match target.cutoff_fielder {
+    let defense_play_time = match target.cutoff_fielder {
         Some(cutoff_position) => {
             let cutoff_man = fielders
                 .iter()
@@ -505,10 +500,9 @@ fn evaluate_tagup_play(
         None => {
             // Cutoff man not needed or not specified:
             // Calculate with direct throw (or self-run) time only
-            let defense_play_time = ctx.fielder.prep_time
+            ctx.fielder.prep_time
                 + calculate_ball_flight_time(distance_to_base, ctx.fielder.throw_speed)
-                + 0.3;
-            (defense_play_time, false)
+                + 0.3
         }
     };
     let final_defense_time = ctx.time_to_catch + defense_play_time;
@@ -595,7 +589,7 @@ fn evaluate_outfield_hit_play(
     let t1 = (dist_1st / runners.batter_speed) + 0.5;
     let t2 = ((dist_1st + BASE_DISTANCE) / runners.batter_speed) + 0.5;
     // t3 may be used for running home run
-    let _t3 = ((dist_1st + BASE_DISTANCE * 2.0) / runners.batter_speed) + 0.5;
+    // let t3 = ((dist_1st + BASE_DISTANCE * 2.0) / runners.batter_speed) + 0.5;
 
     // At the moment the fielder handles the ball, how far has the batter advanced?
     // The slower the fielder's processing (larger time_to_catch), the more bases the batter can take
@@ -616,7 +610,7 @@ fn evaluate_outfield_hit_play(
     // 3. Time race calculation (throw/run vs target runner)
     let distance_to_base = calculate_distance(&ctx.ball.polar_position, &base_pos);
 
-    let (defense_play_time, _) = match target.cutoff_fielder {
+    let defense_play_time = match target.cutoff_fielder {
         Some(cutoff_position) => {
             let cutoff_man = fielders
                 .iter()
@@ -634,15 +628,14 @@ fn evaluate_outfield_hit_play(
         None => {
             // Cutoff man not needed or not specified:
             // Calculate with direct throw (or self-run) time only
-            let defense_play_time = if target.play_type == PlayType::ForcePlay {
+            if target.play_type == PlayType::ForcePlay {
                 let time_via_throw = ctx.fielder.prep_time
                     + calculate_ball_flight_time(distance_to_base, ctx.fielder.throw_speed);
                 let time_via_run = distance_to_base / ctx.fielder.running_speed;
                 time_via_run.min(time_via_throw)
             } else {
                 ctx.fielder.prep_time + (distance_to_base / ctx.fielder.throw_speed) + 0.3
-            };
-            (defense_play_time, false)
+            }
         }
     };
     let final_defense_time = ctx.time_to_catch + defense_play_time;
@@ -1348,7 +1341,7 @@ mod tests {
         let result =
             evaluate_base_stealing(Base::Second, &pitcher, &catcher, 9.5, 4.0, 0.1, &runners);
 
-        assert!(!result.is_out);
+        assert!(result.ruling == Ruling::Safe);
         assert_near(
             result.defense_time,
             expected_steal_defense_time(Base::Second, &pitcher, &catcher),
@@ -1369,7 +1362,7 @@ mod tests {
         let result =
             evaluate_base_stealing(Base::Second, &pitcher, &catcher, 6.0, 1.0, 0.6, &runners);
 
-        assert!(result.is_out);
+        assert!(result.ruling == Ruling::Out);
         assert!(result.defense_time <= result.runner_time);
         assert_near(
             result.defense_time,
@@ -1390,7 +1383,7 @@ mod tests {
         let result =
             evaluate_base_stealing(Base::Third, &pitcher, &catcher, 8.5, 7.0, 0.05, &runners);
 
-        assert!(!result.is_out);
+        assert!(result.ruling == Ruling::Safe);
         assert_near(
             result.defense_time,
             expected_steal_defense_time(Base::Third, &pitcher, &catcher),
@@ -1410,7 +1403,7 @@ mod tests {
         let result =
             evaluate_base_stealing(Base::Third, &pitcher, &catcher, 6.0, 1.0, 0.5, &runners);
 
-        assert!(result.is_out);
+        assert!(result.ruling == Ruling::Out);
         assert!(result.defense_time <= result.runner_time);
         assert_near(
             result.defense_time,
@@ -1826,7 +1819,7 @@ mod tests {
             .iter()
             .find(|fielder| fielder.is(Position::SS))
             .unwrap();
-        let (throw_time, _) =
+        let throw_time =
             calculate_relay_play_time(&left_fielder, &catch_position, Base::Home, shortstop);
         let expected_defense_time = ctx.time_to_catch + throw_time;
         let expected_runner_time = ctx.time_to_catch + (BASE_DISTANCE / 10.0) + 0.5;
