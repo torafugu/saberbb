@@ -148,36 +148,34 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         catch_result.is_fly_catch,
     );
 
-    // in case ruling is out, skip following
     if !catch_result.is_fly_catch {
-        let runners = RunnersOnBase {
-            batter_speed: 7.0,
-            runner_1st_speed: Some(7.0),
-            runner_2nd_speed: None,
-            runner_3rd_speed: None,
-        };
-
-        let ctx = PlayContext {
-            bases_occupied: RUNNER_1ST,
-            fielder: fielder,
-            ball: catch_result.ball,
-            time_to_catch: catch_result.time_to_catch,
-        };
-
-        let play_result =
-            evaluate_defense_play(&ctx, &fielders, &runners, 1.0, batter.batting_side)?;
-
-        println!(
-            "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
-            play_result.ruling,
-            play_result.defense_time,
-            play_result.runner_time,
-            play_result.time_difference
-        );
-    } else {
-        // TODO: implement Tag up
         println!("Play Result:{}", Ruling::Out);
     }
+
+    let runners = RunnersOnBase {
+        batter_speed: 7.0,
+        runner_1st_speed: Some(7.0),
+        runner_2nd_speed: None,
+        runner_3rd_speed: None,
+    };
+
+    let ctx = PlayContext {
+        bases_occupied: RUNNER_1ST,
+        fielder: fielder,
+        ball: catch_result.ball,
+        time_to_catch: catch_result.time_to_catch,
+        is_fly_catch: catch_result.is_fly_catch,
+    };
+
+    let play_result = evaluate_defense_play(&ctx, &fielders, &runners, 1.0, batter.batting_side)?;
+
+    println!(
+        "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
+        play_result.ruling,
+        play_result.defense_time,
+        play_result.runner_time,
+        play_result.time_difference
+    );
 
     Ok(())
 }

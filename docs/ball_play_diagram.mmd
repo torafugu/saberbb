@@ -51,10 +51,30 @@ flowchart TD
     outfield{Ball is Outfield?} --> |NO and Grounder|fielder2
 
   subgraph fielder2["Fielder2 + Cut Off Man"]
-    judge_optimal_target_general --> evaluate_defense_play
+    evaluate_defense_play
   end
 
   subgraph evaluate_defense_play["evaluate defense play"]
-    calculate_relay_play_time --> calculate_ball_flight_time
+    evaluate_tagup_play
+    evaluate_outfield_hit_play
+    evaluate_grounder_play
+  end
+
+  subgraph evaluate_tagup_play["evaluate tagup play"]
+    judge_optimal_target_general1["judge optimal target general"] --> cutt_off1{Cut Off?}
+    cutt_off1 --> |YES|calculate_relay_play_time1["calculate relay play time"]
+    calculate_relay_play_time1 --> calculate_ball_flight_time1["calculate ball flight time"]
+    cutt_off1 --> |NO|calculate_ball_flight_time1
+  end
+
+  subgraph evaluate_outfield_hit_play["evaluate outfield hit play"]
+    judge_optimal_target_general2["judge optimal target general"] --> cutt_off2{Cut Off?}
+    cutt_off2 --> |YES|calculate_relay_play_time2["calculate relay play time"]
+    calculate_relay_play_time2 --> calculate_ball_flight_time2["calculate ball flight time"]
+    cutt_off2 --> |NO|calculate_ball_flight_time2
+  end
+
+  subgraph evaluate_grounder_play["evaluate grounder play"]
+    judge_optimal_target_general3["judge optimal target general"] --> calculate_ball_flight_time3
   end
 

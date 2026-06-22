@@ -114,8 +114,6 @@ impl Ball {
 
         let t = target_distance / horizontal_velocity;
 
-        println!("t:{}", t);
-
         // 3. Calculate height at that time using the parabolic formula
         let initial_vertical_velocity = v * theta.sin();
         let height = (initial_vertical_velocity * t) - (0.5 * GRAVIY * t * t);
