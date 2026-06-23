@@ -1,5 +1,6 @@
 use crate::I18nManager;
 use crate::domain::util;
+use crate::domain::util::PolarPosition;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -170,6 +171,17 @@ impl Player {
             + (BATTING_MAX_SLG - BATTING_MIN_SLG) * (util::sigmoid(self.mod_slg) - 0.5);
         slg
     }
+}
+
+// TODO: merge into Player
+#[derive(Debug, Clone)]
+pub struct Fielder {
+    pub position: Position,
+    pub polar_position: PolarPosition, // TODO: Should be moved to game_state struct
+    pub throw_speed: f64,              // Throw speed (m/s) e.g. 35.0 – 42.0 m/s
+    pub running_speed: f64,            // Running speed (m/s) e.g. 6.5 – 8.0 m/s
+    pub reaction: f64,                 // Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
+    pub prep_time: f64, // Pitch preparation / transfer time (seconds) e.g. 0.5 – 0.8 s (lower is better)
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]

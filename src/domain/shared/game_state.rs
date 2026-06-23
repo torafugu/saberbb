@@ -22,7 +22,7 @@ pub enum GameError {
     CurrentBatter,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ruling {
     Safe,
     Out,

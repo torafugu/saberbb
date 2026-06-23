@@ -1,0 +1,264 @@
+classDiagram
+direction TB
+
+class BaseOccupancy {
+  -u8 bits
+  +new(u8 occupancy) BaseOccupancy
+  -has_runner_on(Base base) bool
+  -is_loaded() bool
+  -has_first_and_second() bool
+  -has_second_and_third() bool
+  -has_first_and_third() bool
+}
+
+class RunnerAdvanceResult {
+  -RunnersOnBase updated_runners
+  -u16 runs_scored
+}
+
+class RunnersOnBase {
+  +Runner batter_runner
+  +Option~Runner~ runner_1st
+  +Option~Runner~ runner_2nd
+  +Option~Runner~ runner_3rd
+  -after_grounder(Base target_base, Ruling ruling) RunnerAdvanceResult
+  -after_outfield_hit(BattingResult base_advance, Base target_base, Ruling ruling) RunnerAdvanceResult
+  -after_tagup(Base target_base, Ruling ruling) RunnerAdvanceResult
+  -after_double_play(Ruling ruling) RunnerAdvanceResult
+  -after_base_stealing(Base target_base, Ruling ruling) RunnersOnBase
+}
+
+class PlayType {
+  <<enumeration>>
+  ForcePlay
+  TouchPlay
+}
+
+class StealResult {
+  +Ruling ruling
+  +f64 defense_time
+  +f64 runner_time
+  +RunnersOnBase updated_runners
+}
+
+class PitcherData {
+  -f64 delivery_motion_time
+}
+
+class CatcherData {
+  -f64 prep_time
+  -f64 throw_speed
+}
+
+class PlayContext {
+  +BaseOccupancy bases_occupancy
+  +RunnersOnBase runners
+  +Fielder[] fielders
+  +Fielder try_catch_fielder
+  +Ball ball
+  +f64 time_to_catch
+  +bool is_fly_catch
+}
+
+class AutoTarget {
+  -Base base
+  -PlayType play_type
+  -Option~Position~ cutoff_fielder
+}
+
+class PlayResult {
+  +Ruling ruling
+  +f64 defense_time
+  +f64 runner_time
+  +f64 time_difference
+  +RunnersOnBase updated_runners
+  +u16 runs_scored
+  +Base target_base
+  +Option~Position~ next_throw_position
+}
+
+class BaseRace {
+  -f64 defense_time
+  -f64 runner_time
+  -Ruling ruling
+  -f64 time_difference
+  -new() BaseRace
+  -evaluate_base_race(PlayContext ctx, AutoTarget target, RL batting_side) Result_Unit_GameError
+}
+
+class FieldingResult {
+  +bool is_fly_catch
+  +f64 time_to_catch
+  +Ball ball
+}
+
+class BoundedBallResult {
+  -f64 time_to_fumble
+  -f64 final_distance
+}
+
+class FinalClosestFielder {
+  +Fielder fielder
+  +Ball ball
+}
+
+class FieldingResolver {
+  <<module>>
+  +evaluate_base_stealing(Base target_base, PitcherData pitcher, CatcherData catcher, f64 runner_speed, f64 lead_distance, f64 start_reaction, RunnersOnBase runners) StealResult
+  +evaluate_double_play(Fielder[] fielders, RunnersOnBase runners, RL batting_side, Base target_base, Position last_fielder_position) Result_PlayResult_GameError
+  +evaluate_infield_grounder_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
+  +evaluate_defense_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
+  +find_closest_fielder(Fielder[] fielders, Ball ball) Result_Fielder_GameError
+  +process_defensive_chain(Fielder[] fielders, Ball ball) Result_FinalClosestFielder_GameError
+  -calculate_ball_flight_time(f64 distance, f64 initial_throw_speed) f64
+  -calculate_cutoff_position(PolarPosition catch_pos, Base target_base) PolarPosition
+  -calculate_relay_play_time(Fielder fielder, PolarPosition catch_pos, Base target_base, Fielder cutoff) f64
+  -judge_tagup_target(PlayContext ctx) AutoTarget
+  -judge_infield_grounder_target(PlayContext ctx) AutoTarget
+  -judge_outfield_hit_target(PlayContext ctx) AutoTarget
+  -evaluate_tagup_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
+  -evaluate_outfield_hit_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
+  -is_ball_in_fielder_lane(Fielder fielder, f64 ball_angle) bool
+}
+
+class Fielder {
+  <<external struct with resolver impl>>
+  +Position position
+  +PolarPosition polar_position
+  +f64 throw_speed
+  +f64 running_speed
+  +f64 reaction
+  +f64 prep_time
+  +new(Position position, f64 distance, f64 angle, f64 throw_speed, f64 running_speed, f64 reaction, f64 prep_time) Fielder
+  +is(Position position) bool
+  +distance() f64
+  +angle() f64
+  +x() f64
+  +y() f64
+  +try_catch(Ball ball) FieldingResult
+  -process_bounded_ball(Ball ball) BoundedBallResult
+}
+
+class Runner {
+  <<external>>
+  +f64 speed
+  +f64 lead_distance
+}
+
+class Ball {
+  <<external>>
+  +PolarPosition polar_position
+  +f64 hang_time
+  +TrajectoryType trajectory
+  +distance() f64
+  +angle() f64
+  +is_infield() bool
+  +is_shallow() bool
+  +calculate_height_at_distance(f64 target_distance) f64
+}
+
+class Base {
+  <<external enum>>
+  Home
+  First
+  Second
+  Third
+  +polar_position() PolarPosition
+}
+
+class Position {
+  <<external enum>>
+  P
+  C
+  FB
+  SB
+  TB
+  SS
+  LF
+  CF
+  RF
+  DH
+}
+
+class Ruling {
+  <<external enum>>
+  Safe
+  Out
+}
+
+class BattingResult {
+  <<external enum>>
+}
+
+class RL {
+  <<external enum>>
+  Right
+  Left
+}
+
+class GameError {
+  <<external error>>
+}
+
+class PolarPosition {
+  <<external>>
+}
+
+class TrajectoryType {
+  <<external enum>>
+  Grounder
+  Liner
+  Fly
+  PopUp
+}
+
+RunnersOnBase *-- Runner : contains
+RunnerAdvanceResult --> RunnersOnBase : updated_runners
+RunnerAdvanceResult --> RunnersOnBase : produced_by
+RunnersOnBase --> RunnerAdvanceResult : advances_to
+
+StealResult --> Ruling
+StealResult --> RunnersOnBase
+
+PlayContext *-- BaseOccupancy
+PlayContext --> RunnersOnBase
+PlayContext --> Fielder
+PlayContext --> Ball
+
+AutoTarget --> Base
+AutoTarget --> PlayType
+AutoTarget --> Position
+
+PlayResult --> Ruling
+PlayResult --> RunnersOnBase
+PlayResult --> Base
+PlayResult --> Position
+
+BaseRace --> PlayContext
+BaseRace --> AutoTarget
+BaseRace --> Ruling
+BaseRace --> GameError
+
+FieldingResult --> Ball
+Fielder --> FieldingResult : try_catch
+Fielder --> BoundedBallResult : process_bounded_ball
+Fielder --> Position
+Fielder --> PolarPosition
+
+FinalClosestFielder --> Fielder
+FinalClosestFielder --> Ball
+
+FieldingResolver ..> PitcherData
+FieldingResolver ..> CatcherData
+FieldingResolver ..> StealResult
+FieldingResolver ..> PlayContext
+FieldingResolver ..> PlayResult
+FieldingResolver ..> AutoTarget
+FieldingResolver ..> BaseRace
+FieldingResolver ..> FinalClosestFielder
+FieldingResolver ..> GameError
+FieldingResolver ..> PolarPosition
+
+Ball --> PolarPosition
+Ball --> TrajectoryType
+Base ..> PolarPosition : polar_position

@@ -1,33 +1,14 @@
 use crate::domain::shared::ball::{Ball, TrajectoryType};
-use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
+use crate::domain::shared::game::BattingResult;
 use crate::domain::shared::player::{Player, RL};
-use crate::domain::shared::stadium::Base;
 use crate::domain::util::GRAVIY;
 use rand::RngExt;
 use rand_distr::{Distribution, Normal, StandardNormal};
 
+#[derive(Clone, Copy, Debug)]
 pub struct Runner {
-    pub speed: f64, // Base running speed (m/s) e.g. 7.7
-    pub current_base: Base,
+    pub speed: f64,         // Base running speed (m/s) e.g. 7.7
     pub lead_distance: f64, // Current lead distance (m), valid when current_base > 0
-}
-impl Runner {
-    // Returns the actual running distance to the next base
-    pub fn get_running_distance(&self, batting_side: RL) -> f64 {
-        match self.current_base {
-            Base::Home => {
-                // Batter-runner case (lead is 0, distance adjusted by batting side)
-                match batting_side {
-                    RL::Right => BASE_DISTANCE + 2.0, // Right batter's box is farther
-                    RL::Left => BASE_DISTANCE,        // Left batter's box is shortest
-                }
-            }
-            _ => {
-                // Runner on base case (subtract lead from base distance)
-                (BASE_DISTANCE - self.lead_distance).max(0.0)
-            }
-        }
-    }
 }
 
 // batted-ball direction (sector)
@@ -263,43 +244,6 @@ mod tests {
             min,
             max
         );
-    }
-
-    #[test]
-    fn runner_get_running_distance_adjusts_batter_runner_by_side() {
-        let runner = Runner {
-            speed: 7.7,
-            current_base: Base::Home,
-            lead_distance: 0.0,
-        };
-
-        assert_eq!(runner.get_running_distance(RL::Left), BASE_DISTANCE);
-        assert_eq!(runner.get_running_distance(RL::Right), BASE_DISTANCE + 2.0);
-    }
-
-    #[test]
-    fn runner_get_running_distance_subtracts_lead_for_existing_runner() {
-        let runner = Runner {
-            speed: 7.7,
-            current_base: Base::First,
-            lead_distance: 4.5,
-        };
-
-        assert_eq!(
-            runner.get_running_distance(RL::Right),
-            BASE_DISTANCE - runner.lead_distance
-        );
-    }
-
-    #[test]
-    fn runner_get_running_distance_never_goes_below_zero() {
-        let runner = Runner {
-            speed: 7.7,
-            current_base: Base::Second,
-            lead_distance: BASE_DISTANCE + 1.0,
-        };
-
-        assert_eq!(runner.get_running_distance(RL::Left), 0.0);
     }
 
     #[test]

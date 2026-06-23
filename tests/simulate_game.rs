@@ -9,7 +9,6 @@ use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
-use saberbb::domain::util::PolarPosition;
 use saberbb::repositories::db::*;
 
 fn generate_stadium() -> Stadium {
@@ -128,7 +127,7 @@ fn test_bat_to_catch() -> Result<(), GameError> {
 
     let fielders = generate_default_fielders();
     let fielder = {
-        let handler = process_defensive_chain(&fielders, &mut ball);
+        let handler = process_defensive_chain(&fielders, &mut ball)?;
 
         println!(
             "Who?:{}, Ball arrival time:{}, TrajectoryType:{}",
@@ -153,21 +152,29 @@ fn test_bat_to_catch() -> Result<(), GameError> {
     }
 
     let runners = RunnersOnBase {
-        batter_speed: 7.0,
-        runner_1st_speed: Some(7.0),
-        runner_2nd_speed: None,
-        runner_3rd_speed: None,
+        batter_runner: Runner {
+            speed: 7.0,
+            lead_distance: 0.0,
+        },
+        runner_1st: Some(Runner {
+            speed: 7.0,
+            lead_distance: 0.0,
+        }),
+        runner_2nd: None,
+        runner_3rd: None,
     };
 
     let ctx = PlayContext {
-        bases_occupied: RUNNER_1ST,
-        fielder: fielder,
+        bases_occupancy: BaseOccupancy::new(1),
+        runners: &runners,
+        fielders: &fielders,
+        try_catch_fielder: fielder,
         ball: catch_result.ball,
         time_to_catch: catch_result.time_to_catch,
         is_fly_catch: catch_result.is_fly_catch,
     };
 
-    let play_result = evaluate_defense_play(&ctx, &fielders, &runners, 1.0, batter.batting_side)?;
+    let play_result = evaluate_defense_play(&ctx, batter.batting_side)?;
 
     println!(
         "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
