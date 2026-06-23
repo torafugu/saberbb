@@ -28,46 +28,6 @@ const ACCELERATION_PENALTY_TIME_AFTER_FIRST_BASE: f64 = 0.2;
 // TODO: Should be changed to Player's ability
 const MAX_REACH_HEIGHT: f64 = 2.5;
 
-// Bitmask representing runner state on bases (takes values 0–7)
-// Example: runners on first and third = 1 + 4 = 5 (101)
-const RUNNER_NONE: u8 = 0; // No runners (000)
-const RUNNER_1ST: u8 = 1; // Runner on first (001)
-const RUNNER_2ND: u8 = 2; // Runner on second (010)
-const RUNNER_3RD: u8 = 4; // Runner on third (100)
-const RUNNER_FULL: u8 = 7; // Runner on first and second and third (111)
-const RUNNER_1ST_AND_2ND: u8 = 3; // Runner on first and second (011)
-const RUNNER_2ND_AND_3RD: u8 = 6; // Runner on first and second (110)
-const RUNNER_1ST_AND_3RD: u8 = 5; // Runner on first and second (101)
-
-#[derive(Debug)]
-pub struct BaseOccupancy(u8);
-impl BaseOccupancy {
-    pub fn new(occupancy: u8) -> Self {
-        Self(occupancy)
-    }
-
-    fn has_runner_on(&self, base: Base) -> bool {
-        match base {
-            Base::First => (self.0 & RUNNER_1ST) == RUNNER_1ST,
-            Base::Second => (self.0 & RUNNER_2ND) == RUNNER_2ND,
-            Base::Third => (self.0 & RUNNER_3RD) == RUNNER_3RD,
-            Base::Home => false,
-        }
-    }
-    fn is_loaded(&self) -> bool {
-        self.0 == RUNNER_FULL
-    }
-    fn has_first_and_second(&self) -> bool {
-        (self.0 & RUNNER_1ST_AND_2ND) == RUNNER_1ST_AND_2ND
-    }
-    fn has_second_and_third(&self) -> bool {
-        (self.0 & RUNNER_2ND_AND_3RD) == RUNNER_2ND_AND_3RD
-    }
-    fn has_first_and_third(&self) -> bool {
-        (self.0 & RUNNER_1ST_AND_3RD) == RUNNER_1ST_AND_3RD
-    }
-}
-
 // Calculate actual ball flight time based on distance
 fn calculate_ball_flight_time(distance: f64, initial_throw_speed: f64) -> f64 {
     // Base distance: assume top speed can be maintained up to 30m
@@ -147,22 +107,29 @@ pub struct RunnersOnBase {
     pub runner_3rd: Option<Runner>,
 }
 impl RunnersOnBase {
-    pub fn occupancy(&self) -> BaseOccupancy {
-        let mut occupancy = 0;
-
-        if self.runner_1st.is_some() {
-            occupancy += 1;
+    fn has_runner_on(&self, base: Base) -> bool {
+        match base {
+            Base::First => self.runner_1st.is_some(),
+            Base::Second => self.runner_2nd.is_some(),
+            Base::Third => self.runner_3rd.is_some(),
+            Base::Home => false,
         }
+    }
 
-        if self.runner_2nd.is_some() {
-            occupancy += 2;
-        }
+    fn is_loaded(&self) -> bool {
+        self.runner_1st.is_some() && self.runner_2nd.is_some() && self.runner_3rd.is_some()
+    }
 
-        if self.runner_3rd.is_some() {
-            occupancy += 4;
-        }
+    fn has_first_and_second(&self) -> bool {
+        self.runner_1st.is_some() && self.runner_2nd.is_some()
+    }
 
-        BaseOccupancy(occupancy)
+    fn has_second_and_third(&self) -> bool {
+        self.runner_2nd.is_some() && self.runner_3rd.is_some()
+    }
+
+    fn has_first_and_third(&self) -> bool {
+        self.runner_1st.is_some() && self.runner_2nd.is_some() && self.runner_3rd.is_some()
     }
 
     fn after_grounder(&self, target_base: Base, ruling: Ruling) -> RunnerAdvanceResult {
@@ -413,9 +380,9 @@ pub struct PlayContext<'a> {
     pub is_fly_catch: bool,
 }
 impl PlayContext<'_> {
-    fn bases_occupancy(&self) -> BaseOccupancy {
-        self.runners.occupancy()
-    }
+    // fn bases_occupancy(&self) -> BaseOccupancy {
+    //     self.runners.occupancy()
+    // }
 }
 
 #[derive(Debug)]
@@ -428,7 +395,7 @@ struct AutoTarget {
 fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
     // Tag-up prevention strategy for no-bounce catches (fly/liner outs)
     // 1. Runner on third (4): top priority is to throw home (back home)
-    if ctx.bases_occupancy().has_runner_on(Base::Third) {
+    if ctx.runners.has_runner_on(Base::Third) {
         // If the fly is too deep (e.g. 95m+), give up and throw to the infield (2nd base etc.)
         if ctx.ball.distance() <= DEEP_OUTFIELD_DISTANCE {
             return AutoTarget {
@@ -443,7 +410,7 @@ fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
     }
 
     // 2. Runner on second (2): prevent tagging up to third
-    if ctx.bases_occupancy().has_runner_on(Base::Second) {
+    if ctx.runners.has_runner_on(Base::Second) {
         // Left-field fly: third baseman is either catching or off the base,
         // so only throw to third on center/right-field flies
         if matches!(ctx.try_catch_fielder.position, Position::CF | Position::RF) {
@@ -466,7 +433,7 @@ fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
 
 fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
     // Infield grounder (situation where an out can be made) → previous logic
-    if ctx.bases_occupancy().is_loaded() {
+    if ctx.runners.is_loaded() {
         return AutoTarget {
             base: Base::Home,
             play_type: PlayType::ForcePlay,
@@ -475,16 +442,15 @@ fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
     }
 
     // TODO: Consider the case of protecting the 1-point lead
-    if ctx.bases_occupancy().has_runner_on(Base::Third)
-        && ctx.ball.distance() <= SHALLOW_INFIELD_DISTANCE
-    {
+    if ctx.runners.has_runner_on(Base::Third) && ctx.ball.distance() <= SHALLOW_INFIELD_DISTANCE {
         return AutoTarget {
             base: Base::Home,
             play_type: PlayType::TouchPlay,
             cutoff_fielder: None,
         };
     }
-    if ctx.bases_occupancy().has_first_and_second()
+
+    if ctx.runners.has_first_and_second()
         && matches!(ctx.try_catch_fielder.position, Position::TB | Position::SS)
     {
         return AutoTarget {
@@ -493,7 +459,8 @@ fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
             cutoff_fielder: None,
         };
     }
-    if ctx.bases_occupancy().has_runner_on(Base::First) {
+
+    if ctx.runners.has_runner_on(Base::First) {
         if ctx.ball.distance() <= SHALLOW_INFIELD_DISTANCE
             && matches!(
                 ctx.try_catch_fielder.position,
@@ -528,9 +495,7 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
     // Outfield hit (extra-base hit or single)
     // 1. Runner on third (or second), and a throw home might arrive in time
     // Note: if time_to_catch is short and the outfielder is relatively shallow (within 80m), go for home
-    if ctx.bases_occupancy().has_runner_on(Base::Second)
-        | ctx.bases_occupancy().has_runner_on(Base::Third)
-    {
+    if ctx.runners.has_runner_on(Base::Second) | ctx.runners.has_runner_on(Base::Third) {
         if ctx.ball.distance() <= CUTOFF_NEEDED_DISTACE_FOR_RUNNER_ON_THIRD
             && ctx.time_to_catch <= CUTOFF_NEEDED_TIME_TO_CATCH
         {
@@ -549,7 +514,7 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
     }
 
     // 2. Runner on first, want to prevent advancement to third (e.g. on a right-field single)
-    if ctx.bases_occupancy().has_runner_on(Base::First) {
+    if ctx.runners.has_runner_on(Base::First) {
         // Left-field hits often concede third, but right/center-field hits have a chance to nail them at third
         if matches!(ctx.try_catch_fielder.position, Position::CF | Position::RF)
             && ctx.ball.distance() <= CUTOFF_NEEDED_DISTACE_FOR_RUNNER_ON_FIRST

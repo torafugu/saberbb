@@ -210,12 +210,10 @@ pub fn simulate_batting(batter: &Player) -> BattingResult {
 #[cfg(test)]
 mod tests {
     use crate::domain::resolver::batting_resolver::{
-        Batter, FieldSector, Runner, calculate_batted_ball, inner_choose_sector, sample_spray_angle,
+        Batter, FieldSector, calculate_batted_ball, inner_choose_sector, sample_spray_angle,
     };
     use crate::domain::shared::ball::TrajectoryType;
-    use crate::domain::shared::game::BASE_DISTANCE;
     use crate::domain::shared::player::RL;
-    use crate::domain::shared::stadium::Base;
 
     fn batter_with_weights(
         batting_side: RL,
