@@ -147,6 +147,24 @@ pub struct RunnersOnBase {
     pub runner_3rd: Option<Runner>,
 }
 impl RunnersOnBase {
+    pub fn occupancy(&self) -> BaseOccupancy {
+        let mut occupancy = 0;
+
+        if self.runner_1st.is_some() {
+            occupancy += 1;
+        }
+
+        if self.runner_2nd.is_some() {
+            occupancy += 2;
+        }
+
+        if self.runner_3rd.is_some() {
+            occupancy += 4;
+        }
+
+        BaseOccupancy(occupancy)
+    }
+
     fn after_grounder(&self, target_base: Base, ruling: Ruling) -> RunnerAdvanceResult {
         // Update runner state and calculate runs scored
         let mut next_1st = Some(self.batter_runner);
@@ -387,7 +405,6 @@ pub struct CatcherData {
 
 #[derive(Debug)]
 pub struct PlayContext<'a> {
-    pub bases_occupancy: BaseOccupancy,
     pub runners: &'a RunnersOnBase,
     pub fielders: &'a [Fielder],
     pub try_catch_fielder: &'a Fielder,
@@ -395,18 +412,23 @@ pub struct PlayContext<'a> {
     pub time_to_catch: f64, // Time taken to catch (or process the hit)
     pub is_fly_catch: bool,
 }
+impl PlayContext<'_> {
+    fn bases_occupancy(&self) -> BaseOccupancy {
+        self.runners.occupancy()
+    }
+}
 
 #[derive(Debug)]
 struct AutoTarget {
     base: Base,
     play_type: PlayType,
-    cutoff_fielder: Option<Position>, // TODO: Replace Position to Player
+    cutoff_fielder: Option<Position>,
 }
 
 fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
     // Tag-up prevention strategy for no-bounce catches (fly/liner outs)
     // 1. Runner on third (4): top priority is to throw home (back home)
-    if ctx.bases_occupancy.has_runner_on(Base::Third) {
+    if ctx.bases_occupancy().has_runner_on(Base::Third) {
         // If the fly is too deep (e.g. 95m+), give up and throw to the infield (2nd base etc.)
         if ctx.ball.distance() <= DEEP_OUTFIELD_DISTANCE {
             return AutoTarget {
@@ -421,7 +443,7 @@ fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
     }
 
     // 2. Runner on second (2): prevent tagging up to third
-    if ctx.bases_occupancy.has_runner_on(Base::Second) {
+    if ctx.bases_occupancy().has_runner_on(Base::Second) {
         // Left-field fly: third baseman is either catching or off the base,
         // so only throw to third on center/right-field flies
         if matches!(ctx.try_catch_fielder.position, Position::CF | Position::RF) {
@@ -444,7 +466,7 @@ fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
 
 fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
     // Infield grounder (situation where an out can be made) → previous logic
-    if ctx.bases_occupancy.is_loaded() {
+    if ctx.bases_occupancy().is_loaded() {
         return AutoTarget {
             base: Base::Home,
             play_type: PlayType::ForcePlay,
@@ -453,7 +475,7 @@ fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
     }
 
     // TODO: Consider the case of protecting the 1-point lead
-    if ctx.bases_occupancy.has_runner_on(Base::Third)
+    if ctx.bases_occupancy().has_runner_on(Base::Third)
         && ctx.ball.distance() <= SHALLOW_INFIELD_DISTANCE
     {
         return AutoTarget {
@@ -462,7 +484,7 @@ fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
             cutoff_fielder: None,
         };
     }
-    if ctx.bases_occupancy.has_first_and_second()
+    if ctx.bases_occupancy().has_first_and_second()
         && matches!(ctx.try_catch_fielder.position, Position::TB | Position::SS)
     {
         return AutoTarget {
@@ -471,7 +493,7 @@ fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
             cutoff_fielder: None,
         };
     }
-    if ctx.bases_occupancy.has_runner_on(Base::First) {
+    if ctx.bases_occupancy().has_runner_on(Base::First) {
         if ctx.ball.distance() <= SHALLOW_INFIELD_DISTANCE
             && matches!(
                 ctx.try_catch_fielder.position,
@@ -506,8 +528,8 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
     // Outfield hit (extra-base hit or single)
     // 1. Runner on third (or second), and a throw home might arrive in time
     // Note: if time_to_catch is short and the outfielder is relatively shallow (within 80m), go for home
-    if ctx.bases_occupancy.has_runner_on(Base::Second)
-        | ctx.bases_occupancy.has_runner_on(Base::Third)
+    if ctx.bases_occupancy().has_runner_on(Base::Second)
+        | ctx.bases_occupancy().has_runner_on(Base::Third)
     {
         if ctx.ball.distance() <= CUTOFF_NEEDED_DISTACE_FOR_RUNNER_ON_THIRD
             && ctx.time_to_catch <= CUTOFF_NEEDED_TIME_TO_CATCH
@@ -527,7 +549,7 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
     }
 
     // 2. Runner on first, want to prevent advancement to third (e.g. on a right-field single)
-    if ctx.bases_occupancy.has_runner_on(Base::First) {
+    if ctx.bases_occupancy().has_runner_on(Base::First) {
         // Left-field hits often concede third, but right/center-field hits have a chance to nail them at third
         if matches!(ctx.try_catch_fielder.position, Position::CF | Position::RF)
             && ctx.ball.distance() <= CUTOFF_NEEDED_DISTACE_FOR_RUNNER_ON_FIRST
@@ -876,7 +898,6 @@ pub fn evaluate_infield_grounder_play(
 ) -> Result<PlayResult, GameError> {
     // 1. Determine defense target based on the dynamically calculated base_advance
     // Automatically decide which base to target based on baseball theory
-    // TODO: Change to pass base_advance to judge_optimal_target_general
     let target = judge_infield_grounder_target(ctx);
 
     // 2. Time race calculation (throw/run vs target runner)
@@ -913,7 +934,6 @@ pub fn evaluate_infield_grounder_play(
     })
 }
 
-// TODO: Return who's the Cut Off Man
 pub fn evaluate_defense_play(
     ctx: &PlayContext,
     batting_side: RL, // Batter's side; only used for batter-runner distance adjustment
@@ -1698,7 +1718,6 @@ mod tests {
         let fielders = default_fielders();
         let runners = runners_on_base(Some(7.0), Some(7.0), Some(7.0));
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_FULL),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &pitcher,
@@ -1719,7 +1738,6 @@ mod tests {
         let fielders = default_fielders();
         let runners = runners_on_base(Some(7.0), Some(7.0), None);
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_1ST_AND_2ND),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &third_baseman,
@@ -1740,7 +1758,6 @@ mod tests {
         let fielders = default_fielders();
         let runners = runners_on_base(None, None, Some(7.0));
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_3RD),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &center_fielder,
@@ -1761,7 +1778,6 @@ mod tests {
         let fielders = default_fielders();
         let runners = runners_on_base(Some(7.0), None, None);
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_1ST),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &center_fielder,
@@ -1782,7 +1798,6 @@ mod tests {
         let fielders = default_fielders();
         let runners = runners_on_base(None, None, None);
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_NONE),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &left_fielder,
@@ -1811,7 +1826,6 @@ mod tests {
         let runners = runners_on_base(None, None, None);
         let fielders = default_fielders();
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_NONE),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &first_baseman,
@@ -1852,7 +1866,6 @@ mod tests {
         let runners = runners_on_base(None, None, Some(10.0));
         let fielders = default_fielders();
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_3RD),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &left_fielder,
@@ -1884,7 +1897,6 @@ mod tests {
         let runners = runners_on_base(None, None, None);
         let fielders = default_fielders();
         let ctx = PlayContext {
-            bases_occupancy: BaseOccupancy(RUNNER_NONE),
             runners: &runners,
             fielders: &fielders,
             try_catch_fielder: &center_fielder,

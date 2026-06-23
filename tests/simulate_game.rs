@@ -156,16 +156,12 @@ fn test_bat_to_catch() -> Result<(), GameError> {
             speed: 7.0,
             lead_distance: 0.0,
         },
-        runner_1st: Some(Runner {
-            speed: 7.0,
-            lead_distance: 0.0,
-        }),
+        runner_1st: None,
         runner_2nd: None,
         runner_3rd: None,
     };
 
     let ctx = PlayContext {
-        bases_occupancy: BaseOccupancy::new(1),
         runners: &runners,
         fielders: &fielders,
         try_catch_fielder: fielder,
