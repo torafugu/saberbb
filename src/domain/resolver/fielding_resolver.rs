@@ -93,7 +93,7 @@ fn calculate_relay_play_time(
 }
 
 #[derive(Clone, Copy, Debug)]
-struct RunnerAdvanceResult {
+pub struct RunnerAdvanceResult {
     pub updated_runners: RunnersOnBase,
     pub runs_scored: u16,
 }
@@ -107,7 +107,16 @@ pub struct RunnersOnBase {
     pub runner_3rd: Option<Runner>,
 }
 impl RunnersOnBase {
-    fn has_runner_on(&self, base: Base) -> bool {
+    pub fn new(batter_runner: Runner) -> Self {
+        Self {
+            batter_runner: batter_runner,
+            runner_1st: None,
+            runner_2nd: None,
+            runner_3rd: None,
+        }
+    }
+
+    pub fn has_runner_on(&self, base: Base) -> bool {
         match base {
             Base::First => self.runner_1st.is_some(),
             Base::Second => self.runner_2nd.is_some(),
@@ -116,20 +125,48 @@ impl RunnersOnBase {
         }
     }
 
-    fn is_loaded(&self) -> bool {
+    pub fn is_loaded(&self) -> bool {
         self.runner_1st.is_some() && self.runner_2nd.is_some() && self.runner_3rd.is_some()
     }
 
-    fn has_first_and_second(&self) -> bool {
+    pub fn has_first_and_second(&self) -> bool {
         self.runner_1st.is_some() && self.runner_2nd.is_some()
     }
 
-    fn has_second_and_third(&self) -> bool {
+    pub fn has_second_and_third(&self) -> bool {
         self.runner_2nd.is_some() && self.runner_3rd.is_some()
     }
 
-    fn has_first_and_third(&self) -> bool {
+    pub fn has_first_and_third(&self) -> bool {
         self.runner_1st.is_some() && self.runner_2nd.is_some() && self.runner_3rd.is_some()
+    }
+
+    pub fn after_homerun(&self) -> RunnerAdvanceResult {
+        let mut runs_scored: u16 = 1;
+
+        if self.runner_1st.is_some() {
+            runs_scored += 1;
+        }
+
+        if self.runner_2nd.is_some() {
+            runs_scored += 1;
+        }
+
+        if self.runner_3rd.is_some() {
+            runs_scored += 1;
+        }
+
+        let updated_runners = RunnersOnBase {
+            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
+            runner_1st: None,
+            runner_2nd: None,
+            runner_3rd: None,
+        };
+
+        RunnerAdvanceResult {
+            updated_runners: updated_runners,
+            runs_scored: runs_scored,
+        }
     }
 
     fn after_grounder(&self, target_base: Base, ruling: Ruling) -> RunnerAdvanceResult {
@@ -378,11 +415,6 @@ pub struct PlayContext<'a> {
     pub ball: &'a Ball,
     pub time_to_catch: f64, // Time taken to catch (or process the hit)
     pub is_fly_catch: bool,
-}
-impl PlayContext<'_> {
-    // fn bases_occupancy(&self) -> BaseOccupancy {
-    //     self.runners.occupancy()
-    // }
 }
 
 #[derive(Debug)]

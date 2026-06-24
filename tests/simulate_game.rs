@@ -99,6 +99,105 @@ fn generate_random_batter() -> Batter {
 }
 
 #[test]
+fn test_through_inning() -> Result<(), GameError> {
+    let stadium = generate_stadium();
+    let batter = generate_random_batter();
+    let fielders = generate_default_fielders();
+    let mut outs = 0;
+    let mut scores = 0;
+    let batter_runner = Runner {
+        speed: 7.0,
+        lead_distance: 0.0,
+    };
+    let mut runners = RunnersOnBase::new(batter_runner);
+
+    while outs < 3 {
+        println!("--- New count ---");
+        let mut ball = calculate_batted_ball(&batter, 150.0);
+
+        println!(
+            "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
+            ball.angle(),
+            ball.distance(),
+            ball.trajectory
+        );
+
+        if stadium.is_stand_in(&ball) {
+            if ball.is_foul() {
+                println!("{}", BattingResult::Foul);
+                println!("Outs:{}, Scores:{}", outs, scores);
+                continue;
+            } else {
+                let homerun_result = runners.after_homerun();
+                runners = homerun_result.updated_runners;
+                scores += homerun_result.runs_scored;
+
+                println!("{}, score:+{}", BattingResult::HomeRun, scores);
+                println!("Outs:{}, Scores:{}", outs, scores);
+                continue;
+            }
+        }
+
+        let fielder = {
+            let handler = process_defensive_chain(&fielders, &mut ball)?;
+
+            println!(
+                "Who is the fielder?:{}, Ball arrival time:{}, TrajectoryType:{}",
+                handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
+            );
+
+            handler.fielder
+        };
+
+        let catch_result = fielder.try_catch(&mut ball);
+
+        println!(
+            "time_to_catch?:{}, final_distance?:{}, angle?:{}, is_fly_catch?:{}",
+            catch_result.time_to_catch,
+            catch_result.ball.distance(),
+            catch_result.ball.angle(),
+            catch_result.is_fly_catch,
+        );
+
+        if catch_result.is_fly_catch {
+            println!("Play Result:{}", Ruling::Out);
+            outs += 1;
+            // TODO: Consder tag-up case
+            // Call evaluate_tagup_play directory ?
+            println!("Outs:{}, Scores:{}", outs, scores);
+            continue;
+        }
+
+        let ctx = PlayContext {
+            runners: &runners,
+            fielders: &fielders,
+            try_catch_fielder: fielder,
+            ball: catch_result.ball,
+            time_to_catch: catch_result.time_to_catch,
+            is_fly_catch: catch_result.is_fly_catch,
+        };
+
+        let play_result = evaluate_defense_play(&ctx, batter.batting_side.clone())?;
+
+        println!(
+            "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
+            play_result.ruling,
+            play_result.defense_time,
+            play_result.runner_time,
+            play_result.time_difference
+        );
+
+        if play_result.ruling == Ruling::Out {
+            outs += 1;
+        }
+        scores += play_result.runs_scored;
+        println!("Outs:{}, Scores:{}", outs, scores);
+    }
+
+    Ok(())
+}
+
+#[test]
 fn test_bat_to_catch() -> Result<(), GameError> {
     let stadium = generate_stadium();
 
@@ -120,8 +219,10 @@ fn test_bat_to_catch() -> Result<(), GameError> {
     if stadium.is_stand_in(&ball) {
         if ball.is_foul() {
             println!("{}", BattingResult::Foul);
+            return Ok(());
         } else {
             println!("{}", BattingResult::HomeRun);
+            return Ok(());
         }
     }
 
@@ -147,8 +248,9 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         catch_result.is_fly_catch,
     );
 
-    if !catch_result.is_fly_catch {
+    if catch_result.is_fly_catch {
         println!("Play Result:{}", Ruling::Out);
+        return Ok(());
     }
 
     let runners = RunnersOnBase {

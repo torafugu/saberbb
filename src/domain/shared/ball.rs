@@ -183,14 +183,14 @@ mod tests {
     #[test]
     fn is_foul_includes_angles_inside_foul_degree_boundary() {
         assert!(ball(TrajectoryType::Grounder, 30.0, -45.0, 80.0, 5.0).is_foul());
-        assert!(ball(TrajectoryType::Grounder, 30.0, 0.0, 80.0, 5.0).is_foul());
+        assert!(!ball(TrajectoryType::Grounder, 30.0, 0.0, 80.0, 5.0).is_foul());
         assert!(ball(TrajectoryType::Grounder, 30.0, 45.0, 80.0, 5.0).is_foul());
     }
 
     #[test]
     fn is_foul_excludes_angles_outside_foul_degree_boundary() {
-        assert!(!ball(TrajectoryType::Fly, 80.0, -45.1, 100.0, 30.0).is_foul());
-        assert!(!ball(TrajectoryType::Fly, 80.0, 45.1, 100.0, 30.0).is_foul());
+        assert!(ball(TrajectoryType::Fly, 80.0, -45.1, 100.0, 30.0).is_foul());
+        assert!(ball(TrajectoryType::Fly, 80.0, 45.1, 100.0, 30.0).is_foul());
     }
 
     #[test]

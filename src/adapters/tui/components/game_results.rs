@@ -663,7 +663,7 @@ impl GameResultsWidget {
         frame.render_widget(canvas, area);
     }
 
-    fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<(String)> {
+    fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
         let pitcher = game_cursor.current_pitcher()?;
         let batter = game_cursor.current_batter()?;
         let mut formatted_batter_and_pitcher =
@@ -677,7 +677,7 @@ impl GameResultsWidget {
         Ok(formatted_batter_and_pitcher)
     }
 
-    fn format_lineup(game_cursor: &mut GameCursor) -> color_eyre::Result<(String)> {
+    fn format_lineup(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
         let pitcher = game_cursor.current_pitcher()?;
         let catcher = game_cursor.current_catcher()?;
         let fb = game_cursor.current_fb()?;

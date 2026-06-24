@@ -1,4 +1,4 @@
-use crate::domain::shared::ball::Ball;
+use crate::domain::shared::ball::{Ball, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
@@ -120,6 +120,10 @@ impl Stadium {
     }
 
     pub fn is_stand_in(&self, ball: &Ball) -> bool {
+        if ball.trajectory == TrajectoryType::Grounder {
+            return false;
+        };
+
         let home_point = Point { x: 0.0, y: 0.0 };
         let final_point = Point {
             x: ball.x(),
