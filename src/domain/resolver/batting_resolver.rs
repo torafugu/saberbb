@@ -5,12 +5,6 @@ use crate::domain::util::GRAVIY;
 use rand::RngExt;
 use rand_distr::{Distribution, Normal, StandardNormal};
 
-#[derive(Clone, Copy, Debug)]
-pub struct Runner {
-    pub speed: f64,         // Base running speed (m/s) e.g. 7.7
-    pub lead_distance: f64, // Current lead distance (m), valid when current_base > 0
-}
-
 // batted-ball direction (sector)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldSector {

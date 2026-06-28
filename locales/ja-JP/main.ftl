@@ -20,6 +20,7 @@ error = {$function}() でエラーが発生しました。
 exhibition = オープン戦
 exit = 終了
 fb = 一
+fielders_choice = Fielder's Choice
 finesse_pitcher = 軟投派
 fly = フライ
 foul = ファウル

@@ -41,7 +41,7 @@ impl<R: GameRepository> GameService<R> {
                 while let InningProgress::Ongoing = inning_state.progress() {
                     let batting_result = game_state.batting_resolve()?;
 
-                    let mut count = inning_state.add_count(&batting_result);
+                    let count = inning_state.add_count(&batting_result);
 
                     game_state.add_point(count.point);
                     game_result

@@ -3,6 +3,7 @@ use rand_distr::StandardNormal;
 use rusqlite::params;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
+use saberbb::domain::resolver::running_resolver::*;
 use saberbb::domain::shared::ball::Ball;
 use saberbb::domain::shared::ball::TrajectoryType;
 use saberbb::domain::shared::game::*;
@@ -103,16 +104,19 @@ fn test_through_inning() -> Result<(), GameError> {
     let stadium = generate_stadium();
     let batter = generate_random_batter();
     let fielders = generate_default_fielders();
-    let mut outs = 0;
     let mut scores = 0;
     let batter_runner = Runner {
         speed: 7.0,
         lead_distance: 0.0,
+        target_base: None,
     };
-    let mut runners = RunnersOnBase::new(batter_runner);
+    let mut inning_state = InningState::new();
 
-    while outs < 3 {
+    while let InningProgress::Ongoing = inning_state.progress() {
         println!("--- New count ---");
+        inning_state.runners.batting_side = Some(batter.batting_side.clone());
+        inning_state.runners.batter_runner = Some(batter_runner);
+
         let mut ball = calculate_batted_ball(&batter, 150.0);
 
         println!(
@@ -125,15 +129,13 @@ fn test_through_inning() -> Result<(), GameError> {
         if stadium.is_stand_in(&ball) {
             if ball.is_foul() {
                 println!("{}", BattingResult::Foul);
-                println!("Outs:{}, Scores:{}", outs, scores);
+                println!("Outs:{}, Scores:{}", inning_state.out, scores);
                 continue;
             } else {
-                let homerun_result = runners.after_homerun();
-                runners = homerun_result.updated_runners;
-                scores += homerun_result.runs_scored;
+                scores += inning_state.runners.after_homerun();
 
                 println!("{}, score:+{}", BattingResult::HomeRun, scores);
-                println!("Outs:{}, Scores:{}", outs, scores);
+                println!("Outs:{}, Scores:{}", inning_state.out, scores);
                 continue;
             }
         }
@@ -161,15 +163,15 @@ fn test_through_inning() -> Result<(), GameError> {
 
         if catch_result.is_fly_catch {
             println!("Play Result:{}", Ruling::Out);
-            outs += 1;
+            inning_state.add_out(1);
             // TODO: Consder tag-up case
             // Call evaluate_tagup_play directory ?
-            println!("Outs:{}, Scores:{}", outs, scores);
+            println!("Outs:{}, Scores:{}", inning_state.out, scores);
             continue;
         }
 
         let ctx = PlayContext {
-            runners: &runners,
+            runners: &inning_state.runners,
             fielders: &fielders,
             try_catch_fielder: fielder,
             ball: catch_result.ball,
@@ -177,21 +179,25 @@ fn test_through_inning() -> Result<(), GameError> {
             is_fly_catch: catch_result.is_fly_catch,
         };
 
-        let play_result = evaluate_defense_play(&ctx, batter.batting_side.clone())?;
+        let defebce_play_result = evaluate_defense_play(&ctx)?;
 
-        println!(
-            "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
-            play_result.ruling,
-            play_result.defense_time,
-            play_result.runner_time,
-            play_result.time_difference
-        );
+        // TODO: Implement enum display and Option<Position> Display
+        // println!(
+        //     "ruling?:{}, play_type?:{}, final_fielder_position?:{}, cutoff_fielder_potition?:{}, defense_time?:{}",
+        //     defebce_play_result.throw_target_base,
+        //     defebce_play_result.play_type,
+        //     defebce_play_result.final_fielder_position,
+        //     defebce_play_result.cutoff_fielder_potition,
+        //     defebce_play_result.defense_time,
+        // );
 
-        if play_result.ruling == Ruling::Out {
-            outs += 1;
-        }
-        scores += play_result.runs_scored;
-        println!("Outs:{}, Scores:{}", outs, scores);
+        // TODO: Implement after running
+
+        // if play_result.ruling == Ruling::Out {
+        //     inning_state.add_out(1);
+        // }
+        // scores += play_result.runs_scored;
+        // println!("Outs:{}, Scores:{}", inning_state.out, scores);
     }
 
     Ok(())
@@ -253,15 +259,13 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         return Ok(());
     }
 
-    let runners = RunnersOnBase {
-        batter_runner: Runner {
-            speed: 7.0,
-            lead_distance: 0.0,
-        },
-        runner_1st: None,
-        runner_2nd: None,
-        runner_3rd: None,
-    };
+    let mut runners = RunnersOnBase::new();
+    runners.batting_side = Some(batter.batting_side.clone());
+    runners.batter_runner = Some(Runner {
+        speed: 7.0,
+        lead_distance: 0.0,
+        target_base: None,
+    });
 
     let ctx = PlayContext {
         runners: &runners,
@@ -272,15 +276,15 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         is_fly_catch: catch_result.is_fly_catch,
     };
 
-    let play_result = evaluate_defense_play(&ctx, batter.batting_side)?;
+    // let play_result = evaluate_defense_play(&ctx, batter.batting_side)?;
 
-    println!(
-        "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
-        play_result.ruling,
-        play_result.defense_time,
-        play_result.runner_time,
-        play_result.time_difference
-    );
+    // println!(
+    //     "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
+    //     play_result.ruling,
+    //     play_result.defense_time,
+    //     play_result.runner_time,
+    //     play_result.time_difference
+    // );
 
     Ok(())
 }

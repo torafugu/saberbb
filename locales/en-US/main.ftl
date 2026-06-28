@@ -20,6 +20,7 @@ error = An error occurred in {$function}()
 exhibition = Exhibition
 exit = Exit
 fb = 1B
+fielders_choice = Fielder's Choice
 finesse_pitcher = Finesse
 fly = Fly
 foul = Foul

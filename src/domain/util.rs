@@ -80,7 +80,7 @@ impl PolarPosition {
     }
 }
 
-pub fn calculate_distance(p1: &PolarPosition, p2: &PolarPosition) -> f64 {
+pub fn calculate_polar_distance(p1: &PolarPosition, p2: &PolarPosition) -> f64 {
     // Convert the difference between the two angles to radians.
     let angle_diff_rad = (p1.angle - p2.angle).to_radians();
 
@@ -465,7 +465,7 @@ mod tests {
     fn test_calculate_distance_same_position_is_zero() {
         let position = PolarPosition::new(50.0, 12.0);
 
-        assert_near(calculate_distance(&position, &position), 0.0);
+        assert_near(calculate_polar_distance(&position, &position), 0.0);
     }
 
     #[test]
@@ -473,7 +473,7 @@ mod tests {
         let p1 = PolarPosition::new(40.0, 15.0);
         let p2 = PolarPosition::new(25.0, 15.0);
 
-        assert_near(calculate_distance(&p1, &p2), 15.0);
+        assert_near(calculate_polar_distance(&p1, &p2), 15.0);
     }
 
     #[test]
@@ -481,7 +481,7 @@ mod tests {
         let p1 = PolarPosition::new(3.0, 0.0);
         let p2 = PolarPosition::new(4.0, 90.0);
 
-        assert_near(calculate_distance(&p1, &p2), 5.0);
+        assert_near(calculate_polar_distance(&p1, &p2), 5.0);
     }
 
     #[test]
@@ -489,7 +489,7 @@ mod tests {
         let p1 = PolarPosition::new(12.0, 0.0);
         let p2 = PolarPosition::new(8.0, 180.0);
 
-        assert_near(calculate_distance(&p1, &p2), 20.0);
+        assert_near(calculate_polar_distance(&p1, &p2), 20.0);
     }
 
     #[test]
@@ -497,6 +497,9 @@ mod tests {
         let p1 = PolarPosition::new(90.0, -26.0);
         let p2 = PolarPosition::new(80.0, 31.0);
 
-        assert_near(calculate_distance(&p1, &p2), calculate_distance(&p2, &p1));
+        assert_near(
+            calculate_polar_distance(&p1, &p2),
+            calculate_polar_distance(&p2, &p1),
+        );
     }
 }

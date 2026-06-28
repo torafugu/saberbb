@@ -1,10 +1,11 @@
-use super::batting_resolver::Runner;
+use super::running_resolver::RunnersOnBase;
 use crate::domain::shared::ball::{Ball, TrajectoryType};
-use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
-use crate::domain::shared::game_state::{GameError, Ruling};
-use crate::domain::shared::player::{Fielder, Position, RL};
+use crate::domain::shared::game::BASE_DISTANCE;
+use crate::domain::shared::game_state::GameError;
+use crate::domain::shared::player::{Fielder, Position};
 use crate::domain::shared::stadium::Base;
-use crate::domain::util::{PolarPosition, calculate_distance};
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
+use std::f64::consts::SQRT_2;
 
 // TODO: fence distance should be retrieved from the stadium
 const FENCE_DISTANCE: f64 = 100.0; // Stadium fence distance (assumed 100m)
@@ -17,28 +18,80 @@ const CUTOFF_NEEDED_TIME_TO_CATCH: f64 = 3.5;
 // Example: outfield at 90m, base at 0m (home) → place cutoff around 35–40m
 const CUTOFF_DISTANCE_COEFFICIENT: f64 = 0.45;
 
+// Base distance: assume top speed can be maintained up to 30m
+const BALL_FLIGHT_SPEED_CONTINUE_DISTANCE: f64 = 30.0;
+
 const LINER_REACTION_TIME: f64 = 0.15; // TODO: should be moved to Player ability
 const TOUCH_PENALTY_TIME: f64 = 0.3;
 const FIRST_BOUNCE_TIME: f64 = 0.5; // At least 0.5s after the first bounce
-// TODO: 0.5 should be replaced by runner's abiliry or sign
-const ACCELERATION_PENALTY_TIME_NORMAL: f64 = 0.5;
-const ACCELERATION_PENALTY_TIME_AFTER_FIRST_BASE: f64 = 0.2;
 
 // Maximum jump catch height for a fielder (2.5m)
-// TODO: Should be changed to Player's ability
-const MAX_REACH_HEIGHT: f64 = 2.5;
+const MAX_REACH_HEIGHT: f64 = 2.5; // TODO: Should be changed to Player's ability
+
+const WEIGHT_SS_BASE_COVER: f64 = 0.3;
+const WEIGHT_IS_LOADED_TARGET_THIRD: f64 = 0.3;
+
+fn find_fielder_by_position(
+    fielders: &[Fielder],
+    position: Position,
+) -> Result<&Fielder, GameError> {
+    let fielder = fielders
+        .iter()
+        .find(|i| i.is(position.clone()))
+        .map(|i| i)
+        .ok_or_else(|| GameError::NoPlayerFor(position.to_string()))?;
+
+    Ok(fielder)
+}
+
+pub fn calculate_base_distance(from_base: Base, to_base: Base) -> Result<f64, GameError> {
+    let distance = match from_base {
+        Base::First => match to_base {
+            Base::First => {
+                return Err(GameError::SameTargetBase);
+            }
+            Base::Second => BASE_DISTANCE,
+            Base::Third => BASE_DISTANCE * SQRT_2,
+            Base::Home => BASE_DISTANCE,
+        },
+        Base::Second => match to_base {
+            Base::First => BASE_DISTANCE,
+            Base::Second => {
+                return Err(GameError::SameTargetBase);
+            }
+            Base::Third => BASE_DISTANCE,
+            Base::Home => BASE_DISTANCE * SQRT_2,
+        },
+        Base::Third => match to_base {
+            Base::First => BASE_DISTANCE * SQRT_2,
+            Base::Second => BASE_DISTANCE,
+            Base::Third => {
+                return Err(GameError::SameTargetBase);
+            }
+            Base::Home => BASE_DISTANCE,
+        },
+        Base::Home => match to_base {
+            Base::First => BASE_DISTANCE,
+            Base::Second => BASE_DISTANCE * SQRT_2,
+            Base::Third => BASE_DISTANCE,
+            Base::Home => {
+                return Err(GameError::SameTargetBase);
+            }
+        },
+    };
+    Ok(distance)
+}
 
 // Calculate actual ball flight time based on distance
 fn calculate_ball_flight_time(distance: f64, initial_throw_speed: f64) -> f64 {
-    // Base distance: assume top speed can be maintained up to 30m
-    if distance <= 30.0 {
+    if distance <= BALL_FLIGHT_SPEED_CONTINUE_DISTANCE {
         return distance / initial_throw_speed;
     }
 
     // Beyond 30m, add a mild delay proportional to distance squared (air resistance penalty)
     // A 100m direct throw takes roughly 0.5–0.8s longer than the simple calculation
     let base_time = distance / initial_throw_speed;
-    let penalty_factor = 1.0 + (distance - 30.0).powi(2) * 0.0001;
+    let penalty_factor = 1.0 + (distance - BALL_FLIGHT_SPEED_CONTINUE_DISTANCE).powi(2) * 0.0001;
 
     base_time * penalty_factor
 }
@@ -58,31 +111,32 @@ fn calculate_cutoff_position(catch_pos: &PolarPosition, target_base: Base) -> Po
 }
 
 fn calculate_relay_play_time(
-    fielder: &Fielder,
+    throw_fielder: &Fielder,
     catch_pos: &PolarPosition,
     target_base: Base,
-    cutoff: &Fielder, // Infielder data for the cutoff relay
+    cutoff_fielder: &Fielder, // Infielder data for the cutoff relay
 ) -> f64 {
     let base_pos = target_base.polar_position();
 
     // --- Pattern A: Direct throw ---
-    let direct_dist = calculate_distance(&catch_pos, &base_pos);
-    let direct_flight_time = calculate_ball_flight_time(direct_dist, fielder.throw_speed);
-    let total_direct_time = fielder.prep_time + direct_flight_time;
+    let direct_dist = calculate_polar_distance(&catch_pos, &base_pos);
+    let direct_flight_time = calculate_ball_flight_time(direct_dist, throw_fielder.throw_speed);
+    let total_direct_time = throw_fielder.prep_time + direct_flight_time;
 
     // --- Pattern B: Cutoff relay play ---
     let cutoff_pos = calculate_cutoff_position(catch_pos, target_base);
 
     // Outfielder → cutoff man throw time
-    let dist_1st = calculate_distance(&catch_pos, &cutoff_pos);
-    let flight_time_1st = calculate_ball_flight_time(dist_1st, fielder.throw_speed);
+    let dist_1st = calculate_polar_distance(&catch_pos, &cutoff_pos);
+    let flight_time_1st = calculate_ball_flight_time(dist_1st, throw_fielder.throw_speed);
 
     // Cutoff man → base throw time
-    let dist_2nd = calculate_distance(&cutoff_pos, &base_pos);
-    let flight_time_2nd = calculate_ball_flight_time(dist_2nd, cutoff.throw_speed);
+    let dist_2nd = calculate_polar_distance(&cutoff_pos, &base_pos);
+    let flight_time_2nd = calculate_ball_flight_time(dist_2nd, cutoff_fielder.throw_speed);
 
     // Total relay time = outfielder prep + 1st flight + cutoff prep + 2nd flight
-    let total_relay_time = fielder.prep_time + flight_time_1st + cutoff.prep_time + flight_time_2nd;
+    let total_relay_time =
+        throw_fielder.prep_time + flight_time_1st + cutoff_fielder.prep_time + flight_time_2nd;
 
     // Pick the better option
     if total_relay_time < total_direct_time {
@@ -92,308 +146,134 @@ fn calculate_relay_play_time(
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct RunnerAdvanceResult {
-    pub updated_runners: RunnersOnBase,
-    pub runs_scored: u16,
+fn double_play_defense_play(
+    fielders: &[Fielder],
+    double_play_throw_target: &DoublePlayThrowTarget,
+) -> Result<Option<DoublePlayDefencePlayResult>, GameError> {
+    let distance_to_base = calculate_base_distance(
+        double_play_throw_target.from_base,
+        double_play_throw_target.to_base,
+    )?;
+
+    let thorower_fielder = find_fielder_by_position(
+        fielders,
+        double_play_throw_target.thorower_fielder_position.clone(),
+    )?;
+    // TODO: case of final fielder failed to catch
+    let _final_fielder = find_fielder_by_position(
+        fielders,
+        double_play_throw_target.final_fielder_position.clone(),
+    )?;
+
+    // CONSTRAINT: Thorower must throw to another base in case double play
+    // CONSTRAINT: PlayType is always FourcePlay in case double play
+    let defense_play_time = thorower_fielder.prep_time
+        + calculate_ball_flight_time(distance_to_base, thorower_fielder.throw_speed);
+
+    // let mut final_fielder_position = throw_target.final_fielder_position.clone();
+
+    let double_play_defence_play_result = DoublePlayDefencePlayResult {
+        throw_target_base: double_play_throw_target.to_base,
+        final_fielder_position: double_play_throw_target.final_fielder_position.clone(),
+        defense_time: defense_play_time,
+    };
+    Ok(Some(double_play_defence_play_result))
 }
 
-// Running speed of each runner on base (None if no runner)
-#[derive(Clone, Copy, Debug)]
-pub struct RunnersOnBase {
-    pub batter_runner: Runner, // Batter always exists
-    pub runner_1st: Option<Runner>,
-    pub runner_2nd: Option<Runner>,
-    pub runner_3rd: Option<Runner>,
-}
-impl RunnersOnBase {
-    pub fn new(batter_runner: Runner) -> Self {
-        Self {
-            batter_runner: batter_runner,
-            runner_1st: None,
-            runner_2nd: None,
-            runner_3rd: None,
-        }
-    }
+// TODO: case of final fielder failed to catch
+fn infield_grounder_defense_play(
+    ctx: &PlayContext,
+    throw_target: &ThrowTarget,
+) -> Result<DefencePlayResult, GameError> {
+    let distance_to_base = calculate_polar_distance(
+        &ctx.ball.polar_position,
+        &throw_target.base.polar_position(),
+    );
 
-    pub fn has_runner_on(&self, base: Base) -> bool {
-        match base {
-            Base::First => self.runner_1st.is_some(),
-            Base::Second => self.runner_2nd.is_some(),
-            Base::Third => self.runner_3rd.is_some(),
-            Base::Home => false,
-        }
-    }
+    let mut final_fielder_position = throw_target.final_fielder_position.clone();
 
-    pub fn is_loaded(&self) -> bool {
-        self.runner_1st.is_some() && self.runner_2nd.is_some() && self.runner_3rd.is_some()
-    }
+    let time_to_final_fielder = ctx.try_catch_fielder.prep_time
+        + calculate_ball_flight_time(distance_to_base, ctx.try_catch_fielder.throw_speed);
+    let defense_play_time = if throw_target.play_type == PlayType::ForcePlay {
+        let time_via_run = distance_to_base / ctx.try_catch_fielder.running_speed;
 
-    pub fn has_first_and_second(&self) -> bool {
-        self.runner_1st.is_some() && self.runner_2nd.is_some()
-    }
-
-    pub fn has_second_and_third(&self) -> bool {
-        self.runner_2nd.is_some() && self.runner_3rd.is_some()
-    }
-
-    pub fn has_first_and_third(&self) -> bool {
-        self.runner_1st.is_some() && self.runner_2nd.is_some() && self.runner_3rd.is_some()
-    }
-
-    pub fn after_homerun(&self) -> RunnerAdvanceResult {
-        let mut runs_scored: u16 = 1;
-
-        if self.runner_1st.is_some() {
-            runs_scored += 1;
-        }
-
-        if self.runner_2nd.is_some() {
-            runs_scored += 1;
-        }
-
-        if self.runner_3rd.is_some() {
-            runs_scored += 1;
-        }
-
-        let updated_runners = RunnersOnBase {
-            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
-            runner_1st: None,
-            runner_2nd: None,
-            runner_3rd: None,
-        };
-
-        RunnerAdvanceResult {
-            updated_runners: updated_runners,
-            runs_scored: runs_scored,
-        }
-    }
-
-    fn after_grounder(&self, target_base: Base, ruling: Ruling) -> RunnerAdvanceResult {
-        // Update runner state and calculate runs scored
-        let mut next_1st = Some(self.batter_runner);
-        let mut next_2nd = self.runner_1st;
-        let mut next_3rd = self.runner_2nd;
-        let mut runs_scored: u16 = 0;
-
-        if self.runner_3rd.is_some() {
-            runs_scored += 1;
-        }
-
-        // Overwrite: remove the runner who was put out
-        if ruling == Ruling::Out {
-            match target_base {
-                Base::First => next_1st = None,
-                Base::Second => next_2nd = None,
-                Base::Third => next_3rd = None,
-                Base::Home => {
-                    next_3rd = None;
-                    runs_scored = runs_scored.saturating_sub(1);
-                }
-            }
-        }
-
-        let updated_runners = RunnersOnBase {
-            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
-            runner_1st: next_1st,
-            runner_2nd: next_2nd,
-            runner_3rd: next_3rd,
-        };
-
-        RunnerAdvanceResult {
-            updated_runners: updated_runners,
-            runs_scored: runs_scored,
-        }
-    }
-
-    fn after_outfield_hit(
-        &self,
-        base_advance: BattingResult,
-        target_base: Base,
-        ruling: Ruling,
-    ) -> RunnerAdvanceResult {
-        // Update runner state and calculate runs scored
-        let mut next_1st = None;
-        let mut next_2nd = None;
-        let mut next_3rd = None;
-        let mut runs_scored: u16 = 0;
-
-        // Shift runners based on the dynamically calculated base_advance
-        match base_advance {
-            BattingResult::Single => {
-                // TODO: Consider the case 1st runner goes to 3rd base
-                next_1st = Some(self.batter_runner);
-                next_2nd = self.runner_1st;
-                next_3rd = self.runner_2nd;
-                if self.runner_3rd.is_some() {
-                    runs_scored += 1;
-                }
-            }
-            BattingResult::Double => {
-                next_2nd = Some(self.batter_runner);
-                next_3rd = self.runner_1st;
-                if self.runner_2nd.is_some() {
-                    runs_scored += 1;
-                }
-                if self.runner_3rd.is_some() {
-                    runs_scored += 1;
-                }
-            }
-            BattingResult::Triple => {
-                next_3rd = Some(self.batter_runner);
-                if self.runner_1st.is_some() {
-                    runs_scored += 1;
-                }
-                if self.runner_2nd.is_some() {
-                    runs_scored += 1;
-                }
-                if self.runner_3rd.is_some() {
-                    runs_scored += 1;
-                }
-            }
-            _ => {}
-        }
-
-        // Overwrite: remove the runner who was put out
-        if ruling == Ruling::Out {
-            match target_base {
-                Base::First => next_1st = None,
-                Base::Second => next_2nd = None,
-                Base::Third => next_3rd = None,
-                Base::Home => {
-                    next_3rd = None;
-                    runs_scored = runs_scored.saturating_sub(1);
-                }
-            }
-        }
-
-        let updated_runners = RunnersOnBase {
-            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
-            runner_1st: next_1st,
-            runner_2nd: next_2nd,
-            runner_3rd: next_3rd,
-        };
-
-        RunnerAdvanceResult {
-            updated_runners: updated_runners,
-            runs_scored: runs_scored,
-        }
-    }
-
-    fn after_tagup(&self, target_base: Base, ruling: Ruling) -> RunnerAdvanceResult {
-        // Update runner state and calculate runs scored (tag-up specific)
-        let next_1st = self.runner_1st;
-        let mut next_2nd = self.runner_2nd;
-        let mut next_3rd = self.runner_3rd;
-        let mut runs_scored = 0;
-
-        // Initial state shift when a runner attempts to advance
-        match target_base {
-            Base::Home => {
-                next_3rd = None; // Third base runner has left the base
-                if ruling == Ruling::Safe {
-                    runs_scored += 1;
-                } // If safe, run scores
-            }
-            Base::Third => {
-                next_2nd = None; // Second base runner has left the base
-                if ruling == Ruling::Safe {
-                    next_3rd = self.runner_2nd;
-                } // If safe, runner holds third
-            }
-            _ => {} // If no one ran, the original base state is preserved
-        }
-
-        let updated_runners = RunnersOnBase {
-            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
-            runner_1st: next_1st,
-            runner_2nd: next_2nd,
-            runner_3rd: next_3rd,
-        };
-
-        RunnerAdvanceResult {
-            updated_runners: updated_runners,
-            runs_scored: runs_scored,
-        }
-    }
-
-    fn after_double_play(&self, ruling: Ruling) -> RunnerAdvanceResult {
-        // Update runner state and calculate runs scored (tag-up specific)
-        let mut next_1st = Some(self.batter_runner);
-        let next_2nd = self.runner_1st;
-        let next_3rd = self.runner_2nd;
-        let mut runs_scored: u16 = 0;
-
-        // Initial state shift when a runner attempts to advance
-        if self.runner_3rd.is_some() {
-            runs_scored += 1;
-        }
-
-        if ruling == Ruling::Out {
-            next_1st = None;
-        }
-
-        let updated_runners = RunnersOnBase {
-            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
-            runner_1st: next_1st,
-            runner_2nd: next_2nd,
-            runner_3rd: next_3rd,
-        };
-
-        RunnerAdvanceResult {
-            updated_runners: updated_runners,
-            runs_scored: runs_scored,
-        }
-    }
-
-    fn after_base_stealing(&self, target_base: Base, ruling: Ruling) -> RunnersOnBase {
-        let mut next_1st = self.runner_1st;
-        let mut next_2nd = self.runner_2nd;
-        let mut next_3rd = self.runner_3rd;
-
-        if ruling == Ruling::Out {
-            // [Out]: the runner who attempted to advance is removed
-            match target_base {
-                Base::Second => next_1st = None,
-                Base::Third => next_2nd = None,
-                _ => {}
-            }
+        if time_to_final_fielder > time_via_run {
+            final_fielder_position = ctx.try_catch_fielder.position.clone();
+            time_via_run
         } else {
-            // [Safe]: the runner successfully advances
-            match target_base {
-                Base::Second => {
-                    next_2nd = self.runner_1st;
-                    next_1st = None;
-                }
-                Base::Third => {
-                    next_3rd = self.runner_2nd;
-                    next_2nd = None;
-                }
-                _ => {}
+            time_to_final_fielder
+        }
+    } else {
+        time_to_final_fielder + TOUCH_PENALTY_TIME
+    };
+
+    let defence_play_result = DefencePlayResult {
+        time_to_catch: ctx.time_to_catch,
+        throw_target_base: throw_target.base,
+        play_type: throw_target.play_type,
+        final_fielder_position: final_fielder_position,
+        cutoff_fielder_potition: throw_target.cutoff_fielder_position.clone(),
+        defense_time: defense_play_time,
+    };
+    Ok(defence_play_result)
+}
+
+// TODO: case of final fielder failed to catch
+fn outfield_defense_play(
+    ctx: &PlayContext,
+    throw_target: &ThrowTarget,
+) -> Result<DefencePlayResult, GameError> {
+    let distance_to_base = calculate_polar_distance(
+        &ctx.ball.polar_position,
+        &throw_target.base.polar_position(),
+    );
+
+    let defense_play_time = match throw_target.cutoff_fielder_position.clone() {
+        Some(cutoff_position) => {
+            let cutoff_fielder = find_fielder_by_position(ctx.fielders, cutoff_position)?;
+
+            calculate_relay_play_time(
+                ctx.try_catch_fielder,
+                &ctx.ball.polar_position,
+                throw_target.base,
+                cutoff_fielder,
+            )
+        }
+        None => {
+            // Cutoff man not needed or not specified:
+            // Calculate with direct throw time only
+            let time_to_final_fielder = ctx.try_catch_fielder.prep_time
+                + calculate_ball_flight_time(distance_to_base, ctx.try_catch_fielder.throw_speed);
+            if throw_target.play_type == PlayType::ForcePlay {
+                time_to_final_fielder
+            } else {
+                time_to_final_fielder + TOUCH_PENALTY_TIME
             }
         }
+    };
 
-        RunnersOnBase {
-            batter_runner: self.batter_runner, // Kept for the next batter (effectively reset)
-            runner_1st: next_1st,
-            runner_2nd: next_2nd,
-            runner_3rd: next_3rd,
-        }
-    }
+    let defence_play_result = DefencePlayResult {
+        time_to_catch: ctx.time_to_catch,
+        throw_target_base: throw_target.base,
+        play_type: throw_target.play_type,
+        final_fielder_position: throw_target.final_fielder_position.clone(),
+        cutoff_fielder_potition: throw_target.cutoff_fielder_position.clone(),
+        defense_time: defense_play_time,
+    };
+    Ok(defence_play_result)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PlayType {
+pub enum PlayType {
     ForcePlay,
     TouchPlay,
 }
 
 #[derive(Debug)]
-pub struct StealResult {
-    pub ruling: Ruling,
+pub struct StealDefencePlayResult {
+    pub throw_target_base: Base,
+    pub final_fielder_position: Position,
     pub defense_time: f64,
-    pub runner_time: f64,
-    pub updated_runners: RunnersOnBase,
 }
 
 #[derive(Debug)]
@@ -413,27 +293,38 @@ pub struct PlayContext<'a> {
     pub fielders: &'a [Fielder],
     pub try_catch_fielder: &'a Fielder,
     pub ball: &'a Ball,
-    pub time_to_catch: f64, // Time taken to catch (or process the hit)
+    pub time_to_catch: f64,
     pub is_fly_catch: bool,
 }
 
+// CONSTRAINT: PlayType must be ForcePlay
 #[derive(Debug)]
-struct AutoTarget {
-    base: Base,
-    play_type: PlayType,
-    cutoff_fielder: Option<Position>,
+struct DoublePlayThrowTarget {
+    from_base: Base,
+    to_base: Base,
+    thorower_fielder_position: Position,
+    final_fielder_position: Position,
 }
 
-fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
+#[derive(Debug)]
+struct ThrowTarget {
+    base: Base,
+    play_type: PlayType,
+    final_fielder_position: Position,
+    cutoff_fielder_position: Option<Position>,
+}
+
+fn judge_tagup_throw_target(ctx: &PlayContext) -> ThrowTarget {
     // Tag-up prevention strategy for no-bounce catches (fly/liner outs)
     // 1. Runner on third (4): top priority is to throw home (back home)
     if ctx.runners.has_runner_on(Base::Third) {
         // If the fly is too deep (e.g. 95m+), give up and throw to the infield (2nd base etc.)
         if ctx.ball.distance() <= DEEP_OUTFIELD_DISTANCE {
-            return AutoTarget {
+            return ThrowTarget {
                 base: Base::Home,
                 play_type: PlayType::TouchPlay,
-                cutoff_fielder: match ctx.try_catch_fielder.position {
+                final_fielder_position: Position::C,
+                cutoff_fielder_position: match ctx.try_catch_fielder.position {
                     Position::RF => Some(Position::SB),
                     _ => Some(Position::SS),
                 },
@@ -446,49 +337,122 @@ fn judge_tagup_target(ctx: &PlayContext) -> AutoTarget {
         // Left-field fly: third baseman is either catching or off the base,
         // so only throw to third on center/right-field flies
         if matches!(ctx.try_catch_fielder.position, Position::CF | Position::RF) {
-            return AutoTarget {
+            return ThrowTarget {
                 base: Base::Third,
                 play_type: PlayType::TouchPlay,
-                cutoff_fielder: Some(Position::SB),
+                final_fielder_position: Position::TB,
+                cutoff_fielder_position: Some(Position::SB),
             };
         }
     }
 
     // 3. No runner advancing, or the ball is too deep to throw
     // Throw cleanly back to the infield (second) to end the play
-    return AutoTarget {
+    let rng: f64 = rand::random();
+    let catch_fielder = if rng < WEIGHT_SS_BASE_COVER {
+        Position::SS
+    } else {
+        Position::SB
+    };
+
+    return ThrowTarget {
         base: Base::Second,
         play_type: PlayType::TouchPlay,
-        cutoff_fielder: None,
+        final_fielder_position: catch_fielder,
+        cutoff_fielder_position: None,
     };
 }
 
-fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
-    // Infield grounder (situation where an out can be made) → previous logic
+fn judge_double_play_throw_target(
+    // ctx: &PlayContext,
+    defence_play_result: &DefencePlayResult,
+) -> Option<DoublePlayThrowTarget> {
+    let rng: f64 = rand::random();
+    let second_base_cover_position = if rng < WEIGHT_SS_BASE_COVER {
+        Position::SS
+    } else {
+        Position::SB
+    };
+
+    match defence_play_result.throw_target_base {
+        Base::First => {
+            if defence_play_result.final_fielder_position == Position::FB {
+                return Some(DoublePlayThrowTarget {
+                    from_base: Base::First,
+                    to_base: Base::Second,
+                    thorower_fielder_position: Position::FB,
+                    final_fielder_position: second_base_cover_position,
+                });
+            } else {
+                return None;
+            }
+        }
+        Base::Second => {
+            return Some(DoublePlayThrowTarget {
+                from_base: Base::Second,
+                to_base: Base::First,
+                thorower_fielder_position: defence_play_result.final_fielder_position.clone(),
+                final_fielder_position: Position::FB,
+            });
+        }
+        Base::Third => {
+            // CONSTRAINT: Throwing to second base is not covered
+            return Some(DoublePlayThrowTarget {
+                from_base: Base::Third,
+                to_base: Base::First,
+                thorower_fielder_position: defence_play_result.final_fielder_position.clone(), // Must be TB
+                final_fielder_position: Position::FB,
+            });
+        }
+        Base::Home => {
+            let rng: f64 = rand::random();
+            // CONSTRAINT: Effect of draw-in infield is not cosidered. Assuming TB is enough close to third base.
+            let (target_base, final_fielder_position) = if rng < WEIGHT_IS_LOADED_TARGET_THIRD {
+                (Base::Third, Position::TB)
+            } else {
+                (Base::First, Position::FB)
+            };
+
+            return Some(DoublePlayThrowTarget {
+                from_base: Base::Home,
+                to_base: target_base,
+                thorower_fielder_position: defence_play_result.final_fielder_position.clone(), // Must be C
+                final_fielder_position: final_fielder_position,
+            });
+        }
+    }
+}
+
+fn judge_infield_grounder_throw_target(ctx: &PlayContext) -> ThrowTarget {
+    // CONSTRAINT: Play back for the double play　 is not covered.
     if ctx.runners.is_loaded() {
-        return AutoTarget {
+        return ThrowTarget {
             base: Base::Home,
             play_type: PlayType::ForcePlay,
-            cutoff_fielder: None,
+            final_fielder_position: Position::C,
+            cutoff_fielder_position: None,
         };
     }
 
     // TODO: Consider the case of protecting the 1-point lead
     if ctx.runners.has_runner_on(Base::Third) && ctx.ball.distance() <= SHALLOW_INFIELD_DISTANCE {
-        return AutoTarget {
+        return ThrowTarget {
             base: Base::Home,
             play_type: PlayType::TouchPlay,
-            cutoff_fielder: None,
+            final_fielder_position: Position::C,
+            cutoff_fielder_position: None,
         };
     }
 
+    // CONSTRAINT: Throwing to second base is not covered.
     if ctx.runners.has_first_and_second()
         && matches!(ctx.try_catch_fielder.position, Position::TB | Position::SS)
     {
-        return AutoTarget {
+        return ThrowTarget {
             base: Base::Third,
             play_type: PlayType::ForcePlay,
-            cutoff_fielder: None,
+            final_fielder_position: Position::TB,
+            cutoff_fielder_position: None,
         };
     }
 
@@ -499,31 +463,53 @@ fn judge_infield_grounder_target(ctx: &PlayContext) -> AutoTarget {
                 Position::P | Position::C | Position::FB | Position::TB
             )
         {
-            return AutoTarget {
+            let catch_fielder = if ctx.try_catch_fielder.position == Position::FB {
+                Position::P // Pitcher should first base cover
+            } else {
+                Position::FB
+            };
+
+            return ThrowTarget {
                 base: Base::First,
                 play_type: PlayType::ForcePlay,
-                cutoff_fielder: None,
+                final_fielder_position: catch_fielder,
+                cutoff_fielder_position: None,
             };
         }
         if matches!(
             ctx.try_catch_fielder.position,
             Position::SB | Position::SS | Position::P
         ) {
-            return AutoTarget {
+            let catch_fielder = if ctx.try_catch_fielder.position == Position::SB {
+                Position::SS
+            } else if ctx.try_catch_fielder.position == Position::SS {
+                Position::SB
+            } else {
+                let rng: f64 = rand::random();
+                if rng < WEIGHT_SS_BASE_COVER {
+                    Position::SS
+                } else {
+                    Position::SB
+                }
+            };
+
+            return ThrowTarget {
                 base: Base::Second,
                 play_type: PlayType::ForcePlay,
-                cutoff_fielder: None,
+                final_fielder_position: catch_fielder,
+                cutoff_fielder_position: None,
             };
         }
     }
-    return AutoTarget {
+    return ThrowTarget {
         base: Base::First,
         play_type: PlayType::ForcePlay,
-        cutoff_fielder: None,
+        final_fielder_position: Position::FB,
+        cutoff_fielder_position: None,
     };
 }
 
-fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
+fn judge_outfield_hit_throw_target(ctx: &PlayContext) -> ThrowTarget {
     // Outfield hit (extra-base hit or single)
     // 1. Runner on third (or second), and a throw home might arrive in time
     // Note: if time_to_catch is short and the outfielder is relatively shallow (within 80m), go for home
@@ -537,10 +523,11 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
                 _ => Some(Position::SS),            // Left/Center field: shortstop is cutoff
             };
 
-            return AutoTarget {
+            return ThrowTarget {
                 base: Base::Home,
                 play_type: PlayType::TouchPlay,
-                cutoff_fielder: cutoff,
+                final_fielder_position: Position::C,
+                cutoff_fielder_position: cutoff,
             };
         }
     }
@@ -551,10 +538,11 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
         if matches!(ctx.try_catch_fielder.position, Position::CF | Position::RF)
             && ctx.ball.distance() <= CUTOFF_NEEDED_DISTACE_FOR_RUNNER_ON_FIRST
         {
-            return AutoTarget {
+            return ThrowTarget {
                 base: Base::Third,
                 play_type: PlayType::TouchPlay,
-                cutoff_fielder: Some(Position::SB),
+                final_fielder_position: Position::TB,
+                cutoff_fielder_position: Some(Position::SB),
             };
         }
     }
@@ -563,162 +551,60 @@ fn judge_outfield_hit_target(ctx: &PlayContext) -> AutoTarget {
     // Prevent the batter from advancing to second (or third)
     if ctx.ball.distance() >= DEEP_OUTFIELD_DISTANCE {
         // The fielder closer to the ball charges for the cutoff; the farther one covers the base
-        let cutoff = match ctx.try_catch_fielder.position {
-            Position::LF => Some(Position::SS), // Left field line: shortstop relays
-            Position::RF => Some(Position::SB), // Right field line: second base relays
-            _ => Some(Position::SS),            // Dead center: shortstop relays
+        let (cutoff, catch_fielder) = match ctx.try_catch_fielder.position {
+            Position::LF => (Some(Position::SS), Position::SB), // Left field line: shortstop relays
+            Position::RF => (Some(Position::SB), Position::SS), // Right field line: second base relays
+            _ => (Some(Position::SS), Position::SB),            // Dead center: shortstop relays
         };
-        return AutoTarget {
+
+        return ThrowTarget {
             base: Base::Second,
             play_type: PlayType::TouchPlay,
-            cutoff_fielder: cutoff,
+            final_fielder_position: catch_fielder,
+            cutoff_fielder_position: cutoff,
         };
     }
 
     // 4. Default (ordinary single, no aggressive base advancement expected)
     // Throw back to the infield to settle the play (conveniently use the nearest infield base)
     // For shallow hits, throw directly to second without a cutoff man
-    AutoTarget {
+    let rng: f64 = rand::random();
+    let catch_fielder = if rng < WEIGHT_SS_BASE_COVER {
+        Position::SS
+    } else {
+        Position::SB
+    };
+
+    ThrowTarget {
         base: Base::Second,
         play_type: PlayType::TouchPlay,
-        cutoff_fielder: None,
+        final_fielder_position: catch_fielder,
+        cutoff_fielder_position: None,
     }
 }
 
 #[derive(Debug)]
-pub struct PlayResult {
-    pub ruling: Ruling,
+pub struct DoublePlayDefencePlayResult {
+    pub throw_target_base: Base,
+    pub final_fielder_position: Position,
     pub defense_time: f64,
-    pub runner_time: f64,
-    pub time_difference: f64, // For determining if it's a close play
-    pub updated_runners: RunnersOnBase, // Runner state after the play completes
-    pub runs_scored: u16,
-    pub target_base: Base,
-    pub next_throw_position: Option<Position>,
 }
 
-struct BaseRace {
-    defense_time: f64,
-    runner_time: f64,
-    ruling: Ruling,
-    time_difference: f64,
-}
-impl BaseRace {
-    fn new() -> Self {
-        Self {
-            defense_time: 0.0,
-            runner_time: 0.0,
-            ruling: Ruling::Out,
-            time_difference: 0.0,
-        }
-    }
-    fn evaluate_base_race(
-        &mut self,
-        ctx: &PlayContext,
-        target: &AutoTarget,
-        batting_side: RL,
-    ) -> Result<(), GameError> {
-        let distance_to_base =
-            calculate_distance(&ctx.ball.polar_position, &target.base.polar_position());
-
-        let defense_play_time = match target.cutoff_fielder.clone() {
-            Some(cutoff_position) => {
-                let cutoff_man = ctx
-                    .fielders
-                    .iter()
-                    .find(|i| i.is(cutoff_position.clone()))
-                    .map(|i| i)
-                    .ok_or_else(|| GameError::NoPlayerFor(cutoff_position.to_string()));
-
-                calculate_relay_play_time(
-                    ctx.try_catch_fielder,
-                    &ctx.ball.polar_position,
-                    target.base,
-                    cutoff_man?,
-                )
-            }
-            None => {
-                // Cutoff man not needed or not specified:
-                // Calculate with direct throw (or self-run) time only
-                if target.play_type == PlayType::ForcePlay {
-                    let time_via_throw = ctx.try_catch_fielder.prep_time
-                        + calculate_ball_flight_time(
-                            distance_to_base,
-                            ctx.try_catch_fielder.throw_speed,
-                        );
-                    let time_via_run = distance_to_base / ctx.try_catch_fielder.running_speed;
-                    time_via_run.min(time_via_throw)
-                } else {
-                    ctx.try_catch_fielder.prep_time
-                        + (distance_to_base / ctx.try_catch_fielder.throw_speed)
-                        + TOUCH_PENALTY_TIME
-                }
-            }
-        };
-        self.defense_time = ctx.time_to_catch + defense_play_time;
-
-        let (running_distance, target_runner): (f64, Option<Runner>) = match target.base {
-            Base::First => {
-                let dist = match batting_side {
-                    RL::Right => BASE_DISTANCE + 2.0,
-                    RL::Left => BASE_DISTANCE,
-                };
-                (dist, Some(ctx.runners.batter_runner)) // Batter always exists
-            }
-            Base::Second => (BASE_DISTANCE, ctx.runners.runner_1st),
-            Base::Third => (
-                BASE_DISTANCE,
-                ctx.runners.runner_2nd.or(ctx.runners.runner_1st),
-            ),
-            Base::Home => (
-                BASE_DISTANCE,
-                ctx.runners
-                    .runner_3rd
-                    .or(ctx.runners.runner_2nd)
-                    .or(ctx.runners.runner_1st),
-            ),
-        };
-
-        let total_runner_time = match target_runner {
-            Some(runner) => {
-                // When the target is preventing extra-base advancement (e.g. runner on 1st going to 3rd, runner on 2nd heading home),
-                // the runner is already through the previous base and accelerating, so reduce the acceleration penalty slightly
-                let acceleration_lag = if target.base != Base::First {
-                    ACCELERATION_PENALTY_TIME_AFTER_FIRST_BASE
-                } else {
-                    ACCELERATION_PENALTY_TIME_NORMAL
-                };
-                ((running_distance - runner.lead_distance).max(0.0) / runner.speed)
-                    + acceleration_lag
-            }
-            None => {
-                // [Important] If a throw is made to a base with no runner (logic error or poor decision)
-                // Set runner time to 0s, forcing the defense to be Safe (failure) as a safety guard
-                0.0
-            }
-        };
-
-        self.ruling = if self.defense_time <= total_runner_time {
-            Ruling::Out
-        } else {
-            Ruling::Safe
-        };
-        self.runner_time = total_runner_time;
-        self.time_difference = (self.defense_time - total_runner_time).abs();
-
-        Ok(())
-    }
+#[derive(Debug)]
+pub struct DefencePlayResult {
+    pub time_to_catch: f64,
+    pub throw_target_base: Base,
+    pub play_type: PlayType,
+    pub final_fielder_position: Position,
+    pub cutoff_fielder_potition: Option<Position>,
+    pub defense_time: f64,
 }
 
 pub fn evaluate_base_stealing(
     target_base: Base,     // Second (steal 2nd) or Third (steal 3rd)
     pitcher: &PitcherData, // Quick motion speed, pitch velocity
     catcher: &CatcherData, // Arm strength (pop time), control
-    runner_speed: f64,     // Runner's pure running speed (m/s)
-    lead_distance: f64,    // Lead distance (m)
-    start_reaction: f64,   // Start reaction time (seconds; 0.1 for good jump, 0.6 if picked off)
-    runners: &RunnersOnBase,
-) -> StealResult {
+) -> StealDefencePlayResult {
     // 1. Defense side: total time from pitch to throw completion to 2nd (or 3rd)
     // Pitcher's motion time (1.0s for quick motion, ~1.3s for normal)
     let pitch_delivery_time = pitcher.delivery_motion_time;
@@ -727,223 +613,60 @@ pub fn evaluate_base_stealing(
     // Varies with throw distance to the target base (2nd: ~38m, 3rd: ~27m)
     let home_pos = Base::Home.polar_position();
     let target_pos = target_base.polar_position();
-    let throw_distance = calculate_distance(&home_pos, &target_pos);
+    let throw_distance = calculate_polar_distance(&home_pos, &target_pos);
 
     let catcher_pop_time = catcher.prep_time + (throw_distance / catcher.throw_speed);
+
+    let rng: f64 = rand::random();
+    let final_fielder_position = if rng < WEIGHT_SS_BASE_COVER {
+        Position::SS
+    } else {
+        Position::SB
+    };
 
     // Total defense time = pitcher motion + catcher pop time + tag play (0.3s)
     let total_defense_time = pitch_delivery_time + catcher_pop_time + TOUCH_PENALTY_TIME;
 
-    // 2. Runner side: total time to slide into the next base
-    let running_distance = BASE_DISTANCE - lead_distance;
-
-    // Runner total time = reaction delay + actual running time
-    let total_runner_time = start_reaction + (running_distance / runner_speed);
-
-    // 3. Outcome judgment and runner state update
-    let ruling = if total_defense_time <= total_runner_time {
-        Ruling::Out
-    } else {
-        Ruling::Safe
-    };
-
-    let updated_runners = runners.after_base_stealing(target_base, ruling.clone());
-
-    StealResult {
-        ruling: ruling,
+    StealDefencePlayResult {
+        throw_target_base: target_base,
+        final_fielder_position: final_fielder_position,
         defense_time: total_defense_time,
-        runner_time: total_runner_time,
-        updated_runners: updated_runners,
     }
 }
 
 pub fn evaluate_double_play(
-    fielders: &[Fielder],
-    runners: &RunnersOnBase,
-    batting_side: RL,
-    target_base: Base,
-    last_fielder_position: Position,
-) -> Result<PlayResult, GameError> {
-    // 1. Determine defense target based on the passed target
-    let base_pos = target_base.polar_position();
-
-    // The second throw target is always first base (Base::First)
-    let first_base_pos = Base::First.polar_position();
-
-    // 2. Time race calculation (throw/run vs target runner)
-    let distance_to_base = calculate_distance(&base_pos, &first_base_pos);
-
-    let thrower = fielders
-        .iter()
-        .find(|i| i.is(last_fielder_position.clone()))
-        .map(|i| i)
-        .ok_or_else(|| GameError::NoPlayerFor(last_fielder_position.to_string()))?;
-
-    let defense_play_time =
-        thrower.prep_time + calculate_ball_flight_time(distance_to_base, thrower.throw_speed);
-
-    let running_distance = match batting_side {
-        RL::Right => BASE_DISTANCE + 2.0,
-        RL::Left => BASE_DISTANCE,
-    };
-
-    let acceleration_lag = 0.2;
-    let total_runner_time = (running_distance / runners.batter_runner.speed) + acceleration_lag;
-
-    let ruling = if defense_play_time <= total_runner_time {
-        Ruling::Out
-    } else {
-        Ruling::Safe
-    };
-    let time_difference = (defense_play_time - total_runner_time).abs();
-
-    let runner_advance_result = runners.after_double_play(ruling.clone());
-
-    Ok(PlayResult {
-        ruling: ruling,
-        defense_time: defense_play_time,
-        runner_time: total_runner_time,
-        time_difference: time_difference,
-        updated_runners: runner_advance_result.updated_runners,
-        runs_scored: runner_advance_result.runs_scored,
-        target_base: target_base,
-        next_throw_position: None,
-    })
-}
-
-fn evaluate_tagup_play(ctx: &PlayContext, batting_side: RL) -> Result<PlayResult, GameError> {
-    // Get the tag-up specific target (home, third, etc.)
-    // Base advance is 0 since it's a fly out
-    let target = judge_tagup_target(&ctx);
-    // let base_pos = target.base.polar_position();
-
-    // 1. Calculate total defense time (based on t=0)
-    let mut base_race = BaseRace::new();
-    base_race.evaluate_base_race(ctx, &target, batting_side)?;
-
-    let runner_advance_result = ctx
-        .runners
-        .after_tagup(target.base, base_race.ruling.clone());
-
-    Ok(PlayResult {
-        ruling: base_race.ruling,
-        defense_time: base_race.defense_time,
-        runner_time: base_race.runner_time,
-        time_difference: base_race.time_difference,
-        updated_runners: runner_advance_result.updated_runners,
-        runs_scored: runner_advance_result.runs_scored,
-        target_base: target.base,
-        next_throw_position: None,
-    })
-}
-
-fn evaluate_outfield_hit_play(
     ctx: &PlayContext,
-    batting_side: RL, // Batter's side; only used for batter-runner distance adjustment
-) -> Result<PlayResult, GameError> {
-    // 1. Dynamically determine how many bases the batter can advance (base_advance)
-    let base_advance: BattingResult;
-
-    // Calculate the time for the batter to reach each base
-    let dist_1st = match batting_side {
-        RL::Right => BASE_DISTANCE + 2.0,
-        RL::Left => BASE_DISTANCE,
-    };
-    let t1 = (dist_1st / ctx.runners.batter_runner.speed) + ACCELERATION_PENALTY_TIME_NORMAL;
-    let t2 = ((dist_1st + BASE_DISTANCE) / ctx.runners.batter_runner.speed)
-        + ACCELERATION_PENALTY_TIME_NORMAL;
-    // t3 may be used for running home run
-    // let t3 = ((dist_1st + BASE_DISTANCE * 2.0) / runners.batter_speed) + ACCELERATION_DELAY_TIME;
-
-    // At the moment the fielder handles the ball, how far has the batter advanced?
-    // The slower the fielder's processing (larger time_to_catch), the more bases the batter can take
-    if ctx.time_to_catch > t2 - ACCELERATION_PENALTY_TIME_NORMAL {
-        base_advance = BattingResult::Triple;
-    } else if ctx.time_to_catch > t1 - ACCELERATION_PENALTY_TIME_NORMAL {
-        base_advance = BattingResult::Double;
+    defence_play_result: &DefencePlayResult,
+) -> Result<Option<DoublePlayDefencePlayResult>, GameError> {
+    let double_play_throw_target = judge_double_play_throw_target(defence_play_result);
+    if double_play_throw_target.is_none() {
+        Ok(None)
     } else {
-        base_advance = BattingResult::Single; // Single
-    }
-
-    // 2. Determine defense target based on the dynamically calculated base_advance
-    // Automatically decide which base to target based on baseball theory
-    // TODO: Change to pass base_advance to judge_optimal_target_general
-    let target = judge_outfield_hit_target(ctx);
-
-    let mut base_race = BaseRace::new();
-    base_race.evaluate_base_race(ctx, &target, batting_side)?;
-
-    let runner_advance_result =
-        ctx.runners
-            .after_outfield_hit(base_advance, target.base, base_race.ruling.clone());
-
-    Ok(PlayResult {
-        ruling: base_race.ruling,
-        defense_time: base_race.defense_time,
-        runner_time: base_race.runner_time,
-        time_difference: base_race.time_difference,
-        updated_runners: runner_advance_result.updated_runners,
-        runs_scored: runner_advance_result.runs_scored,
-        target_base: target.base,
-        next_throw_position: None,
-    })
-}
-
-pub fn evaluate_infield_grounder_play(
-    ctx: &PlayContext,
-    batting_side: RL, // Batter's side; only used for batter-runner distance adjustment
-) -> Result<PlayResult, GameError> {
-    // 1. Determine defense target based on the dynamically calculated base_advance
-    // Automatically decide which base to target based on baseball theory
-    let target = judge_infield_grounder_target(ctx);
-
-    // 2. Time race calculation (throw/run vs target runner)
-    // Decide who catches the last ball
-    let last_fielder_position = match target.base {
-        Base::First => Position::FB,
-        Base::Second => {
-            if ctx.try_catch_fielder.position == Position::SB {
-                Position::SS
-            } else {
-                Position::SB
-            }
+        if let Some(throw_target) = double_play_throw_target {
+            let double_play_defence_play_result =
+                double_play_defense_play(ctx.fielders, &throw_target)?;
+            Ok(double_play_defence_play_result)
+        } else {
+            Ok(None)
         }
-        Base::Third => Position::TB,
-        Base::Home => Position::C,
-    };
-
-    let mut base_race = BaseRace::new();
-    base_race.evaluate_base_race(ctx, &target, batting_side)?;
-
-    let runner_advance_result = ctx
-        .runners
-        .after_grounder(target.base, base_race.ruling.clone());
-
-    Ok(PlayResult {
-        ruling: base_race.ruling,
-        defense_time: base_race.defense_time,
-        runner_time: base_race.runner_time,
-        time_difference: base_race.time_difference,
-        updated_runners: runner_advance_result.updated_runners,
-        runs_scored: runner_advance_result.runs_scored,
-        target_base: target.base,
-        next_throw_position: Some(last_fielder_position),
-    })
+    }
 }
 
-pub fn evaluate_defense_play(
-    ctx: &PlayContext,
-    batting_side: RL, // Batter's side; only used for batter-runner distance adjustment
-) -> Result<PlayResult, GameError> {
-    if ctx.is_fly_catch {
-        // 1. Delegate to tag-up judgment for fly/liner outs
-        evaluate_tagup_play(ctx, batting_side)
-    } else if !ctx.ball.is_infield() {
-        // 2. Delegate to advance/extra-base-hit prevention for outfield hits (to be implemented)
-        evaluate_outfield_hit_play(ctx, batting_side)
+// TODO: Consider double play by picking off
+pub fn evaluate_defense_play(ctx: &PlayContext) -> Result<DefencePlayResult, GameError> {
+    if ctx.ball.is_infield() {
+        let throw_target = judge_infield_grounder_throw_target(ctx);
+        let defence_play_result = infield_grounder_defense_play(ctx, &throw_target)?;
+        Ok(defence_play_result)
     } else {
-        // 3. Delegate to force play/self-run judgment for infield grounders (previous base logic)
-        evaluate_infield_grounder_play(ctx, batting_side)
+        let throw_target = if ctx.is_fly_catch {
+            judge_tagup_throw_target(ctx)
+        } else {
+            judge_outfield_hit_throw_target(ctx)
+        };
+
+        let defence_play_result = outfield_defense_play(ctx, &throw_target)?;
+        Ok(defence_play_result)
     }
 }
 
@@ -1003,7 +726,8 @@ impl Fielder {
     pub fn try_catch<'a>(&self, ball: &'a mut Ball) -> FieldingResult<'a> {
         // $$\text{arrival\_time} = \text{reaction\_time} + \frac{\text{required\_distance}}{\text{fielder\_speed}}$$
         // 1. Calculate straight-line distance from position to landing point
-        let required_distance = calculate_distance(&self.polar_position, &ball.polar_position);
+        let required_distance =
+            calculate_polar_distance(&self.polar_position, &ball.polar_position);
         let dy = self.y() - ball.y();
 
         // 3. Adjust initial reaction speed based on hit type (secret ingredient)
@@ -1122,8 +846,8 @@ pub fn find_closest_fielder<'f>(
     candidates
         .into_iter()
         .min_by(|a, b| {
-            let dist_a = calculate_distance(&a.polar_position, &ball.polar_position);
-            let dist_b = calculate_distance(&b.polar_position, &ball.polar_position);
+            let dist_a = calculate_polar_distance(&a.polar_position, &ball.polar_position);
+            let dist_b = calculate_polar_distance(&b.polar_position, &ball.polar_position);
 
             // Use partial_cmp safely since f64 is not a total order
             dist_a
@@ -1224,7 +948,8 @@ pub fn process_defensive_chain<'f, 'b>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::resolver::batting_resolver::*;
+    use crate::domain::resolver::running_resolver::Runner;
+    use crate::domain::shared::player::RL;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -1264,19 +989,17 @@ mod tests {
             Runner {
                 speed,
                 lead_distance: 0.0,
+                target_base: None,
             }
         }
 
         RunnersOnBase {
-            batter_runner: runner(7.0),
+            batting_side: Some(RL::Left),
+            batter_runner: Some(runner(7.0)),
             runner_1st: runner_1st_speed.map(runner),
             runner_2nd: runner_2nd_speed.map(runner),
             runner_3rd: runner_3rd_speed.map(runner),
         }
-    }
-
-    fn runner_speed(runner: Option<Runner>) -> Option<f64> {
-        runner.map(|runner| runner.speed)
     }
 
     fn pitcher(delivery_motion_time: f64) -> PitcherData {
@@ -1298,7 +1021,7 @@ mod tests {
         catcher: &CatcherData,
     ) -> f64 {
         let throw_distance =
-            calculate_distance(&Base::Home.polar_position(), &target_base.polar_position());
+            calculate_polar_distance(&Base::Home.polar_position(), &target_base.polar_position());
 
         pitcher.delivery_motion_time
             + catcher.prep_time
@@ -1320,7 +1043,7 @@ mod tests {
         ]
     }
 
-    fn assert_target(target: AutoTarget, expected_base: Base, expected_play_type: PlayType) {
+    fn assert_target(target: ThrowTarget, expected_base: Base, expected_play_type: PlayType) {
         assert_eq!(target.base, expected_base);
         assert_eq!(target.play_type, expected_play_type);
     }
@@ -1353,216 +1076,103 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_base_stealing_moves_first_runner_to_second_when_safe() {
+    fn evaluate_base_stealing_to_second_returns_defense_time_and_covering_fielder() {
         let pitcher = pitcher(1.0);
         let catcher = catcher(0.4, 35.0);
-        let runners = runners_on_base(Some(9.5), None, Some(6.8));
 
-        let result =
-            evaluate_base_stealing(Base::Second, &pitcher, &catcher, 9.5, 4.0, 0.1, &runners);
+        let result = evaluate_base_stealing(Base::Second, &pitcher, &catcher);
 
-        assert!(result.ruling == Ruling::Safe);
+        assert_eq!(result.throw_target_base, Base::Second);
+        assert!(matches!(
+            result.final_fielder_position,
+            Position::SS | Position::SB
+        ));
         assert_near(
             result.defense_time,
             expected_steal_defense_time(Base::Second, &pitcher, &catcher),
         );
-        assert_near(result.runner_time, 0.1 + ((27.431 - 4.0) / 9.5));
-        assert_eq!(runner_speed(result.updated_runners.runner_1st), None);
-        assert_eq!(runner_speed(result.updated_runners.runner_2nd), Some(9.5));
-        assert_eq!(runner_speed(result.updated_runners.runner_3rd), Some(6.8));
-        assert_near(
-            result.updated_runners.batter_runner.speed,
-            runners.batter_runner.speed,
-        );
     }
 
     #[test]
-    fn evaluate_base_stealing_removes_first_runner_when_caught_stealing_second() {
+    fn evaluate_base_stealing_to_third_returns_shorter_throw_time() {
         let pitcher = pitcher(1.0);
         let catcher = catcher(0.4, 35.0);
-        let runners = runners_on_base(Some(6.0), None, Some(6.8));
+        let second_result = evaluate_base_stealing(Base::Second, &pitcher, &catcher);
+        let third_result = evaluate_base_stealing(Base::Third, &pitcher, &catcher);
 
-        let result =
-            evaluate_base_stealing(Base::Second, &pitcher, &catcher, 6.0, 1.0, 0.6, &runners);
-
-        assert!(result.ruling == Ruling::Out);
-        assert!(result.defense_time <= result.runner_time);
+        assert_eq!(third_result.throw_target_base, Base::Third);
         assert_near(
-            result.defense_time,
-            expected_steal_defense_time(Base::Second, &pitcher, &catcher),
-        );
-        assert_near(result.runner_time, 0.6 + ((27.431 - 1.0) / 6.0));
-        assert_eq!(runner_speed(result.updated_runners.runner_1st), None);
-        assert_eq!(runner_speed(result.updated_runners.runner_2nd), None);
-        assert_eq!(runner_speed(result.updated_runners.runner_3rd), Some(6.8));
-    }
-
-    #[test]
-    fn evaluate_base_stealing_moves_second_runner_to_third_when_safe() {
-        let pitcher = pitcher(1.0);
-        let catcher = catcher(0.4, 35.0);
-        let runners = runners_on_base(Some(7.0), Some(8.5), None);
-
-        let result =
-            evaluate_base_stealing(Base::Third, &pitcher, &catcher, 8.5, 7.0, 0.05, &runners);
-
-        assert!(result.ruling == Ruling::Safe);
-        assert_near(
-            result.defense_time,
+            third_result.defense_time,
             expected_steal_defense_time(Base::Third, &pitcher, &catcher),
         );
-        assert_near(result.runner_time, 0.05 + ((27.431 - 7.0) / 8.5));
-        assert_eq!(runner_speed(result.updated_runners.runner_1st), Some(7.0));
-        assert_eq!(runner_speed(result.updated_runners.runner_2nd), None);
-        assert_eq!(runner_speed(result.updated_runners.runner_3rd), Some(8.5));
+        assert!(third_result.defense_time < second_result.defense_time);
     }
 
     #[test]
-    fn evaluate_base_stealing_removes_second_runner_when_caught_stealing_third() {
-        let pitcher = pitcher(1.0);
-        let catcher = catcher(0.4, 35.0);
-        let runners = runners_on_base(Some(7.0), Some(6.0), None);
-
-        let result =
-            evaluate_base_stealing(Base::Third, &pitcher, &catcher, 6.0, 1.0, 0.5, &runners);
-
-        assert!(result.ruling == Ruling::Out);
-        assert!(result.defense_time <= result.runner_time);
-        assert_near(
-            result.defense_time,
-            expected_steal_defense_time(Base::Third, &pitcher, &catcher),
-        );
-        assert_near(result.runner_time, 0.5 + ((27.431 - 1.0) / 6.0));
-        assert_eq!(runner_speed(result.updated_runners.runner_1st), Some(7.0));
-        assert_eq!(runner_speed(result.updated_runners.runner_2nd), None);
-        assert_eq!(runner_speed(result.updated_runners.runner_3rd), None);
-    }
-
-    #[test]
-    fn evaluate_double_play_records_out_when_second_throw_beats_batter_runner() {
+    fn evaluate_double_play_returns_second_throw_to_first_after_force_at_second() {
         let fielders = default_fielders();
-        let runners = RunnersOnBase {
-            batter_runner: Runner {
-                speed: 7.0,
-                lead_distance: 0.0,
-            },
-            runner_1st: Some(Runner {
-                speed: 6.5,
-                lead_distance: 0.0,
-            }),
-            runner_2nd: None,
-            runner_3rd: Some(Runner {
-                speed: 6.8,
-                lead_distance: 0.0,
-            }),
-        };
+        let runners = runners_on_base(Some(6.5), None, Some(6.8));
+        let ball = ball(TrajectoryType::Grounder, 35.0, -25.0, 1.0, 95.0, 4.0);
         let thrower = fielders
             .iter()
             .find(|fielder| fielder.is(Position::SS))
             .unwrap();
-        let throw_distance = calculate_distance(
+        let throw_distance = calculate_polar_distance(
             &Base::Second.polar_position(),
             &Base::First.polar_position(),
         );
+        let ctx = PlayContext {
+            runners: &runners,
+            fielders: &fielders,
+            try_catch_fielder: thrower,
+            ball: &ball,
+            time_to_catch: 1.0,
+            is_fly_catch: false,
+        };
+        let first_play = DefencePlayResult {
+            time_to_catch: 1.0,
+            throw_target_base: Base::Second,
+            play_type: PlayType::ForcePlay,
+            final_fielder_position: Position::SS,
+            cutoff_fielder_potition: None,
+            defense_time: 1.2,
+        };
 
-        let result =
-            evaluate_double_play(&fielders, &runners, RL::Right, Base::Second, Position::SS)
-                .unwrap();
+        let result = evaluate_double_play(&ctx, &first_play).unwrap().unwrap();
         let expected_defense_time =
             thrower.prep_time + calculate_ball_flight_time(throw_distance, thrower.throw_speed);
-        let expected_runner_time = ((BASE_DISTANCE + 2.0) / runners.batter_runner.speed) + 0.2;
 
-        assert_eq!(result.ruling, Ruling::Out);
+        assert_eq!(result.throw_target_base, Base::First);
+        assert_eq!(result.final_fielder_position, Position::FB);
         assert_near(result.defense_time, expected_defense_time);
-        assert_near(result.runner_time, expected_runner_time);
-        assert_near(
-            result.time_difference,
-            (result.defense_time - result.runner_time).abs(),
-        );
-        assert_eq!(runner_speed(result.updated_runners.runner_1st), None);
-        assert_eq!(runner_speed(result.updated_runners.runner_2nd), Some(6.5));
-        assert_eq!(runner_speed(result.updated_runners.runner_3rd), None);
-        assert_eq!(result.runs_scored, 1);
-        assert_eq!(result.target_base, Base::Second);
-        assert_eq!(result.next_throw_position, None);
-    }
-
-    #[test]
-    fn evaluate_double_play_keeps_batter_on_first_when_second_throw_loses_race() {
-        let slow_thrower = Fielder::new(Position::SB, 40.0, 18.0, 5.0, 7.0, 0.4, 0.6);
-        let fielders = [slow_thrower.clone()];
-        let runners = RunnersOnBase {
-            batter_runner: Runner {
-                speed: 9.0,
-                lead_distance: 0.0,
-            },
-            runner_1st: Some(Runner {
-                speed: 7.2,
-                lead_distance: 0.0,
-            }),
-            runner_2nd: Some(Runner {
-                speed: 6.9,
-                lead_distance: 0.0,
-            }),
-            runner_3rd: None,
-        };
-        let throw_distance = calculate_distance(
-            &Base::Second.polar_position(),
-            &Base::First.polar_position(),
-        );
-
-        let result =
-            evaluate_double_play(&fielders, &runners, RL::Left, Base::Second, Position::SB)
-                .unwrap();
-        let expected_defense_time = slow_thrower.prep_time
-            + calculate_ball_flight_time(throw_distance, slow_thrower.throw_speed);
-        let expected_runner_time = (BASE_DISTANCE / runners.batter_runner.speed) + 0.2;
-
-        assert_eq!(result.ruling, Ruling::Safe);
-        assert_near(result.defense_time, expected_defense_time);
-        assert_near(result.runner_time, expected_runner_time);
-        assert_eq!(runner_speed(result.updated_runners.runner_1st), Some(9.0));
-        assert_eq!(runner_speed(result.updated_runners.runner_2nd), Some(7.2));
-        assert_eq!(runner_speed(result.updated_runners.runner_3rd), Some(6.9));
-        assert_eq!(result.runs_scored, 0);
-    }
-
-    #[test]
-    fn evaluate_double_play_gives_right_handed_batter_extra_running_distance() {
-        let fielders = default_fielders();
-        let runners = runners_on_base(Some(7.0), None, None);
-
-        let left_result =
-            evaluate_double_play(&fielders, &runners, RL::Left, Base::Second, Position::SS)
-                .unwrap();
-        let right_result =
-            evaluate_double_play(&fielders, &runners, RL::Right, Base::Second, Position::SS)
-                .unwrap();
-
-        assert_near(
-            left_result.runner_time,
-            (BASE_DISTANCE / runners.batter_runner.speed) + 0.2,
-        );
-        assert_near(
-            right_result.runner_time,
-            ((BASE_DISTANCE + 2.0) / runners.batter_runner.speed) + 0.2,
-        );
-        assert_near(
-            right_result.runner_time - left_result.runner_time,
-            2.0 / runners.batter_runner.speed,
-        );
     }
 
     #[test]
     fn evaluate_double_play_returns_error_when_last_fielder_is_missing() {
         let fielders = [fielder(Position::SS, 35.0, -33.0)];
         let runners = runners_on_base(Some(7.0), None, None);
+        let ball = ball(TrajectoryType::Grounder, 35.0, -25.0, 1.0, 95.0, 4.0);
+        let ctx = PlayContext {
+            runners: &runners,
+            fielders: &fielders,
+            try_catch_fielder: &fielders[0],
+            ball: &ball,
+            time_to_catch: 1.0,
+            is_fly_catch: false,
+        };
+        let first_play = DefencePlayResult {
+            time_to_catch: 1.0,
+            throw_target_base: Base::Second,
+            play_type: PlayType::ForcePlay,
+            final_fielder_position: Position::SS,
+            cutoff_fielder_potition: None,
+            defense_time: 1.2,
+        };
 
-        let result =
-            evaluate_double_play(&fielders, &runners, RL::Left, Base::Second, Position::SB);
+        let result = evaluate_double_play(&ctx, &first_play);
 
         assert!(
-            matches!(result, Err(GameError::NoPlayerFor(position)) if position == Position::SB.to_string())
+            matches!(result, Err(GameError::NoPlayerFor(position)) if position == Position::FB.to_string())
         );
     }
 
@@ -1723,7 +1333,7 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let target = judge_infield_grounder_target(&ctx);
+        let target = judge_infield_grounder_throw_target(&ctx);
 
         assert_target(target, Base::Home, PlayType::ForcePlay);
     }
@@ -1743,7 +1353,7 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let target = judge_infield_grounder_target(&ctx);
+        let target = judge_infield_grounder_throw_target(&ctx);
 
         assert_target(target, Base::Third, PlayType::ForcePlay);
     }
@@ -1763,7 +1373,7 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let target = judge_outfield_hit_target(&ctx);
+        let target = judge_outfield_hit_throw_target(&ctx);
 
         assert_target(target, Base::Home, PlayType::TouchPlay);
     }
@@ -1783,7 +1393,7 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let target = judge_outfield_hit_target(&ctx);
+        let target = judge_outfield_hit_throw_target(&ctx);
 
         assert_target(target, Base::Third, PlayType::TouchPlay);
     }
@@ -1803,13 +1413,13 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let target = judge_outfield_hit_target(&ctx);
+        let target = judge_outfield_hit_throw_target(&ctx);
 
         assert_target(target, Base::Second, PlayType::TouchPlay);
     }
 
     #[test]
-    fn evaluate_grounder_play_records_out_when_force_play_beats_batter_runner() {
+    fn evaluate_defense_play_handles_infield_grounder_to_first() {
         let first_baseman = fielder(Position::FB, 28.0, 40.0);
         let catch_position = PolarPosition::new(20.0, 35.0);
         let grounder = ball(
@@ -1831,25 +1441,23 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let result = evaluate_infield_grounder_play(&ctx, RL::Left).unwrap();
-        let throw_distance = calculate_distance(&catch_position, &Base::First.polar_position());
-        let expected_defense_time = 0.8
-            + (first_baseman.prep_time + (throw_distance / first_baseman.throw_speed))
-                .min(throw_distance / first_baseman.running_speed);
-        let expected_runner_time = BASE_DISTANCE / runners.batter_runner.speed + 0.5;
+        let result = evaluate_defense_play(&ctx).unwrap();
+        let throw_distance =
+            calculate_polar_distance(&catch_position, &Base::First.polar_position());
+        let expected_defense_time = (first_baseman.prep_time
+            + (throw_distance / first_baseman.throw_speed))
+            .min(throw_distance / first_baseman.running_speed);
 
-        assert_eq!(result.ruling, Ruling::Out);
-        assert!(result.defense_time < result.runner_time);
+        assert_eq!(result.time_to_catch, 0.8);
+        assert_eq!(result.throw_target_base, Base::First);
+        assert_eq!(result.play_type, PlayType::ForcePlay);
+        assert_eq!(result.final_fielder_position, Position::FB);
+        assert_eq!(result.cutoff_fielder_potition, None);
         assert_near(result.defense_time, expected_defense_time);
-        assert_near(result.runner_time, expected_runner_time);
-        assert_near(
-            result.time_difference,
-            (result.defense_time - result.runner_time).abs(),
-        );
     }
 
     #[test]
-    fn evaluate_tagup_play_records_safe_when_tag_play_loses_home_race() {
+    fn evaluate_defense_play_handles_tagup_throw_home_with_cutoff() {
         let left_fielder = fielder(Position::LF, 78.0, -20.0);
         let catch_position = PolarPosition::new(78.0, -20.0);
         let shallow_hit = ball(
@@ -1871,24 +1479,24 @@ mod tests {
             is_fly_catch: true,
         };
 
-        let result = evaluate_tagup_play(&ctx, RL::Left).unwrap();
+        let result = evaluate_defense_play(&ctx).unwrap();
         let shortstop = fielders
             .iter()
             .find(|fielder| fielder.is(Position::SS))
             .unwrap();
-        let throw_time =
+        let expected_defense_time =
             calculate_relay_play_time(&left_fielder, &catch_position, Base::Home, shortstop);
-        let expected_defense_time = ctx.time_to_catch + throw_time;
-        let expected_runner_time = (BASE_DISTANCE / 10.0) + 0.2;
 
-        assert_eq!(result.ruling, Ruling::Safe);
-        assert!(result.defense_time > result.runner_time);
+        assert_eq!(result.time_to_catch, 3.2);
+        assert_eq!(result.throw_target_base, Base::Home);
+        assert_eq!(result.play_type, PlayType::TouchPlay);
+        assert_eq!(result.final_fielder_position, Position::C);
+        assert_eq!(result.cutoff_fielder_potition, Some(Position::SS));
         assert_near(result.defense_time, expected_defense_time);
-        assert_near(result.runner_time, expected_runner_time);
     }
 
     #[test]
-    fn evaluate_outfield_hit_play_returns_safe_when_selected_target_has_no_runner() {
+    fn evaluate_defense_play_handles_deep_outfield_hit_to_second() {
         let center_fielder = fielder(Position::CF, 90.0, 0.0);
         let deep_hit = ball(TrajectoryType::Fly, 95.0, 0.0, 5.0, 120.0, 35.0);
         let runners = runners_on_base(None, None, None);
@@ -1902,10 +1510,23 @@ mod tests {
             is_fly_catch: false,
         };
 
-        let result = evaluate_outfield_hit_play(&ctx, RL::Left).unwrap();
+        let result = evaluate_defense_play(&ctx).unwrap();
+        let shortstop = fielders
+            .iter()
+            .find(|fielder| fielder.is(Position::SS))
+            .unwrap();
+        let expected_defense_time = calculate_relay_play_time(
+            &center_fielder,
+            &deep_hit.polar_position,
+            Base::Second,
+            shortstop,
+        );
 
-        assert_eq!(result.ruling, Ruling::Safe);
-        assert_near(result.runner_time, 0.0);
-        assert!(result.defense_time > 0.0);
+        assert_eq!(result.time_to_catch, 5.0);
+        assert_eq!(result.throw_target_base, Base::Second);
+        assert_eq!(result.play_type, PlayType::TouchPlay);
+        assert_eq!(result.final_fielder_position, Position::SB);
+        assert_eq!(result.cutoff_fielder_potition, Some(Position::SS));
+        assert_near(result.defense_time, expected_defense_time);
     }
 }

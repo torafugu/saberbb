@@ -225,6 +225,7 @@ pub enum BattingResult {
     Triple,
     HomeRun,
     Foul,
+    FieldersChoice,
     Out,
 }
 impl std::fmt::Display for BattingResult {
@@ -235,6 +236,7 @@ impl std::fmt::Display for BattingResult {
             BattingResult::Triple => write!(f, "{}", t!("triple")),
             BattingResult::HomeRun => write!(f, "{}", t!("homerun")),
             BattingResult::Foul => write!(f, "{}", t!("foul")),
+            BattingResult::FieldersChoice => write!(f, "{}", t!("fielders_choice")),
             BattingResult::Out => write!(f, "{}", t!("out")),
         }
     }

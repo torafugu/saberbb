@@ -2,6 +2,7 @@ use super::game::{Base, BattingResult, Count, Inning, TB};
 use super::player::{Player, Position};
 use super::team::Lineup;
 use crate::domain::resolver::batting_resolver::simulate_batting;
+use crate::domain::resolver::running_resolver::RunnersOnBase;
 use crate::domain::shared::game_history::BattingResultHistory;
 use crate::domain::util::is_base_occupied;
 use crate::t;
@@ -20,6 +21,30 @@ pub enum GameError {
 
     #[error("Failed to retrieve current batter")]
     CurrentBatter,
+
+    #[error("Failed to retrieve batter runner")]
+    BatterRunner,
+
+    #[error("Failed to retrieve first runner")]
+    FirstRunner,
+
+    #[error("Failed to retrieve second runner")]
+    SecondRunner,
+
+    #[error("Failed to retrieve third runner")]
+    ThirdRunner,
+
+    #[error("Batter runner target base should not be home base")]
+    BatterRunnerTargetBase,
+
+    #[error("Steal target base must be second or third base")]
+    StealTargetBase,
+
+    #[error("Double play target base must not be home base")]
+    DoublePlayTargetBase,
+
+    #[error("Same target bases are passeed")]
+    SameTargetBase,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,6 +239,7 @@ pub enum InningProgress {
 pub struct InningState {
     pub count_seq: u8,
     pub bases_occupied: u8,
+    pub runners: RunnersOnBase,
     pub ball: u8,
     pub strike: u8,
     pub out: u8,
@@ -223,6 +249,7 @@ impl InningState {
         InningState {
             count_seq: 0,
             bases_occupied: 0,
+            runners: RunnersOnBase::new(),
             ball: 0,
             strike: 0,
             out: 0,
@@ -268,6 +295,7 @@ impl InningState {
                 self.clear();
             }
             BattingResult::Foul => {}
+            BattingResult::FieldersChoice => {} // TODO: Do something
             BattingResult::Out => {}
         }
         points
@@ -297,8 +325,8 @@ impl InningState {
         }
         let point = self.advance(&batting_result);
 
-        // TODO: Consider ball updatet
-        // TODO: Consider strike updatet
+        // TODO: Consider ball updated
+        // TODO: Consider strike updated
         Count {
             seq: self.count_seq,
             bases_occupied: self.bases_occupied,
@@ -522,6 +550,7 @@ mod tests {
                 let mut inning = InningState {
                     count_seq: 0,
                     bases_occupied: bases,
+                    runners: RunnersOnBase::new(),
                     ball: 0,
                     strike: 0,
                     out: 0,
