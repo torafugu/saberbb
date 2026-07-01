@@ -259,7 +259,7 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         return Ok(());
     }
 
-    let mut runners = RunnersOnBase::new();
+    let mut runners = RunnersOnBase::default();
     runners.batting_side = Some(batter.batting_side.clone());
     runners.batter_runner = Some(Runner {
         speed: 7.0,

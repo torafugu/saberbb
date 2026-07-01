@@ -26,13 +26,13 @@ pub enum GameError {
     BatterRunner,
 
     #[error("Failed to retrieve first runner")]
-    FirstRunner,
+    Runner1st,
 
     #[error("Failed to retrieve second runner")]
-    SecondRunner,
+    Runner2nd,
 
     #[error("Failed to retrieve third runner")]
-    ThirdRunner,
+    Runner3rd,
 
     #[error("Batter runner target base should not be home base")]
     BatterRunnerTargetBase,
@@ -249,7 +249,7 @@ impl InningState {
         InningState {
             count_seq: 0,
             bases_occupied: 0,
-            runners: RunnersOnBase::new(),
+            runners: RunnersOnBase::default(),
             ball: 0,
             strike: 0,
             out: 0,
@@ -550,7 +550,7 @@ mod tests {
                 let mut inning = InningState {
                     count_seq: 0,
                     bases_occupied: bases,
-                    runners: RunnersOnBase::new(),
+                    runners: RunnersOnBase::default(),
                     ball: 0,
                     strike: 0,
                     out: 0,

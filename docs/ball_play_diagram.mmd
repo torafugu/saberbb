@@ -19,7 +19,6 @@ flowchart TD
   end
 
   calculate_batted_ball --> process_defensive_chain
-  calculate_batted_ball --> runner
 
   subgraph process_defensive_chain["Process Defensive Chain"]
     is_ball_in_fielder_lane --> calculate_height_at_distance1["calculate height at distance"]
@@ -40,41 +39,52 @@ flowchart TD
     calculate_height_at_distance2 --> |higher than fence|HOMERUN!
     calculate_height_at_distance2 --> |lower than fence|process_bounded_ball
     over_the_fence --> |YES and Grounder|process_bounded_ball
-    over_the_fence --> |NO and Fly or Liner|catch_fly{Catch?}
-    outfield{Ball is Outfield?} --> |NO and Fly or Liner|catch_fly{Catch?}
-    catch_fly --> |YES|OUT!
-    catch_fly --> |NO|process_bounded_ball
-    catch_fly --> |NO|process_bounded_ball
+    over_the_fence --> |NO and Fly or Liner|catch_fly1{Catch Fly?}
+    outfield{Ball is Outfield?} --> |NO and Fly or Liner|catch_fly1{Catch Fly?}
+    catch_fly1 --> |YES|OUT!
+    catch_fly1 --> |NO|process_bounded_ball
+    catch_fly1 --> |NO|process_bounded_ball
   end
 
   process_bounded_ball --> fielder2
     outfield{Ball is Outfield?} --> |NO and Grounder|fielder2
 
   subgraph fielder2["Fielder2 + Cut Off Man"]
-    evaluate_defense_play
+    evaluate_defense_play --> evaluate_double_play
+    evaluate_base_stealing
   end
 
   subgraph evaluate_defense_play["evaluate defense play"]
-    evaluate_tagup_play
-    evaluate_outfield_hit_play
-    evaluate_grounder_play
+    infield{Infield Play?} --> |YES|judge_infield_grounder_throw_target
+    judge_infield_grounder_throw_target --> infield_grounder_defense_play
+
+    infield{Infield Play?} --> |NO|catch_fly2
+    catch_fly2{Catch Fly?} --> |YES|judge_tagup_throw_target
+    catch_fly2{Catch Fly?} --> |NO|judge_outfield_hit_throw_target
+
+    judge_tagup_throw_target --> outfield_defense_play
+    judge_outfield_hit_throw_target --> outfield_defense_play
   end
 
-  subgraph evaluate_tagup_play["evaluate tagup play"]
-    judge_optimal_target_general1["judge optimal target general"] --> cutt_off1{Cut Off?}
-    cutt_off1 --> |YES|calculate_relay_play_time1["calculate relay play time"]
-    calculate_relay_play_time1 --> calculate_ball_flight_time1["calculate ball flight time"]
-    cutt_off1 --> |NO|calculate_ball_flight_time1
+  subgraph evaluate_double_play["evaluate double play"]
+    judge_double_play_throw_target --> double_play_defense_play
   end
 
-  subgraph evaluate_outfield_hit_play["evaluate outfield hit play"]
-    judge_optimal_target_general2["judge optimal target general"] --> cutt_off2{Cut Off?}
-    cutt_off2 --> |YES|calculate_relay_play_time2["calculate relay play time"]
-    calculate_relay_play_time2 --> calculate_ball_flight_time2["calculate ball flight time"]
-    cutt_off2 --> |NO|calculate_ball_flight_time2
+  outfield_defense_play --> after_outfield_hit
+  outfield_defense_play --> after_tagup
+  infield_grounder_defense_play --> after_double_play
+  double_play_defense_play --> after_double_play
+  evaluate_base_stealing --> after_base_stealing
+
+  subgraph runner
+    after_homerun
+    after_infield_grounder --> commit_unsaved_runners
+    after_outfield_hit --> commit_unsaved_runners
+    after_tagup --> commit_unsaved_runners
+    after_base_stealing
+    after_double_play --> commit_unsaved_runners
   end
 
-  subgraph evaluate_grounder_play["evaluate grounder play"]
-    judge_optimal_target_general3["judge optimal target general"] --> calculate_ball_flight_time3
-  end
+
+
 
