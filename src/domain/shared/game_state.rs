@@ -45,6 +45,9 @@ pub enum GameError {
 
     #[error("Same target bases are passeed")]
     SameTargetBase,
+
+    #[error("Path of from base and to base is not supported")]
+    UnsupportedPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
