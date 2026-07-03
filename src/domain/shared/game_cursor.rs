@@ -230,7 +230,7 @@ impl GameCursor {
             .find(|i| {
                 i.is_position(
                     self.current_team().id,
-                    position.clone(),
+                    position,
                     self.inning_seq,
                     self.count_seq,
                 )

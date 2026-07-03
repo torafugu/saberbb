@@ -1,4 +1,4 @@
-use crate::domain::shared::ball::{Ball, TrajectoryType};
+use crate::domain::shared::ball::{BattedBall, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
@@ -119,7 +119,7 @@ impl Stadium {
         draw(fence_svg);
     }
 
-    pub fn is_stand_in(&self, ball: &Ball) -> bool {
+    pub fn is_stand_in(&self, ball: &BattedBall) -> bool {
         if ball.trajectory == TrajectoryType::Grounder {
             return false;
         };

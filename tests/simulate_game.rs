@@ -1,10 +1,11 @@
 use rand::RngExt;
 use rand_distr::StandardNormal;
 use rusqlite::params;
+use saberbb::domain::random_provider::RealRng;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::resolver::running_resolver::*;
-use saberbb::domain::shared::ball::Ball;
+use saberbb::domain::shared::ball::BattedBall;
 use saberbb::domain::shared::ball::TrajectoryType;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
@@ -141,27 +142,27 @@ fn test_through_inning() -> Result<(), GameError> {
         }
 
         let fielder = {
-            let handler = process_defensive_chain(&fielders, &mut ball)?;
+            let handler = process_defensive_chain(&fielders, &ball)?;
 
             println!(
-                "Who is the fielder?:{}, Ball arrival time:{}, TrajectoryType:{}",
+                "Fielder?:{}, Ball arrival time:{}, Trajectory Type:{}",
                 handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
             );
 
             handler.fielder
         };
 
-        let catch_result = fielder.try_catch(&mut ball);
+        let fielded_ball = fielder.try_catch(&ball);
 
         println!(
-            "time_to_catch?:{}, final_distance?:{}, angle?:{}, is_fly_catch?:{}",
-            catch_result.time_to_catch,
-            catch_result.ball.distance(),
-            catch_result.ball.angle(),
-            catch_result.is_fly_catch,
+            "time_to_field:{}, final_distance:{}, angle:{}, is_fly_catch:{}",
+            fielded_ball.time_to_field,
+            fielded_ball.ball.distance(),
+            fielded_ball.ball.angle(),
+            fielded_ball.is_fly_catch,
         );
 
-        if catch_result.is_fly_catch {
+        if fielded_ball.is_fly_catch {
             println!("Play Result:{}", Ruling::Out);
             inning_state.add_out(1);
             // TODO: Consder tag-up case
@@ -174,20 +175,18 @@ fn test_through_inning() -> Result<(), GameError> {
             runners: &inning_state.runners,
             fielders: &fielders,
             try_catch_fielder: fielder,
-            ball: catch_result.ball,
-            time_to_catch: catch_result.time_to_catch,
-            is_fly_catch: catch_result.is_fly_catch,
+            fielded_ball: &fielded_ball,
         };
 
-        let defebce_play_result = evaluate_defense_play(&ctx)?;
+        let defebce_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
 
         // TODO: Implement enum display and Option<Position> Display
         // println!(
-        //     "ruling?:{}, play_type?:{}, final_fielder_position?:{}, cutoff_fielder_potition?:{}, defense_time?:{}",
+        //     "ruling?:{}, play_type?:{}, final_fielder_position?:{}, cutoff_fielder_position?:{}, defense_time?:{}",
         //     defebce_play_result.throw_target_base,
         //     defebce_play_result.play_type,
         //     defebce_play_result.final_fielder_position,
-        //     defebce_play_result.cutoff_fielder_potition,
+        //     defebce_play_result.cutoff_fielder_position,
         //     defebce_play_result.defense_time,
         // );
 
@@ -234,7 +233,7 @@ fn test_bat_to_catch() -> Result<(), GameError> {
 
     let fielders = generate_default_fielders();
     let fielder = {
-        let handler = process_defensive_chain(&fielders, &mut ball)?;
+        let handler = process_defensive_chain(&fielders, &ball)?;
 
         println!(
             "Who?:{}, Ball arrival time:{}, TrajectoryType:{}",
@@ -244,17 +243,17 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         handler.fielder
     };
 
-    let catch_result = fielder.try_catch(&mut ball);
+    let fielded_ball = fielder.try_catch(&ball);
 
     println!(
-        "time_to_catch?:{}, final_distance?:{}, angle?:{}, is_fly_catch?:{}",
-        catch_result.time_to_catch,
-        catch_result.ball.distance(),
-        catch_result.ball.angle(),
-        catch_result.is_fly_catch,
+        "time_to_field:{}, final_distance:{}, angle:{}, is_fly_catch:{}",
+        fielded_ball.time_to_field,
+        fielded_ball.ball.distance(),
+        fielded_ball.ball.angle(),
+        fielded_ball.is_fly_catch,
     );
 
-    if catch_result.is_fly_catch {
+    if fielded_ball.is_fly_catch {
         println!("Play Result:{}", Ruling::Out);
         return Ok(());
     }
@@ -271,9 +270,7 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         runners: &runners,
         fielders: &fielders,
         try_catch_fielder: fielder,
-        ball: catch_result.ball,
-        time_to_catch: catch_result.time_to_catch,
-        is_fly_catch: catch_result.is_fly_catch,
+        fielded_ball: &fielded_ball,
     };
 
     // let play_result = evaluate_defense_play(&ctx, batter.batting_side)?;
@@ -292,7 +289,7 @@ fn test_bat_to_catch() -> Result<(), GameError> {
 #[test]
 fn test_stand_in() {
     let stadium = generate_stadium();
-    let ball = Ball::new(170.0, 35.0, 30.0, 130.0, 5.0, TrajectoryType::Fly);
+    let ball = BattedBall::new(170.0, 35.0, 30.0, 130.0, 5.0, TrajectoryType::Fly);
     println!("x:{}, y:{}", ball.x(), ball.y());
 
     if stadium.is_stand_in(&ball) {
@@ -308,7 +305,7 @@ fn test_stand_in() {
 
 #[test]
 fn test_ball_height() {
-    let ball = Ball::new(160.0, 35.0, 30.0, 300.0, 5.0, TrajectoryType::Fly);
+    let ball = BattedBall::new(160.0, 35.0, 30.0, 300.0, 5.0, TrajectoryType::Fly);
     let heigt = ball.calculate_height_at_distance(100.0);
     println!("height:{}", heigt);
 }

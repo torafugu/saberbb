@@ -1,5 +1,5 @@
 use super::fielding_resolver::{
-    DefencePlayResult, DoublePlayDefencePlayResult, PlayType, StealDefencePlayResult,
+    DefensePlayResult, DoublePlayDefensePlayResult, PlayType, StealDefensePlayResult,
 };
 use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
 use crate::domain::shared::game_state::{GameError, Ruling};
@@ -60,11 +60,11 @@ pub struct RunningPlan {
 }
 impl RunningPlan {
     // TODO: Consider Hit and Run
-    fn set(time_to_catch: f64, batter_to_first_time: f64, batter_to_second_time: f64) -> Self {
-        let (batter_runner, runner_1st, runner_2nd) = if time_to_catch > batter_to_second_time {
+    fn set(time_to_field: f64, batter_to_first_time: f64, batter_to_second_time: f64) -> Self {
+        let (batter_runner, runner_1st, runner_2nd) = if time_to_field > batter_to_second_time {
             // Triple
             (Base::Third, Base::Home, Base::Home)
-        } else if time_to_catch > batter_to_first_time {
+        } else if time_to_field > batter_to_first_time {
             // Double
             (Base::Second, Base::Home, Base::Home)
         } else {
@@ -287,7 +287,7 @@ impl RunnersOnBase {
 
     pub fn after_infield_grounder(
         &self,
-        defence_play_result: DefencePlayResult,
+        defense_play_result: DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let runner_time;
         let time_difference;
@@ -296,14 +296,14 @@ impl RunnersOnBase {
         let mut batting_result = BattingResult::Out;
         let mut runs_scored: u16 = 0;
 
-        match defence_play_result.throw_target_base {
+        match defense_play_result.throw_target_base {
             Base::Home => {
                 unsaved_runners.put_if_some(Base::First, self.batter_runner);
                 unsaved_runners.put_if_some(Base::Second, self.runner_1st);
                 unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
 
                 runner_time = self.total_runner_time(Base::Third, Base::Home)?;
-                (ruling, time_difference) = judge(defence_play_result.defense_time, runner_time);
+                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     runs_scored += 1;
@@ -315,7 +315,7 @@ impl RunnersOnBase {
                 unsaved_runners.put_if_some(Base::Second, self.runner_1st);
 
                 runner_time = self.total_runner_time(Base::Second, Base::Third)?;
-                (ruling, time_difference) = judge(defence_play_result.defense_time, runner_time);
+                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
@@ -328,7 +328,7 @@ impl RunnersOnBase {
                 unsaved_runners.put_if_some(Base::First, self.batter_runner);
 
                 runner_time = self.total_runner_time(Base::First, Base::Second)?;
-                (ruling, time_difference) = judge(defence_play_result.defense_time, runner_time);
+                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     unsaved_runners.runner_2nd = self.runner_1st;
@@ -340,7 +340,7 @@ impl RunnersOnBase {
             }
             Base::First => {
                 runner_time = self.batter_runner_time_to(Base::First, true)?;
-                (ruling, time_difference) = judge(defence_play_result.defense_time, runner_time);
+                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     unsaved_runners.runner_1st = self.batter_runner;
@@ -354,11 +354,11 @@ impl RunnersOnBase {
         }
 
         let runner_advance_result = RunnerAdvanceResult {
-            defense_time: defence_play_result.defense_time,
+            defense_time: defense_play_result.defense_time,
             runner_time: runner_time,
             time_difference: time_difference,
-            throw_target_base: defence_play_result.throw_target_base,
-            play_type: defence_play_result.play_type,
+            throw_target_base: defense_play_result.throw_target_base,
+            play_type: defense_play_result.play_type,
             ruling: ruling,
             batting_result: batting_result,
             runs_scored: runs_scored,
@@ -611,13 +611,13 @@ impl RunnersOnBase {
 
     pub fn after_outfield_hit(
         &self,
-        defence_play_result: DefencePlayResult,
+        defense_play_result: DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let batter_to_first_time = self.batter_runner_time_to(Base::First, false)?;
         let batter_to_second_time = self.batter_runner_time_to(Base::Second, false)?;
 
         let running_plan = RunningPlan::set(
-            defence_play_result.time_to_catch,
+            defense_play_result.time_to_field,
             batter_to_first_time,
             batter_to_second_time,
         );
@@ -626,18 +626,18 @@ impl RunnersOnBase {
         let (runner_time, time_difference, ruling, retired_runner, batting_result) =
             match running_plan.batter_runner {
                 Base::Third => self.resolve_triple_attempt(
-                    defence_play_result.throw_target_base,
-                    defence_play_result.defense_time,
+                    defense_play_result.throw_target_base,
+                    defense_play_result.defense_time,
                 )?,
                 Base::Second => self.resolve_double_attempt(
-                    defence_play_result.throw_target_base,
-                    defence_play_result.defense_time,
+                    defense_play_result.throw_target_base,
+                    defense_play_result.defense_time,
                 )?,
                 // throw_target_base is always second base
                 // CONSTRAINT: Right Goundout case is not covered now
                 Base::First => self.resolve_single_attempt(
-                    defence_play_result.throw_target_base,
-                    defence_play_result.defense_time,
+                    defense_play_result.throw_target_base,
+                    defense_play_result.defense_time,
                 )?,
                 // CONSTRAINT: inside-the-park homerun is not supported.
                 _ => {
@@ -651,11 +651,11 @@ impl RunnersOnBase {
             self.build_runner_advance_result(running_plan.batter_runner, retired_runner)?;
 
         let runner_advance_result = RunnerAdvanceResult {
-            defense_time: defence_play_result.defense_time,
+            defense_time: defense_play_result.defense_time,
             runner_time: runner_time,
             time_difference: time_difference,
-            throw_target_base: defence_play_result.throw_target_base,
-            play_type: defence_play_result.play_type,
+            throw_target_base: defense_play_result.throw_target_base,
+            play_type: defense_play_result.play_type,
             ruling: ruling.clone(),
             batting_result: batting_result,
             runs_scored: runs_scored,
@@ -666,7 +666,7 @@ impl RunnersOnBase {
 
     pub fn after_tagup(
         &self,
-        defence_play_result: DefencePlayResult,
+        defense_play_result: DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let mut runner_time = 0.0;
         let mut time_difference = 0.0;
@@ -674,10 +674,10 @@ impl RunnersOnBase {
         let mut ruling = Ruling::Safe;
         let mut runs_scored: u16 = 0;
 
-        match defence_play_result.throw_target_base {
+        match defense_play_result.throw_target_base {
             Base::Home => {
                 runner_time = self.total_runner_time(Base::Third, Base::Home)?;
-                (ruling, time_difference) = judge(defence_play_result.defense_time, runner_time);
+                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     runs_scored += 1;
@@ -692,7 +692,7 @@ impl RunnersOnBase {
                 unsaved_runners.runner_1st = self.runner_1st;
 
                 runner_time = self.total_runner_time(Base::Second, Base::Third)?;
-                (ruling, time_difference) = judge(defence_play_result.defense_time, runner_time);
+                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     unsaved_runners.put(Base::Third, self.runner_on(Base::Second)?);
@@ -709,11 +709,11 @@ impl RunnersOnBase {
         }
 
         let runner_advance_result = RunnerAdvanceResult {
-            defense_time: defence_play_result.defense_time,
+            defense_time: defense_play_result.defense_time,
             runner_time: runner_time,
             time_difference: time_difference,
-            throw_target_base: defence_play_result.throw_target_base,
-            play_type: defence_play_result.play_type,
+            throw_target_base: defense_play_result.throw_target_base,
+            play_type: defense_play_result.play_type,
             ruling: ruling,
             batting_result: BattingResult::Out,
             runs_scored: runs_scored,
@@ -725,7 +725,7 @@ impl RunnersOnBase {
     // CONSTRAINT: Temporary runners do not go to the next base.
     pub fn after_double_play(
         &self,
-        double_play_defence_play_result: DoublePlayDefencePlayResult,
+        double_play_defense_play_result: DoublePlayDefensePlayResult,
         previous_unsaved_runners: RunnersUnsaved,
     ) -> Result<DoublePlayRunnerAdvanceResult, GameError> {
         let runner_time;
@@ -737,11 +737,11 @@ impl RunnersOnBase {
         };
         let ruling;
 
-        match double_play_defence_play_result.throw_target_base {
+        match double_play_defense_play_result.throw_target_base {
             Base::First => {
                 runner_time = self.batter_runner_time_to(Base::First, true)?;
                 (ruling, time_difference) =
-                    judge(double_play_defence_play_result.defense_time, runner_time);
+                    judge(double_play_defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Out {
                     unsaved_runners.runner_1st = None;
@@ -750,7 +750,7 @@ impl RunnersOnBase {
             Base::Second => {
                 runner_time = self.total_runner_time(Base::First, Base::Second)?;
                 (ruling, time_difference) =
-                    judge(double_play_defence_play_result.defense_time, runner_time);
+                    judge(double_play_defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Out {
                     unsaved_runners.runner_2nd = None;
@@ -759,7 +759,7 @@ impl RunnersOnBase {
             Base::Third => {
                 runner_time = self.total_runner_time(Base::Second, Base::Third)?;
                 (ruling, time_difference) =
-                    judge(double_play_defence_play_result.defense_time, runner_time);
+                    judge(double_play_defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Out {
                     unsaved_runners.runner_3rd = None;
@@ -771,10 +771,10 @@ impl RunnersOnBase {
         };
 
         let double_play_runner_advance_result = DoublePlayRunnerAdvanceResult {
-            defense_time: double_play_defence_play_result.defense_time,
+            defense_time: double_play_defense_play_result.defense_time,
             runner_time: runner_time,
             time_difference: time_difference,
-            throw_target_base: double_play_defence_play_result.throw_target_base,
+            throw_target_base: double_play_defense_play_result.throw_target_base,
             ruling: ruling,
             unsaved_runners: unsaved_runners,
         };
@@ -786,18 +786,18 @@ impl RunnersOnBase {
     // CONSTRAINT: Double steal is not supported.
     pub fn after_base_stealing(
         &mut self,
-        steal_defence_play_result: StealDefencePlayResult,
+        steal_defense_play_result: StealDefensePlayResult,
         start_reaction: f64, // TODO: judge mechanism should be implemented.
     ) -> Result<StealRunnerAdvanceResult, GameError> {
         let runner_time;
         let time_difference;
         let ruling;
 
-        match steal_defence_play_result.throw_target_base {
+        match steal_defense_play_result.throw_target_base {
             Base::Third => {
                 runner_time = self.total_runner_time(Base::Second, Base::Third)? + start_reaction;
                 (ruling, time_difference) =
-                    judge(steal_defence_play_result.defense_time, runner_time);
+                    judge(steal_defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     self.runner_3rd = self.runner_2nd;
@@ -807,7 +807,7 @@ impl RunnersOnBase {
             Base::Second => {
                 runner_time = self.total_runner_time(Base::First, Base::Second)? + start_reaction;
                 (ruling, time_difference) =
-                    judge(steal_defence_play_result.defense_time, runner_time);
+                    judge(steal_defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
                     self.runner_2nd = self.runner_1st;
@@ -820,10 +820,10 @@ impl RunnersOnBase {
         }
 
         let steal_runner_advance_result = StealRunnerAdvanceResult {
-            defense_time: steal_defence_play_result.defense_time,
+            defense_time: steal_defense_play_result.defense_time,
             runner_time: runner_time,
             time_difference: time_difference,
-            throw_target_base: steal_defence_play_result.throw_target_base,
+            throw_target_base: steal_defense_play_result.throw_target_base,
             ruling: ruling,
         };
         Ok(steal_runner_advance_result)

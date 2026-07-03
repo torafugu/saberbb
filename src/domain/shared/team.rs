@@ -41,7 +41,7 @@ impl Team {
         // TODO: Consider multiptile defense skills
         for player in &self.players {
             position_map
-                .entry(player.defensive_skills[0].position.clone())
+                .entry(player.defensive_skills[0].position)
                 .or_insert_with(Vec::new)
                 .push(player);
         }

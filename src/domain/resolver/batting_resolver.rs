@@ -1,4 +1,4 @@
-use crate::domain::shared::ball::{Ball, TrajectoryType};
+use crate::domain::shared::ball::{BattedBall, TrajectoryType};
 use crate::domain::shared::game::BattingResult;
 use crate::domain::shared::player::{Player, RL};
 use crate::domain::util::GRAVIY;
@@ -101,7 +101,7 @@ fn sample_spray_angle(tendency: &Batter) -> f64 {
     final_angle
 }
 
-pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> Ball {
+pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> BattedBall {
     let mut rng = rand::rng();
 
     // TODO: decide TrajectoryType mod_slg and meet type should be considered
@@ -172,7 +172,7 @@ pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> Ball {
         }
     };
 
-    Ball::new(
+    BattedBall::new(
         launch_speed,
         launch_angle,
         spray_angle,

@@ -1,3 +1,4 @@
+use crate::domain::shared::player::Position;
 use crate::domain::util::{GRAVIY, PolarPosition};
 use crate::t;
 use std::fmt;
@@ -26,7 +27,15 @@ impl fmt::Display for TrajectoryType {
 }
 
 #[derive(Debug, Clone)]
-pub struct Ball {
+pub struct FieldedBall {
+    pub ball: BattedBall,
+    pub fielded_by: Position,
+    pub time_to_field: f64,
+    pub is_fly_catch: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct BattedBall {
     pub launch_speed_kmh: f64,
     pub launch_angle: f64, // Z arc degree
     pub polar_position: PolarPosition,
@@ -34,7 +43,7 @@ pub struct Ball {
     pub trajectory: TrajectoryType,
 }
 
-impl Ball {
+impl BattedBall {
     pub fn new(
         launch_speed_kmh: f64,
         launch_angle: f64,
@@ -141,8 +150,8 @@ mod tests {
         spray_angle: f64,
         launch_speed_kmh: f64,
         launch_angle: f64,
-    ) -> Ball {
-        Ball::new(
+    ) -> BattedBall {
+        BattedBall::new(
             launch_speed_kmh,
             launch_angle,
             spray_angle,
@@ -154,7 +163,7 @@ mod tests {
 
     #[test]
     fn new_sets_physical_values_and_polar_position() {
-        let ball = Ball::new(144.0, 30.0, 30.0, 100.0, 4.2, TrajectoryType::Fly);
+        let ball = BattedBall::new(144.0, 30.0, 30.0, 100.0, 4.2, TrajectoryType::Fly);
 
         assert_near(ball.launch_speed_kmh, 144.0);
         assert_near(ball.launch_angle, 30.0);

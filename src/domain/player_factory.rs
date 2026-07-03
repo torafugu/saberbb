@@ -43,7 +43,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let mod_slg = skewed_normal_random(probs.batter_skill_prob.slg_skew);
 
         let mut defensive_skills = Vec::new();
-        // TODO: Should be changed to multiple defence skills
+        // TODO: Should be changed to multiple defense skills
         let defensive_skill =
             self.assign_defensive_skills(&probs.position_probs, &probs.defensive_skill_prob)?;
 
@@ -140,7 +140,6 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     }
 
     fn assign_team(&self, player: &Player) -> Result<Team, AppError> {
-        self.service
-            .next_team(player.defensive_skills[0].position.clone())
+        self.service.next_team(player.defensive_skills[0].position)
     }
 }

@@ -1,6 +1,7 @@
 pub mod game_service;
 pub mod player_factory;
 pub mod player_service;
+pub mod random_provider;
 pub mod resolver;
 pub mod schedule_service;
 pub mod shared;
