@@ -1,31 +1,25 @@
 classDiagram
 direction TB
 
-class BaseOccupancy {
-  -u8 bits
-  +new(u8 occupancy) BaseOccupancy
-  -has_runner_on(Base base) bool
-  -is_loaded() bool
-  -has_first_and_second() bool
-  -has_second_and_third() bool
-  -has_first_and_third() bool
+class DefenseTimeResult {
+  +f64 defense_time
+  +Position final_fielder_position
 }
 
-class RunnerAdvanceResult {
-  -RunnersOnBase updated_runners
-  -u16 runs_scored
-}
-
-class RunnersOnBase {
-  +Runner batter_runner
-  +Option~Runner~ runner_1st
-  +Option~Runner~ runner_2nd
-  +Option~Runner~ runner_3rd
-  -after_grounder(Base target_base, Ruling ruling) RunnerAdvanceResult
-  -after_outfield_hit(BattingResult base_advance, Base target_base, Ruling ruling) RunnerAdvanceResult
-  -after_tagup(Base target_base, Ruling ruling) RunnerAdvanceResult
-  -after_double_play(Ruling ruling) RunnerAdvanceResult
-  -after_base_stealing(Base target_base, Ruling ruling) RunnersOnBase
+class DefenseTimeCalculator {
+  -f64 ball_flight_speed_continue_distance
+  -f64 cutoff_distance_coefficient
+  -f64 touch_penalty_time
+  +default() DefenseTimeCalculator
+  +ball_flight_time(f64 distance, f64 initial_throw_speed) f64
+  +direct_throw_time(Fielder thrower, PolarPosition from, PolarPosition to) f64
+  +run_to_base_time(Fielder fielder, PolarPosition from, PolarPosition to) f64
+  +direct_play_time(Fielder thrower, PolarPosition from, Base target_base, PlayType play_type) f64
+  +infield_play_time(Fielder thrower, PolarPosition ball_pos, ThrowTarget throw_target) DefenseTimeResult
+  +cutoff_position(PolarPosition catch_pos, Base target_base) PolarPosition
+  +relay_throw_time(Fielder thrower, PolarPosition catch_pos, Base target_base, Fielder cutoff_fielder) f64
+  +best_outfield_throw_time(Fielder thrower, PolarPosition catch_pos, Base target_base, PlayType play_type, Option~Fielder~ cutoff_fielder) f64
+  +multi_play_throw_time(Fielder thrower, Base from_base, Base to_base) Result_f64_GameError
 }
 
 class PlayType {
@@ -34,95 +28,132 @@ class PlayType {
   TouchPlay
 }
 
-class StealResult {
-  +Ruling ruling
+class StealDefensePlayResult {
+  +Base throw_target_base
+  +Position final_fielder_position
   +f64 defense_time
-  +f64 runner_time
-  +RunnersOnBase updated_runners
-}
-
-class PitcherData {
-  -f64 delivery_motion_time
-}
-
-class CatcherData {
-  -f64 prep_time
-  -f64 throw_speed
 }
 
 class PlayContext {
-  +BaseOccupancy bases_occupancy
   +RunnersOnBase runners
   +Fielder[] fielders
   +Fielder try_catch_fielder
-  +Ball ball
-  +f64 time_to_catch
-  +bool is_fly_catch
+  +FieldedBall fielded_ball
 }
 
-class AutoTarget {
-  -Base base
-  -PlayType play_type
-  -Option~Position~ cutoff_fielder
+class MultiPlayThrowTarget {
+  +Base from_base
+  +Base to_base
+  +Position thrower_fielder_position
+  +Position final_fielder_position
 }
 
-class PlayResult {
-  +Ruling ruling
+class MultiPlayThrowTargetPlan {
+  +Base from_base
+  +Base to_base
+  +CoverAssignment thrower_fielder_position
+  +CoverAssignment final_fielder_position
+}
+
+class ThrowTarget {
+  +Base base
+  +PlayType play_type
+  +Position final_fielder_position
+  +Option~Position~ cutoff_fielder_position
+}
+
+class ThrowTargetPlan {
+  +Base base
+  +PlayType play_type
+  +CoverAssignment final_fielder_position
+  +Option~CoverAssignment~ cutoff_fielder_position
+}
+
+class CoverDecision {
+  -f64 middle_infield_ss_weight
+  -RandomProvider rng
+  -resolve(CoverAssignment assignment, Position final_fielder_position) Position
+}
+
+class CoverAssignment {
+  <<enumeration>>
+  Fixed(Position)
+  MiddleInfieldRandom
+  OppositeMiddleInfielder
+  OppositeFirstInfielder
+  CutoffByOutfieldSide
+  FinalFielderByOutfieldSide
+}
+
+class DoublePlayDefensePlayResult {
+  +Base throw_target_base
+  +Position final_fielder_position
   +f64 defense_time
-  +f64 runner_time
-  +f64 time_difference
-  +RunnersOnBase updated_runners
-  +u16 runs_scored
-  +Base target_base
-  +Option~Position~ next_throw_position
 }
 
-class BaseRace {
-  -f64 defense_time
-  -f64 runner_time
-  -Ruling ruling
-  -f64 time_difference
-  -new() BaseRace
-  -evaluate_base_race(PlayContext ctx, AutoTarget target, RL batting_side) Result_Unit_GameError
-}
-
-class FieldingResult {
-  +bool is_fly_catch
-  +f64 time_to_catch
-  +Ball ball
+class DefensePlayResult {
+  +f64 time_to_field
+  +Base throw_target_base
+  +PlayType play_type
+  +Position final_fielder_position
+  +Option~Position~ cutoff_fielder_position
+  +f64 defense_time
 }
 
 class BoundedBallResult {
-  -f64 time_to_fumble
-  -f64 final_distance
+  +f64 time_to_fumble
+  +f64 final_distance
 }
 
-class FinalClosestFielder {
+class DefensiveChainResult {
   +Fielder fielder
-  +Ball ball
+  +BattedBall ball
 }
 
 class FieldingResolver {
   <<module>>
-  +evaluate_base_stealing(Base target_base, PitcherData pitcher, CatcherData catcher, f64 runner_speed, f64 lead_distance, f64 start_reaction, RunnersOnBase runners) StealResult
-  +evaluate_double_play(Fielder[] fielders, RunnersOnBase runners, RL batting_side, Base target_base, Position last_fielder_position) Result_PlayResult_GameError
-  +evaluate_infield_grounder_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
-  +evaluate_defense_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
-  +find_closest_fielder(Fielder[] fielders, Ball ball) Result_Fielder_GameError
-  +process_defensive_chain(Fielder[] fielders, Ball ball) Result_FinalClosestFielder_GameError
-  -calculate_ball_flight_time(f64 distance, f64 initial_throw_speed) f64
-  -calculate_cutoff_position(PolarPosition catch_pos, Base target_base) PolarPosition
-  -calculate_relay_play_time(Fielder fielder, PolarPosition catch_pos, Base target_base, Fielder cutoff) f64
-  -judge_tagup_target(PlayContext ctx) AutoTarget
-  -judge_infield_grounder_target(PlayContext ctx) AutoTarget
-  -judge_outfield_hit_target(PlayContext ctx) AutoTarget
-  -evaluate_tagup_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
-  -evaluate_outfield_hit_play(PlayContext ctx, RL batting_side) Result_PlayResult_GameError
+  +calculate_base_distance(Base from_base, Base to_base) Result_f64_GameError
+  +evaluate_base_stealing(Base target_base, PitcherData pitcher, CatcherData catcher, RandomProvider rng) StealDefensePlayResult
+  +evaluate_double_play(PlayContext ctx, DefensePlayResult defense_play_result, RandomProvider rng) Result_Option_DoublePlayDefensePlayResult_GameError
+  +evaluate_defense_play(PlayContext ctx, RandomProvider rng) Result_DefensePlayResult_GameError
+  +find_closest_fielder(Fielder[] fielders, BattedBall ball) Result_Fielder_GameError
+  +process_defensive_chain(Fielder[] fielders, BattedBall ball) Result_DefensiveChainResult_GameError
+  -find_fielder_by_position(Fielder[] fielders, Position position) Result_Fielder_GameError
+  -double_play_defense_play(Fielder[] fielders, MultiPlayThrowTarget double_play_throw_target) Result_Option_DoublePlayDefensePlayResult_GameError
+  -infield_grounder_defense_play(PlayContext ctx, ThrowTarget throw_target) Result_DefensePlayResult_GameError
+  -outfield_defense_play(PlayContext ctx, ThrowTarget throw_target) Result_DefensePlayResult_GameError
+  -resolve_multiplay_throw_target_plan(Position final_fielder_position, MultiPlayThrowTargetPlan plan, CoverDecision decision) MultiPlayThrowTarget
+  -resolve_throw_target_plan(Position final_fielder_position, ThrowTargetPlan plan, CoverDecision decision) ThrowTarget
+  -select_multiplay_throw_target(DefensePlayResult ctx, MultiplayThrowRule[] rules) Option~MultiPlayThrowTargetPlan~
+  -select_throw_target(PlayContext ctx, ThrowRule[] rules) ThrowTargetPlan
+  -judge_tagup_throw_target(PlayContext ctx, RandomProvider rng) ThrowTarget
+  -judge_double_play_throw_target(DefensePlayResult ctx, RandomProvider rng) Option~MultiPlayThrowTarget~
+  -judge_infield_grounder_throw_target(PlayContext ctx, RandomProvider rng) ThrowTarget
+  -judge_outfield_hit_throw_target(PlayContext ctx, RandomProvider rng) ThrowTarget
   -is_ball_in_fielder_lane(Fielder fielder, f64 ball_angle) bool
 }
 
+class ThrowRule {
+  <<external>>
+  +str name
+  +fn applies
+  +fn target
+}
+
+class MultiplayThrowRule {
+  <<external>>
+  +str name
+  +fn applies
+  +fn target
+}
+
+class RandomProvider {
+  <<external trait>>
+  +random() f64
+}
+
 class Fielder {
-  <<external struct with resolver impl>>
+  <<external struct>>
   +Position position
   +PolarPosition polar_position
   +f64 throw_speed
@@ -135,26 +166,69 @@ class Fielder {
   +angle() f64
   +x() f64
   +y() f64
-  +try_catch(Ball ball) FieldingResult
-  -process_bounded_ball(Ball ball) BoundedBallResult
+  +try_catch(BattedBall ball) FieldedBall
+  -process_bounded_ball(BattedBall ball) BoundedBallResult
 }
 
-class Runner {
-  <<external>>
-  +f64 speed
-  +f64 lead_distance
+class PitcherData {
+  <<external struct>>
+  +f64 delivery_motion_time
 }
 
-class Ball {
-  <<external>>
+class CatcherData {
+  <<external struct>>
+  +f64 prep_time
+  +f64 throw_speed
+}
+
+class FieldedBall {
+  <<external struct>>
+  +BattedBall ball
+  +Position fielded_by
+  +f64 time_to_field
+  +bool is_fly_catch
+}
+
+class BattedBall {
+  <<external struct>>
+  +f64 launch_speed_kmh
+  +f64 launch_angle
   +PolarPosition polar_position
   +f64 hang_time
   +TrajectoryType trajectory
+  +new(f64 launch_speed_kmh, f64 launch_angle, f64 spray_angle, f64 distance, f64 hang_time, TrajectoryType trajectory) BattedBall
   +distance() f64
   +angle() f64
+  +launch_speed_ms() f64
+  +azimuth() f64
+  +x() f64
+  +y() f64
+  +is_foul() bool
   +is_infield() bool
   +is_shallow() bool
   +calculate_height_at_distance(f64 target_distance) f64
+}
+
+class RunnersOnBase {
+  <<external struct>>
+  +Option~RL~ batting_side
+  +Option~Runner~ batter_runner
+  +Option~Runner~ runner_1st
+  +Option~Runner~ runner_2nd
+  +Option~Runner~ runner_3rd
+  +has_runner_on(Base base) bool
+  +is_loaded() bool
+  +has_first_and_second() bool
+  +has_second_and_third() bool
+  +has_first_and_third() bool
+  +total_runner_time(Base from_base, Base to_base) Result_f64_GameError
+}
+
+class Runner {
+  <<external struct>>
+  +f64 speed
+  +f64 lead_distance
+  +Option~Base~ target_base
 }
 
 class Base {
@@ -178,22 +252,10 @@ class Position {
   CF
   RF
   DH
-}
-
-class Ruling {
-  <<external enum>>
-  Safe
-  Out
-}
-
-class BattingResult {
-  <<external enum>>
-}
-
-class RL {
-  <<external enum>>
-  Right
-  Left
+  +is_outfielder() bool
+  +is_infielder() bool
+  +is_middle_infielder() bool
+  +is_corner_infielder() bool
 }
 
 class GameError {
@@ -201,7 +263,7 @@ class GameError {
 }
 
 class PolarPosition {
-  <<external>>
+  <<external struct>>
 }
 
 class TrajectoryType {
@@ -212,53 +274,86 @@ class TrajectoryType {
   PopUp
 }
 
-RunnersOnBase *-- Runner : contains
-RunnerAdvanceResult --> RunnersOnBase : updated_runners
-RunnerAdvanceResult --> RunnersOnBase : produced_by
-RunnersOnBase --> RunnerAdvanceResult : advances_to
+class RL {
+  <<external enum>>
+  Right
+  Left
+}
 
-StealResult --> Ruling
-StealResult --> RunnersOnBase
+DefenseTimeResult --> Position
+DefenseTimeCalculator --> DefenseTimeResult
+DefenseTimeCalculator --> Fielder
+DefenseTimeCalculator --> PolarPosition
+DefenseTimeCalculator --> Base
+DefenseTimeCalculator --> PlayType
+DefenseTimeCalculator --> ThrowTarget
+DefenseTimeCalculator --> GameError
 
-PlayContext *-- BaseOccupancy
+StealDefensePlayResult --> Base
+StealDefensePlayResult --> Position
+
 PlayContext --> RunnersOnBase
 PlayContext --> Fielder
-PlayContext --> Ball
+PlayContext --> FieldedBall
 
-AutoTarget --> Base
-AutoTarget --> PlayType
-AutoTarget --> Position
+MultiPlayThrowTarget --> Base
+MultiPlayThrowTarget --> Position
+MultiPlayThrowTargetPlan --> Base
+MultiPlayThrowTargetPlan --> CoverAssignment
 
-PlayResult --> Ruling
-PlayResult --> RunnersOnBase
-PlayResult --> Base
-PlayResult --> Position
+ThrowTarget --> Base
+ThrowTarget --> PlayType
+ThrowTarget --> Position
+ThrowTargetPlan --> Base
+ThrowTargetPlan --> PlayType
+ThrowTargetPlan --> CoverAssignment
 
-BaseRace --> PlayContext
-BaseRace --> AutoTarget
-BaseRace --> Ruling
-BaseRace --> GameError
+CoverDecision --> CoverAssignment
+CoverDecision --> RandomProvider
+CoverDecision --> Position
+CoverAssignment --> Position
 
-FieldingResult --> Ball
-Fielder --> FieldingResult : try_catch
-Fielder --> BoundedBallResult : process_bounded_ball
+DoublePlayDefensePlayResult --> Base
+DoublePlayDefensePlayResult --> Position
+DefensePlayResult --> Base
+DefensePlayResult --> PlayType
+DefensePlayResult --> Position
+
+DefensiveChainResult --> Fielder
+DefensiveChainResult --> BattedBall
+
+ThrowRule --> PlayContext
+ThrowRule --> ThrowTargetPlan
+MultiplayThrowRule --> DefensePlayResult
+MultiplayThrowRule --> MultiPlayThrowTargetPlan
+
 Fielder --> Position
 Fielder --> PolarPosition
+Fielder --> FieldedBall : try_catch
+Fielder --> BoundedBallResult : process_bounded_ball
 
-FinalClosestFielder --> Fielder
-FinalClosestFielder --> Ball
+FieldedBall *-- BattedBall
+FieldedBall --> Position
+BattedBall --> PolarPosition
+BattedBall --> TrajectoryType
 
-FieldingResolver ..> PitcherData
-FieldingResolver ..> CatcherData
-FieldingResolver ..> StealResult
+RunnersOnBase *-- Runner
+RunnersOnBase --> Base
+RunnersOnBase --> RL
+
+FieldingResolver ..> DefenseTimeCalculator
+FieldingResolver ..> StealDefensePlayResult
 FieldingResolver ..> PlayContext
-FieldingResolver ..> PlayResult
-FieldingResolver ..> AutoTarget
-FieldingResolver ..> BaseRace
-FieldingResolver ..> FinalClosestFielder
+FieldingResolver ..> MultiPlayThrowTarget
+FieldingResolver ..> MultiPlayThrowTargetPlan
+FieldingResolver ..> ThrowTarget
+FieldingResolver ..> ThrowTargetPlan
+FieldingResolver ..> CoverDecision
+FieldingResolver ..> CoverAssignment
+FieldingResolver ..> DoublePlayDefensePlayResult
+FieldingResolver ..> DefensePlayResult
+FieldingResolver ..> DefensiveChainResult
+FieldingResolver ..> ThrowRule
+FieldingResolver ..> MultiplayThrowRule
+FieldingResolver ..> RandomProvider
 FieldingResolver ..> GameError
-FieldingResolver ..> PolarPosition
-
-Ball --> PolarPosition
-Ball --> TrajectoryType
-Base ..> PolarPosition : polar_position

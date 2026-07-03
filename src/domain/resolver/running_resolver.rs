@@ -829,3 +829,376 @@ impl RunnersOnBase {
         Ok(steal_runner_advance_result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::player::{Position, RL};
+
+    const EPSILON: f64 = 1e-9;
+
+    fn assert_near(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < EPSILON,
+            "expected {actual} to be near {expected}"
+        );
+    }
+
+    fn runner(speed: f64) -> Runner {
+        Runner {
+            speed,
+            lead_distance: 0.0,
+            target_base: None,
+        }
+    }
+
+    fn runner_with_lead(speed: f64, lead_distance: f64) -> Runner {
+        Runner {
+            speed,
+            lead_distance,
+            target_base: None,
+        }
+    }
+
+    fn runners(
+        batting_side: RL,
+        batter_runner: Option<Runner>,
+        runner_1st: Option<Runner>,
+        runner_2nd: Option<Runner>,
+        runner_3rd: Option<Runner>,
+    ) -> RunnersOnBase {
+        RunnersOnBase {
+            batting_side: Some(batting_side),
+            batter_runner,
+            runner_1st,
+            runner_2nd,
+            runner_3rd,
+        }
+    }
+
+    fn defense_result(
+        throw_target_base: Base,
+        play_type: PlayType,
+        time_to_field: f64,
+        defense_time: f64,
+    ) -> DefensePlayResult {
+        DefensePlayResult {
+            time_to_field,
+            throw_target_base,
+            play_type,
+            final_fielder_position: Position::FB,
+            cutoff_fielder_position: None,
+            defense_time,
+        }
+    }
+
+    fn double_play_result(
+        throw_target_base: Base,
+        defense_time: f64,
+    ) -> DoublePlayDefensePlayResult {
+        DoublePlayDefensePlayResult {
+            throw_target_base,
+            final_fielder_position: Position::FB,
+            defense_time,
+        }
+    }
+
+    fn steal_result(throw_target_base: Base, defense_time: f64) -> StealDefensePlayResult {
+        StealDefensePlayResult {
+            throw_target_base,
+            final_fielder_position: Position::SB,
+            defense_time,
+        }
+    }
+
+    #[test]
+    fn total_runner_time_applies_batter_side_penalty_lag_and_runner_lead() {
+        let runners = runners(
+            RL::Right,
+            Some(runner(8.0)),
+            Some(runner_with_lead(7.0, 3.0)),
+            None,
+            None,
+        );
+
+        let batter_to_second = runners
+            .total_runner_time(Base::Home, Base::Second)
+            .unwrap();
+        let runner_to_third = runners
+            .total_runner_time(Base::First, Base::Third)
+            .unwrap();
+
+        assert_near(
+            batter_to_second,
+            ((BASE_DISTANCE * 2.0) + 2.0) / 8.0
+                + ACCELERATION_LAG_TO_FIRST_BASE
+                + ACCELERATION_LAG_AFTER_FIRST_BASE,
+        );
+        assert_near(
+            runner_to_third,
+            ((BASE_DISTANCE * 2.0) - 3.0) / 7.0 + (ACCELERATION_LAG_AFTER_FIRST_BASE * 2.0),
+        );
+    }
+
+    #[test]
+    fn total_runner_time_rejects_same_or_missing_runner_paths() {
+        let empty_runners = runners(RL::Left, Some(runner(8.0)), None, None, None);
+
+        assert!(matches!(
+            empty_runners.total_runner_time(Base::First, Base::First),
+            Err(GameError::SameTargetBase)
+        ));
+        assert!(matches!(
+            empty_runners.total_runner_time(Base::Second, Base::Home),
+            Err(GameError::Runner2nd)
+        ));
+        let runners_with_second = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            None,
+            Some(runner(7.0)),
+            None,
+        );
+        assert!(matches!(
+            runners_with_second.total_runner_time(Base::Second, Base::First),
+            Err(GameError::UnsupportedPath)
+        ));
+    }
+
+    #[test]
+    fn after_homerun_scores_all_occupied_bases_and_clears_runners() {
+        let mut runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.1)),
+            Some(runner(7.2)),
+        );
+
+        let runs_scored = runners.after_homerun();
+
+        assert_eq!(runs_scored, 4);
+        assert!(runners.batting_side.is_none());
+        assert!(runners.batter_runner.is_none());
+        assert!(runners.runner_1st.is_none());
+        assert!(runners.runner_2nd.is_none());
+        assert!(runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_infield_grounder_safe_at_first_records_single_and_forced_advances() {
+        let runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+        );
+        let batter_time = runners.batter_runner_time_to(Base::First, true).unwrap();
+
+        let result = runners
+            .after_infield_grounder(defense_result(
+                Base::First,
+                PlayType::ForcePlay,
+                1.0,
+                batter_time + 0.01,
+            ))
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Safe);
+        assert_eq!(result.batting_result, BattingResult::Single);
+        assert_eq!(result.runs_scored, 1);
+        assert!(result.unsaved_runners.runner_1st.is_some());
+        assert!(result.unsaved_runners.runner_2nd.is_some());
+        assert!(result.unsaved_runners.runner_3rd.is_some());
+    }
+
+    #[test]
+    fn after_infield_grounder_out_at_home_keeps_force_advances_without_scoring() {
+        let runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+        );
+        let runner_time = runners.total_runner_time(Base::Third, Base::Home).unwrap();
+
+        let result = runners
+            .after_infield_grounder(defense_result(
+                Base::Home,
+                PlayType::ForcePlay,
+                1.0,
+                runner_time - 0.01,
+            ))
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Out);
+        assert_eq!(result.batting_result, BattingResult::Out);
+        assert_eq!(result.runs_scored, 0);
+        assert!(result.unsaved_runners.runner_1st.is_some());
+        assert!(result.unsaved_runners.runner_2nd.is_some());
+        assert!(result.unsaved_runners.runner_3rd.is_some());
+    }
+
+    #[test]
+    fn after_outfield_hit_late_fielding_attempts_double_and_scores_existing_runners() {
+        let runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+        );
+        let batter_to_first_without_lag = runners.batter_runner_time_to(Base::First, false).unwrap();
+        let batter_to_second = runners.batter_runner_time_to(Base::Second, true).unwrap();
+
+        let result = runners
+            .after_outfield_hit(defense_result(
+                Base::Second,
+                PlayType::TouchPlay,
+                batter_to_first_without_lag + 0.01,
+                batter_to_second + 0.01,
+            ))
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Safe);
+        assert_eq!(result.batting_result, BattingResult::Double);
+        assert_eq!(result.runs_scored, 3);
+        assert!(result.unsaved_runners.runner_1st.is_none());
+        assert!(result.unsaved_runners.runner_2nd.is_some());
+        assert!(result.unsaved_runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_outfield_hit_batter_out_still_scores_existing_runner_from_third() {
+        let runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            None,
+            Some(runner(7.0)),
+        );
+        let batter_to_first_without_lag = runners.batter_runner_time_to(Base::First, false).unwrap();
+        let batter_to_first = runners.batter_runner_time_to(Base::First, true).unwrap();
+
+        let result = runners
+            .after_outfield_hit(defense_result(
+                Base::First,
+                PlayType::ForcePlay,
+                batter_to_first_without_lag - 0.01,
+                batter_to_first - 0.01,
+            ))
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Out);
+        assert_eq!(result.batting_result, BattingResult::Out);
+        assert_eq!(result.runs_scored, 1);
+        assert!(result.unsaved_runners.runner_1st.is_none());
+        assert!(result.unsaved_runners.runner_2nd.is_some());
+        assert!(result.unsaved_runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_tagup_safe_at_home_scores_and_holds_other_runners() {
+        let runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+            Some(runner(7.0)),
+        );
+        let runner_time = runners.total_runner_time(Base::Third, Base::Home).unwrap();
+
+        let result = runners
+            .after_tagup(defense_result(
+                Base::Home,
+                PlayType::TouchPlay,
+                1.0,
+                runner_time + 0.01,
+            ))
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Safe);
+        assert_eq!(result.batting_result, BattingResult::Out);
+        assert_eq!(result.runs_scored, 1);
+        assert!(result.unsaved_runners.runner_1st.is_some());
+        assert!(result.unsaved_runners.runner_2nd.is_some());
+        assert!(result.unsaved_runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_double_play_removes_runner_when_second_throw_wins() {
+        let runners = runners(
+            RL::Left,
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            None,
+            None,
+        );
+        let previous_unsaved = RunnersUnsaved {
+            runner_1st: None,
+            runner_2nd: Some(runner(7.0)),
+            runner_3rd: None,
+        };
+        let runner_time = runners.total_runner_time(Base::First, Base::Second).unwrap();
+
+        let result = runners
+            .after_double_play(double_play_result(Base::Second, runner_time - 0.01), previous_unsaved)
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Out);
+        assert!(result.unsaved_runners.runner_2nd.is_none());
+    }
+
+    #[test]
+    fn after_double_play_rejects_home_target() {
+        let runners = runners(RL::Left, Some(runner(8.0)), None, None, None);
+
+        assert!(matches!(
+            runners.after_double_play(
+                double_play_result(Base::Home, 1.0),
+                RunnersUnsaved::default()
+            ),
+            Err(GameError::DoublePlayTargetBase)
+        ));
+    }
+
+    #[test]
+    fn after_base_stealing_safe_to_second_moves_runner() {
+        let mut runners = runners(RL::Left, None, Some(runner(7.0)), None, None);
+        let runner_time = runners.total_runner_time(Base::First, Base::Second).unwrap();
+
+        let result = runners
+            .after_base_stealing(steal_result(Base::Second, runner_time + 0.11), 0.1)
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Safe);
+        assert!(runners.runner_1st.is_none());
+        assert!(runners.runner_2nd.is_some());
+    }
+
+    #[test]
+    fn after_base_stealing_out_to_third_keeps_runner_on_second() {
+        let mut runners = runners(RL::Left, None, None, Some(runner(7.0)), None);
+        let runner_time = runners.total_runner_time(Base::Second, Base::Third).unwrap();
+
+        let result = runners
+            .after_base_stealing(steal_result(Base::Third, runner_time - 0.01), 0.0)
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Out);
+        assert!(runners.runner_2nd.is_some());
+        assert!(runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_base_stealing_rejects_unsupported_target() {
+        let mut runners = runners(RL::Left, None, Some(runner(7.0)), None, None);
+
+        assert!(matches!(
+            runners.after_base_stealing(steal_result(Base::Home, 1.0), 0.0),
+            Err(GameError::StealTargetBase)
+        ));
+    }
+}
