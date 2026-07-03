@@ -277,7 +277,7 @@ impl Fielder {
             return FieldedBall {
                 ball: ball.clone(),
                 fielded_by: self.position,
-                time_to_field: arrival_time,
+                time_to_field: ball.hang_time, // Fielder need to wait until catch.
                 is_fly_catch: true,
             };
         }

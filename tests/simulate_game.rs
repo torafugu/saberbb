@@ -118,7 +118,7 @@ fn test_through_inning() -> Result<(), GameError> {
         inning_state.runners.batting_side = Some(batter.batting_side.clone());
         inning_state.runners.batter_runner = Some(batter_runner);
 
-        let mut ball = calculate_batted_ball(&batter, 150.0);
+        let ball = calculate_batted_ball(&batter, 150.0);
 
         println!(
             "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
@@ -164,7 +164,7 @@ fn test_through_inning() -> Result<(), GameError> {
 
         if fielded_ball.is_fly_catch {
             println!("Play Result:{}", Ruling::Out);
-            inning_state.add_out(1);
+            inning_state.add_out();
             // TODO: Consder tag-up case
             // Call evaluate_tagup_play directory ?
             println!("Outs:{}, Scores:{}", inning_state.out, scores);
@@ -178,25 +178,54 @@ fn test_through_inning() -> Result<(), GameError> {
             fielded_ball: &fielded_ball,
         };
 
-        let defebce_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
+        // TODO: Consder stolen base case
+        let defense_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
 
-        // TODO: Implement enum display and Option<Position> Display
-        // println!(
-        //     "ruling?:{}, play_type?:{}, final_fielder_position?:{}, cutoff_fielder_position?:{}, defense_time?:{}",
-        //     defebce_play_result.throw_target_base,
-        //     defebce_play_result.play_type,
-        //     defebce_play_result.final_fielder_position,
-        //     defebce_play_result.cutoff_fielder_position,
-        //     defebce_play_result.defense_time,
-        // );
+        let cutoff_position;
+        if let Some(cutoff_fielder_position) = defense_play_result.cutoff_fielder_position {
+            cutoff_position = cutoff_fielder_position.to_string();
+        } else {
+            cutoff_position = "".to_string();
+        };
 
-        // TODO: Implement after running
+        println!(
+            "throw_target:{}, play_type:{}, final_position:{}, cutoff_position:{}, defense_time:{}",
+            defense_play_result.throw_target_base,
+            defense_play_result.play_type,
+            defense_play_result.final_fielder_position,
+            cutoff_position,
+            defense_play_result.defense_time,
+        );
 
-        // if play_result.ruling == Ruling::Out {
-        //     inning_state.add_out(1);
-        // }
-        // scores += play_result.runs_scored;
-        // println!("Outs:{}, Scores:{}", inning_state.out, scores);
+        let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
+            inning_state
+                .runners
+                .after_outfield_hit(defense_play_result)?
+        } else {
+            inning_state
+                .runners
+                .after_infield_grounder(defense_play_result)?
+        };
+
+        println!(
+            "defense_time:{}, runner_time:{}, time_difference:{}, throw_target_base:{}, play_type:{}, ruling:{}, batting_result:{}, runs_scored:{}",
+            runner_advance_result.defense_time,
+            runner_advance_result.runner_time,
+            runner_advance_result.time_difference,
+            runner_advance_result.throw_target_base,
+            runner_advance_result.play_type,
+            runner_advance_result.ruling,
+            runner_advance_result.batting_result,
+            runner_advance_result.runs_scored,
+        );
+
+        if runner_advance_result.ruling == Ruling::Out {
+            inning_state.add_out();
+        };
+
+        inning_state
+            .runners
+            .commit_unsaved_runners(runner_advance_result.unsaved_runners);
     }
 
     Ok(())
@@ -212,7 +241,7 @@ fn test_bat_to_catch() -> Result<(), GameError> {
         batter.batting_side, batter.swing_speed
     );
 
-    let mut ball = calculate_batted_ball(&batter, 150.0);
+    let ball = calculate_batted_ball(&batter, 150.0);
 
     println!(
         "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",

@@ -8,6 +8,7 @@ use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::player::{CatcherData, Fielder, PitcherData, Position};
 use crate::domain::shared::stadium::Base;
 use crate::domain::util::{PolarPosition, calculate_polar_distance};
+use crate::t;
 use std::f64::consts::SQRT_2;
 use std::fmt::Debug;
 
@@ -272,7 +273,7 @@ fn infield_grounder_defense_play(
         play_type: throw_target.play_type,
         final_fielder_position: result.final_fielder_position,
         cutoff_fielder_position: throw_target.cutoff_fielder_position,
-        defense_time: result.defense_time,
+        defense_time: result.defense_time + ctx.fielded_ball.time_to_field,
     };
     Ok(defense_play_result)
 }
@@ -290,13 +291,14 @@ fn outfield_defense_play(
         .map(|position| find_fielder_by_position(ctx.fielders, position))
         .transpose()?;
 
+    // Catch + Throw time
     let defense_time = calculator.best_outfield_throw_time(
         ctx.try_catch_fielder,
         &ctx.fielded_ball.ball.polar_position,
         throw_target.base,
         throw_target.play_type,
         cutoff_fielder,
-    );
+    ) + ctx.fielded_ball.time_to_field;
 
     let defense_play_result = DefensePlayResult {
         time_to_field: ctx.fielded_ball.time_to_field,
@@ -313,6 +315,14 @@ fn outfield_defense_play(
 pub enum PlayType {
     ForcePlay,
     TouchPlay,
+}
+impl std::fmt::Display for PlayType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            PlayType::ForcePlay => write!(f, "{}", t!("force_play")),
+            PlayType::TouchPlay => write!(f, "{}", t!("touch_play")),
+        }
+    }
 }
 
 #[derive(Debug)]

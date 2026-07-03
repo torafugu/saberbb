@@ -2,6 +2,7 @@ use crate::domain::shared::ball::{BattedBall, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
+use crate::t;
 use kurbo::{Affine, BezPath, CubicBez, Line, PathEl, Point, Shape, Vec2};
 use std::f64::consts::SQRT_2;
 use svg::Document;
@@ -25,6 +26,16 @@ impl Base {
             Base::First => PolarPosition::new(BASE_DISTANCE, 45.0),
             Base::Second => PolarPosition::new(second_base_distance, 0.0),
             Base::Third => PolarPosition::new(BASE_DISTANCE, -45.0),
+        }
+    }
+}
+impl std::fmt::Display for Base {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Base::Home => write!(f, "{}", t!("home")),
+            Base::First => write!(f, "{}", t!("first")),
+            Base::Second => write!(f, "{}", t!("second")),
+            Base::Third => write!(f, "{}", t!("third")),
         }
     }
 }

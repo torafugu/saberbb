@@ -59,12 +59,12 @@ pub struct RunningPlan {
     pub runner_3rd: Base,
 }
 impl RunningPlan {
-    // TODO: Consider Hit and Run
-    fn set(time_to_field: f64, batter_to_first_time: f64, batter_to_second_time: f64) -> Self {
-        let (batter_runner, runner_1st, runner_2nd) = if time_to_field > batter_to_second_time {
+    // TODO: Consider running attitude (early start, hit and run, etc)
+    fn set(defence_time: f64, batter_to_second_time: f64, batter_to_third_time: f64) -> Self {
+        let (batter_runner, runner_1st, runner_2nd) = if defence_time > batter_to_third_time {
             // Triple
             (Base::Third, Base::Home, Base::Home)
-        } else if time_to_field > batter_to_first_time {
+        } else if defence_time > batter_to_second_time {
             // Double
             (Base::Second, Base::Home, Base::Home)
         } else {
@@ -373,7 +373,13 @@ impl RunnersOnBase {
         defense_time: f64,
     ) -> Result<(f64, f64, Ruling, Option<Base>, BattingResult), GameError> {
         let runner_time = match throw_target_base {
-            Base::Home => self.total_runner_time(Base::First, Base::Home)?,
+            Base::Home => {
+                if self.has_runner_on(Base::First) {
+                    self.total_runner_time(Base::First, Base::Home)?
+                } else {
+                    0.0
+                }
+            }
             Base::Third => self.batter_runner_time_to(Base::Third, true)?,
             _ => 0.0,
         };
@@ -475,18 +481,36 @@ impl RunnersOnBase {
         defense_time: f64,
     ) -> Result<(f64, f64, Ruling, Option<Base>, BattingResult), GameError> {
         let (runner_time, mut retired_runner) = match throw_target_base {
-            Base::Home => (
-                self.total_runner_time(Base::Third, Base::Home)?,
-                Some(Base::Third),
-            ),
-            Base::Third => (
-                self.total_runner_time(Base::Second, Base::Third)?,
-                Some(Base::Second),
-            ),
-            Base::Second => (
-                self.total_runner_time(Base::First, Base::Second)?,
-                Some(Base::First),
-            ),
+            Base::Home => {
+                if self.has_runner_on(Base::Third) {
+                    (
+                        self.total_runner_time(Base::Third, Base::Home)?,
+                        Some(Base::Third),
+                    )
+                } else {
+                    (0.0, None)
+                }
+            }
+            Base::Third => {
+                if self.has_runner_on(Base::Second) {
+                    (
+                        self.total_runner_time(Base::Second, Base::Third)?,
+                        Some(Base::Second),
+                    )
+                } else {
+                    (0.0, None)
+                }
+            }
+            Base::Second => {
+                if self.has_runner_on(Base::First) {
+                    (
+                        self.total_runner_time(Base::First, Base::Second)?,
+                        Some(Base::First),
+                    )
+                } else {
+                    (0.0, None)
+                }
+            }
             Base::First => (
                 self.batter_runner_time_to(Base::First, true)?,
                 Some(Base::Home),
@@ -613,16 +637,15 @@ impl RunnersOnBase {
         &self,
         defense_play_result: DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
-        let batter_to_first_time = self.batter_runner_time_to(Base::First, false)?;
         let batter_to_second_time = self.batter_runner_time_to(Base::Second, false)?;
+        let batter_to_third_time = self.batter_runner_time_to(Base::Third, false)?;
 
         let running_plan = RunningPlan::set(
-            defense_play_result.time_to_field,
-            batter_to_first_time,
+            defense_play_result.defense_time,
             batter_to_second_time,
+            batter_to_third_time,
         );
 
-        // if let Some(target_base) = self.runner_on(Base::Home)?.target_base {
         let (runner_time, time_difference, ruling, retired_runner, batting_result) =
             match running_plan.batter_runner {
                 Base::Third => self.resolve_triple_attempt(
@@ -921,12 +944,8 @@ mod tests {
             None,
         );
 
-        let batter_to_second = runners
-            .total_runner_time(Base::Home, Base::Second)
-            .unwrap();
-        let runner_to_third = runners
-            .total_runner_time(Base::First, Base::Third)
-            .unwrap();
+        let batter_to_second = runners.total_runner_time(Base::Home, Base::Second).unwrap();
+        let runner_to_third = runners.total_runner_time(Base::First, Base::Third).unwrap();
 
         assert_near(
             batter_to_second,
@@ -952,13 +971,8 @@ mod tests {
             empty_runners.total_runner_time(Base::Second, Base::Home),
             Err(GameError::Runner2nd)
         ));
-        let runners_with_second = runners(
-            RL::Left,
-            Some(runner(8.0)),
-            None,
-            Some(runner(7.0)),
-            None,
-        );
+        let runners_with_second =
+            runners(RL::Left, Some(runner(8.0)), None, Some(runner(7.0)), None);
         assert!(matches!(
             runners_with_second.total_runner_time(Base::Second, Base::First),
             Err(GameError::UnsupportedPath)
@@ -1050,7 +1064,8 @@ mod tests {
             Some(runner(7.0)),
             Some(runner(7.0)),
         );
-        let batter_to_first_without_lag = runners.batter_runner_time_to(Base::First, false).unwrap();
+        let batter_to_first_without_lag =
+            runners.batter_runner_time_to(Base::First, false).unwrap();
         let batter_to_second = runners.batter_runner_time_to(Base::Second, true).unwrap();
 
         let result = runners
@@ -1079,7 +1094,8 @@ mod tests {
             None,
             Some(runner(7.0)),
         );
-        let batter_to_first_without_lag = runners.batter_runner_time_to(Base::First, false).unwrap();
+        let batter_to_first_without_lag =
+            runners.batter_runner_time_to(Base::First, false).unwrap();
         let batter_to_first = runners.batter_runner_time_to(Base::First, true).unwrap();
 
         let result = runners
@@ -1129,22 +1145,21 @@ mod tests {
 
     #[test]
     fn after_double_play_removes_runner_when_second_throw_wins() {
-        let runners = runners(
-            RL::Left,
-            Some(runner(8.0)),
-            Some(runner(7.0)),
-            None,
-            None,
-        );
+        let runners = runners(RL::Left, Some(runner(8.0)), Some(runner(7.0)), None, None);
         let previous_unsaved = RunnersUnsaved {
             runner_1st: None,
             runner_2nd: Some(runner(7.0)),
             runner_3rd: None,
         };
-        let runner_time = runners.total_runner_time(Base::First, Base::Second).unwrap();
+        let runner_time = runners
+            .total_runner_time(Base::First, Base::Second)
+            .unwrap();
 
         let result = runners
-            .after_double_play(double_play_result(Base::Second, runner_time - 0.01), previous_unsaved)
+            .after_double_play(
+                double_play_result(Base::Second, runner_time - 0.01),
+                previous_unsaved,
+            )
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Out);
@@ -1167,7 +1182,9 @@ mod tests {
     #[test]
     fn after_base_stealing_safe_to_second_moves_runner() {
         let mut runners = runners(RL::Left, None, Some(runner(7.0)), None, None);
-        let runner_time = runners.total_runner_time(Base::First, Base::Second).unwrap();
+        let runner_time = runners
+            .total_runner_time(Base::First, Base::Second)
+            .unwrap();
 
         let result = runners
             .after_base_stealing(steal_result(Base::Second, runner_time + 0.11), 0.1)
@@ -1181,7 +1198,9 @@ mod tests {
     #[test]
     fn after_base_stealing_out_to_third_keeps_runner_on_second() {
         let mut runners = runners(RL::Left, None, None, Some(runner(7.0)), None);
-        let runner_time = runners.total_runner_time(Base::Second, Base::Third).unwrap();
+        let runner_time = runners
+            .total_runner_time(Base::Second, Base::Third)
+            .unwrap();
 
         let result = runners
             .after_base_stealing(steal_result(Base::Third, runner_time - 0.01), 0.0)

@@ -324,7 +324,7 @@ impl InningState {
         self.count_seq += 1;
 
         if batting_result.is_out() {
-            self.add_out(1);
+            self.add_out();
         }
         let point = self.advance(&batting_result);
 
@@ -340,8 +340,8 @@ impl InningState {
         }
     }
 
-    pub fn add_out(&mut self, additional: u8) {
-        self.out += additional;
+    pub fn add_out(&mut self) {
+        self.out += 1;
     }
 }
 
@@ -514,15 +514,16 @@ mod tests {
         assert_eq!(inning.progress(), InningProgress::Ongoing);
 
         inning.add_count(&BattingResult::Single);
-        inning.add_out(2);
+        inning.add_out();
+        inning.add_out();
         assert_eq!(inning.count_seq, 1);
         assert_eq!(inning.out, 2);
         assert_eq!(inning.progress(), InningProgress::Ongoing);
 
-        inning.add_out(1);
+        inning.add_out();
         assert_eq!(inning.progress(), InningProgress::HalfInningOver);
 
-        inning.add_out(1);
+        inning.add_out();
         assert_eq!(inning.progress(), InningProgress::HalfInningOver);
     }
 
