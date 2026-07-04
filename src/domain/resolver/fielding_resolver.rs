@@ -793,8 +793,8 @@ pub fn process_defensive_chain<'a>(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
-    use crate::domain::resolver::running_resolver::Runner;
     use crate::domain::shared::player::RL;
+    use crate::domain::shared::player::Runner;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -848,7 +848,7 @@ mod tests {
             Runner {
                 speed,
                 lead_distance: 0.0,
-                target_base: None,
+                start_reaction: 0.1,
             }
         }
 

@@ -104,11 +104,18 @@ fn test_through_inning() -> Result<(), GameError> {
     let stadium = generate_stadium();
     let batter = generate_random_batter();
     let fielders = generate_default_fielders();
+    let pitcher = PitcherData {
+        delivery_motion_time: 1.0,
+    };
+    let catcher = CatcherData {
+        prep_time: 0.4,
+        throw_speed: 35.0,
+    };
     let mut scores = 0;
     let batter_runner = Runner {
         speed: 7.0,
         lead_distance: 0.0,
-        target_base: None,
+        start_reaction: 0.1,
     };
     let mut inning_state = InningState::new();
 
@@ -135,7 +142,28 @@ fn test_through_inning() -> Result<(), GameError> {
             }
         }
 
-        // TODO: Try stolen base or hit-and-run
+        // TODO: stolen base tunrned into hit-and-run case
+        if inning_state.can_steal_base(Box::new(RealRng::new())) {
+            let steal_defense_play_result =
+                evaluate_base_stealing(Base::Second, &pitcher, &catcher, Box::new(RealRng::new()));
+
+            println!("{:#?}", steal_defense_play_result);
+
+            let steal_runner_advance_result = inning_state
+                .runners
+                .after_base_stealing(steal_defense_play_result)?;
+
+            println!("{:#?}", steal_runner_advance_result);
+
+            // TODO: Record stolen base result
+
+            if steal_runner_advance_result.ruling == Ruling::Out {
+                inning_state.add_out();
+                if inning_state.progress() == InningProgress::Ongoing {
+                    break;
+                }
+            };
+        }
 
         let fielder = {
             let handler = process_defensive_chain(&fielders, &ball)?;
@@ -186,7 +214,7 @@ fn test_through_inning() -> Result<(), GameError> {
 
         println!("{:#?}", runner_advance_result);
 
-        if ctx.fielded_ball.fielded_by.is_outfielder() && inning_state.can_double_play() {
+        if ctx.fielded_ball.fielded_by.is_infielder() && inning_state.can_double_play() {
             if let Some(double_play_defense_play_result) =
                 evaluate_double_play(&ctx, &defense_play_result, Box::new(RealRng::new()))?
             {
@@ -205,6 +233,9 @@ fn test_through_inning() -> Result<(), GameError> {
 
                 if double_play_runner_advance_result.ruling == Ruling::Out {
                     inning_state.add_out();
+                    if inning_state.progress() == InningProgress::Ongoing {
+                        break;
+                    }
                 };
             }
         } else {
@@ -230,13 +261,13 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     let batter_runner = Runner {
         speed: 7.0,
         lead_distance: 0.0,
-        target_base: None,
+        start_reaction: 0.1,
     };
 
     let runner_on_first = Runner {
         speed: 7.0,
         lead_distance: 0.0,
-        target_base: None,
+        start_reaction: 0.1,
     };
 
     let mut inning_state = InningState::new();
@@ -279,6 +310,40 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     inning_state.add_out();
 
     assert_eq!(inning_state.out, 2);
+
+    Ok(())
+}
+
+#[test]
+fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
+    let pitcher = PitcherData {
+        delivery_motion_time: 2.0,
+    };
+    let catcher = CatcherData {
+        prep_time: 0.8,
+        throw_speed: 20.0,
+    };
+    let runner_on_first = Runner {
+        speed: 7.0,
+        lead_distance: 0.0,
+        start_reaction: 0.1,
+    };
+
+    let mut inning_state = InningState::new();
+    inning_state.runners.runner_1st = Some(runner_on_first);
+
+    assert!(inning_state.can_steal_base(Box::new(FixedRng::new(0.1))));
+
+    let steal_defense_play_result =
+        evaluate_base_stealing(Base::Second, &pitcher, &catcher, Box::new(FixedRng::new(0.1)));
+    let steal_runner_advance_result = inning_state
+        .runners
+        .after_base_stealing(steal_defense_play_result)?;
+
+    assert_eq!(steal_runner_advance_result.ruling, Ruling::Safe);
+    assert!(inning_state.runners.runner_1st.is_none());
+    assert!(inning_state.runners.runner_2nd.is_some());
+    assert_eq!(inning_state.out, 0);
 
     Ok(())
 }

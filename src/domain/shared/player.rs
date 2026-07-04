@@ -195,6 +195,13 @@ impl Player {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct Runner {
+    pub speed: f64,          // NOTE: Base running speed (m/s) e.g. 7.7
+    pub lead_distance: f64,  // NOTE: Current lead distance (m), valid when current_base > 0
+    pub start_reaction: f64, // TODO: judge mechanism should be implemented.
+}
+
 // TODO: merge into Player
 #[derive(Debug, Clone)]
 pub struct Fielder {

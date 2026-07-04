@@ -1,6 +1,7 @@
 use super::game::{BaseCode, BattingResult, Count, Inning, TB};
 use super::player::{Player, Position};
 use super::team::Lineup;
+use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::simulate_batting;
 use crate::domain::resolver::running_resolver::RunnersOnBase;
 use crate::domain::shared::game_history::BattingResultHistory;
@@ -11,6 +12,9 @@ use std::fmt;
 
 pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
+
+// TODO: Move to running strategy
+const TEMP_ATTEMPT_STEAL_BASE_WEIGHT: f64 = 0.3;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GameError {
@@ -276,6 +280,19 @@ impl InningState {
 
     pub fn can_double_play(&self) -> bool {
         self.out < 2 && self.runners.has_runner_on(Base::First)
+    }
+
+    // TODO: Consider running attitude (early start, hit and run, etc)
+    pub fn can_steal_base(&self, mut rng: Box<dyn RandomProvider>) -> bool {
+        if self.runners.has_runner_on(Base::First) {
+            if rng.random() < TEMP_ATTEMPT_STEAL_BASE_WEIGHT {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     // TODO: To be replaced by RunnersOnBase

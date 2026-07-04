@@ -3,20 +3,13 @@ use super::fielding_resolver::{
 };
 use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
 use crate::domain::shared::game_state::{GameError, Ruling};
-use crate::domain::shared::player::RL;
+use crate::domain::shared::player::{RL, Runner};
 use crate::domain::shared::stadium::Base;
 
 pub const ACCELERATION_LAG_TO_FIRST_BASE: f64 = 0.5;
 pub const ACCELERATION_LAG_AFTER_FIRST_BASE: f64 = 0.2;
 pub const ACCELERATION_LAG_FROM_FIRST_TO_SECOND_BASE: f64 = 0.7;
 pub const ACCELERATION_LAG_FROM_FIRST_TO_THIRD_BASE: f64 = 0.9;
-
-#[derive(Clone, Copy, Debug)]
-pub struct Runner {
-    pub speed: f64,         // Base running speed (m/s) e.g. 7.7
-    pub lead_distance: f64, // Current lead distance (m), valid when current_base > 0
-    pub target_base: Option<Base>,
-}
 
 #[derive(Clone, Debug)]
 pub struct StealRunnerAdvanceResult {
@@ -252,6 +245,11 @@ impl RunnersOnBase {
         };
 
         ((BASE_DISTANCE * base_count as f64) - runner.lead_distance) / runner.speed + lag
+    }
+
+    pub fn steal_base_runner_time(&self, from_base: Base, to_base: Base) -> Result<f64, GameError> {
+        let runner = self.runner_on(from_base)?;
+        Ok(self.total_runner_time(from_base, to_base)? + runner.start_reaction)
     }
 
     pub fn total_runner_time(&self, from_base: Base, to_base: Base) -> Result<f64, GameError> {
@@ -810,7 +808,6 @@ impl RunnersOnBase {
     pub fn after_base_stealing(
         &mut self,
         steal_defense_play_result: StealDefensePlayResult,
-        start_reaction: f64, // TODO: judge mechanism should be implemented.
     ) -> Result<StealRunnerAdvanceResult, GameError> {
         let runner_time;
         let time_difference;
@@ -818,7 +815,7 @@ impl RunnersOnBase {
 
         match steal_defense_play_result.throw_target_base {
             Base::Third => {
-                runner_time = self.total_runner_time(Base::Second, Base::Third)? + start_reaction;
+                runner_time = self.steal_base_runner_time(Base::Second, Base::Third)?;
                 (ruling, time_difference) =
                     judge(steal_defense_play_result.defense_time, runner_time);
 
@@ -828,7 +825,7 @@ impl RunnersOnBase {
                 };
             }
             Base::Second => {
-                runner_time = self.total_runner_time(Base::First, Base::Second)? + start_reaction;
+                runner_time = self.steal_base_runner_time(Base::First, Base::Second)?;
                 (ruling, time_difference) =
                     judge(steal_defense_play_result.defense_time, runner_time);
 
@@ -871,7 +868,7 @@ mod tests {
         Runner {
             speed,
             lead_distance: 0.0,
-            target_base: None,
+            start_reaction: 0.1,
         }
     }
 
@@ -879,7 +876,7 @@ mod tests {
         Runner {
             speed,
             lead_distance,
-            target_base: None,
+            start_reaction: 0.1,
         }
     }
 
@@ -1187,7 +1184,7 @@ mod tests {
             .unwrap();
 
         let result = runners
-            .after_base_stealing(steal_result(Base::Second, runner_time + 0.11), 0.1)
+            .after_base_stealing(steal_result(Base::Second, runner_time + 0.11))
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Safe);
@@ -1203,7 +1200,7 @@ mod tests {
             .unwrap();
 
         let result = runners
-            .after_base_stealing(steal_result(Base::Third, runner_time - 0.01), 0.0)
+            .after_base_stealing(steal_result(Base::Third, runner_time - 0.01))
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Out);
@@ -1216,7 +1213,7 @@ mod tests {
         let mut runners = runners(RL::Left, None, Some(runner(7.0)), None, None);
 
         assert!(matches!(
-            runners.after_base_stealing(steal_result(Base::Home, 1.0), 0.0),
+            runners.after_base_stealing(steal_result(Base::Home, 1.0)),
             Err(GameError::StealTargetBase)
         ));
     }
