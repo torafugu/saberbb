@@ -274,6 +274,10 @@ impl InningState {
                 && !self.runners.has_runner_on(Base::Second))
     }
 
+    pub fn can_double_play(&self) -> bool {
+        self.out < 2 && self.runners.has_runner_on(Base::First)
+    }
+
     // TODO: To be replaced by RunnersOnBase
     pub fn advance(&mut self, result: &BattingResult) -> u8 {
         let mut points = 0u8;

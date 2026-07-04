@@ -1049,7 +1049,7 @@ mod tests {
         let result = center_fielder.try_catch(&fly_ball);
 
         assert!(result.is_fly_catch);
-        assert_near(result.time_to_field, 0.4 + (5.0 / 7.0));
+        assert_near(result.time_to_field, fly_ball.hang_time);
         assert_near(result.ball.distance(), 80.0);
         assert_near(result.ball.angle(), 0.0);
     }
@@ -1090,7 +1090,7 @@ mod tests {
         let result = center_fielder.try_catch(&mut liner_beyond_fielder);
 
         assert!(result.is_fly_catch);
-        assert_near(result.time_to_field, 0.55 + (10.0 / 7.0));
+        assert_near(result.time_to_field, liner_beyond_fielder.hang_time);
     }
 
     #[test]
@@ -1303,9 +1303,9 @@ mod tests {
         let result = evaluate_defense_play(&ctx, fixed_rng()).unwrap();
         let throw_distance =
             calculate_polar_distance(&catch_position, &Base::First.polar_position());
-        let expected_defense_time = (first_baseman.prep_time
-            + (throw_distance / first_baseman.throw_speed))
-            .min(throw_distance / first_baseman.running_speed);
+        let expected_defense_time = fielded_ball.time_to_field
+            + (first_baseman.prep_time + (throw_distance / first_baseman.throw_speed))
+                .min(throw_distance / first_baseman.running_speed);
 
         assert_eq!(result.time_to_field, 0.8);
         assert_eq!(result.throw_target_base, Base::First);
@@ -1342,13 +1342,14 @@ mod tests {
             .iter()
             .find(|fielder| fielder.is(Position::SS))
             .unwrap();
-        let expected_defense_time = DefenseTimeCalculator::default().best_outfield_throw_time(
-            &left_fielder,
-            &catch_position,
-            Base::Home,
-            PlayType::TouchPlay,
-            Some(shortstop),
-        );
+        let expected_defense_time = fielded_ball.time_to_field
+            + DefenseTimeCalculator::default().best_outfield_throw_time(
+                &left_fielder,
+                &catch_position,
+                Base::Home,
+                PlayType::TouchPlay,
+                Some(shortstop),
+            );
 
         assert_eq!(result.time_to_field, 3.2);
         assert_eq!(result.throw_target_base, Base::Home);
@@ -1377,13 +1378,14 @@ mod tests {
             .iter()
             .find(|fielder| fielder.is(Position::SS))
             .unwrap();
-        let expected_defense_time = DefenseTimeCalculator::default().best_outfield_throw_time(
-            &center_fielder,
-            &deep_hit.polar_position,
-            Base::Second,
-            PlayType::TouchPlay,
-            Some(shortstop),
-        );
+        let expected_defense_time = fielded_ball.time_to_field
+            + DefenseTimeCalculator::default().best_outfield_throw_time(
+                &center_fielder,
+                &deep_hit.polar_position,
+                Base::Second,
+                PlayType::TouchPlay,
+                Some(shortstop),
+            );
 
         assert_eq!(result.time_to_field, 5.0);
         assert_eq!(result.throw_target_base, Base::Second);

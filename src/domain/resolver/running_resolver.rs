@@ -287,7 +287,7 @@ impl RunnersOnBase {
 
     pub fn after_infield_grounder(
         &self,
-        defense_play_result: DefensePlayResult,
+        defense_play_result: &DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let runner_time;
         let time_difference;
@@ -635,7 +635,7 @@ impl RunnersOnBase {
 
     pub fn after_outfield_hit(
         &self,
-        defense_play_result: DefensePlayResult,
+        defense_play_result: &DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let batter_to_second_time = self.batter_runner_time_to(Base::Second, false)?;
         let batter_to_third_time = self.batter_runner_time_to(Base::Third, false)?;
@@ -689,7 +689,7 @@ impl RunnersOnBase {
 
     pub fn after_tagup(
         &self,
-        defense_play_result: DefensePlayResult,
+        defense_play_result: &DefensePlayResult,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let mut runner_time = 0.0;
         let mut time_difference = 0.0;
@@ -1011,7 +1011,7 @@ mod tests {
         let batter_time = runners.batter_runner_time_to(Base::First, true).unwrap();
 
         let result = runners
-            .after_infield_grounder(defense_result(
+            .after_infield_grounder(&defense_result(
                 Base::First,
                 PlayType::ForcePlay,
                 1.0,
@@ -1039,7 +1039,7 @@ mod tests {
         let runner_time = runners.total_runner_time(Base::Third, Base::Home).unwrap();
 
         let result = runners
-            .after_infield_grounder(defense_result(
+            .after_infield_grounder(&defense_result(
                 Base::Home,
                 PlayType::ForcePlay,
                 1.0,
@@ -1069,7 +1069,7 @@ mod tests {
         let batter_to_second = runners.batter_runner_time_to(Base::Second, true).unwrap();
 
         let result = runners
-            .after_outfield_hit(defense_result(
+            .after_outfield_hit(&defense_result(
                 Base::Second,
                 PlayType::TouchPlay,
                 batter_to_first_without_lag + 0.01,
@@ -1099,7 +1099,7 @@ mod tests {
         let batter_to_first = runners.batter_runner_time_to(Base::First, true).unwrap();
 
         let result = runners
-            .after_outfield_hit(defense_result(
+            .after_outfield_hit(&defense_result(
                 Base::First,
                 PlayType::ForcePlay,
                 batter_to_first_without_lag - 0.01,
@@ -1127,7 +1127,7 @@ mod tests {
         let runner_time = runners.total_runner_time(Base::Third, Base::Home).unwrap();
 
         let result = runners
-            .after_tagup(defense_result(
+            .after_tagup(&defense_result(
                 Base::Home,
                 PlayType::TouchPlay,
                 1.0,

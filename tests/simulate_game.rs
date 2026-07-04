@@ -1,12 +1,11 @@
 use rand::RngExt;
 use rand_distr::StandardNormal;
 use rusqlite::params;
-use saberbb::domain::random_provider::RealRng;
+use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::resolver::running_resolver::*;
-use saberbb::domain::shared::ball::BattedBall;
-use saberbb::domain::shared::ball::TrajectoryType;
+use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
@@ -120,12 +119,7 @@ fn test_through_inning() -> Result<(), GameError> {
 
         let ball = calculate_batted_ball(&batter, 150.0);
 
-        println!(
-            "Ball:(Degree:{},Distance:{}, TrajectoryType:{})",
-            ball.angle(),
-            ball.distance(),
-            ball.trajectory
-        );
+        println!("{:#?}", ball);
 
         if stadium.is_stand_in(&ball) {
             if ball.is_foul() {
@@ -145,30 +139,22 @@ fn test_through_inning() -> Result<(), GameError> {
 
         let fielder = {
             let handler = process_defensive_chain(&fielders, &ball)?;
-
-            println!(
-                "Fielder?:{}, Ball arrival time:{}, Trajectory Type:{}",
-                handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
-            );
-
             handler.fielder
         };
 
+        println!("{:#?}", fielder);
+
         let fielded_ball = fielder.try_catch(&ball);
 
-        println!(
-            "time_to_field:{}, final_distance:{}, angle:{}, is_fly_catch:{}",
-            fielded_ball.time_to_field,
-            fielded_ball.ball.distance(),
-            fielded_ball.ball.angle(),
-            fielded_ball.is_fly_catch,
-        );
+        println!("{:#?}", fielded_ball);
 
         if fielded_ball.is_fly_catch {
-            println!("Play Result:{}", Ruling::Out);
             inning_state.add_out();
 
-            println!("Outs:{}, Scores:{}", inning_state.out, scores);
+            println!(
+                "Fly is caught. Outs:{}, Scores:{}",
+                inning_state.out, scores
+            );
 
             // TODO: Record fielding result
 
@@ -186,136 +172,113 @@ fn test_through_inning() -> Result<(), GameError> {
 
         let defense_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
 
-        let cutoff_position;
-        if let Some(cutoff_fielder_position) = defense_play_result.cutoff_fielder_position {
-            cutoff_position = cutoff_fielder_position.to_string();
-        } else {
-            cutoff_position = "".to_string();
-        };
-
-        println!(
-            "throw_target:{}, play_type:{}, final_position:{}, cutoff_position:{}, defense_time:{}",
-            defense_play_result.throw_target_base,
-            defense_play_result.play_type,
-            defense_play_result.final_fielder_position,
-            cutoff_position,
-            defense_play_result.defense_time,
-        );
+        println!("{:#?}", defense_play_result);
 
         let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
             inning_state
                 .runners
-                .after_outfield_hit(defense_play_result)?
+                .after_outfield_hit(&defense_play_result)?
         } else {
             inning_state
                 .runners
-                .after_infield_grounder(defense_play_result)?
+                .after_infield_grounder(&defense_play_result)?
         };
 
-        println!(
-            "defense_time:{}, runner_time:{}, time_difference:{}, throw_target_base:{}, play_type:{}, ruling:{}, batting_result:{}, runs_scored:{}",
-            runner_advance_result.defense_time,
-            runner_advance_result.runner_time,
-            runner_advance_result.time_difference,
-            runner_advance_result.throw_target_base,
-            runner_advance_result.play_type,
-            runner_advance_result.ruling,
-            runner_advance_result.batting_result,
-            runner_advance_result.runs_scored,
-        );
+        println!("{:#?}", runner_advance_result);
+
+        if ctx.fielded_ball.fielded_by.is_outfielder() && inning_state.can_double_play() {
+            if let Some(double_play_defense_play_result) =
+                evaluate_double_play(&ctx, &defense_play_result, Box::new(RealRng::new()))?
+            {
+                println!("{:#?}", double_play_defense_play_result);
+
+                let double_play_runner_advance_result = inning_state.runners.after_double_play(
+                    double_play_defense_play_result,
+                    runner_advance_result.unsaved_runners,
+                )?;
+
+                println!("{:#?}", double_play_runner_advance_result);
+
+                inning_state
+                    .runners
+                    .commit_unsaved_runners(double_play_runner_advance_result.unsaved_runners);
+
+                if double_play_runner_advance_result.ruling == Ruling::Out {
+                    inning_state.add_out();
+                };
+            }
+        } else {
+            inning_state
+                .runners
+                .commit_unsaved_runners(runner_advance_result.unsaved_runners);
+        }
 
         if runner_advance_result.ruling == Ruling::Out {
             inning_state.add_out();
         };
 
-        inning_state
-            .runners
-            .commit_unsaved_runners(runner_advance_result.unsaved_runners);
+        println!("");
     }
 
     Ok(())
 }
 
 #[test]
-fn test_bat_to_catch() -> Result<(), GameError> {
-    let stadium = generate_stadium();
-
-    let batter = generate_random_batter();
-    println!(
-        "Batter:{}, Swing Speed:{}",
-        batter.batting_side, batter.swing_speed
-    );
-
-    let ball = calculate_batted_ball(&batter, 150.0);
-
-    println!(
-        "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
-        ball.angle(),
-        ball.distance(),
-        ball.trajectory
-    );
-
-    if stadium.is_stand_in(&ball) {
-        if ball.is_foul() {
-            println!("{}", BattingResult::Foul);
-            return Ok(());
-        } else {
-            println!("{}", BattingResult::HomeRun);
-            return Ok(());
-        }
-    }
-
+fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     let fielders = generate_default_fielders();
-    let fielder = {
-        let handler = process_defensive_chain(&fielders, &ball)?;
 
-        println!(
-            "Who?:{}, Ball arrival time:{}, TrajectoryType:{}",
-            handler.fielder.position, handler.ball.hang_time, handler.ball.trajectory
-        );
-
-        handler.fielder
-    };
-
-    let fielded_ball = fielder.try_catch(&ball);
-
-    println!(
-        "time_to_field:{}, final_distance:{}, angle:{}, is_fly_catch:{}",
-        fielded_ball.time_to_field,
-        fielded_ball.ball.distance(),
-        fielded_ball.ball.angle(),
-        fielded_ball.is_fly_catch,
-    );
-
-    if fielded_ball.is_fly_catch {
-        println!("Play Result:{}", Ruling::Out);
-        return Ok(());
-    }
-
-    let mut runners = RunnersOnBase::default();
-    runners.batting_side = Some(batter.batting_side.clone());
-    runners.batter_runner = Some(Runner {
+    let batter_runner = Runner {
         speed: 7.0,
         lead_distance: 0.0,
         target_base: None,
-    });
+    };
+
+    let runner_on_first = Runner {
+        speed: 7.0,
+        lead_distance: 0.0,
+        target_base: None,
+    };
+
+    let mut inning_state = InningState::new();
+    inning_state.runners.batting_side = Some(RL::Left);
+    inning_state.runners.batter_runner = Some(batter_runner);
+    inning_state.runners.runner_1st = Some(runner_on_first);
+
+    let ball = BattedBall::new(95.0, 4.0, -25.0, 35.0, 1.0, TrajectoryType::Grounder);
+
+    let fielder = fielders.iter().find(|f| f.is(Position::SS)).unwrap();
+    let fielded_ball = FieldedBall {
+        ball,
+        fielded_by: Position::SS,
+        time_to_field: 1.0,
+        is_fly_catch: false,
+    };
 
     let ctx = PlayContext {
-        runners: &runners,
+        runners: &inning_state.runners,
         fielders: &fielders,
         try_catch_fielder: fielder,
         fielded_ball: &fielded_ball,
     };
 
-    // let play_result = evaluate_defense_play(&ctx, batter.batting_side)?;
+    let first_play = evaluate_defense_play(&ctx, Box::new(FixedRng::new(0.1)))?;
+    let first_advance = inning_state.runners.after_infield_grounder(&first_play)?;
 
-    // println!(
-    //     "ruling?:{}, defense_time?:{}, runner_time?:{}, time_difference?:{}",
-    //     play_result.ruling,
-    //     play_result.defense_time,
-    //     play_result.runner_time,
-    //     play_result.time_difference
-    // );
+    assert_eq!(first_advance.ruling, Ruling::Out);
+
+    let second_play =
+        evaluate_double_play(&ctx, &first_play, Box::new(FixedRng::new(0.1)))?.unwrap();
+
+    inning_state.add_out();
+
+    let second_advance = inning_state
+        .runners
+        .after_double_play(second_play, first_advance.unsaved_runners)?;
+
+    assert_eq!(second_advance.ruling, Ruling::Out);
+    inning_state.add_out();
+
+    assert_eq!(inning_state.out, 2);
 
     Ok(())
 }
