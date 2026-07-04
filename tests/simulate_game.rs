@@ -121,7 +121,7 @@ fn test_through_inning() -> Result<(), GameError> {
         let ball = calculate_batted_ball(&batter, 150.0);
 
         println!(
-            "Ball?:(Degree:{},Distance:{}, TrajectoryType:{})",
+            "Ball:(Degree:{},Distance:{}, TrajectoryType:{})",
             ball.angle(),
             ball.distance(),
             ball.trajectory
@@ -140,6 +140,8 @@ fn test_through_inning() -> Result<(), GameError> {
                 continue;
             }
         }
+
+        // TODO: Try stolen base or hit-and-run
 
         let fielder = {
             let handler = process_defensive_chain(&fielders, &ball)?;
@@ -165,10 +167,14 @@ fn test_through_inning() -> Result<(), GameError> {
         if fielded_ball.is_fly_catch {
             println!("Play Result:{}", Ruling::Out);
             inning_state.add_out();
-            // TODO: Consder tag-up case
-            // Call evaluate_tagup_play directory ?
+
             println!("Outs:{}, Scores:{}", inning_state.out, scores);
-            continue;
+
+            // TODO: Record fielding result
+
+            if inning_state.allows_tagup() {
+                continue;
+            }
         }
 
         let ctx = PlayContext {
@@ -178,7 +184,6 @@ fn test_through_inning() -> Result<(), GameError> {
             fielded_ball: &fielded_ball,
         };
 
-        // TODO: Consder stolen base case
         let defense_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
 
         let cutoff_position;

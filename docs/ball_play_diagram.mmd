@@ -4,13 +4,14 @@ flowchart TD
   end
 
   pitch_ball --> batter
+  pitch_ball --> evaluate_base_stealing
     
   subgraph batter["Batter"]
     direction TB
     swing{Swing?}
     swing --> |No|take_pitch
-    swing --> |Yes and Miss|swing_miss
-    swing --> |Yes and Hit|calculate_batted_ball
+    swing --> |Yes & Miss|swing_miss
+    swing --> |Yes & Hit|calculate_batted_ball
   end
 
   subgraph calculate_batted_ball["Calculate Batted Ball"]
@@ -21,8 +22,8 @@ flowchart TD
   calculate_batted_ball --> process_defensive_chain
 
   subgraph process_defensive_chain["Process Defensive Chain"]
-    is_ball_in_fielder_lane --> calculate_height_at_distance1["calculate height at distance"]
-    calculate_height_at_distance1 --> find_closest_fielder
+    is_ball_in_fielder_lane --> calculate_height_at_distance
+    calculate_height_at_distance --> find_closest_fielder
   end
 
   process_defensive_chain --> fielder1
@@ -34,44 +35,45 @@ flowchart TD
 
   subgraph try_catch["Try Catch"]
     direction TB
-    outfield{Ball is Outfield?} --> |YES|over_the_fence{Over the Fence?}
-    over_the_fence --> |YES and Fly or Liner|calculate_height_at_distance2{"calculate height at distance"}
-    calculate_height_at_distance2 --> |higher than fence|HOMERUN!
-    calculate_height_at_distance2 --> |lower than fence|process_bounded_ball
-    over_the_fence --> |YES and Grounder|process_bounded_ball
-    over_the_fence --> |NO and Fly or Liner|catch_fly1{Catch Fly?}
-    outfield{Ball is Outfield?} --> |NO and Fly or Liner|catch_fly1{Catch Fly?}
-    catch_fly1 --> |YES|OUT!
-    catch_fly1 --> |NO|process_bounded_ball
-    catch_fly1 --> |NO|process_bounded_ball
+    
+    height2 --> |lower than fence|process_bounded_ball
+    height2 --> |higher than fence|homerun
+    over_the_fence --> |YES & Grounder|process_bounded_ball
+    over_the_fence --> |YES & !Grounder|height2{"Height?"}
+    over_the_fence --> |NO & !Grounder & Catch|out
   end
 
-  process_bounded_ball --> fielder2
-    outfield{Ball is Outfield?} --> |NO and Grounder|fielder2
+  fielder1 --> fielder2
+  homerun --> after_homerun
 
   subgraph fielder2["Fielder2 + Cut Off Man"]
-    evaluate_defense_play --> evaluate_double_play
-    evaluate_base_stealing
+    evaluate_defense_play
   end
 
   subgraph evaluate_defense_play["evaluate defense play"]
-    infield{Infield Play?} --> |YES|judge_infield_grounder_throw_target
+    infield{Infield?} --> |YES & Grounder|judge_infield_grounder_throw_target
+
     judge_infield_grounder_throw_target --> infield_grounder_defense_play
 
-    infield{Infield Play?} --> |NO|catch_fly2
-    catch_fly2{Catch Fly?} --> |YES|judge_tagup_throw_target
-    catch_fly2{Catch Fly?} --> |NO|judge_outfield_hit_throw_target
+    infield --> |NO & Grounder|judge_outfield_hit_throw_target
+    infield --> |NO & Fly & TagUp|judge_tagup_throw_target
 
-    judge_tagup_throw_target --> outfield_defense_play
-    judge_outfield_hit_throw_target --> outfield_defense_play
+    judge_tagup_throw_target --> outfield_hit_tagup_defense_play
+    judge_outfield_hit_throw_target --> outfield_hit_tagup_defense_play
+  end
+
+  infield_grounder_defense_play --> fielder3
+
+  subgraph fielder3["Fielder3"]
+    evaluate_double_play
   end
 
   subgraph evaluate_double_play["evaluate double play"]
     judge_double_play_throw_target --> double_play_defense_play
   end
 
-  outfield_defense_play --> after_outfield_hit
-  outfield_defense_play --> after_tagup
+  outfield_hit_tagup_defense_play --> after_outfield_hit
+  outfield_hit_tagup_defense_play --> after_tagup
   infield_grounder_defense_play --> after_infield_grounder
   double_play_defense_play --> after_double_play
   evaluate_base_stealing --> after_base_stealing

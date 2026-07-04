@@ -248,7 +248,7 @@ impl BattingResult {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Base {
+pub enum BaseCode {
     First = 0,
     Second = 1,
     Third = 2,

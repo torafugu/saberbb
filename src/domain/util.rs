@@ -1,4 +1,4 @@
-use crate::domain::shared::game::Base;
+use crate::domain::shared::game::BaseCode;
 use crate::domain::shared::player::RL;
 use crate::domain::shared::prob::ItemProb;
 use rand::distr::weighted::WeightedIndex;
@@ -35,7 +35,7 @@ pub fn age_random(age_shape: f64, age_scale: f64, age_offset: f64) -> u8 {
     age.round() as u8
 }
 
-pub fn is_base_occupied(bases_occupied: u8, base: Base) -> bool {
+pub fn is_base_occupied(bases_occupied: u8, base: BaseCode) -> bool {
     (bases_occupied & (1 << base as u8)) != 0
 }
 
@@ -260,45 +260,45 @@ mod tests {
 
     #[test]
     fn test_is_base_occupied_first() {
-        assert!(is_base_occupied(0b001, Base::First));
-        assert!(!is_base_occupied(0b001, Base::Second));
-        assert!(!is_base_occupied(0b001, Base::Third));
+        assert!(is_base_occupied(0b001, BaseCode::First));
+        assert!(!is_base_occupied(0b001, BaseCode::Second));
+        assert!(!is_base_occupied(0b001, BaseCode::Third));
     }
 
     #[test]
     fn test_is_base_occupied_second() {
-        assert!(!is_base_occupied(0b010, Base::First));
-        assert!(is_base_occupied(0b010, Base::Second));
-        assert!(!is_base_occupied(0b010, Base::Third));
+        assert!(!is_base_occupied(0b010, BaseCode::First));
+        assert!(is_base_occupied(0b010, BaseCode::Second));
+        assert!(!is_base_occupied(0b010, BaseCode::Third));
     }
 
     #[test]
     fn test_is_base_occupied_third() {
-        assert!(!is_base_occupied(0b100, Base::First));
-        assert!(!is_base_occupied(0b100, Base::Second));
-        assert!(is_base_occupied(0b100, Base::Third));
+        assert!(!is_base_occupied(0b100, BaseCode::First));
+        assert!(!is_base_occupied(0b100, BaseCode::Second));
+        assert!(is_base_occupied(0b100, BaseCode::Third));
     }
 
     #[test]
     fn test_is_base_occupied_empty() {
-        assert!(!is_base_occupied(0b000, Base::First));
-        assert!(!is_base_occupied(0b000, Base::Second));
-        assert!(!is_base_occupied(0b000, Base::Third));
+        assert!(!is_base_occupied(0b000, BaseCode::First));
+        assert!(!is_base_occupied(0b000, BaseCode::Second));
+        assert!(!is_base_occupied(0b000, BaseCode::Third));
     }
 
     #[test]
     fn test_is_base_occupied_bases_loaded() {
-        assert!(is_base_occupied(0b111, Base::First));
-        assert!(is_base_occupied(0b111, Base::Second));
-        assert!(is_base_occupied(0b111, Base::Third));
+        assert!(is_base_occupied(0b111, BaseCode::First));
+        assert!(is_base_occupied(0b111, BaseCode::Second));
+        assert!(is_base_occupied(0b111, BaseCode::Third));
     }
 
     #[test]
     fn test_is_base_occupied_ignores_higher_bits() {
         // Upper bits beyond bit 2 should be ignored
-        assert!(is_base_occupied(0b101101, Base::First));
-        assert!(!is_base_occupied(0b101101, Base::Second));
-        assert!(is_base_occupied(0b101101, Base::Third));
+        assert!(is_base_occupied(0b101101, BaseCode::First));
+        assert!(!is_base_occupied(0b101101, BaseCode::Second));
+        assert!(is_base_occupied(0b101101, BaseCode::Third));
     }
 
     // ── choose_item_weighted ─────────────────────────────────

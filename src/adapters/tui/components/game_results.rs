@@ -1,7 +1,7 @@
 use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
-use crate::domain::shared::game::{Base, Count, GameHeader};
+use crate::domain::shared::game::{BaseCode, Count, GameHeader};
 use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
 use crate::domain::util::is_base_occupied;
 use crate::repositories::game_repository::GameRepository;
@@ -536,9 +536,9 @@ impl GameResultsWidget {
     fn format_runner(count: &Count) -> String {
         format!(
             "  <{}>\n<{}> <{}>\n  <H>\n",
-            Self::display_runner(count.bases_occupied, Base::Second),
-            Self::display_runner(count.bases_occupied, Base::Third),
-            Self::display_runner(count.bases_occupied, Base::First)
+            Self::display_runner(count.bases_occupied, BaseCode::Second),
+            Self::display_runner(count.bases_occupied, BaseCode::Third),
+            Self::display_runner(count.bases_occupied, BaseCode::First)
         )
     }
 
@@ -701,7 +701,7 @@ impl GameResultsWidget {
         Ok(formatted_lineup)
     }
 
-    fn display_runner(bases_occupied: u8, base: Base) -> &'static str {
+    fn display_runner(bases_occupied: u8, base: BaseCode) -> &'static str {
         if is_base_occupied(bases_occupied, base) {
             RUNNER
         } else {

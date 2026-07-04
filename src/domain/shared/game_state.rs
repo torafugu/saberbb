@@ -1,9 +1,10 @@
-use super::game::{Base, BattingResult, Count, Inning, TB};
+use super::game::{BaseCode, BattingResult, Count, Inning, TB};
 use super::player::{Player, Position};
 use super::team::Lineup;
 use crate::domain::resolver::batting_resolver::simulate_batting;
 use crate::domain::resolver::running_resolver::RunnersOnBase;
 use crate::domain::shared::game_history::BattingResultHistory;
+use crate::domain::shared::stadium::Base;
 use crate::domain::util::is_base_occupied;
 use crate::t;
 use std::fmt;
@@ -267,31 +268,38 @@ impl InningState {
         InningProgress::Ongoing
     }
 
+    pub fn allows_tagup(&self) -> bool {
+        self.out == 2
+            || (!self.runners.has_runner_on(Base::Third)
+                && !self.runners.has_runner_on(Base::Second))
+    }
+
+    // TODO: To be replaced by RunnersOnBase
     pub fn advance(&mut self, result: &BattingResult) -> u8 {
         let mut points = 0u8;
 
         match result {
             BattingResult::Single => {
-                if is_base_occupied(self.bases_occupied, Base::Third) {
+                if is_base_occupied(self.bases_occupied, BaseCode::Third) {
                     points += 1;
                 }
                 self.shift_runners(1); // All runners go to next base
-                self.put_runner_on(Base::First);
+                self.put_runner_on(BaseCode::First);
             }
             BattingResult::Double => {
-                if is_base_occupied(self.bases_occupied, Base::Third) {
+                if is_base_occupied(self.bases_occupied, BaseCode::Third) {
                     points += 1;
                 }
-                if is_base_occupied(self.bases_occupied, Base::Second) {
+                if is_base_occupied(self.bases_occupied, BaseCode::Second) {
                     points += 1;
                 }
                 self.shift_runners(2);
-                self.put_runner_on(Base::Second);
+                self.put_runner_on(BaseCode::Second);
             }
             BattingResult::Triple => {
                 points += self.how_many_runners(); // All runners home in
                 self.clear();
-                self.put_runner_on(Base::Third);
+                self.put_runner_on(BaseCode::Third);
             }
             BattingResult::HomeRun => {
                 points += self.how_many_runners() + 1; // All runners and the batter home in
@@ -304,18 +312,22 @@ impl InningState {
         points
     }
 
+    // TODO: To be replaced by RunnersOnBase
     fn shift_runners(&mut self, bases: u8) {
         self.bases_occupied = (self.bases_occupied << bases) & 0b00000111;
     }
 
-    fn put_runner_on(&mut self, base: Base) {
+    // TODO: To be replaced by RunnersOnBase
+    fn put_runner_on(&mut self, base: BaseCode) {
         self.bases_occupied |= 1 << (base as u8);
     }
 
+    // TODO: To be replaced by RunnersOnBase
     fn clear(&mut self) {
         self.bases_occupied = 0;
     }
 
+    // TODO: To be replaced by RunnersOnBase
     fn how_many_runners(&self) -> u8 {
         self.bases_occupied.count_ones() as u8
     }
@@ -531,8 +543,8 @@ mod tests {
     fn advance_handles_every_base_occupancy_for_every_result() {
         for bases in 0u8..=0b111 {
             let runners = bases.count_ones() as u8;
-            let runner_on_second = (bases >> Base::Second as u8) & 1;
-            let runner_on_third = (bases >> Base::Third as u8) & 1;
+            let runner_on_second = (bases >> BaseCode::Second as u8) & 1;
+            let runner_on_third = (bases >> BaseCode::Third as u8) & 1;
 
             let cases = [
                 (

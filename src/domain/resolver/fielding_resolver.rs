@@ -279,7 +279,7 @@ fn infield_grounder_defense_play(
 }
 
 // TODO: case of final fielder failed to catch
-fn outfield_defense_play(
+fn outfield_hit_tagup_defense_play(
     ctx: &PlayContext,
     throw_target: &ThrowTarget,
 ) -> Result<DefensePlayResult, GameError> {
@@ -459,6 +459,7 @@ fn resolve_throw_target_plan(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverAssignment {
     Fixed(Position),
+
     // NOTE: Choose SS/SB by configured probability.
     MiddleInfieldRandom,
 
@@ -640,7 +641,7 @@ pub fn evaluate_defense_play(
             judge_outfield_hit_throw_target(ctx, rng)
         };
 
-        let defense_play_result = outfield_defense_play(ctx, &throw_target)?;
+        let defense_play_result = outfield_hit_tagup_defense_play(ctx, &throw_target)?;
         Ok(defense_play_result)
     }
 }
@@ -697,6 +698,7 @@ pub fn find_closest_fielder<'f>(
         .ok_or_else(|| GameError::NoPlayerFor("closest fielder".to_string()))
 }
 
+// TODO: The lane width should moved to fielder's ability.
 // Determine whether a fielder is in the ball's trajectory lane (lateral coverage)
 fn is_ball_in_fielder_lane(fielder: &Fielder, ball_angle: f64) -> bool {
     // Set lateral coverage angle width by position

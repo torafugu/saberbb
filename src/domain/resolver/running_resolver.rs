@@ -119,7 +119,7 @@ fn advance_count(from: Base, to: Base) -> Result<u8, GameError> {
         (Base::Home, Base::First) => 1,
         (Base::Home, Base::Second) => 2,
         (Base::Home, Base::Third) => 3,
-        // CONSTRAINT:  inside-the-park homerun is not supported
+        // CONSTRAINT: inside-the-park homerun is not supported
         // (Base::Home, Base::Home) => 4,
         (Base::First, Base::Second) => 1,
         (Base::First, Base::Third) => 2,
