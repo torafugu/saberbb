@@ -4,7 +4,7 @@ use rusqlite::params;
 use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
-use saberbb::domain::resolver::running_resolver::*;
+// use saberbb::domain::resolver::running_resolver::*;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
@@ -120,7 +120,7 @@ fn test_through_inning() -> Result<(), GameError> {
     let mut inning_state = InningState::new();
 
     while let InningProgress::Ongoing = inning_state.progress() {
-        println!("--- New count ---");
+        println!("\n--- New count ---");
         inning_state.runners.batting_side = Some(batter.batting_side.clone());
         inning_state.runners.batter_runner = Some(batter_runner);
 
@@ -138,6 +138,33 @@ fn test_through_inning() -> Result<(), GameError> {
 
                 println!("{}, score:+{}", BattingResult::HomeRun, scores);
                 println!("Outs:{}, Scores:{}", inning_state.out, scores);
+                continue;
+            }
+        }
+
+        let fielder = {
+            let handler = process_defensive_chain(&fielders, &ball)?;
+            handler.fielder
+        };
+
+        println!("{:#?}", fielder);
+
+        let fielded_ball = fielder.try_catch(&ball);
+
+        println!("{:#?}", fielded_ball);
+
+        if fielded_ball.is_fly_catch {
+            inning_state.add_out();
+
+            println!(
+                "Fly is caught. Outs:{}, Scores:{}",
+                inning_state.out, scores
+            );
+
+            // TODO: Record fielding result
+
+            if fielded_ball.fielded_by.is_infielder() || !inning_state.allows_tagup() {
+                println!("No tag-up.");
                 continue;
             }
         }
@@ -165,32 +192,6 @@ fn test_through_inning() -> Result<(), GameError> {
             };
         }
 
-        let fielder = {
-            let handler = process_defensive_chain(&fielders, &ball)?;
-            handler.fielder
-        };
-
-        println!("{:#?}", fielder);
-
-        let fielded_ball = fielder.try_catch(&ball);
-
-        println!("{:#?}", fielded_ball);
-
-        if fielded_ball.is_fly_catch {
-            inning_state.add_out();
-
-            println!(
-                "Fly is caught. Outs:{}, Scores:{}",
-                inning_state.out, scores
-            );
-
-            // TODO: Record fielding result
-
-            if inning_state.allows_tagup() {
-                continue;
-            }
-        }
-
         let ctx = PlayContext {
             runners: &inning_state.runners,
             fielders: &fielders,
@@ -203,9 +204,13 @@ fn test_through_inning() -> Result<(), GameError> {
         println!("{:#?}", defense_play_result);
 
         let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
-            inning_state
-                .runners
-                .after_outfield_hit(&defense_play_result)?
+            if inning_state.allows_tagup() {
+                inning_state.runners.after_tagup(&defense_play_result)?
+            } else {
+                inning_state
+                    .runners
+                    .after_outfield_hit(&defense_play_result)?
+            }
         } else {
             inning_state
                 .runners
@@ -248,7 +253,7 @@ fn test_through_inning() -> Result<(), GameError> {
             inning_state.add_out();
         };
 
-        println!("");
+        // TODO: Record fielding result
     }
 
     Ok(())
@@ -334,8 +339,12 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
 
     assert!(inning_state.can_steal_base(Box::new(FixedRng::new(0.1))));
 
-    let steal_defense_play_result =
-        evaluate_base_stealing(Base::Second, &pitcher, &catcher, Box::new(FixedRng::new(0.1)));
+    let steal_defense_play_result = evaluate_base_stealing(
+        Base::Second,
+        &pitcher,
+        &catcher,
+        Box::new(FixedRng::new(0.1)),
+    );
     let steal_runner_advance_result = inning_state
         .runners
         .after_base_stealing(steal_defense_play_result)?;

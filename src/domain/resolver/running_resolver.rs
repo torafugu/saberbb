@@ -129,7 +129,7 @@ fn advance_count(from: Base, to: Base) -> Result<u8, GameError> {
 
 fn judge(defense_time: f64, runner_time: f64) -> (Ruling, f64) {
     let diff = defense_time - runner_time;
-    let ruling = if diff > 0.0 {
+    let ruling = if diff >= 0.0 {
         Ruling::Safe
     } else {
         Ruling::Out

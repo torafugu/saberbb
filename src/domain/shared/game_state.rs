@@ -273,9 +273,8 @@ impl InningState {
     }
 
     pub fn allows_tagup(&self) -> bool {
-        self.out == 2
-            || (!self.runners.has_runner_on(Base::Third)
-                && !self.runners.has_runner_on(Base::Second))
+        self.out <= 2
+            && (self.runners.has_runner_on(Base::Third) || self.runners.has_runner_on(Base::Second))
     }
 
     pub fn can_double_play(&self) -> bool {
