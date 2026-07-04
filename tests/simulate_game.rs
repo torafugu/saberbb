@@ -4,7 +4,6 @@ use rusqlite::params;
 use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
-// use saberbb::domain::resolver::running_resolver::*;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
@@ -52,7 +51,7 @@ fn generate_random_batter() -> Batter {
         .clamp(min_swing_speed, max_swing_speed);
 
     let pull_hitter = Batter {
-        batting_side: rl.clone(),
+        batting_side: rl,
         swing_speed: final_swing_speed,
         weight_pull: 0.55,
         weight_center: 0.25,
@@ -62,7 +61,7 @@ fn generate_random_batter() -> Batter {
     };
 
     let ordinally_hitter = Batter {
-        batting_side: rl.clone(),
+        batting_side: rl,
         swing_speed: final_swing_speed,
         weight_pull: 0.35,
         weight_center: 0.35,
@@ -72,7 +71,7 @@ fn generate_random_batter() -> Batter {
     };
 
     let average_hitter = Batter {
-        batting_side: rl.clone(),
+        batting_side: rl,
         swing_speed: final_swing_speed,
         weight_pull: 0.25,
         weight_center: 0.45,
@@ -121,7 +120,7 @@ fn test_through_inning() -> Result<(), GameError> {
 
     while let InningProgress::Ongoing = inning_state.progress() {
         println!("\n--- New count ---");
-        inning_state.runners.batting_side = Some(batter.batting_side.clone());
+        inning_state.runners.batting_side = Some(batter.batting_side);
         inning_state.runners.batter_runner = Some(batter_runner);
 
         let ball = calculate_batted_ball(&batter, 150.0);

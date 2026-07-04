@@ -93,7 +93,7 @@ impl std::fmt::Display for Position {
     }
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum RL {
     Right,

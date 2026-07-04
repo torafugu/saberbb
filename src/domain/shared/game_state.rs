@@ -55,7 +55,7 @@ pub enum GameError {
     UnsupportedPath,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Ruling {
     Safe,
     Out,

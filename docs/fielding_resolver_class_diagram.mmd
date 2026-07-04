@@ -121,7 +121,7 @@ class FieldingResolver {
   -find_fielder_by_position(Fielder[] fielders, Position position) Result_Fielder_GameError
   -double_play_defense_play(Fielder[] fielders, MultiPlayThrowTarget double_play_throw_target) Result_Option_DoublePlayDefensePlayResult_GameError
   -infield_grounder_defense_play(PlayContext ctx, ThrowTarget throw_target) Result_DefensePlayResult_GameError
-  -outfield_defense_play(PlayContext ctx, ThrowTarget throw_target) Result_DefensePlayResult_GameError
+  -outfield_hit_tagup_defense_play(PlayContext ctx, ThrowTarget throw_target) Result_DefensePlayResult_GameError
   -resolve_multiplay_throw_target_plan(Position final_fielder_position, MultiPlayThrowTargetPlan plan, CoverDecision decision) MultiPlayThrowTarget
   -resolve_throw_target_plan(Position final_fielder_position, ThrowTargetPlan plan, CoverDecision decision) ThrowTarget
   -select_multiplay_throw_target(DefensePlayResult ctx, MultiplayThrowRule[] rules) Option~MultiPlayThrowTargetPlan~

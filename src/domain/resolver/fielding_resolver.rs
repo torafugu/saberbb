@@ -233,10 +233,8 @@ fn double_play_defense_play(
         find_fielder_by_position(fielders, double_play_throw_target.thrower_fielder_position)?;
 
     // TODO: case of final fielder failed to catch
-    let _final_fielder = find_fielder_by_position(
-        fielders,
-        double_play_throw_target.final_fielder_position.clone(),
-    )?;
+    let _final_fielder =
+        find_fielder_by_position(fielders, double_play_throw_target.final_fielder_position)?;
 
     let calculator = DefenseTimeCalculator::default();
 

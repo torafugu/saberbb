@@ -677,7 +677,7 @@ impl RunnersOnBase {
             time_difference: time_difference,
             throw_target_base: defense_play_result.throw_target_base,
             play_type: defense_play_result.play_type,
-            ruling: ruling.clone(),
+            ruling: ruling,
             batting_result: batting_result,
             runs_scored: runs_scored,
             unsaved_runners: unsaved_runners,
