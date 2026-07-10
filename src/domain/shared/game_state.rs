@@ -1,12 +1,16 @@
 use super::game::{BaseCode, BattingResult, Count, Inning, TB};
-use super::player::{Player, Position};
+use super::player::{FielderInfo, Player, Position, RunningSkills};
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::resolver::batting_resolver::simulate_batting;
+use crate::domain::resolver::fielding_config::{
+    FENCE_BOUNCE_COEFF, FENCE_DISTANCE, FIRST_BOUNCE_TIME, LINER_REACTION_TIME,
+};
+use crate::domain::resolver::fielding_resolver::BoundedBallResult;
 use crate::domain::resolver::running_resolver::RunnersOnBase;
+use crate::domain::shared::ball::{BattedBall, FieldedBall, TrajectoryType};
 use crate::domain::shared::game_history::BattingResultHistory;
 use crate::domain::shared::stadium::Base;
-use crate::domain::util::is_base_occupied;
+use crate::domain::util::{PolarPosition, calculate_polar_distance, is_base_occupied};
 use crate::t;
 use std::fmt;
 
@@ -68,11 +72,139 @@ impl fmt::Display for Ruling {
         }
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActiveRunner {
+    pub player_id: usize,
+    pub skills: RunningSkills,
+}
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum BallStatus {
-    InPlay,
-    Dead,
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveFielder {
+    pub position: Position,
+    pub player_id: usize,
+    pub info: FielderInfo,
+    pub polar_position: PolarPosition,
+}
+impl ActiveFielder {
+    pub fn new(position: Position, player_id: usize, info: FielderInfo) -> Self {
+        Self {
+            position: position,
+            player_id: player_id,
+            info: info,
+            polar_position: PolarPosition::default(),
+        }
+    }
+
+    pub fn is(&self, position: Position) -> bool {
+        self.position == position
+    }
+
+    pub fn distance(&self) -> f64 {
+        self.polar_position.distance
+    }
+
+    pub fn angle(&self) -> f64 {
+        self.polar_position.angle
+    }
+
+    pub fn x(&self) -> f64 {
+        self.polar_position.x
+    }
+
+    pub fn y(&self) -> f64 {
+        self.polar_position.y
+    }
+
+    pub fn try_catch(&self, ball: &BattedBall) -> FieldedBall {
+        // $$\text{arrival\_time} = \text{reaction\_time} + \frac{\text{required\_distance}}{\text{fielder\_speed}}$$
+        // 1. Calculate straight-line distance from position to landing point
+        let required_distance =
+            calculate_polar_distance(&self.polar_position, &ball.polar_position);
+        let dy = self.y() - ball.y();
+
+        // 3. Adjust initial reaction speed based on hit type (secret ingredient)
+        let mut final_reaction = self.info.reaction;
+        if ball.trajectory == TrajectoryType::Liner && dy < 0.0 {
+            // Delay reaction when moving forward on a liner (harder to judge)
+            final_reaction += LINER_REACTION_TIME;
+        }
+
+        // 4. Calculate arrival time (seconds)
+        let arrival_time = final_reaction + (required_distance / self.info.running_speed);
+
+        // 5. Compare arrival time vs hang time
+        if ball.trajectory == TrajectoryType::Grounder {
+            return FieldedBall {
+                ball: ball.clone(),
+                fielded_by: self.position,
+                time_to_field: arrival_time,
+                is_fly_catch: false,
+            };
+        }
+
+        if arrival_time <= ball.hang_time {
+            return FieldedBall {
+                ball: ball.clone(),
+                fielded_by: self.position,
+                time_to_field: ball.hang_time, // Fielder need to wait until catch.
+                is_fly_catch: true,
+            };
+        }
+
+        let bounded_ball = self.process_bounded_ball(ball);
+
+        let mut final_ball = ball.clone();
+        final_ball.polar_position.distance = bounded_ball.final_distance;
+
+        FieldedBall {
+            ball: final_ball,
+            fielded_by: self.position,
+            time_to_field: bounded_ball.time_to_fumble,
+            is_fly_catch: false,
+        }
+    }
+
+    // Processing when a fly/liner wasn't caught (became a hit)
+    fn process_bounded_ball(&self, ball: &BattedBall) -> BoundedBallResult {
+        // 1. Damping coefficient at the moment of the first bounce (liner bounces sharply, fly dies)
+        let k_impact = match ball.trajectory {
+            TrajectoryType::Liner => 0.60,
+            TrajectoryType::Fly => 0.35,
+            _ => 0.0,
+        };
+
+        // 2. Initial speed as a grounder right after the bounce
+        let v_horizontal = ball.launch_speed_ms() * ball.azimuth().cos() * 0.7; // Velocity including in-flight air resistance
+        let v_bounce = v_horizontal * k_impact;
+
+        // 3. Additional rolling distance and time until stop
+        let roll_distance = v_bounce * 1.8;
+
+        // 4. Provisional final resting position (landing point + roll distance)
+        let mut final_distance = ball.distance() + roll_distance;
+
+        // The fence bounce (cushion) logic
+        if final_distance > FENCE_DISTANCE {
+            let overflow = final_distance - FENCE_DISTANCE;
+            final_distance = FENCE_DISTANCE - (overflow * FENCE_BOUNCE_COEFF);
+        }
+
+        // 5. Defense: time for the fielder to chase down and pick up the rolling ball
+        // The fielder was initially running toward the landing point but didn't make it.
+        // Simple calculation of time to loop around toward the direction the ball rolled (final_distance)
+        let fielder_distance_to_ball = (final_distance - self.distance()).abs();
+
+        // Time for the fielder to reach the final resting point (or cushion treatment position)
+        let fielder_arrival_time =
+            self.info.reaction + (fielder_distance_to_ball / self.info.running_speed);
+
+        // Time the fielder picks up the ball (either waiting for it to stop or cutting it off mid-roll)
+        let time_to_pick_up = fielder_arrival_time.max(ball.hang_time + FIRST_BOUNCE_TIME);
+        BoundedBallResult {
+            final_distance,
+            time_to_fumble: time_to_pick_up, // ★This becomes the time_to_field for the next throw play!
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -210,7 +342,8 @@ impl GameState {
     }
 
     pub fn batting_resolve(&mut self) -> Result<BattingResult, GameError> {
-        Ok(simulate_batting(&self.current_batter()?))
+        // Ok(simulate_batting(&self.current_batter()?))
+        Ok(BattingResult::Out)
     }
 
     pub fn add_batting_result_hisrory(
@@ -463,12 +596,12 @@ mod tests {
 
         game.advance_half_inning();
         for expected_id in 1..=9 {
-            assert_eq!(game.current_batter().unwrap().id, expected_id);
+            assert_eq!(game.current_batter().unwrap().info.id, expected_id as i64);
         }
-        assert_eq!(game.current_batter().unwrap().id, 1);
+        assert_eq!(game.current_batter().unwrap().info.id, 1);
 
         game.advance_half_inning();
-        assert_eq!(game.current_batter().unwrap().id, 101);
+        assert_eq!(game.current_batter().unwrap().info.id, 101);
     }
 
     #[test]
@@ -476,10 +609,10 @@ mod tests {
         let mut game = game_state();
 
         game.advance_half_inning();
-        assert_eq!(game.current_pitcher().unwrap().id, 101);
+        assert_eq!(game.current_pitcher().unwrap().info.id, 101);
 
         game.advance_half_inning();
-        assert_eq!(game.current_pitcher().unwrap().id, 1);
+        assert_eq!(game.current_pitcher().unwrap().info.id, 1);
     }
 
     #[test]

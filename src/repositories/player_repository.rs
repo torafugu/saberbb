@@ -1,11 +1,9 @@
 use crate::domain::shared::player::{
-    DefensiveSkill, FullName, PitchSkill, PitchType, PitcherAttribute, PitcherStyle, Player,
-    Position,
+    BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill, PitcherInfo,
+    Player, Position, RunningSkills,
 };
-use crate::domain::shared::prob::ItemProb;
-use crate::domain::shared::prob::{
-    BatterSkillProb, DefensiveSkillProb, PitchSkillProb, PitcherAttributeProb, PlayerAttributeProb,
-};
+use crate::domain::shared::prob::ItemWeighted;
+use crate::domain::shared::prob::{GammaParam, NormalParam};
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -14,42 +12,71 @@ use anyhow::Result;
 use rusqlite::{Transaction, params};
 
 pub trait PlayerRepository {
-    fn insert_player(&mut self, team: Team, player: Player) -> Result<(), AppError>;
-    fn insert_defensive_skill(
+    fn insert_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError>;
+    fn insert_offense_skills(
         &self,
         tx: &Transaction,
-        player_id: u32,
-        defensive_skill: &DefensiveSkill,
-    ) -> Result<usize, AppError>;
-    fn insert_pitcher_attribute(
+        player_id: i64,
+        offense_skills: &OffenseSkills,
+    ) -> Result<(), AppError>;
+    fn insert_batter_info(
         &self,
         tx: &Transaction,
-        player_id: u32,
-        pitcher_attribute: &PitcherAttribute,
+        player_id: i64,
+        batter_info: &BatterInfo,
     ) -> Result<usize, AppError>;
+    fn insert_running_skills(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        running_skills: &RunningSkills,
+    ) -> Result<usize, AppError>;
+    fn insert_defense_skills(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        defense_skills: &DefenseSkills,
+    ) -> Result<(), AppError>;
+    fn insert_fielder_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        fielder_info: &FielderInfo,
+    ) -> Result<usize, AppError>;
+    fn insert_pitcher_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        pitcher_attribute: &PitcherInfo,
+    ) -> Result<(), AppError>;
     fn insert_pitch_skill(
         &self,
         tx: &Transaction,
-        player_id: u32,
+        player_id: i64,
         pitch_skill: &PitchSkill,
     ) -> Result<usize, AppError>;
     fn random_name(&self, language: String) -> Result<FullName, AppError>;
     fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError>;
     fn next_random_team(&self) -> Result<Team, AppError>;
-    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError>;
-    fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError>;
-    fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError>;
-    fn pitch_type_probs(
+    fn normal_params(
         &self,
-        pitch_style: &PitcherStyle,
-    ) -> Result<Vec<ItemProb<PitchType>>, AppError>;
-    fn item_probs<T>(&self, category: &str) -> Result<Vec<ItemProb<T>>, AppError>
+        category1: &str,
+        category2: &str,
+        name: &str,
+    ) -> Result<NormalParam, AppError>;
+    fn gamma_params(
+        &self,
+        category1: &str,
+        category2: &str,
+        name: &str,
+    ) -> Result<GammaParam, AppError>;
+    fn item_probs<T>(
+        &self,
+        category1: &str,
+        category2: &str,
+    ) -> Result<Vec<ItemWeighted<T>>, AppError>
     where
-        ItemProb<T>: FromRow<Error = AppError>;
-    fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError>;
-    fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError>;
-    fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError>;
-    fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError>;
+        ItemWeighted<T>: FromRow<Error = AppError>;
 }
 
 #[derive(Clone)]
@@ -64,116 +91,221 @@ impl SqlPlayerRepository {
 }
 
 impl PlayerRepository for SqlPlayerRepository {
-    fn insert_player(&mut self, team: Team, mut player: Player) -> Result<(), AppError> {
+    fn insert_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError> {
         self.db_client.transaction(|tx| {
-            let insert_player_sql = "INSERT INTO player (
-                                        team_id, first_name, last_name,
-                                        age, throw, bat, mod_ba, mod_slg
+            let insert_player_sql = "INSERT INTO player_info (
+                                        team_id, first_name, last_name, age, uniform_number
                                         ) VALUES (
-                                        ?1, ?2, ?3,
-                                        ?4, ?5, ?6, ?7, ?8)";
+                                        ?1, ?2, ?3, ?4, ?5)";
             let generated_id = self.db_client.execute_insert_tx(
                 tx,
                 insert_player_sql,
                 params![
-                    team.id,
-                    player.first_name,
-                    player.last_name,
-                    player.age,
-                    player.throw,
-                    player.bat,
-                    player.mod_ba,
-                    player.mod_slg
+                    team_id,
+                    player.info.first_name,
+                    player.info.last_name,
+                    player.info.age,
+                    player.info.uniform_number
                 ],
             )?;
 
-            for defensive_skill in player.defensive_skills {
-                self.insert_defensive_skill(tx, generated_id as u32, &defensive_skill)?;
-            }
+            self.insert_offense_skills(tx, generated_id as i64, &player.offense_skills)?;
+            self.insert_defense_skills(tx, generated_id as i64, &player.defense_skills)?;
 
-            if let Some(pitcher_attribute) = player.pitcher_attribute.take() {
-                self.insert_pitcher_attribute(tx, generated_id as u32, &pitcher_attribute)?;
-
-                for pitch_skill in pitcher_attribute.pitch_skills {
-                    self.insert_pitch_skill(tx, generated_id as u32, &pitch_skill)?;
-                }
-            }
             Ok(())
         })
     }
 
-    fn insert_defensive_skill(
+    fn insert_offense_skills(
         &self,
         tx: &Transaction,
-        player_id: u32,
-        defensive_skill: &DefensiveSkill,
+        player_id: i64,
+        offense_skills: &OffenseSkills,
+    ) -> Result<(), AppError> {
+        if let Some(batter) = &offense_skills.batter {
+            self.insert_batter_info(tx, player_id, &batter)?;
+        }
+
+        self.insert_running_skills(tx, player_id, &offense_skills.running)?;
+
+        Ok(())
+    }
+
+    fn insert_batter_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        batter_info: &BatterInfo,
     ) -> Result<usize, AppError> {
-        let insert_defensive_skill_sql = "INSERT INTO defensive_skill (
-                                                player_id, position, mod_uzr
+        let insert_batter_info_sql = "INSERT INTO batter_info (
+                                                player_id, batting_side, weight_pull, weight_center, 
+                                                weight_opposite, weight_foul_left, weight_foul_right
                                                 ) VALUES (
-                                                ?1, ?2, ?3)";
+                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7)";
         self.db_client.execute_tx(
             tx,
-            insert_defensive_skill_sql,
-            params![player_id, defensive_skill.position, defensive_skill.mod_uzr],
+            insert_batter_info_sql,
+            params![
+                player_id,
+                batter_info.batting_side,
+                batter_info.weight_pull,
+                batter_info.weight_center,
+                batter_info.weight_opposite,
+                batter_info.weight_foul_left,
+                batter_info.weight_foul_right,
+            ],
         )
     }
 
-    fn insert_pitcher_attribute(
+    fn insert_running_skills(
         &self,
         tx: &Transaction,
-        player_id: u32,
-        pitcher_attribute: &PitcherAttribute,
+        player_id: i64,
+        running_skills: &RunningSkills,
     ) -> Result<usize, AppError> {
-        let insert_pitcher_attribute_sql = "INSERT INTO pitcher_attribute (
-                                                            player_id,
-                                                            pitcher_style,
-                                                            mod_velocity,
-                                                            mod_control,
-                                                            mod_stamina,
-                                                            mod_injury_proneness,
-                                                            mod_clutch,
-                                                            mod_hpp,
-                                                            mod_platoon_splitting
-                                                            ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+        let insert_running_skills_sql = "INSERT INTO running_skills (
+                                                player_id, speed, lead_distance, start_reaction
+                                                ) VALUES (
+                                                ?1, ?2, ?3, ?4)";
         self.db_client.execute_tx(
             tx,
-            insert_pitcher_attribute_sql,
+            insert_running_skills_sql,
             params![
                 player_id,
-                pitcher_attribute.pitcher_style,
-                pitcher_attribute.mod_velocity,
-                pitcher_attribute.mod_control,
-                pitcher_attribute.mod_stamina,
-                pitcher_attribute.mod_injury_proneness,
-                pitcher_attribute.mod_clutch,
-                pitcher_attribute.mod_hpp,
-                pitcher_attribute.mod_platoon_splitting,
+                running_skills.speed,
+                running_skills.lead_distance,
+                running_skills.start_reaction,
             ],
         )
+    }
+
+    fn insert_defense_skills(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        defense_skills: &DefenseSkills,
+    ) -> Result<(), AppError> {
+        let insert_defensive_skills_sql = "INSERT INTO defense_skills (
+                                                player_id, primary_position
+                                                ) VALUES (
+                                                ?1, ?2)";
+        self.db_client.execute_tx(
+            tx,
+            insert_defensive_skills_sql,
+            params![player_id, defense_skills.primary_position,],
+        )?;
+
+        if let Some(pitcher) = &defense_skills.pitcher {
+            self.insert_fielder_info(tx, player_id, &pitcher.fielder_info)?;
+            self.insert_pitcher_info(tx, player_id, &pitcher)?;
+        }
+
+        if let Some(catcher) = &defense_skills.catcher {
+            self.insert_fielder_info(tx, player_id, &catcher.info)?;
+        }
+
+        if let Some(middle_infielder) = &defense_skills.middle_infielder {
+            self.insert_fielder_info(tx, player_id, &middle_infielder)?;
+        }
+
+        if let Some(corner_infielder) = &defense_skills.corner_infielder {
+            self.insert_fielder_info(tx, player_id, &corner_infielder)?;
+        }
+
+        if let Some(outfielder) = &defense_skills.outfielder {
+            self.insert_fielder_info(tx, player_id, &outfielder)?;
+        }
+
+        Ok(())
+    }
+
+    fn insert_fielder_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        fielder_info: &FielderInfo,
+    ) -> Result<usize, AppError> {
+        let insert_fielder_info_sql = "INSERT INTO fielder_info (
+                                                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time
+                                                ) VALUES (
+                                                ?1, ?2, ?3, ?4, ?5, ?6)";
+        self.db_client.execute_tx(
+            tx,
+            insert_fielder_info_sql,
+            params![
+                player_id,
+                fielder_info.fielder_type,
+                fielder_info.throw_speed,
+                fielder_info.running_speed,
+                fielder_info.reaction,
+                fielder_info.prep_time
+            ],
+        )
+    }
+
+    fn insert_pitcher_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        pitcher_info: &PitcherInfo,
+    ) -> Result<(), AppError> {
+        let insert_pitcher_info_sql = "INSERT INTO pitcher_info (
+                                                            player_id,
+                                                            pitcher_style,
+                                                            velocity,
+                                                            control,
+                                                            stamina,
+                                                            injury_proneness,
+                                                            clutch,
+                                                            hpp,
+                                                            platoon_splitting,
+                                                            delivery_motion_time
+                                                            ) VALUES (
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+        self.db_client.execute_tx(
+            tx,
+            insert_pitcher_info_sql,
+            params![
+                player_id,
+                pitcher_info.pitcher_style,
+                pitcher_info.velocity,
+                pitcher_info.control,
+                pitcher_info.stamina,
+                pitcher_info.injury_proneness,
+                pitcher_info.clutch,
+                pitcher_info.hpp,
+                pitcher_info.platoon_splitting,
+                pitcher_info.delivery_motion_time
+            ],
+        )?;
+
+        for pitch_skill in &pitcher_info.pitch_skills {
+            self.insert_pitch_skill(tx, player_id, &pitch_skill)?;
+        }
+
+        Ok(())
     }
 
     fn insert_pitch_skill(
         &self,
         tx: &Transaction,
-        player_id: u32,
+        player_id: i64,
         pitch_skill: &PitchSkill,
     ) -> Result<usize, AppError> {
         let insert_pitch_skill_sql = "INSERT INTO pitch_skill (
                                                             player_id,
                                                             pitch_type,
-                                                            mod_velocity,
-                                                            mod_control,
-                                                            mod_stamina,
-                                                            mod_injury_proneness,
-                                                            mod_stuff,
-                                                            mod_fb,
-                                                            mod_gp,
-                                                            mod_horizontal_movement,
-                                                            mod_vertical_movement,
-                                                            mod_spin_rate,
-                                                            mod_usage
+                                                            velocity,
+                                                            control,
+                                                            stamina,
+                                                            injury_proneness,
+                                                            stuff,
+                                                            fb,
+                                                            gp,
+                                                            horizontal_movement,
+                                                            vertical_movement,
+                                                            spin_rate,
+                                                            usage
                                                         ) VALUES (
                                                             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
         self.db_client.execute_tx(
@@ -182,17 +314,17 @@ impl PlayerRepository for SqlPlayerRepository {
             params![
                 player_id,
                 pitch_skill.pitch_type,
-                pitch_skill.mod_velocity,
-                pitch_skill.mod_control,
-                pitch_skill.mod_stamina,
-                pitch_skill.mod_injury_proneness,
-                pitch_skill.mod_stuff,
-                pitch_skill.mod_fb,
-                pitch_skill.mod_gp,
-                pitch_skill.mod_horizontal_movement,
-                pitch_skill.mod_vertical_movement,
-                pitch_skill.mod_spin_rate,
-                pitch_skill.mod_usage,
+                pitch_skill.velocity,
+                pitch_skill.control,
+                pitch_skill.stamina,
+                pitch_skill.injury_proneness,
+                pitch_skill.stuff,
+                pitch_skill.fb,
+                pitch_skill.gp,
+                pitch_skill.horizontal_movement,
+                pitch_skill.vertical_movement,
+                pitch_skill.spin_rate,
+                pitch_skill.usage,
             ],
         )
     }
@@ -228,9 +360,9 @@ impl PlayerRepository for SqlPlayerRepository {
                             t.name AS name,
                             COUNT(ds.player_id) AS player_count
                             FROM team t
-                            LEFT JOIN player p ON t.id = p.team_id
-                            LEFT JOIN defensive_skill ds ON ds.player_id = p.id
-                                AND ds.position = ?1
+                            LEFT JOIN player_info p ON t.id = p.team_id
+                            LEFT JOIN defense_skills ds ON ds.player_id = p.id
+                                AND ds.primary_position = ?1
                             GROUP BY t.id, t.name
                             ORDER BY player_count, t.id
                             LIMIT 1";
@@ -245,94 +377,46 @@ impl PlayerRepository for SqlPlayerRepository {
         self.db_client.query_row::<Team>(query, params![])
     }
 
-    fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError> {
-        self.item_probs("position")
-    }
-
-    fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError> {
-        self.item_probs("pitcher_style")
-    }
-
-    fn pitch_type_probs(
+    fn normal_params(
         &self,
-        pitch_style: &PitcherStyle,
-    ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
-        self.item_probs(pitch_style.as_ref())
+        category1: &str,
+        category2: &str,
+        name: &str,
+    ) -> Result<NormalParam, AppError> {
+        let query = "SELECT 
+                        mean, std_dev, skew, coefficient, offset
+                        FROM normal_param
+                        WHERE category1 = ?1 AND category = ?2 AND name = ?3";
+        self.db_client
+            .query_row::<NormalParam>(query, params![category1, category2, name])
     }
 
-    fn item_probs<T>(&self, category: &str) -> Result<Vec<ItemProb<T>>, AppError>
+    fn gamma_params(
+        &self,
+        category1: &str,
+        category2: &str,
+        name: &str,
+    ) -> Result<GammaParam, AppError> {
+        let query = "SELECT 
+                        shape, scale, offset 
+                        FROM gamma_param
+                        WHERE category1 = ?1 AND category = ?2 AND name = ?3";
+        self.db_client
+            .query_row::<GammaParam>(query, params![category1, category2, name])
+    }
+
+    fn item_probs<T>(
+        &self,
+        category1: &str,
+        category2: &str,
+    ) -> Result<Vec<ItemWeighted<T>>, AppError>
     where
-        ItemProb<T>: FromRow<Error = AppError>,
+        ItemWeighted<T>: FromRow<Error = AppError>,
     {
-        let query = "SELECT name, prob FROM item_prob WHERE category = ?1";
+        let query =
+            "SELECT name, weight AS prob FROM item_weighted WHERE category1 = ?1 AND category = ?2";
         self.db_client
-            .query_rows::<ItemProb<T>>(query, params![category])
-    }
-
-    fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError> {
-        let query = "SELECT 
-                        MAX(CASE WHEN name = 'age_shape' THEN prob END) AS age_shape,
-                        MAX(CASE WHEN name = 'age_scale' THEN prob END) AS age_scale,
-                        MAX(CASE WHEN name = 'age_offset' THEN prob END) AS age_offset,
-                        MAX(CASE WHEN name = 'throw_lefty' THEN prob END) AS throw_lefty,
-                        MAX(CASE WHEN name = 'bat_lefty' THEN prob END) AS bat_lefty
-                        FROM item_prob
-                        WHERE category = 'player_attribute'";
-        self.db_client
-            .query_row::<PlayerAttributeProb>(query, params![])
-    }
-
-    fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError> {
-        let query = "SELECT 
-                        MAX(CASE WHEN name = 'ba_skew' THEN prob END) AS ba_skew,
-                        MAX(CASE WHEN name = 'slg_skew' THEN prob END) AS slg_skew
-                        FROM item_prob
-                        WHERE category = 'batter_skill'";
-        self.db_client
-            .query_row::<BatterSkillProb>(query, params![])
-    }
-
-    fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError> {
-        let query = "SELECT 
-                     MAX(CASE WHEN name = 'uzr_skew' THEN prob END) AS uzr_skew
-                     FROM item_prob
-                     WHERE category = 'defensive_skill'";
-        self.db_client
-            .query_row::<DefensiveSkillProb>(query, params![])
-    }
-
-    fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError> {
-        let query = "SELECT 
-                        MAX(CASE WHEN name = 'velocity_skew' THEN prob END) AS velocity_skew,
-    				    MAX(CASE WHEN name = 'control_skew' THEN prob END) AS control_skew,
-    				    MAX(CASE WHEN name = 'stamina_skew' THEN prob END) AS stamina_skew,
-    				    MAX(CASE WHEN name = 'injury_proneness_skew' THEN prob END) AS injury_proneness_skew,
-    				    MAX(CASE WHEN name = 'clutch_skew' THEN prob END) AS clutch_skew,
-    				    MAX(CASE WHEN name = 'hpp_skew' THEN prob END) AS hpp_skew,
-    				    MAX(CASE WHEN name = 'platoon_splitting_skew' THEN prob END) AS platoon_splitting_skew
-                        FROM item_prob
-                        WHERE category = 'pitcher_attribute'";
-        self.db_client
-            .query_row::<PitcherAttributeProb>(query, params![])
-    }
-
-    fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
-        let query = "SELECT 
-                            MAX(CASE WHEN name = 'velocity_skew' THEN prob END) AS velocity_skew,
-    				        MAX(CASE WHEN name = 'control_skew' THEN prob END) AS control_skew,
-    				        MAX(CASE WHEN name = 'stamina_skew' THEN prob END) AS stamina_skew,
-    				        MAX(CASE WHEN name = 'injury_proneness_skew' THEN prob END) AS injury_proneness_skew,
-    				        MAX(CASE WHEN name = 'stuff_skew' THEN prob END) AS stuff_skew,
-    				        MAX(CASE WHEN name = 'fb_skew' THEN prob END) AS fb_skew,
-    				        MAX(CASE WHEN name = 'gp_skew' THEN prob END) AS gp_skew,
-    				        MAX(CASE WHEN name = 'horizontal_movement_skew' THEN prob END) AS horizontal_movement_skew,
-    				        MAX(CASE WHEN name = 'vertical_movement_skew' THEN prob END) AS vertical_movement_skew,
-    				        MAX(CASE WHEN name = 'spin_rate_skew' THEN prob END) AS spin_rate_skew,
-    				        MAX(CASE WHEN name = 'usage_skew' THEN prob END) AS usage_skew
-                            FROM item_prob
-                            WHERE category = ?1";
-        self.db_client
-            .query_row_with_ctx::<PitchSkillProb, PitchType>(query, params![pitch_type], pitch_type)
+            .query_rows::<ItemWeighted<T>>(query, params![category1, category2])
     }
 }
 
@@ -340,7 +424,8 @@ impl PlayerRepository for SqlPlayerRepository {
 mod tests {
     use super::*;
     use crate::domain::shared::player::{
-        DefensiveSkill, PitchSkill, PitcherAttribute, PitcherStyle, Position, RL,
+        BatterInfo, DefenseSkills, FielderInfo, FielderType, OffenseSkills, PitchSkill, PitchType,
+        PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
@@ -377,52 +462,75 @@ mod tests {
                 UNIQUE(league_id, name)
             );
 
-            CREATE TABLE player (
+            CREATE TABLE player_info (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 team_id INTEGER NOT NULL,
                 first_name TEXT NOT NULL,
                 last_name TEXT NOT NULL,
                 age INTEGER NOT NULL,
-                throw TEXT NOT NULL,
-                bat TEXT NOT NULL,
-                mod_ba REAL NOT NULL,
-                mod_slg REAL NOT NULL
+                uniform_number INTEGER NOT NULL
             );
 
-            CREATE TABLE pitcher_attribute (
+            CREATE TABLE batter_info (
+                player_id INTEGER PRIMARY KEY,
+                batting_side TEXT NOT NULL,
+                weight_pull REAL NOT NULL,
+                weight_center REAL NOT NULL,
+                weight_opposite REAL NOT NULL,
+                weight_foul_left REAL NOT NULL,
+                weight_foul_right REAL NOT NULL
+            );
+
+            CREATE TABLE running_skills (
+                player_id INTEGER PRIMARY KEY,
+                speed REAL NOT NULL,
+                lead_distance REAL NOT NULL,
+                start_reaction REAL NOT NULL
+            );
+
+            CREATE TABLE defense_skills (
+                player_id INTEGER PRIMARY KEY,
+                primary_position TEXT NOT NULL
+            );
+
+            CREATE TABLE fielder_info (
+                player_id INTEGER,
+                fielder_type TEXT,
+                throw_speed REAL NOT NULL,
+                running_speed REAL NOT NULL,
+                reaction REAL NOT NULL,
+                prep_time REAL NOT NULL,
+                PRIMARY KEY (player_id, fielder_type)
+            );
+
+            CREATE TABLE pitcher_info (
                 player_id INTEGER PRIMARY KEY,
                 pitcher_style TEXT NOT NULL,
-                mod_velocity REAL NOT NULL,
-                mod_control REAL NOT NULL,
-                mod_stamina REAL NOT NULL,
-                mod_injury_proneness REAL NOT NULL,
-                mod_clutch REAL NOT NULL,
-                mod_hpp REAL NOT NULL,
-                mod_platoon_splitting REAL NOT NULL
+                velocity REAL NOT NULL,
+                control REAL NOT NULL,
+                stamina REAL NOT NULL,
+                injury_proneness REAL NOT NULL,
+                clutch REAL NOT NULL,
+                hpp REAL NOT NULL,
+                platoon_splitting REAL NOT NULL,
+                delivery_motion_time REAL NOT NULL
             );
 
             CREATE TABLE pitch_skill (
                 player_id INTEGER,
                 pitch_type TEXT,
-                mod_velocity REAL NOT NULL,
-                mod_control REAL NOT NULL,
-                mod_stamina REAL NOT NULL,
-                mod_injury_proneness REAL NOT NULL,
-                mod_stuff REAL NOT NULL,
-                mod_fb REAL NOT NULL,
-                mod_gp REAL NOT NULL,
-                mod_horizontal_movement REAL NOT NULL,
-                mod_vertical_movement REAL NOT NULL,
-                mod_spin_rate REAL NOT NULL,
-                mod_usage REAL NOT NULL,
+                velocity REAL NOT NULL,
+                control REAL NOT NULL,
+                stamina REAL NOT NULL,
+                injury_proneness REAL NOT NULL,
+                stuff REAL NOT NULL,
+                fb REAL NOT NULL,
+                gp REAL NOT NULL,
+                horizontal_movement REAL NOT NULL,
+                vertical_movement REAL NOT NULL,
+                spin_rate REAL NOT NULL,
+                usage REAL NOT NULL,
                 PRIMARY KEY (player_id, pitch_type)
-            );
-
-            CREATE TABLE defensive_skill (
-                player_id INTEGER,
-                position TEXT,
-                mod_uzr REAL NOT NULL,
-                PRIMARY KEY (player_id, position)
             );
 
             CREATE TABLE first_names (
@@ -440,11 +548,33 @@ mod tests {
                 country TEXT
             );
 
-            CREATE TABLE item_prob (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category TEXT NOT NULL,
+            CREATE TABLE normal_param (
+                category1 TEXT,
+                category TEXT,
+                name TEXT,
+                mean REAL NOT NULL,
+                std_dev REAL NOT NULL,
+                skew REAL NOT NULL,
+                coefficient REAL NOT NULL,
+                offset REAL NOT NULL,
+                PRIMARY KEY (category1, category, name)
+            );
+
+            CREATE TABLE gamma_param (
+                category1 TEXT,
+                category TEXT,
+                name TEXT,
+                shape REAL NOT NULL,
+                scale REAL NOT NULL,
+                offset REAL NOT NULL,
+                PRIMARY KEY (category1, category, name)
+            );
+
+            CREATE TABLE item_weighted (
+                category1 TEXT,
+                category TEXT,
                 name TEXT NOT NULL,
-                prob REAL NOT NULL
+                weight REAL NOT NULL
             );
             ",
         )
@@ -497,10 +627,9 @@ mod tests {
     fn seed_player_row(repo: &SqlPlayerRepository, id: u32, team_id: u16) {
         conn(repo)
             .execute(
-                "INSERT INTO player (
-                    id, team_id, first_name, last_name, age, throw,
-                    bat, mod_ba, mod_slg
-                ) VALUES (?1, ?2, ?3, ?4, 25, 'Right', 'Right', 0.0, 0.0)",
+                "INSERT INTO player_info (
+                    id, team_id, first_name, last_name, age, uniform_number
+                ) VALUES (?1, ?2, ?3, ?4, 25, 17)",
                 params![id, team_id, format!("First{id}"), format!("Last{id}")],
             )
             .unwrap();
@@ -509,8 +638,8 @@ mod tests {
     fn seed_defensive_skill(repo: &SqlPlayerRepository, player_id: u32, position: Position) {
         conn(repo)
             .execute(
-                "INSERT INTO defensive_skill (player_id, position, mod_uzr)
-                 VALUES (?1, ?2, 0.0)",
+                "INSERT INTO defense_skills (player_id, primary_position)
+                 VALUES (?1, ?2)",
                 params![player_id, position],
             )
             .unwrap();
@@ -537,7 +666,8 @@ mod tests {
     fn seed_position_prob(repo: &SqlPlayerRepository, position: Position, prob: f64) {
         conn(repo)
             .execute(
-                "INSERT INTO item_prob (category, name, prob) VALUES ('position', ?1, ?2)",
+                "INSERT INTO item_weighted (category1, category, name, weight)
+                 VALUES ('player', 'position', ?1, ?2)",
                 params![position, prob],
             )
             .unwrap();
@@ -546,8 +676,8 @@ mod tests {
     fn seed_pitcher_style_prob(repo: &SqlPlayerRepository, pitcher_style: PitcherStyle, prob: f64) {
         conn(repo)
             .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('pitcher_style', ?1, ?2)",
+                "INSERT INTO item_weighted (category1, category, name, weight)
+                 VALUES ('player', 'pitcher_info', ?1, ?2)",
                 params![pitcher_style, prob],
             )
             .unwrap();
@@ -561,80 +691,77 @@ mod tests {
     ) {
         conn(repo)
             .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES (?1, ?2, ?3)",
+                "INSERT INTO item_weighted (category1, category, name, weight)
+                 VALUES (?1, 'pitch_type', ?2, ?3)",
                 params![pitcher_style.as_ref(), pitch_type, prob],
             )
             .unwrap();
     }
 
-    fn seed_player_attribute_prob(repo: &SqlPlayerRepository, name: &str, prob: f64) {
-        conn(repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('player_attribute', ?1, ?2)",
-                params![name, prob],
-            )
-            .unwrap();
-    }
-
-    fn seed_batter_skill_prob(repo: &SqlPlayerRepository, name: &str, prob: f64) {
-        conn(repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('batter_skill', ?1, ?2)",
-                params![name, prob],
-            )
-            .unwrap();
-    }
-
-    fn seed_defensive_skill_prob(repo: &SqlPlayerRepository, name: &str, prob: f64) {
-        conn(repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('defensive_skill', ?1, ?2)",
-                params![name, prob],
-            )
-            .unwrap();
-    }
-
-    fn seed_pitcher_attribute_prob(repo: &SqlPlayerRepository, name: &str, prob: f64) {
-        conn(repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('pitcher_attribute', ?1, ?2)",
-                params![name, prob],
-            )
-            .unwrap();
-    }
-
-    fn seed_pitch_skill_prob(
+    fn seed_normal_param(
         repo: &SqlPlayerRepository,
-        pitch_type: PitchType,
+        category1: &str,
+        category: &str,
         name: &str,
-        prob: f64,
+        mean: f64,
     ) {
         conn(repo)
             .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES (?1, ?2, ?3)",
-                params![pitch_type, name, prob],
+                "INSERT INTO normal_param (
+                    category1, category, name, mean, std_dev, skew, coefficient, offset
+                ) VALUES (?1, ?2, ?3, ?4, 1.2, 1.3, 1.4, 1.5)",
+                params![category1, category, name, mean],
+            )
+            .unwrap();
+    }
+
+    fn seed_gamma_param(
+        repo: &SqlPlayerRepository,
+        category1: &str,
+        category: &str,
+        name: &str,
+        shape: f64,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO gamma_param (
+                    category1, category, name, shape, scale, offset
+                ) VALUES (?1, ?2, ?3, ?4, 0.5, 18.0)",
+                params![category1, category, name, shape],
             )
             .unwrap();
     }
 
     fn player() -> Player {
         Player {
-            id: 0,
-            first_name: "翔平".into(),
-            last_name: "大谷".into(),
-            age: 29,
-            throw: RL::Left,
-            defensive_skills: Vec::new(),
-            pitcher_attribute: None,
-            bat: RL::Right,
-            mod_ba: 1.3,
-            mod_slg: 1.4,
+            info: PlayerInfo::new_unsaved("翔平".into(), "大谷".into(), 29, 17),
+            offense_skills: OffenseSkills {
+                batter: Some(BatterInfo {
+                    batting_side: RL::Right,
+                    swing_speed: 1.0,
+                    weight_pull: 0.2,
+                    weight_center: 0.3,
+                    weight_opposite: 0.2,
+                    weight_foul_left: 0.15,
+                    weight_foul_right: 0.15,
+                }),
+                running: RunningSkills {
+                    speed: 7.1,
+                    lead_distance: 2.2,
+                    start_reaction: 0.3,
+                },
+            },
+            defense_skills: DefenseSkills::new(Position::CF),
+        }
+    }
+
+    fn fielder_info(fielder_type: FielderType) -> FielderInfo {
+        FielderInfo {
+            fielder_type,
+            throw_speed: 35.0,
+            running_speed: 7.0,
+            reaction: 0.4,
+            prep_time: 0.6,
         }
     }
 
@@ -643,15 +770,13 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
 
-        repo.insert_player(Team::min(1, "ライオンズ"), player())
-            .unwrap();
+        repo.insert_player(1, player()).unwrap();
 
         let conn = conn(&repo);
-        let row: (u16, String, String, u8, String, String, f64, f64) = conn
+        let row: (u16, String, String, u8, u8) = conn
             .query_row(
-                "SELECT team_id, first_name, last_name, age, throw,
-                    bat, mod_ba, mod_slg
-                 FROM player",
+                "SELECT team_id, first_name, last_name, age, uniform_number
+                 FROM player_info",
                 [],
                 |row| {
                     Ok((
@@ -660,9 +785,6 @@ mod tests {
                         row.get(2)?,
                         row.get(3)?,
                         row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                        row.get(7)?,
                     ))
                 },
             )
@@ -672,10 +794,7 @@ mod tests {
         assert_eq!(row.1, "翔平");
         assert_eq!(row.2, "大谷");
         assert_eq!(row.3, 29);
-        assert_eq!(row.4, "Left");
-        assert_eq!(row.5, "Right");
-        assert_eq!(row.6, 1.3);
-        assert_eq!(row.7, 1.4);
+        assert_eq!(row.4, 17);
         std::fs::remove_file(path).ok();
     }
 
@@ -684,64 +803,49 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
         let mut player = player();
-        player.defensive_skills = vec![
-            DefensiveSkill {
-                position: Position::P,
-                mod_uzr: 1.5,
-            },
-            DefensiveSkill {
-                position: Position::CF,
-                mod_uzr: 2.5,
-            },
-        ];
+        player.defense_skills.primary_position = Position::P;
 
-        repo.insert_player(Team::min(1, "ライオンズ"), player)
-            .unwrap();
+        repo.insert_player(1, player).unwrap();
 
         let conn = conn(&repo);
-        let skills: Vec<(String, f64)> = {
-            let mut stmt = conn
-                .prepare("SELECT position, mod_uzr FROM defensive_skill ORDER BY position")
-                .unwrap();
-            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-        };
+        let primary_position: String = conn
+            .query_row("SELECT primary_position FROM defense_skills", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
 
-        assert_eq!(
-            skills,
-            vec![("CF".to_string(), 2.5), ("P".to_string(), 1.5)]
-        );
+        assert_eq!(primary_position, "P");
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn save_player_inserts_pitcher_attribute_when_present() {
+    fn save_player_inserts_pitcher_info_when_present() {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
         let mut player = player();
-        player.pitcher_attribute = Some(PitcherAttribute {
+        player.defense_skills.primary_position = Position::P;
+        player.defense_skills.pitcher = Some(PitcherInfo {
             pitcher_style: PitcherStyle::BalancedPitcher,
-            mod_velocity: 1.1,
-            mod_control: 1.2,
-            mod_stamina: 1.3,
-            mod_injury_proneness: 1.4,
-            mod_clutch: 1.5,
-            mod_hpp: 1.6,
-            mod_platoon_splitting: 1.7,
+            velocity: 1.1,
+            control: 1.2,
+            stamina: 1.3,
+            injury_proneness: 1.4,
+            clutch: 1.5,
+            hpp: 1.6,
+            platoon_splitting: 1.7,
+            delivery_motion_time: 1.8,
             pitch_skills: Vec::new(),
+            fielder_info: fielder_info(FielderType::Pitcher),
         });
 
-        repo.insert_player(Team::min(1, "ライオンズ"), player)
-            .unwrap();
+        repo.insert_player(1, player).unwrap();
 
         let conn = conn(&repo);
-        let row: (u32, String, f64, f64, f64, f64, f64, f64, f64) = conn
+        let row: (u32, String, f64, f64, f64, f64, f64, f64, f64, f64) = conn
             .query_row(
-                "SELECT player_id, pitcher_style, mod_velocity, mod_control, mod_stamina,
-                    mod_injury_proneness, mod_clutch, mod_hpp, mod_platoon_splitting
-                 FROM pitcher_attribute",
+                "SELECT player_id, pitcher_style, velocity, control, stamina,
+                    injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time
+                 FROM pitcher_info",
                 [],
                 |row| {
                     Ok((
@@ -754,6 +858,7 @@ mod tests {
                         row.get(6)?,
                         row.get(7)?,
                         row.get(8)?,
+                        row.get(9)?,
                     ))
                 },
             )
@@ -770,7 +875,8 @@ mod tests {
                 1.4,
                 1.5,
                 1.6,
-                1.7
+                1.7,
+                1.8
             )
         );
         std::fs::remove_file(path).ok();
@@ -781,33 +887,35 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
         let mut player = player();
-        player.pitcher_attribute = Some(PitcherAttribute {
+        player.defense_skills.primary_position = Position::P;
+        player.defense_skills.pitcher = Some(PitcherInfo {
             pitcher_style: PitcherStyle::PowerPitcher,
-            mod_velocity: 1.1,
-            mod_control: 1.2,
-            mod_stamina: 1.3,
-            mod_injury_proneness: 1.4,
-            mod_clutch: 1.5,
-            mod_hpp: 1.6,
-            mod_platoon_splitting: 1.7,
+            velocity: 1.1,
+            control: 1.2,
+            stamina: 1.3,
+            injury_proneness: 1.4,
+            clutch: 1.5,
+            hpp: 1.6,
+            platoon_splitting: 1.7,
+            delivery_motion_time: 1.8,
             pitch_skills: vec![PitchSkill {
                 pitch_type: PitchType::FourSeamFastball,
-                mod_velocity: 2.1,
-                mod_control: 2.2,
-                mod_stamina: 2.3,
-                mod_injury_proneness: 2.4,
-                mod_stuff: 2.5,
-                mod_fb: 2.6,
-                mod_gp: 2.7,
-                mod_horizontal_movement: 2.8,
-                mod_vertical_movement: 2.9,
-                mod_spin_rate: 3.0,
-                mod_usage: 3.1,
+                velocity: 2.1,
+                control: 2.2,
+                stamina: 2.3,
+                injury_proneness: 2.4,
+                stuff: 2.5,
+                fb: 2.6,
+                gp: 2.7,
+                horizontal_movement: 2.8,
+                vertical_movement: 2.9,
+                spin_rate: 3.0,
+                usage: 3.1,
             }],
+            fielder_info: fielder_info(FielderType::Pitcher),
         });
 
-        repo.insert_player(Team::min(1, "ライオンズ"), player)
-            .unwrap();
+        repo.insert_player(1, player).unwrap();
 
         let conn = conn(&repo);
         let row: (
@@ -826,9 +934,9 @@ mod tests {
             f64,
         ) = conn
             .query_row(
-                "SELECT player_id, pitch_type, mod_velocity, mod_control, mod_stamina,
-                    mod_injury_proneness, mod_stuff, mod_fb, mod_gp,
-                    mod_horizontal_movement, mod_vertical_movement, mod_spin_rate, mod_usage
+                "SELECT player_id, pitch_type, velocity, control, stamina,
+                    injury_proneness, stuff, fb, gp,
+                    horizontal_movement, vertical_movement, spin_rate, usage
                  FROM pitch_skill",
                 [],
                 |row| {
@@ -867,7 +975,7 @@ mod tests {
         let (mut repo, path) = setup_repo_without_player_table();
         seed_team(&repo, 1, "ライオンズ");
 
-        let result = repo.insert_player(Team::min(1, "ライオンズ"), player());
+        let result = repo.insert_player(1, player());
 
         assert!(result.is_err());
         std::fs::remove_file(path).ok();
@@ -881,8 +989,8 @@ mod tests {
 
         let names = repo.random_name("JP".to_string()).unwrap();
 
-        assert_eq!(names.first.as_ref(), "翔平");
-        assert_eq!(names.last.as_ref(), "大谷");
+        assert_eq!(names.first, "翔平");
+        assert_eq!(names.last, "大谷");
         std::fs::remove_file(path).ok();
     }
 
@@ -895,8 +1003,8 @@ mod tests {
 
         let names = repo.random_name("JP".to_string()).unwrap();
 
-        assert_eq!(names.first.as_ref(), "MaleOnly");
-        assert_eq!(names.last.as_ref(), "大谷");
+        assert_eq!(names.first, "MaleOnly");
+        assert_eq!(names.last, "大谷");
         std::fs::remove_file(path).ok();
     }
 
@@ -910,8 +1018,8 @@ mod tests {
 
         let names = repo.random_name("JP".to_string()).unwrap();
 
-        assert_eq!(names.first.as_ref(), "翔平");
-        assert_eq!(names.last.as_ref(), "大谷");
+        assert_eq!(names.first, "翔平");
+        assert_eq!(names.last, "大谷");
         std::fs::remove_file(path).ok();
     }
 
@@ -1018,15 +1126,20 @@ mod tests {
         seed_position_prob(&repo, Position::P, 0.42);
         seed_position_prob(&repo, Position::CF, 0.07);
 
-        let position_probs = repo.position_probs().unwrap();
+        let position_probs: Vec<ItemWeighted<Position>> =
+            repo.item_probs("player", "position").unwrap();
 
         assert_eq!(position_probs.len(), 2);
-        assert!(position_probs.iter().any(|position_prob| {
-            position_prob.name == Position::P && position_prob.prob == 0.42
-        }));
-        assert!(position_probs.iter().any(|position_prob| {
-            position_prob.name == Position::CF && position_prob.prob == 0.07
-        }));
+        assert!(
+            position_probs
+                .iter()
+                .any(|prob| prob.name == Position::P && prob.weight == 0.42)
+        );
+        assert!(
+            position_probs
+                .iter()
+                .any(|prob| prob.name == Position::CF && prob.weight == 0.07)
+        );
         std::fs::remove_file(path).ok();
     }
 
@@ -1036,48 +1149,42 @@ mod tests {
         seed_position_prob(&repo, Position::P, 0.42);
         conn(&repo)
             .execute(
-                "INSERT INTO item_prob (category, name, prob) VALUES ('bat', 'Right', 0.6)",
+                "INSERT INTO item_weighted (category1, category, name, weight)
+                 VALUES ('player', 'batting_side', 'Right', 0.6)",
                 [],
             )
             .unwrap();
 
-        let position_probs = repo.position_probs().unwrap();
+        let position_probs: Vec<ItemWeighted<Position>> =
+            repo.item_probs("player", "position").unwrap();
 
         assert_eq!(position_probs.len(), 1);
         assert_eq!(position_probs[0].name, Position::P);
-        assert_eq!(position_probs[0].prob, 0.42);
+        assert_eq!(position_probs[0].weight, 0.42);
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn pitcher_style_probs_returns_seeded_pitcher_style_probabilities() {
+    fn item_probs_returns_seeded_pitcher_style_probabilities() {
         let (repo, path) = setup_repo();
         seed_pitcher_style_prob(&repo, PitcherStyle::PowerPitcher, 0.31);
         seed_pitcher_style_prob(&repo, PitcherStyle::FinessePitcher, 0.22);
-        conn(&repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('position', 'P', 0.99)",
-                [],
-            )
-            .unwrap();
 
-        let pitcher_style_probs = repo.pitcher_style_probs().unwrap();
+        let pitcher_style_probs: Vec<ItemWeighted<PitcherStyle>> =
+            repo.item_probs("player", "pitcher_info").unwrap();
 
         assert_eq!(pitcher_style_probs.len(), 2);
-        assert!(pitcher_style_probs.iter().any(|pitcher_style_prob| {
-            matches!(pitcher_style_prob.name, PitcherStyle::PowerPitcher)
-                && pitcher_style_prob.prob == 0.31
+        assert!(pitcher_style_probs.iter().any(|prob| {
+            matches!(prob.name, PitcherStyle::PowerPitcher) && prob.weight == 0.31
         }));
-        assert!(pitcher_style_probs.iter().any(|pitcher_style_prob| {
-            matches!(pitcher_style_prob.name, PitcherStyle::FinessePitcher)
-                && pitcher_style_prob.prob == 0.22
+        assert!(pitcher_style_probs.iter().any(|prob| {
+            matches!(prob.name, PitcherStyle::FinessePitcher) && prob.weight == 0.22
         }));
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn pitch_type_probs_returns_seeded_probabilities_for_pitcher_style() {
+    fn item_probs_returns_seeded_pitch_type_probabilities_for_pitcher_style() {
         let (repo, path) = setup_repo();
         seed_pitch_type_prob(
             &repo,
@@ -1093,226 +1200,63 @@ mod tests {
             0.8,
         );
 
-        let pitch_type_probs = repo.pitch_type_probs(&PitcherStyle::PowerPitcher).unwrap();
+        let pitch_type_probs: Vec<ItemWeighted<PitchType>> = repo
+            .item_probs(PitcherStyle::PowerPitcher.as_ref(), "pitch_type")
+            .unwrap();
 
         assert_eq!(pitch_type_probs.len(), 2);
-        assert!(pitch_type_probs.iter().any(|pitch_type_prob| {
-            matches!(pitch_type_prob.name, PitchType::FourSeamFastball)
-                && pitch_type_prob.prob == 1.0
+        assert!(pitch_type_probs.iter().any(|prob| {
+            matches!(prob.name, PitchType::FourSeamFastball) && prob.weight == 1.0
         }));
-        assert!(pitch_type_probs.iter().any(|pitch_type_prob| {
-            matches!(pitch_type_prob.name, PitchType::Slider) && pitch_type_prob.prob == 0.5
-        }));
+        assert!(
+            pitch_type_probs
+                .iter()
+                .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5)
+        );
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn player_attribute_probs_returns_seeded_probabilities() {
+    fn normal_params_returns_seeded_values() {
         let (repo, path) = setup_repo();
-        seed_player_attribute_prob(&repo, "age_shape", 2.5);
-        seed_player_attribute_prob(&repo, "age_scale", 2.6);
-        seed_player_attribute_prob(&repo, "age_offset", 18.0);
-        seed_player_attribute_prob(&repo, "throw_lefty", 0.2);
-        seed_player_attribute_prob(&repo, "bat_lefty", 0.4);
+        seed_normal_param(&repo, "player", "running_skills", "speed", 7.2);
 
-        let player_attribute_probs = repo.player_attribute_prob().unwrap();
-
-        assert_eq!(player_attribute_probs.age_shape, 2.5);
-        assert_eq!(player_attribute_probs.age_scale, 2.6);
-        assert_eq!(player_attribute_probs.age_offset, 18.0);
-        assert_eq!(player_attribute_probs.throw_lefty, 0.2);
-        assert_eq!(player_attribute_probs.bat_lefty, 0.4);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn player_attribute_probs_ignores_non_player_attribute_categories() {
-        let (repo, path) = setup_repo();
-        seed_player_attribute_prob(&repo, "age_shape", 2.5);
-        seed_player_attribute_prob(&repo, "age_scale", 2.6);
-        seed_player_attribute_prob(&repo, "age_offset", 18.0);
-        seed_player_attribute_prob(&repo, "throw_lefty", 0.2);
-        seed_player_attribute_prob(&repo, "bat_lefty", 0.4);
-        conn(&repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('position', 'age_shape', 99.0)",
-                [],
-            )
+        let params = repo
+            .normal_params("player", "running_skills", "speed")
             .unwrap();
 
-        let player_attribute_probs = repo.player_attribute_prob().unwrap();
-
-        assert_eq!(player_attribute_probs.age_shape, 2.5);
+        assert_eq!(params.mean, 7.2);
+        assert_eq!(params.std_dev, 1.2);
+        assert_eq!(params.skew, 1.3);
+        assert_eq!(params.coefficient, 1.4);
+        assert_eq!(params.offset, 1.5);
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn batter_skill_prob_returns_seeded_probabilities() {
+    fn normal_params_filters_by_categories_and_name() {
         let (repo, path) = setup_repo();
-        seed_batter_skill_prob(&repo, "ba_skew", 0.25);
-        seed_batter_skill_prob(&repo, "slg_skew", 0.35);
+        seed_normal_param(&repo, "player", "running_skills", "speed", 7.2);
+        seed_normal_param(&repo, "player", "fielder_info", "speed", 99.0);
 
-        let batter_skill_prob = repo.batter_skill_prob().unwrap();
-
-        assert_eq!(batter_skill_prob.ba_skew, 0.25);
-        assert_eq!(batter_skill_prob.slg_skew, 0.35);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn batter_skill_prob_ignores_non_batter_skill_categories() {
-        let (repo, path) = setup_repo();
-        seed_batter_skill_prob(&repo, "ba_skew", 0.25);
-        seed_batter_skill_prob(&repo, "slg_skew", 0.35);
-        conn(&repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('player_attribute', 'ba_skew', 99.0)",
-                [],
-            )
+        let params = repo
+            .normal_params("player", "running_skills", "speed")
             .unwrap();
 
-        let batter_skill_prob = repo.batter_skill_prob().unwrap();
-
-        assert_eq!(batter_skill_prob.ba_skew, 0.25);
-        assert_eq!(batter_skill_prob.slg_skew, 0.35);
+        assert_eq!(params.mean, 7.2);
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn defensive_skill_prob_returns_seeded_probabilities() {
+    fn gamma_params_returns_seeded_values() {
         let (repo, path) = setup_repo();
-        seed_defensive_skill_prob(&repo, "uzr_skew", 0.45);
+        seed_gamma_param(&repo, "player", "player_info", "age", 2.5);
 
-        let defensive_skill_prob = repo.defensive_skill_prob().unwrap();
+        let params = repo.gamma_params("player", "player_info", "age").unwrap();
 
-        assert_eq!(defensive_skill_prob.uzr_skew, 0.45);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn defensive_skill_prob_ignores_non_defensive_skill_categories() {
-        let (repo, path) = setup_repo();
-        seed_defensive_skill_prob(&repo, "uzr_skew", 0.45);
-        conn(&repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('batter_skill', 'uzr_skew', 99.0)",
-                [],
-            )
-            .unwrap();
-
-        let defensive_skill_prob = repo.defensive_skill_prob().unwrap();
-
-        assert_eq!(defensive_skill_prob.uzr_skew, 0.45);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn pitcher_attribute_prob_returns_seeded_probabilities() {
-        let (repo, path) = setup_repo();
-        seed_pitcher_attribute_prob(&repo, "velocity_skew", 0.11);
-        seed_pitcher_attribute_prob(&repo, "control_skew", 0.12);
-        seed_pitcher_attribute_prob(&repo, "stamina_skew", 0.13);
-        seed_pitcher_attribute_prob(&repo, "injury_proneness_skew", 0.14);
-        seed_pitcher_attribute_prob(&repo, "clutch_skew", 0.15);
-        seed_pitcher_attribute_prob(&repo, "hpp_skew", 0.16);
-        seed_pitcher_attribute_prob(&repo, "platoon_splitting_skew", 0.17);
-
-        let pitcher_attribute_prob = repo.pitcher_attribute_prob().unwrap();
-
-        assert_eq!(pitcher_attribute_prob.velocity_skew, 0.11);
-        assert_eq!(pitcher_attribute_prob.control_skew, 0.12);
-        assert_eq!(pitcher_attribute_prob.stamina_skew, 0.13);
-        assert_eq!(pitcher_attribute_prob.injury_proneness_skew, 0.14);
-        assert_eq!(pitcher_attribute_prob.clutch_skew, 0.15);
-        assert_eq!(pitcher_attribute_prob.hpp_skew, 0.16);
-        assert_eq!(pitcher_attribute_prob.platoon_splitting_skew, 0.17);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn pitcher_attribute_prob_ignores_non_pitcher_attribute_categories() {
-        let (repo, path) = setup_repo();
-        seed_pitcher_attribute_prob(&repo, "velocity_skew", 0.11);
-        seed_pitcher_attribute_prob(&repo, "control_skew", 0.12);
-        seed_pitcher_attribute_prob(&repo, "stamina_skew", 0.13);
-        seed_pitcher_attribute_prob(&repo, "injury_proneness_skew", 0.14);
-        seed_pitcher_attribute_prob(&repo, "clutch_skew", 0.15);
-        seed_pitcher_attribute_prob(&repo, "hpp_skew", 0.16);
-        seed_pitcher_attribute_prob(&repo, "platoon_splitting_skew", 0.17);
-        conn(&repo)
-            .execute(
-                "INSERT INTO item_prob (category, name, prob)
-                 VALUES ('batter_skill', 'velocity_skew', 99.0)",
-                [],
-            )
-            .unwrap();
-
-        let pitcher_attribute_prob = repo.pitcher_attribute_prob().unwrap();
-
-        assert_eq!(pitcher_attribute_prob.velocity_skew, 0.11);
-        assert_eq!(pitcher_attribute_prob.control_skew, 0.12);
-        assert_eq!(pitcher_attribute_prob.stamina_skew, 0.13);
-        assert_eq!(pitcher_attribute_prob.injury_proneness_skew, 0.14);
-        assert_eq!(pitcher_attribute_prob.clutch_skew, 0.15);
-        assert_eq!(pitcher_attribute_prob.hpp_skew, 0.16);
-        assert_eq!(pitcher_attribute_prob.platoon_splitting_skew, 0.17);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn pitch_skill_prob_returns_seeded_probabilities_for_pitch_type() {
-        let (repo, path) = setup_repo();
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "velocity_skew", 0.11);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "control_skew", 0.12);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "stamina_skew", 0.13);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "injury_proneness_skew", 0.14);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "stuff_skew", 0.15);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "fb_skew", 0.16);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "gp_skew", 0.17);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "horizontal_movement_skew", 0.18);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "vertical_movement_skew", 0.19);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "spin_rate_skew", 0.20);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "usage_skew", 0.21);
-
-        let pitch_skill_prob = repo.pitch_skill_prob(&PitchType::Slider).unwrap();
-
-        assert!(matches!(pitch_skill_prob.pitch_type, PitchType::Slider));
-        assert_eq!(pitch_skill_prob.velocity_skew, 0.11);
-        assert_eq!(pitch_skill_prob.control_skew, 0.12);
-        assert_eq!(pitch_skill_prob.stamina_skew, 0.13);
-        assert_eq!(pitch_skill_prob.injury_proneness_skew, 0.14);
-        assert_eq!(pitch_skill_prob.stuff_skew, 0.15);
-        assert_eq!(pitch_skill_prob.fb_skew, 0.16);
-        assert_eq!(pitch_skill_prob.gp_skew, 0.17);
-        assert_eq!(pitch_skill_prob.horizontal_movement_skew, 0.18);
-        assert_eq!(pitch_skill_prob.vertical_movement_skew, 0.19);
-        assert_eq!(pitch_skill_prob.spin_rate_skew, 0.20);
-        assert_eq!(pitch_skill_prob.usage_skew, 0.21);
-        std::fs::remove_file(path).ok();
-    }
-
-    #[test]
-    fn pitch_skill_prob_ignores_other_pitch_type_categories() {
-        let (repo, path) = setup_repo();
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "velocity_skew", 0.11);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "control_skew", 0.12);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "stamina_skew", 0.13);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "injury_proneness_skew", 0.14);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "stuff_skew", 0.15);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "fb_skew", 0.16);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "gp_skew", 0.17);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "horizontal_movement_skew", 0.18);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "vertical_movement_skew", 0.19);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "spin_rate_skew", 0.20);
-        seed_pitch_skill_prob(&repo, PitchType::Slider, "usage_skew", 0.21);
-        seed_pitch_skill_prob(&repo, PitchType::Changeup, "velocity_skew", 0.99);
-
-        let pitch_skill_prob = repo.pitch_skill_prob(&PitchType::Slider).unwrap();
-
-        assert_eq!(pitch_skill_prob.velocity_skew, 0.11);
+        assert_eq!(params.shape, 2.5);
+        assert_eq!(params.scale, 0.5);
+        assert_eq!(params.offset, 18.0);
         std::fs::remove_file(path).ok();
     }
 }

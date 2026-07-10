@@ -339,401 +339,6 @@
       "def": "CREATE TABLE game (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    season INTEGER,\n    round_seq INTEGER,\n    seq INTEGER,\n    planned_date TEXT NOT NULL,\n    actual_date TEXT,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    away_points INTEGER,\n    home_points INTEGER\n)"
     },
     {
-      "name": "defensive_skill",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "position",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "mod_uzr",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_defensive_skill_1",
-          "def": "PRIMARY KEY (player_id, position)",
-          "table": "defensive_skill",
-          "columns": [
-            "player_id",
-            "position"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "defensive_skill",
-          "columns": [
-            "player_id"
-          ]
-        },
-        {
-          "name": "position",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (position)",
-          "table": "defensive_skill",
-          "columns": [
-            "position"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_defensive_skill_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id, position)",
-          "table": "defensive_skill",
-          "columns": [
-            "player_id",
-            "position"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE defensive_skill (\n    player_id INTEGER,\n    position TEXT,\n    mod_uzr REAL NOT NULL,\n    PRIMARY KEY (player_id, position)\n)"
-    },
-    {
-      "name": "item_prob",
-      "type": "table",
-      "columns": [
-        {
-          "name": "category",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "name",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "prob",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_item_prob_1",
-          "def": "PRIMARY KEY (category, name)",
-          "table": "item_prob",
-          "columns": [
-            "category",
-            "name"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "category",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (category)",
-          "table": "item_prob",
-          "columns": [
-            "category"
-          ]
-        },
-        {
-          "name": "name",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (name)",
-          "table": "item_prob",
-          "columns": [
-            "name"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_item_prob_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (category, name)",
-          "table": "item_prob",
-          "columns": [
-            "category",
-            "name"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE item_prob (\n    category TEXT,\n    name TEXT,\n    prob REAL NOT NULL,\n    PRIMARY KEY (category, name)\n)"
-    },
-    {
-      "name": "player",
-      "type": "table",
-      "columns": [
-        {
-          "name": "id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "first_name",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "last_name",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "age",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "throw",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "bat",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "mod_ba",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_slg",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
-          "table": "player",
-          "columns": [
-            "id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE player (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    team_id INTEGER NOT NULL,\n    first_name TEXT NOT NULL,\n    last_name TEXT NOT NULL,\n    age INTEGER NOT NULL,\n    throw TEXT NOT NULL,\n    bat TEXT NOT NULL,\n    mod_ba REAL NOT NULL,\n    mod_slg REAL NOT NULL\n)"
-    },
-    {
-      "name": "pitch_skill",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "pitch_type",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "mod_velocity",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_control",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_stamina",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_injury_proneness",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_stuff",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_fb",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_gp",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_horizontal_movement",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_vertical_movement",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_spin_rate",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_usage",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_pitch_skill_1",
-          "def": "PRIMARY KEY (player_id, pitch_type)",
-          "table": "pitch_skill",
-          "columns": [
-            "player_id",
-            "pitch_type"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "pitch_skill",
-          "columns": [
-            "player_id"
-          ]
-        },
-        {
-          "name": "pitch_type",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (pitch_type)",
-          "table": "pitch_skill",
-          "columns": [
-            "pitch_type"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_pitch_skill_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id, pitch_type)",
-          "table": "pitch_skill",
-          "columns": [
-            "player_id",
-            "pitch_type"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE pitch_skill (\n    player_id INTEGER,\n    pitch_type TEXT,\n    mod_velocity REAL NOT NULL,\n    mod_control REAL NOT NULL,\n    mod_stamina REAL NOT NULL,\n    mod_injury_proneness REAL NOT NULL,\n    mod_stuff REAL NOT NULL,\n    mod_fb REAL NOT NULL,\n    mod_gp REAL NOT NULL,\n    mod_horizontal_movement REAL NOT NULL,\n    mod_vertical_movement REAL NOT NULL,\n    mod_spin_rate REAL NOT NULL,\n    mod_usage REAL NOT NULL,\n    PRIMARY KEY (player_id, pitch_type)\n)"
-    },
-    {
-      "name": "pitcher_attribute",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "pitcher_style",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "mod_velocity",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_control",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_stamina",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_injury_proneness",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_clutch",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_hpp",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "mod_platoon_splitting",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_pitcher_attribute_1",
-          "def": "PRIMARY KEY (player_id, pitcher_style)",
-          "table": "pitcher_attribute",
-          "columns": [
-            "player_id",
-            "pitcher_style"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "pitcher_attribute",
-          "columns": [
-            "player_id"
-          ]
-        },
-        {
-          "name": "pitcher_style",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (pitcher_style)",
-          "table": "pitcher_attribute",
-          "columns": [
-            "pitcher_style"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_pitcher_attribute_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id, pitcher_style)",
-          "table": "pitcher_attribute",
-          "columns": [
-            "player_id",
-            "pitcher_style"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE pitcher_attribute (\n    player_id INTEGER,\n    pitcher_style TEXT,\n    mod_velocity REAL NOT NULL,\n    mod_control REAL NOT NULL,\n    mod_stamina REAL NOT NULL,\n    mod_injury_proneness REAL NOT NULL,\n    mod_clutch REAL NOT NULL,\n    mod_hpp REAL NOT NULL,\n    mod_platoon_splitting REAL NOT NULL,\n    PRIMARY KEY (player_id, pitcher_style)\n)"
-    },
-    {
       "name": "batting_order_history",
       "type": "table",
       "columns": [
@@ -870,6 +475,127 @@
       "def": "CREATE TABLE batting_order_history (\n    game_id INTEGER,\n    start_inning_seq INTEGER,\n    start_inning_tb TEXT,\n    start_count_seq INTEGER,\n    end_inning_seq INTEGER,\n    end_inning_tb TEXT,\n    end_count_seq INTEGER,\n    team_id INTEGER,\n    index_num INTEGER,\n    position TEXT,\n    player_id INTEGER,\n    PRIMARY KEY (\n        game_id,\n        start_inning_seq,\n        start_inning_tb,\n        start_count_seq,\n        index_num\n    )\n)"
     },
     {
+      "name": "batting_result_history",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_tb",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "team_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "pitcher_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "batter_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "result",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_batting_result_history_1",
+          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, count_seq, batter_id)",
+          "table": "batting_result_history",
+          "columns": [
+            "game_id",
+            "inning_seq",
+            "inning_tb",
+            "count_seq",
+            "batter_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "batting_result_history",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "inning_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_seq)",
+          "table": "batting_result_history",
+          "columns": [
+            "inning_seq"
+          ]
+        },
+        {
+          "name": "inning_tb",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_tb)",
+          "table": "batting_result_history",
+          "columns": [
+            "inning_tb"
+          ]
+        },
+        {
+          "name": "count_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (count_seq)",
+          "table": "batting_result_history",
+          "columns": [
+            "count_seq"
+          ]
+        },
+        {
+          "name": "batter_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (batter_id)",
+          "table": "batting_result_history",
+          "columns": [
+            "batter_id"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_batting_result_history_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, count_seq, batter_id)",
+          "table": "batting_result_history",
+          "columns": [
+            "game_id",
+            "inning_seq",
+            "inning_tb",
+            "count_seq",
+            "batter_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE batting_result_history (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    count_seq INTEGER,\n    team_id INTEGER,\n    pitcher_id INTEGER,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        count_seq,\n        batter_id\n    )\n)"
+    },
+    {
       "name": "count",
       "type": "table",
       "columns": [
@@ -898,11 +624,6 @@
           "type": "INTEGER",
           "nullable": false,
           "default": "0"
-        },
-        {
-          "name": "result",
-          "type": "TEXT",
-          "nullable": false
         },
         {
           "name": "point",
@@ -988,7 +709,796 @@
           ]
         }
       ],
-      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    bases_occupied INTEGER NOT NULL DEFAULT 0,\n    result TEXT NOT NULL,\n    point INTEGER NOT NULL,\n    ball INTEGER NOT NULL,\n    strike INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
+      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    bases_occupied INTEGER NOT NULL DEFAULT 0,\n    point INTEGER NOT NULL,\n    ball INTEGER NOT NULL,\n    strike INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
+    },
+    {
+      "name": "sqlite_stat1",
+      "type": "table",
+      "columns": [
+        {
+          "name": "tbl",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "idx",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "stat",
+          "type": "",
+          "nullable": true
+        }
+      ],
+      "def": "CREATE TABLE sqlite_stat1(tbl,idx,stat)"
+    },
+    {
+      "name": "sqlite_stat4",
+      "type": "table",
+      "columns": [
+        {
+          "name": "tbl",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "idx",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "neq",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "nlt",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "ndlt",
+          "type": "",
+          "nullable": true
+        },
+        {
+          "name": "sample",
+          "type": "",
+          "nullable": true
+        }
+      ],
+      "def": "CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)"
+    },
+    {
+      "name": "test_batted_ball",
+      "type": "table",
+      "columns": [
+        {
+          "name": "launch_speed_kmh",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "launch_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spray_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "distance",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "hang_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "trajectory",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "def": "CREATE TABLE test_batted_ball (\n    launch_speed_kmh REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    spray_angle REAL NOT NULL,\n    distance REAL NOT NULL,\n    hang_time REAL NOT NULL,\n    trajectory TEXT NOT NULL\n)"
+    },
+    {
+      "name": "player_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "team_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "first_name",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "last_name",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "age",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "uniform_number",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "player_info",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player_info (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    team_id INTEGER NOT NULL,\n    first_name TEXT NOT NULL,\n    last_name TEXT NOT NULL,\n    age INTEGER NOT NULL,\n    uniform_number INTEGER NOT NULL\n)"
+    },
+    {
+      "name": "fielder_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "fielder_type",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "throw_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "running_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "reaction",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "prep_time",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_fielder_info_1",
+          "def": "PRIMARY KEY (player_id, fielder_type)",
+          "table": "fielder_info",
+          "columns": [
+            "player_id",
+            "fielder_type"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "fielder_info",
+          "columns": [
+            "player_id"
+          ]
+        },
+        {
+          "name": "fielder_type",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (fielder_type)",
+          "table": "fielder_info",
+          "columns": [
+            "fielder_type"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_fielder_info_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id, fielder_type)",
+          "table": "fielder_info",
+          "columns": [
+            "player_id",
+            "fielder_type"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE fielder_info (\n    player_id INTEGER,\n    fielder_type TEXT,\n    throw_speed REAL NOT NULL,\n    running_speed REAL NOT NULL,\n    reaction REAL NOT NULL,\n    prep_time REAL NOT NULL,\n    PRIMARY KEY (player_id, fielder_type)\n)"
+    },
+    {
+      "name": "batter_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "batting_side",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "weight_pull",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_center",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_opposite",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_foul_left",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_foul_right",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "batter_info",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE batter_info (\n    player_id INTEGER PRIMARY KEY,\n    batting_side TEXT NOT NULL,\n    weight_pull REAL NOT NULL,\n    weight_center REAL NOT NULL,\n    weight_opposite REAL NOT NULL,\n    weight_foul_left REAL NOT NULL,\n    weight_foul_right REAL NOT NULL\n)"
+    },
+    {
+      "name": "running_skills",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "lead_distance",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "start_reaction",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "running_skills",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE running_skills (\n    player_id INTEGER PRIMARY KEY,\n    speed REAL NOT NULL,\n    lead_distance REAL NOT NULL,\n    start_reaction REAL NOT NULL\n)"
+    },
+    {
+      "name": "item_weighted",
+      "type": "table",
+      "columns": [
+        {
+          "name": "category1",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "category2",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "weight",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_item_weighted_1",
+          "def": "PRIMARY KEY (category1, category2, name)",
+          "table": "item_weighted",
+          "columns": [
+            "category1",
+            "category2",
+            "name"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "category1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category1)",
+          "table": "item_weighted",
+          "columns": [
+            "category1"
+          ]
+        },
+        {
+          "name": "category2",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category2)",
+          "table": "item_weighted",
+          "columns": [
+            "category2"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (name)",
+          "table": "item_weighted",
+          "columns": [
+            "name"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_item_weighted_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category1, category2, name)",
+          "table": "item_weighted",
+          "columns": [
+            "category1",
+            "category2",
+            "name"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE item_weighted (\n    category1 TEXT,\n    category2 TEXT,\n    name TEXT,\n    weight REAL NOT NULL,\n    PRIMARY KEY (category1, category2, name)\n)"
+    },
+    {
+      "name": "normal_param",
+      "type": "table",
+      "columns": [
+        {
+          "name": "category1",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "category2",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "mean",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "std_dev",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "skew",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "coefficient",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "offset",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_normal_param_1",
+          "def": "PRIMARY KEY (category1, category2, name)",
+          "table": "normal_param",
+          "columns": [
+            "category1",
+            "category2",
+            "name"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "category1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category1)",
+          "table": "normal_param",
+          "columns": [
+            "category1"
+          ]
+        },
+        {
+          "name": "category2",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category2)",
+          "table": "normal_param",
+          "columns": [
+            "category2"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (name)",
+          "table": "normal_param",
+          "columns": [
+            "name"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_normal_param_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category1, category2, name)",
+          "table": "normal_param",
+          "columns": [
+            "category1",
+            "category2",
+            "name"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE normal_param (\n    category1 TEXT,\n    category2 TEXT,\n    name TEXT,\n    mean REAL NOT NULL,\n    std_dev REAL NOT NULL,\n    skew REAL NOT NULL,\n    coefficient REAL NOT NULL,\n    offset REAL NOT NULL,\n    PRIMARY KEY (category1, category2, name)\n)"
+    },
+    {
+      "name": "gamma_param",
+      "type": "table",
+      "columns": [
+        {
+          "name": "category1",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "category2",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "shape",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "scale",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "offset",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_gamma_param_1",
+          "def": "PRIMARY KEY (category1, category2, name)",
+          "table": "gamma_param",
+          "columns": [
+            "category1",
+            "category2",
+            "name"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "category1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category1)",
+          "table": "gamma_param",
+          "columns": [
+            "category1"
+          ]
+        },
+        {
+          "name": "category2",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category2)",
+          "table": "gamma_param",
+          "columns": [
+            "category2"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (name)",
+          "table": "gamma_param",
+          "columns": [
+            "name"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_gamma_param_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (category1, category2, name)",
+          "table": "gamma_param",
+          "columns": [
+            "category1",
+            "category2",
+            "name"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE gamma_param (\n    category1 TEXT,\n    category2 TEXT,\n    name TEXT,\n    shape REAL NOT NULL,\n    scale REAL NOT NULL,\n    offset REAL NOT NULL,\n    PRIMARY KEY (category1, category2, name)\n)"
+    },
+    {
+      "name": "pitcher_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "pitcher_style",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "velocity",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "control",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "stamina",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "injury_proneness",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "clutch",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "hpp",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "platoon_splitting",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "delivery_motion_time",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "pitcher_info",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE pitcher_info(\n    player_id INTEGER PRIMARY KEY,\n    pitcher_style TEXT NOT NULL,\n    velocity REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    clutch REAL NOT NULL,\n    hpp REAL NOT NULL,\n    platoon_splitting REAL NOT NULL,\n    delivery_motion_time REAL NOT NULL\n)"
+    },
+    {
+      "name": "defense_skills",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "primary_position",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "defense_skills",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE defense_skills (\n    player_id INTEGER PRIMARY KEY,\n    primary_position TEXT NOT NULL\n)"
+    },
+    {
+      "name": "pitch_skill",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "pitch_type",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "velocity",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "control",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "stamina",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "injury_proneness",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "stuff",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "fb",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "gp",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "horizontal_movement",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "vertical_movement",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spin_rate",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "usage",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_pitch_skill_1",
+          "def": "PRIMARY KEY (player_id, pitch_type)",
+          "table": "pitch_skill",
+          "columns": [
+            "player_id",
+            "pitch_type"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "pitch_skill",
+          "columns": [
+            "player_id"
+          ]
+        },
+        {
+          "name": "pitch_type",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (pitch_type)",
+          "table": "pitch_skill",
+          "columns": [
+            "pitch_type"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_pitch_skill_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id, pitch_type)",
+          "table": "pitch_skill",
+          "columns": [
+            "player_id",
+            "pitch_type"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE pitch_skill (\n    player_id INTEGER,\n    pitch_type TEXT,\n    velocity REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    stuff REAL NOT NULL,\n    fb REAL NOT NULL,\n    gp REAL NOT NULL,\n    horizontal_movement REAL NOT NULL,\n    vertical_movement REAL NOT NULL,\n    spin_rate REAL NOT NULL,\n    usage REAL NOT NULL,\n    PRIMARY KEY (player_id, pitch_type)\n)"
     }
   ],
   "driver": {

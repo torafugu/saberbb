@@ -9,28 +9,140 @@ use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
+use saberbb::domain::util::PolarPosition;
 use saberbb::repositories::db::*;
+use std::collections::HashMap;
 
 fn generate_stadium() -> Stadium {
     Stadium::new("AAA".to_string(), 98.0, 120.0, 2.0)
 }
 
-fn generate_default_fielders() -> [Fielder; 9] {
-    // TODO: Randomize throw_speed, running_speed, reaction and prep_time
-    let p = Fielder::new(Position::P, MOUND_DISTANCE, 0.0, 40.0, 7.0, 0.5, 0.65);
-    let c = Fielder::new(Position::C, 0.0, 0.0, 40.0, 7.0, 0.5, 0.65);
-    let fb = Fielder::new(Position::FB, 35.0, 33.0, 40.0, 7.0, 0.5, 0.65);
-    let sb = Fielder::new(Position::SB, 40.0, 18.0, 40.0, 7.0, 0.5, 0.65);
-    let tb = Fielder::new(Position::TB, 35.0, -33.0, 40.0, 7.0, 0.5, 0.65);
-    let ss = Fielder::new(Position::SS, 35.0, -33.0, 40.0, 7.0, 0.5, 0.65);
-    let rf = Fielder::new(Position::RF, 80.0, 26.0, 40.0, 7.0, 0.5, 0.65);
-    let cf = Fielder::new(Position::CF, 90.0, 0.0, 40.0, 7.0, 0.5, 0.65);
-    let lf = Fielder::new(Position::LF, 80.0, -26.0, 40.0, 7.0, 0.5, 0.65);
+// TODO: Retrieve from PlayerFactory
+fn generate_default_fielders() -> [ActiveFielder; 9] {
+    let fielders: HashMap<Position, ActiveFielder> = HashMap::new();
+
+    let p = ActiveFielder {
+        position: Position::P,
+        player_id: 0,
+        info: FielderInfo {
+            fielder_type: FielderType::Pitcher,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(MOUND_DISTANCE, 0.0),
+    };
+
+    let c = ActiveFielder {
+        position: Position::C,
+        player_id: 1,
+        info: FielderInfo {
+            fielder_type: FielderType::Catcher,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(0.0, 0.0),
+    };
+
+    let fb = ActiveFielder {
+        position: Position::FB,
+        player_id: 2,
+        info: FielderInfo {
+            fielder_type: FielderType::CornerInfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(35.0, 33.0),
+    };
+
+    let sb = ActiveFielder {
+        position: Position::SB,
+        player_id: 3,
+        info: FielderInfo {
+            fielder_type: FielderType::MiddleInfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(40.0, 18.0),
+    };
+
+    let tb = ActiveFielder {
+        position: Position::TB,
+        player_id: 4,
+        info: FielderInfo {
+            fielder_type: FielderType::CornerInfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(35.0, -33.0),
+    };
+
+    let ss = ActiveFielder {
+        position: Position::SS,
+        player_id: 5,
+        info: FielderInfo {
+            fielder_type: FielderType::MiddleInfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(40.0, -18.0),
+    };
+
+    let rf = ActiveFielder {
+        position: Position::RF,
+        player_id: 6,
+        info: FielderInfo {
+            fielder_type: FielderType::Outfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(80.0, 26.0),
+    };
+
+    let cf = ActiveFielder {
+        position: Position::CF,
+        player_id: 7,
+        info: FielderInfo {
+            fielder_type: FielderType::Outfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(90.0, 0.0),
+    };
+
+    let lf = ActiveFielder {
+        position: Position::LF,
+        player_id: 8,
+        info: FielderInfo {
+            fielder_type: FielderType::Outfielder,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
+        polar_position: PolarPosition::new(80.0, -26.0),
+    };
 
     [p, c, fb, sb, tb, ss, rf, cf, lf]
 }
 
-fn generate_random_batter() -> Batter {
+// TODO: Retrieve from PlayerFactory
+fn generate_random_batter() -> BatterInfo {
     let mut rng = rand::rng();
 
     let roll_rl = rng.random_range(0.0..1.0);
@@ -50,7 +162,7 @@ fn generate_random_batter() -> Batter {
     let final_swing_speed = (mean + std_dev * rng.sample::<f64, _>(StandardNormal))
         .clamp(min_swing_speed, max_swing_speed);
 
-    let pull_hitter = Batter {
+    let pull_hitter = BatterInfo {
         batting_side: rl,
         swing_speed: final_swing_speed,
         weight_pull: 0.55,
@@ -60,7 +172,7 @@ fn generate_random_batter() -> Batter {
         weight_foul_right: 0.03,
     };
 
-    let ordinally_hitter = Batter {
+    let ordinally_hitter = BatterInfo {
         batting_side: rl,
         swing_speed: final_swing_speed,
         weight_pull: 0.35,
@@ -70,7 +182,7 @@ fn generate_random_batter() -> Batter {
         weight_foul_right: 0.07,
     };
 
-    let average_hitter = Batter {
+    let average_hitter = BatterInfo {
         batting_side: rl,
         swing_speed: final_swing_speed,
         weight_pull: 0.25,
@@ -103,19 +215,47 @@ fn test_through_inning() -> Result<(), GameError> {
     let stadium = generate_stadium();
     let batter = generate_random_batter();
     let fielders = generate_default_fielders();
-    let pitcher = PitcherData {
-        delivery_motion_time: 1.0,
+    let pitcher = PitcherInfo {
+        pitcher_style: PitcherStyle::BalancedPitcher,
+        velocity: 0.0,
+        control: 0.0,
+        stamina: 0.0,
+        injury_proneness: 0.0,
+        clutch: 0.0,
+        hpp: 0.0,
+        platoon_splitting: 0.0,
+        delivery_motion_time: 2.0,
+        pitch_skills: vec![],
+        fielder_info: FielderInfo {
+            fielder_type: FielderType::Pitcher,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
     };
-    let catcher = CatcherData {
-        prep_time: 0.4,
-        throw_speed: 35.0,
+
+    let catcher = CatcherInfo {
+        info: FielderInfo {
+            fielder_type: FielderType::Catcher,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
     };
+
     let mut scores = 0;
-    let batter_runner = Runner {
-        speed: 7.0,
-        lead_distance: 0.0,
-        start_reaction: 0.1,
+
+    let batter_runner = ActiveRunner {
+        player_id: 0,
+        skills: RunningSkills {
+            speed: 7.0,
+            lead_distance: 0.0,
+            start_reaction: 0.1,
+        },
     };
+
     let mut inning_state = InningState::new();
 
     while let InningProgress::Ongoing = inning_state.progress() {
@@ -185,7 +325,7 @@ fn test_through_inning() -> Result<(), GameError> {
 
             if steal_runner_advance_result.ruling == Ruling::Out {
                 inning_state.add_out();
-                if inning_state.progress() == InningProgress::Ongoing {
+                if inning_state.progress() == InningProgress::HalfInningOver {
                     break;
                 }
             };
@@ -262,16 +402,22 @@ fn test_through_inning() -> Result<(), GameError> {
 fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     let fielders = generate_default_fielders();
 
-    let batter_runner = Runner {
-        speed: 7.0,
-        lead_distance: 0.0,
-        start_reaction: 0.1,
+    let batter_runner = ActiveRunner {
+        player_id: 0,
+        skills: RunningSkills {
+            speed: 7.0,
+            lead_distance: 0.0,
+            start_reaction: 0.1,
+        },
     };
 
-    let runner_on_first = Runner {
-        speed: 7.0,
-        lead_distance: 0.0,
-        start_reaction: 0.1,
+    let runner_on_first = ActiveRunner {
+        player_id: 1,
+        skills: RunningSkills {
+            speed: 7.0,
+            lead_distance: 0.0,
+            start_reaction: 0.1,
+        },
     };
 
     let mut inning_state = InningState::new();
@@ -320,17 +466,41 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
 
 #[test]
 fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
-    let pitcher = PitcherData {
+    let pitcher = PitcherInfo {
+        pitcher_style: PitcherStyle::BalancedPitcher,
+        velocity: 0.0,
+        control: 0.0,
+        stamina: 0.0,
+        injury_proneness: 0.0,
+        clutch: 0.0,
+        hpp: 0.0,
+        platoon_splitting: 0.0,
         delivery_motion_time: 2.0,
+        pitch_skills: vec![],
+        fielder_info: FielderInfo {
+            fielder_type: FielderType::Pitcher,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
     };
-    let catcher = CatcherData {
-        prep_time: 0.8,
-        throw_speed: 20.0,
+    let catcher = CatcherInfo {
+        info: FielderInfo {
+            fielder_type: FielderType::Catcher,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        },
     };
-    let runner_on_first = Runner {
-        speed: 7.0,
-        lead_distance: 0.0,
-        start_reaction: 0.1,
+    let runner_on_first = ActiveRunner {
+        player_id: 0,
+        skills: RunningSkills {
+            speed: 7.0,
+            lead_distance: 0.0,
+            start_reaction: 0.1,
+        },
     };
 
     let mut inning_state = InningState::new();
@@ -397,7 +567,7 @@ fn test_base_running() {
 fn test_catch_batted_ball() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
 
-    let right_average_hitter = Batter {
+    let right_average_hitter = BatterInfo {
         batting_side: RL::Right,
         swing_speed: 125.0,
         weight_pull: 0.35,

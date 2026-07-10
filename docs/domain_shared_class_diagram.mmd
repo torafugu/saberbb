@@ -1,50 +1,121 @@
 classDiagram
-    class Player {
-        +u32 id
-        +Arc~str~ first_name
-        +Arc~str~ last_name
+    class PlayerInfo {
+        +i64 id
+        +String first_name
+        +String last_name
         +u8 age
-        +RL throw
-        +Vec~DefensiveSkill~ defensive_skills
-        +Option~PitcherAttribute~ pitcher_attribute
-        +RL bat
-        +f64 mod_ba
-        +f64 mod_slg
+        +u8 uniform_number
+    }
+
+    class OffenseSkills {
+        +Option~BatterInfo~ batter
+        +RunningSkills running
+    }
+
+    class BatterInfo {
+        +RL batting_side
+        +f64 swing_speed
+        +f32 weight_pull
+        +f32 weight_center
+        +f32 weight_opposite
+        +f32 weight_foul_left
+        +f32 weight_foul_right
+    }
+
+    class RunningSkills {
+        +f64 speed
+        +f64 lead_distance
+        +f64 start_reaction
+    }
+
+    class DefenseSkills {
+        +Position primary_position
+        +Option~PitcherInfo~ pitcher
+        +Option~CatcherInfo~ catcher
+        +Option~FielderInfo~ middle_infielder
+        +Option~FielderInfo~ corner_infielder
+        +Option~FielderInfo~ outfielder
+    }
+
+    class FielderInfo {
+        +f64 throw_speed
+        +f64 running_speed
+        +f64 reaction
+        +f64 prep_time
+    }
+
+    class CatcherInfo {
+        +f64 prep_time
+        +f64 throw_speed
+    }
+
+    class Player {
+        +PlayerInfo info
+        +OffenseSkills offense_skills
+        +DefenseSkills defense_skills
     }
 
     class FullName {
-        +Arc~str~ first
-        +Arc~str~ last
+        +String first
+        +String last
     }
 
-    class ItemProb~T~ {
-        +T name
-        +f64 prob
-    }
-
-    class PlayerAttributeProb {
-        +f64 age_shape
-        +f64 age_scale
-        +f64 age_offset
-        +f64 throw_lefty
-        +f64 bat_lefty
-    }
-
-    class BatterSkillProb {
-        +f64 ba_skew
-        +f64 slg_skew
-    }
-
-    class DefensiveSkill {
+    class ActiveFielder {
         +Position position
-        +f64 mod_uzr
+        +usize player_id
+        +FielderInfo info
+        +PolarPosition polar_position
     }
 
-    class DefensiveSkillProb {
-        +f64 uzr_skew
+    class ActiveRunner {
+        +Runner runner
+        +Base current_base
     }
 
-    class PitcherAttribute {
+    class NormalParam {
+        +f64 mean
+        +f64 std_dev
+        +f64 skew
+        +f64 coefficient
+        +f64 offset
+    }
+
+    class GammaParam {
+        +f64 shape
+        +f64 scale
+        +f64 offset
+    }
+
+    class ItemWeighted~T~ {
+        +T name
+        +f64 weight
+    }
+
+    class PlayerInfoProbs {
+        +GammaParam age
+    }
+
+    class RunningSkillProbs {
+        +NormalParam speed
+        +NormalParam lead_distance
+        +NormalParam start_reaction
+    }
+
+    class BatterInfoProbs {
+        +Vec~ItemWeighted(RL)~ batting_side
+        +NormalParam swing_speed
+        +Vec~ItemWeighted(HitterTendency)~ hitter_tendency
+    }
+
+    class FielderInfoProbs {
+        +Vec~ItemWeighted(FielderType)~ fielder_type
+        +NormalParam throw_speed
+        +NormalParam running_speed
+        +NormalParam reaction
+        +NormalParam prep_time
+    }
+
+    class PitcherInfo {
         +PitcherStyle pitcher_style
         +f64 mod_velocity
         +f64 mod_control
@@ -53,17 +124,20 @@ classDiagram
         +f64 mod_clutch
         +f64 mod_hpp
         +f64 mod_platoon_splitting
+        +f64 delivery_motion_time
         +Vec~PitchSkill~ pitch_skills
     }
 
-    class PitcherAttributeProb {
-        +f64 velocity_skew
-        +f64 control_skew
-        +f64 stamina_skew
-        +f64 injury_proneness_skew
-        +f64 clutch_skew
-        +f64 hpp_skew
-        +f64 platoon_splitting_skew
+    class PitcherInfoProbs {
+        +Vec~ItemWeighted(PitcherStyle)~ pitcher_style
+        +NormalParam velocity
+        +NormalParam control
+        +NormalParam stamina
+        +NormalParam injury_proneness
+        +NormalParam clutch
+        +NormalParam hpp
+        +NormalParam platoon_splitting
+        +NormalParam delivery_motion_time
     }
 
     class PitchSkill {
@@ -81,39 +155,29 @@ classDiagram
         +f64 mod_usage
     }
 
-    class PitchSkillProb {
-        +PitchType pitch_type
-        +f64 velocity_skew
-        +f64 control_skew
-        +f64 stamina_skew
-        +f64 injury_proneness_skew
-        +f64 stuff_skew
-        +f64 fb_skew
-        +f64 gp_skew
-        +f64 horizontal_movement_skew
-        +f64 vertical_movement_skew
-        +f64 spin_rate_skew
-        +f64 usage_skew
-    }
-
-    class PlayerProb {
-        +PlayerAttributeProb player_attribute_prob
-        +BatterSkillProb batter_skill_prob
-        +Vec~ItemProb(Position)~ position_probs
-        +DefensiveSkillProb defensive_skill_prob
-        +Vec~ItemProb(PitcherStyle)~ pitcher_style_probs
-        +PitcherAttributeProb pitcher_attribute_prob
+    class PitchSkillProbs {
+        +NormalParam velocity
+        +NormalParam control
+        +NormalParam stamina
+        +NormalParam injury_proneness
+        +NormalParam stuff
+        +NormalParam fb
+        +NormalParam gp
+        +NormalParam horizontal_movement
+        +NormalParam vertical_movement
+        +NormalParam spin_rate
+        +NormalParam usage
     }
 
     class League {
         +u16 id
-        +Arc~str~ name
+        +String name
         +Vec~Team~ teams
     }
 
     class Team {
         +u16 id
-        +Arc~str~ name
+        +String name
         +Vec~Player~ players
     }
 
@@ -268,6 +332,22 @@ classDiagram
         Left
     }
 
+    class HitterTendency {
+        <<enumeration>>
+        Pull
+        Center
+        Opposite
+        FoulLeft
+        FoulRight
+    }
+
+    class FielderType {
+        <<enumeration>>
+        MiddleInfielder
+        CornerInfielder
+        Outfielder
+    }
+
     class PitchType {
         <<enumeration>>
         FourSeamFastball
@@ -316,20 +396,27 @@ classDiagram
         Triple
         HomeRun
         Out
+        FieldersChoice
     }
 
-    class Base {
+    class Ruling {
         <<enumeration>>
-        First
-        Second
-        Third
+        Out
+        Safe
     }
 
-    class GameType {
+    class GameError {
         <<enumeration>>
-        Exhibition
-        Regular
-        Postseason
+        SameTargetBase
+        BatterRunner
+        Runner1st
+        Runner2nd
+        Runner3rd
+        BatterRunnerTargetBase
+        DoublePlayTargetBase
+        StealTargetBase
+        UnsupportedPath
+        NoPlayerFor(String)
     }
 
     class GameProgress {
@@ -346,21 +433,64 @@ classDiagram
         HalfInningOver
     }
 
-    Player --> RL : throw
-    Player --> RL : bat
-    Player "1" --> "0..*" DefensiveSkill : defensive_skills
-    Player "1" --> "0..1" PitcherAttribute : pitcher_attribute
-    DefensiveSkill --> Position : position
-    PitcherAttribute --> PitcherStyle : pitcher_style
-    PitcherAttribute "1" --> "0..*" PitchSkill : pitch_skills
+    class GameType {
+        <<enumeration>>
+        Exhibition
+        Regular
+        Postseason
+    }
+
+    Player *-- PlayerInfo : info
+    Player *-- OffenseSkills : offense_skills
+    Player *-- DefenseSkills : defense_skills
+    OffenseSkills --> BatterInfo : batter
+    OffenseSkills *-- RunningSkills : running
+    DefenseSkills --> PitcherInfo : pitcher
+    DefenseSkills --> CatcherInfo : catcher
+    DefenseSkills --> FielderInfo : middle_infielder
+    DefenseSkills --> FielderInfo : corner_infielder
+    DefenseSkills --> FielderInfo : outfielder
+    DefenseSkills --> Position : primary_position
+    BatterInfo --> RL : batting_side
+    PitcherInfo --> PitcherStyle : pitcher_style
+    PitcherInfo "1" --> "0..*" PitchSkill : pitch_skills
     PitchSkill --> PitchType : pitch_type
-    PitchSkillProb --> PitchType : pitch_type
-    PlayerProb --> PlayerAttributeProb : player_attribute_prob
-    PlayerProb --> BatterSkillProb : batter_skill_prob
-    PlayerProb --> ItemProb : position_probs
-    PlayerProb --> DefensiveSkillProb : defensive_skill_prob
-    PlayerProb --> ItemProb : pitcher_style_probs
-    PlayerProb --> PitcherAttributeProb : pitcher_attribute_prob
+
+    ActiveFielder *-- FielderInfo : info
+    ActiveFielder --> Position : position
+
+    PlayerInfoProbs *-- GammaParam : age
+    RunningSkillProbs *-- NormalParam : speed
+    RunningSkillProbs *-- NormalParam : lead_distance
+    RunningSkillProbs *-- NormalParam : start_reaction
+    BatterInfoProbs --> ItemWeighted : batting_side
+    BatterInfoProbs *-- NormalParam : swing_speed
+    BatterInfoProbs --> ItemWeighted : hitter_tendency
+    FielderInfoProbs --> ItemWeighted : fielder_type
+    FielderInfoProbs *-- NormalParam : throw_speed
+    FielderInfoProbs *-- NormalParam : running_speed
+    FielderInfoProbs *-- NormalParam : reaction
+    FielderInfoProbs *-- NormalParam : prep_time
+    PitcherInfoProbs --> ItemWeighted : pitcher_style
+    PitcherInfoProbs *-- NormalParam : velocity
+    PitcherInfoProbs *-- NormalParam : control
+    PitcherInfoProbs *-- NormalParam : stamina
+    PitcherInfoProbs *-- NormalParam : injury_proneness
+    PitcherInfoProbs *-- NormalParam : clutch
+    PitcherInfoProbs *-- NormalParam : hpp
+    PitcherInfoProbs *-- NormalParam : platoon_splitting
+    PitcherInfoProbs *-- NormalParam : delivery_motion_time
+    PitchSkillProbs *-- NormalParam : velocity
+    PitchSkillProbs *-- NormalParam : control
+    PitchSkillProbs *-- NormalParam : stamina
+    PitchSkillProbs *-- NormalParam : injury_proneness
+    PitchSkillProbs *-- NormalParam : stuff
+    PitchSkillProbs *-- NormalParam : fb
+    PitchSkillProbs *-- NormalParam : gp
+    PitchSkillProbs *-- NormalParam : horizontal_movement
+    PitchSkillProbs *-- NormalParam : vertical_movement
+    PitchSkillProbs *-- NormalParam : spin_rate
+    PitchSkillProbs *-- NormalParam : usage
 
     League "1" --> "0..*" Team : teams
     Team "1" --> "0..*" Player : players
@@ -376,7 +506,6 @@ classDiagram
 
     GameResult "1" --> "0..*" Inning : innings
     GameResult "1" --> "0..*" BattingOrderHistory : batting_order_histories
-    GameResult --> GameState : update_point
 
     GameRow --> Team : away_team
     GameRow --> Team : home_team
@@ -385,29 +514,22 @@ classDiagram
 
     Inning --> TB : tb
     Inning "1" --> "0..*" Count : counts
-
     Count --> BattingResult : result
 
     GameState --> TB : inning_tb
     GameState --> Lineup : away_lineup
     GameState --> Lineup : home_lineup
-    GameState --> GameProgress : progress
-    GameState --> Inning : advance_half_inning
 
     InningState --> InningProgress : progress
-    InningState --> BattingResult : advance
-    InningState --> Count : batting_resolve
 
     Lineup "1" --> "1..*" BattingOrder : batters
     BattingOrder --> Position : position
     BattingOrder --> Player : player
+
     BattingOrderHistory --> TB : start_inning_tb
     BattingOrderHistory --> TB : end_inning_tb
     BattingOrderHistory --> Position : position
 
-    GameCursor --> GameRow : game
     GameCursor --> TB : inning_tb
-    GameCursor --> Count : current_count
-    GameCursor --> ScoreBoard : current_scoreboard
 
     BattingStats --> Player : batter

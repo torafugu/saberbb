@@ -9,17 +9,17 @@
 CREATE TABLE pitch_skill (
     player_id INTEGER,
     pitch_type TEXT,
-    mod_velocity REAL NOT NULL,
-    mod_control REAL NOT NULL,
-    mod_stamina REAL NOT NULL,
-    mod_injury_proneness REAL NOT NULL,
-    mod_stuff REAL NOT NULL,
-    mod_fb REAL NOT NULL,
-    mod_gp REAL NOT NULL,
-    mod_horizontal_movement REAL NOT NULL,
-    mod_vertical_movement REAL NOT NULL,
-    mod_spin_rate REAL NOT NULL,
-    mod_usage REAL NOT NULL,
+    velocity REAL NOT NULL,
+    control REAL NOT NULL,
+    stamina REAL NOT NULL,
+    injury_proneness REAL NOT NULL,
+    stuff REAL NOT NULL,
+    fb REAL NOT NULL,
+    gp REAL NOT NULL,
+    horizontal_movement REAL NOT NULL,
+    vertical_movement REAL NOT NULL,
+    spin_rate REAL NOT NULL,
+    usage REAL NOT NULL,
     PRIMARY KEY (player_id, pitch_type)
 )
 ```
@@ -28,21 +28,21 @@ CREATE TABLE pitch_skill (
 
 ## Columns
 
-| Name                    | Type    | Default | Nullable | Children | Parents | Comment |
-| ----------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| player_id               | INTEGER |         | true     |          |         |         |
-| pitch_type              | TEXT    |         | true     |          |         |         |
-| mod_velocity            | REAL    |         | false    |          |         |         |
-| mod_control             | REAL    |         | false    |          |         |         |
-| mod_stamina             | REAL    |         | false    |          |         |         |
-| mod_injury_proneness    | REAL    |         | false    |          |         |         |
-| mod_stuff               | REAL    |         | false    |          |         |         |
-| mod_fb                  | REAL    |         | false    |          |         |         |
-| mod_gp                  | REAL    |         | false    |          |         |         |
-| mod_horizontal_movement | REAL    |         | false    |          |         |         |
-| mod_vertical_movement   | REAL    |         | false    |          |         |         |
-| mod_spin_rate           | REAL    |         | false    |          |         |         |
-| mod_usage               | REAL    |         | false    |          |         |         |
+| Name                | Type    | Default | Nullable | Children | Parents | Comment |
+| ------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| player_id           | INTEGER |         | true     |          |         |         |
+| pitch_type          | TEXT    |         | true     |          |         |         |
+| velocity            | REAL    |         | false    |          |         |         |
+| control             | REAL    |         | false    |          |         |         |
+| stamina             | REAL    |         | false    |          |         |         |
+| injury_proneness    | REAL    |         | false    |          |         |         |
+| stuff               | REAL    |         | false    |          |         |         |
+| fb                  | REAL    |         | false    |          |         |         |
+| gp                  | REAL    |         | false    |          |         |         |
+| horizontal_movement | REAL    |         | false    |          |         |         |
+| vertical_movement   | REAL    |         | false    |          |         |         |
+| spin_rate           | REAL    |         | false    |          |         |         |
+| usage               | REAL    |         | false    |          |         |         |
 
 ## Constraints
 

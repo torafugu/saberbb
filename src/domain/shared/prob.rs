@@ -1,67 +1,87 @@
-use crate::domain::shared::player::{PitchType, PitcherStyle, Position};
+use crate::domain::shared::player::{FielderType, HitterTendency, PitcherStyle, RL};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-#[derive(Debug, Clone, Validate)]
-pub struct ItemProb<T> {
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, Validate)]
+pub struct NormalParam {
+    pub mean: f64,
+    #[validate(range(min = -5.0, max = 5.0))]
+    pub std_dev: f64,
+    pub skew: f64,
+    pub coefficient: f64,
+    pub offset: f64,
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, Validate)]
+/// shape(k)
+/// scale(θ)
+pub struct GammaParam {
+    #[validate(range(min = 0.0, max = 5.0))]
+    pub shape: f64,
+    #[validate(range(min = 0.0, max = 1.0))]
+    pub scale: f64,
+    pub offset: f64,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Validate)]
+pub struct ItemWeighted<T> {
     pub name: T,
     #[validate(range(min = 0.0, max = 1.0))]
-    pub prob: f64,
+    pub weight: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct PlayerAttributeProb {
-    pub age_shape: f64,
-    pub age_scale: f64,
-    pub age_offset: f64,
-    pub throw_lefty: f64,
-    pub bat_lefty: f64,
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Validate)]
+pub struct PlayerInfoProbs {
+    pub age: GammaParam,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct BatterSkillProb {
-    pub ba_skew: f64,
-    pub slg_skew: f64,
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Validate)]
+pub struct RunningSkillProbs {
+    pub speed: NormalParam,
+    pub lead_distance: NormalParam,
+    pub start_reaction: NormalParam,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct DefensiveSkillProb {
-    pub uzr_skew: f64,
+#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+pub struct BatterInfoProbs {
+    pub batting_side: Vec<ItemWeighted<RL>>,
+    pub swing_speed: NormalParam,
+    pub hitter_tendency: Vec<ItemWeighted<HitterTendency>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct PitcherAttributeProb {
-    pub velocity_skew: f64,
-    pub control_skew: f64,
-    pub stamina_skew: f64,
-    pub injury_proneness_skew: f64,
-    pub clutch_skew: f64,
-    pub hpp_skew: f64,
-    pub platoon_splitting_skew: f64,
+#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+pub struct FielderInfoProbs {
+    pub fielder_type: Vec<ItemWeighted<FielderType>>,
+    pub throw_speed: NormalParam,
+    pub running_speed: NormalParam,
+    pub reaction: NormalParam,
+    pub prep_time: NormalParam,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct PitchSkillProb {
-    pub pitch_type: PitchType,
-    pub velocity_skew: f64,
-    pub control_skew: f64,
-    pub stamina_skew: f64,
-    pub injury_proneness_skew: f64,
-    pub stuff_skew: f64,
-    pub fb_skew: f64,
-    pub gp_skew: f64,
-    pub horizontal_movement_skew: f64,
-    pub vertical_movement_skew: f64,
-    pub spin_rate_skew: f64,
-    pub usage_skew: f64,
+#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+pub struct PitcherInfoProbs {
+    pub pitcher_style: Vec<ItemWeighted<PitcherStyle>>,
+    pub velocity: NormalParam,
+    pub control: NormalParam,
+    pub stamina: NormalParam,
+    pub injury_proneness: NormalParam,
+    pub clutch: NormalParam,
+    pub hpp: NormalParam,
+    pub platoon_splitting: NormalParam,
+    pub delivery_motion_time: NormalParam,
 }
 
-#[derive(Debug)]
-pub struct PlayerProb {
-    pub player_attribute_prob: PlayerAttributeProb,
-    pub batter_skill_prob: BatterSkillProb,
-    pub position_probs: Vec<ItemProb<Position>>,
-    pub defensive_skill_prob: DefensiveSkillProb,
-    pub pitcher_style_probs: Vec<ItemProb<PitcherStyle>>,
-    pub pitcher_attribute_prob: PitcherAttributeProb,
+#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+pub struct PitchSkillProbs {
+    pub velocity: NormalParam,
+    pub control: NormalParam,
+    pub stamina: NormalParam,
+    pub injury_proneness: NormalParam,
+    pub stuff: NormalParam,
+    pub fb: NormalParam,
+    pub gp: NormalParam,
+    pub horizontal_movement: NormalParam,
+    pub vertical_movement: NormalParam,
+    pub spin_rate: NormalParam,
+    pub usage: NormalParam,
 }

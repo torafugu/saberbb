@@ -1,15 +1,9 @@
-use crate::I18nManager;
-use crate::domain::resolver::fielding_config::{
-    FENCE_BOUNCE_COEFF, FENCE_DISTANCE, FIRST_BOUNCE_TIME, LINER_REACTION_TIME,
-};
-use crate::domain::resolver::fielding_resolver::BoundedBallResult;
-use crate::domain::shared::ball::{BattedBall, FieldedBall, TrajectoryType};
-use crate::domain::util::{PolarPosition, calculate_polar_distance, sigmoid};
+use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::t;
+use crate::I18nManager;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::Arc;
-use strum_macros::{AsRefStr, EnumString};
+use strum_macros::{AsRefStr, EnumIter, EnumString};
 use validator::Validate;
 
 const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
@@ -44,6 +38,7 @@ impl Position {
         Position::RF,
         Position::DH,
     ];
+    // TODO: Tobe removed.
     pub const ALL_NO_DH: [Position; 9] = [
         Position::P,
         Position::C,
@@ -93,9 +88,33 @@ impl std::fmt::Display for Position {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
+#[derive(
+    Clone, Copy, PartialEq, Serialize, Deserialize, EnumString, EnumIter, Eq, Hash, Debug, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum FielderType {
+    Outfielder,
+    MiddleInfielder,
+    CornerInfielder,
+    Pitcher,
+    Catcher,
+}
+impl std::fmt::Display for FielderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            FielderType::Outfielder => write!(f, "{}", t!("outfielder")),
+            FielderType::MiddleInfielder => write!(f, "{}", t!("middle_infielder")),
+            FielderType::CornerInfielder => write!(f, "{}", t!("corner_infielder")),
+            FielderType::Pitcher => write!(f, "{}", t!("pitcher")),
+            FielderType::Catcher => write!(f, "{}", t!("catcher")),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum RL {
+    #[default]
     Right,
     Left,
 }
@@ -110,258 +129,203 @@ impl fmt::Display for RL {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct FullName {
-    pub first: Arc<str>,
-    pub last: Arc<str>,
+    pub first: String,
+    pub last: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct Player {
-    pub id: u32, // in case of same first_name and last_name
-    pub first_name: Arc<str>,
-    pub last_name: Arc<str>,
+pub struct PlayerInfo {
+    pub id: i64, // CONSTRAINT: rusqlite does not support u64 and usize
+    pub first_name: String,
+    pub last_name: String,
     pub age: u8,
-    pub throw: RL,
-    pub defensive_skills: Vec<DefensiveSkill>,
-    pub pitcher_attribute: Option<PitcherAttribute>,
-    pub bat: RL,
-    pub mod_ba: f64,
-    pub mod_slg: f64,
+    pub uniform_number: u8,
 }
-
-impl Player {
-    pub fn new_unsaved(
-        first_name: &str,
-        last_name: &str,
-        age: u8,
-        throw: RL,
-        defensive_skills: Vec<DefensiveSkill>,
-        pitcher_attribute: Option<PitcherAttribute>,
-        bat: RL,
-        mod_ba: f64,
-        mod_slg: f64,
-    ) -> Self {
+impl PlayerInfo {
+    pub fn new_unsaved(first_name: String, last_name: String, age: u8, uniform_number: u8) -> Self {
         Self {
             id: 0,
-            first_name: Arc::from(first_name),
-            last_name: Arc::from(last_name),
+            first_name: first_name,
+            last_name: last_name,
             age: age,
-            throw: throw,
-            defensive_skills: defensive_skills,
-            pitcher_attribute: pitcher_attribute,
-            bat: bat,
-            mod_ba: mod_ba,
-            mod_slg: mod_slg,
+            uniform_number: uniform_number,
         }
     }
 
     pub fn new(
-        id: u32,
-        first_name: &str,
-        last_name: &str,
+        id: i64,
+        first_name: String,
+        last_name: String,
         age: u8,
-        throw: RL,
-        bat: RL,
-        mod_ba: f64,
-        mod_slg: f64,
+        uniform_number: u8,
     ) -> Self {
         Self {
             id: id,
-            first_name: Arc::from(first_name),
-            last_name: Arc::from(last_name),
+            first_name: first_name,
+            last_name: last_name,
             age: age,
-            throw: throw,
-            defensive_skills: Vec::new(),
-            pitcher_attribute: None,
-            bat: bat,
-            mod_ba: mod_ba,
-            mod_slg: mod_slg,
+            uniform_number: uniform_number,
         }
     }
 
     pub fn full_name(&self) -> String {
         I18nManager::global().full_name(&self.first_name, &self.last_name)
     }
+}
 
-    pub fn hit_average(&self) -> f64 {
-        let ba = (BATTING_MAX_HIT_AVERAGE + BATTING_MIN_HIT_AVERAGE) * 0.5
-            + (BATTING_MAX_HIT_AVERAGE - BATTING_MIN_HIT_AVERAGE) * (sigmoid(self.mod_ba) - 0.5);
-        ba
-    }
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct OffenseSkills {
+    pub batter: Option<BatterInfo>,
+    pub running: RunningSkills,
+}
 
-    pub fn slg(&self) -> f64 {
-        let slg = (BATTING_MAX_SLG + BATTING_MIN_SLG) * 0.5
-            + (BATTING_MAX_SLG - BATTING_MIN_SLG) * (sigmoid(self.mod_slg) - 0.5);
-        slg
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct DefenseSkills {
+    pub primary_position: Position,
+    pub pitcher: Option<PitcherInfo>,
+    pub catcher: Option<CatcherInfo>,
+    pub middle_infielder: Option<FielderInfo>,
+    pub corner_infielder: Option<FielderInfo>,
+    pub outfielder: Option<FielderInfo>,
+}
+impl DefenseSkills {
+    pub fn new(primary_position: Position) -> Self {
+        Self {
+            primary_position: primary_position,
+            pitcher: None,
+            catcher: None,
+            middle_infielder: None,
+            corner_infielder: None,
+            outfielder: None,
+        }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Runner {
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct Player {
+    pub info: PlayerInfo,
+    pub offense_skills: OffenseSkills,
+    pub defense_skills: DefenseSkills,
+}
+impl Player {
+    pub fn new(
+        id: u32,
+        first_name: &str,
+        last_name: &str,
+        age: u8,
+        _throw: RL,
+        _bat: RL,
+        _mod_ba: f64,
+        _mod_slg: f64,
+    ) -> Self {
+        Self {
+            info: PlayerInfo::new(
+                id as i64,
+                first_name.to_string(),
+                last_name.to_string(),
+                age,
+                0,
+            ),
+            offense_skills: OffenseSkills {
+                batter: None,
+                running: RunningSkills {
+                    speed: 0.0,
+                    lead_distance: 0.0,
+                    start_reaction: 0.0,
+                },
+            },
+            defense_skills: DefenseSkills::new(Position::DH),
+        }
+    }
+
+    pub fn is(&self, id: i64) -> bool {
+        self.info.id == id
+    }
+
+    pub fn full_name(&self) -> String {
+        self.info.full_name()
+    }
+}
+#[derive(
+    Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, EnumIter, Hash, Debug, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum HitterTendency {
+    Normal,
+    Pull,
+    Spray,
+}
+impl fmt::Display for HitterTendency {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            HitterTendency::Normal => write!(f, "{}", t!("normal")),
+            HitterTendency::Pull => write!(f, "{}", t!("pull")),
+            HitterTendency::Spray => write!(f, "{}", t!("spray")),
+        }
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+pub struct BatterInfo {
+    pub batting_side: RL,
+    pub swing_speed: f64,
+
+    // NOTE: Weight of probability for each sector (set to sum to 1.0)
+    // CONSTRAINT: Randomize based on batter type
+    pub weight_pull: f64,
+    pub weight_center: f64,
+    pub weight_opposite: f64,
+    pub weight_foul_left: f64,
+    pub weight_foul_right: f64,
+}
+impl BatterInfo {
+    // Returns the concrete angle range (min, max) for the selected sector
+    pub fn get_angle_range(&self, sector: FieldSector) -> (f32, f32) {
+        match self.batting_side {
+            RL::Right => match sector {
+                FieldSector::FoulLeft => (-90.0, -45.0),
+                FieldSector::Pull => (-45.0, -15.0), // Right-handed batter's pull → left field (-)
+                FieldSector::Center => (-15.0, 15.0),
+                FieldSector::Opposite => (15.0, 45.0), // Right-handed batter's opposite → right field (+)
+                FieldSector::FoulRight => (45.0, 90.0),
+            },
+            RL::Left => match sector {
+                FieldSector::FoulLeft => (-90.0, -45.0),
+                FieldSector::Opposite => (-45.0, -15.0), // Left-handed batter's opposite → left field (-)
+                FieldSector::Center => (-15.0, 15.0),
+                FieldSector::Pull => (15.0, 45.0), // Left-handed batter's pull → right field (+)
+                FieldSector::FoulRight => (45.0, 90.0),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug, Validate)]
+pub struct RunningSkills {
     pub speed: f64,          // NOTE: Base running speed (m/s) e.g. 7.7
     pub lead_distance: f64,  // NOTE: Current lead distance (m), valid when current_base > 0
     pub start_reaction: f64, // TODO: judge mechanism should be implemented.
 }
 
-// TODO: merge into Player
-#[derive(Debug, Clone)]
-pub struct Fielder {
-    pub position: Position,
-    pub polar_position: PolarPosition, // TODO: Should be moved to game_state struct
-    pub throw_speed: f64,              // Throw speed (m/s) e.g. 35.0 – 42.0 m/s
-    pub running_speed: f64,            // Running speed (m/s) e.g. 6.5 – 8.0 m/s
-    pub reaction: f64,                 // Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
-    pub prep_time: f64, // Pitch preparation / transfer time (seconds) e.g. 0.5 – 0.8 s (lower is better)
+// TODO: Randomize throw_speed, running_speed, reaction and prep_time
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Validate)]
+pub struct FielderInfo {
+    pub fielder_type: FielderType,
+    pub throw_speed: f64,   // NOTE: Throw speed (m/s) e.g. 35.0 – 42.0 m/s
+    pub running_speed: f64, // NOTE: Running speed (m/s) e.g. 6.5 – 8.0 m/s
+    pub reaction: f64,      // NOTE: Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
+    pub prep_time: f64, // NOTE: Pitch preparation / transfer time (seconds) e.g. 0.5 – 0.8 s (lower is better)
 }
 
-impl Fielder {
-    pub fn new(
-        position: Position,
-        distance: f64,
-        angle: f64,
-        throw_speed: f64,
-        running_speed: f64,
-        reaction: f64,
-        prep_time: f64,
-    ) -> Self {
-        Self {
-            position: position,
-            polar_position: PolarPosition::new(distance, angle),
-            throw_speed: throw_speed,
-            running_speed: running_speed,
-            reaction: reaction,
-            prep_time: prep_time,
-        }
-    }
-
-    pub fn is(&self, position: Position) -> bool {
-        self.position == position
-    }
-
-    pub fn distance(&self) -> f64 {
-        self.polar_position.distance
-    }
-
-    pub fn angle(&self) -> f64 {
-        self.polar_position.angle
-    }
-
-    pub fn x(&self) -> f64 {
-        self.polar_position.x
-    }
-
-    pub fn y(&self) -> f64 {
-        self.polar_position.y
-    }
-
-    pub fn try_catch(&self, ball: &BattedBall) -> FieldedBall {
-        // $$\text{arrival\_time} = \text{reaction\_time} + \frac{\text{required\_distance}}{\text{fielder\_speed}}$$
-        // 1. Calculate straight-line distance from position to landing point
-        let required_distance =
-            calculate_polar_distance(&self.polar_position, &ball.polar_position);
-        let dy = self.y() - ball.y();
-
-        // 3. Adjust initial reaction speed based on hit type (secret ingredient)
-        let mut final_reaction = self.reaction;
-        if ball.trajectory == TrajectoryType::Liner && dy < 0.0 {
-            // Delay reaction when moving forward on a liner (harder to judge)
-            final_reaction += LINER_REACTION_TIME;
-        }
-
-        // 4. Calculate arrival time (seconds)
-        let arrival_time = final_reaction + (required_distance / self.running_speed);
-
-        // 5. Compare arrival time vs hang time
-        if ball.trajectory == TrajectoryType::Grounder {
-            return FieldedBall {
-                ball: ball.clone(),
-                fielded_by: self.position,
-                time_to_field: arrival_time,
-                is_fly_catch: false,
-            };
-        }
-
-        if arrival_time <= ball.hang_time {
-            return FieldedBall {
-                ball: ball.clone(),
-                fielded_by: self.position,
-                time_to_field: ball.hang_time, // Fielder need to wait until catch.
-                is_fly_catch: true,
-            };
-        }
-
-        let bounded_ball = self.process_bounded_ball(ball);
-
-        let mut final_ball = ball.clone();
-        final_ball.polar_position.distance = bounded_ball.final_distance;
-
-        FieldedBall {
-            ball: final_ball,
-            fielded_by: self.position,
-            time_to_field: bounded_ball.time_to_fumble,
-            is_fly_catch: false,
-        }
-    }
-
-    // Processing when a fly/liner wasn't caught (became a hit)
-    fn process_bounded_ball(&self, ball: &BattedBall) -> BoundedBallResult {
-        // 1. Damping coefficient at the moment of the first bounce (liner bounces sharply, fly dies)
-        let k_impact = match ball.trajectory {
-            TrajectoryType::Liner => 0.60,
-            TrajectoryType::Fly => 0.35,
-            _ => 0.0,
-        };
-
-        // 2. Initial speed as a grounder right after the bounce
-        let v_horizontal = ball.launch_speed_ms() * ball.azimuth().cos() * 0.7; // Velocity including in-flight air resistance
-        let v_bounce = v_horizontal * k_impact;
-
-        // 3. Additional rolling distance and time until stop
-        let roll_distance = v_bounce * 1.8;
-
-        // 4. Provisional final resting position (landing point + roll distance)
-        let mut final_distance = ball.distance() + roll_distance;
-
-        // The fence bounce (cushion) logic
-        if final_distance > FENCE_DISTANCE {
-            let overflow = final_distance - FENCE_DISTANCE;
-            final_distance = FENCE_DISTANCE - (overflow * FENCE_BOUNCE_COEFF);
-        }
-
-        // 5. Defense: time for the fielder to chase down and pick up the rolling ball
-        // The fielder was initially running toward the landing point but didn't make it.
-        // Simple calculation of time to loop around toward the direction the ball rolled (final_distance)
-        let fielder_distance_to_ball = (final_distance - self.distance()).abs();
-
-        // Time for the fielder to reach the final resting point (or cushion treatment position)
-        let fielder_arrival_time = self.reaction + (fielder_distance_to_ball / self.running_speed);
-
-        // Time the fielder picks up the ball (either waiting for it to stop or cutting it off mid-roll)
-        let time_to_pick_up = fielder_arrival_time.max(ball.hang_time + FIRST_BOUNCE_TIME);
-        BoundedBallResult {
-            final_distance,
-            time_to_fumble: time_to_pick_up, // ★This becomes the time_to_field for the next throw play!
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct PitcherData {
-    pub delivery_motion_time: f64,
-}
-
-#[derive(Debug)]
-pub struct CatcherData {
-    pub prep_time: f64,
-    pub throw_speed: f64,
-}
-
+// TODO: Consider calling pitches skill
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct DefensiveSkill {
-    pub position: Position,
-    pub mod_uzr: f64,
+pub struct CatcherInfo {
+    pub info: FielderInfo,
 }
 
-#[derive(Clone, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
+#[derive(
+    Clone, Copy, Serialize, Deserialize, EnumString, EnumIter, Debug, PartialEq, Eq, Hash, AsRefStr,
+)]
 #[strum(ascii_case_insensitive)]
 pub enum PitchType {
     FourSeamFastball,
@@ -392,7 +356,9 @@ impl fmt::Display for PitchType {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, EnumString, Debug, AsRefStr)]
+#[derive(
+    Clone, Copy, Serialize, Deserialize, EnumString, EnumIter, Debug, PartialEq, Eq, Hash, AsRefStr,
+)]
 #[strum(ascii_case_insensitive)]
 pub enum PitcherStyle {
     PowerPitcher,
@@ -410,39 +376,45 @@ impl fmt::Display for PitcherStyle {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct PitcherAttribute {
+pub struct PitcherInfo {
     pub pitcher_style: PitcherStyle,
-    pub mod_velocity: f64,
-    pub mod_control: f64,
-    pub mod_stamina: f64,
-    pub mod_injury_proneness: f64,
-    pub mod_clutch: f64,
-    pub mod_hpp: f64, // Home-Away Splitting
-    pub mod_platoon_splitting: f64,
+    pub velocity: f64,
+    pub control: f64,
+    pub stamina: f64,
+    pub injury_proneness: f64,
+    pub clutch: f64,
+    pub hpp: f64, // NOTE: Home-Away Splitting
+    pub platoon_splitting: f64,
+    pub delivery_motion_time: f64,
     pub pitch_skills: Vec<PitchSkill>,
+    pub fielder_info: FielderInfo,
 }
-impl PitcherAttribute {
+impl PitcherInfo {
     pub fn from_prob(
         pitcher_style: PitcherStyle,
-        mod_velocity: f64,
-        mod_control: f64,
-        mod_stamina: f64,
-        mod_injury_proneness: f64,
-        mod_clutch: f64,
-        mod_hpp: f64,
-        mod_platoon_splitting: f64,
+        velocity: f64,
+        control: f64,
+        stamina: f64,
+        injury_proneness: f64,
+        clutch: f64,
+        hpp: f64,
+        platoon_splitting: f64,
+        delivery_motion_time: f64,
         pitch_skills: Vec<PitchSkill>,
+        fielder_info: FielderInfo,
     ) -> Self {
         Self {
             pitcher_style: pitcher_style,
-            mod_velocity: mod_velocity,
-            mod_control: mod_control,
-            mod_stamina: mod_stamina,
-            mod_injury_proneness: mod_injury_proneness,
-            mod_clutch: mod_clutch,
-            mod_hpp: mod_hpp,
-            mod_platoon_splitting: mod_platoon_splitting,
+            velocity,
+            control,
+            stamina,
+            injury_proneness,
+            clutch,
+            hpp,
+            platoon_splitting,
+            delivery_motion_time: delivery_motion_time,
             pitch_skills: pitch_skills,
+            fielder_info: fielder_info,
         }
     }
 }
@@ -450,47 +422,47 @@ impl PitcherAttribute {
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitchSkill {
     pub pitch_type: PitchType,
-    pub mod_velocity: f64,
-    pub mod_control: f64,
-    pub mod_stamina: f64,
-    pub mod_injury_proneness: f64,
-    pub mod_stuff: f64,
-    pub mod_fb: f64, // Home Run to Fly Ball Rate
-    pub mod_gp: f64, // Grounder Percentage
-    pub mod_horizontal_movement: f64,
-    pub mod_vertical_movement: f64,
-    pub mod_spin_rate: f64,
-    pub mod_usage: f64, // TODO: Should be over written by strategy
+    pub velocity: f64,
+    pub control: f64,
+    pub stamina: f64,
+    pub injury_proneness: f64,
+    pub stuff: f64,
+    pub fb: f64, // NOTE: Home Run to Fly Ball Rate
+    pub gp: f64, // NOTE: Grounder Percentage
+    pub horizontal_movement: f64,
+    pub vertical_movement: f64,
+    pub spin_rate: f64,
+    pub usage: f64, // TODO: Should be over written by strategy
 }
 
 impl PitchSkill {
     pub fn from_prob(
         pitch_type: PitchType,
-        mod_velocity: f64,
-        mod_control: f64,
-        mod_stamina: f64,
-        mod_injury_proneness: f64,
-        mod_stuff: f64,
-        mod_fb: f64,
-        mod_gp: f64,
-        mod_horizontal_movement: f64,
-        mod_vertical_movement: f64,
-        mod_spin_rate: f64,
-        mod_usage: f64,
+        velocity: f64,
+        control: f64,
+        stamina: f64,
+        injury_proneness: f64,
+        stuff: f64,
+        fb: f64,
+        gp: f64,
+        horizontal_movement: f64,
+        vertical_movement: f64,
+        spin_rate: f64,
+        usage: f64,
     ) -> Self {
         Self {
             pitch_type: pitch_type,
-            mod_velocity: mod_velocity,
-            mod_control: mod_control,
-            mod_stamina: mod_stamina,
-            mod_injury_proneness: mod_injury_proneness,
-            mod_stuff: mod_stuff,
-            mod_fb: mod_fb,
-            mod_gp: mod_gp,
-            mod_horizontal_movement: mod_horizontal_movement,
-            mod_vertical_movement: mod_vertical_movement,
-            mod_spin_rate: mod_spin_rate,
-            mod_usage: mod_usage,
+            velocity,
+            control,
+            stamina,
+            injury_proneness,
+            stuff,
+            fb,
+            gp,
+            horizontal_movement,
+            vertical_movement,
+            spin_rate,
+            usage,
         }
     }
 }

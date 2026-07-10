@@ -1,57 +1,26 @@
 use crate::domain::shared::ball::{BattedBall, TrajectoryType};
 use crate::domain::shared::game::BattingResult;
-use crate::domain::shared::player::{Player, RL};
+use crate::domain::shared::player::{BatterInfo, Player};
 use crate::domain::util::GRAVIY;
 use rand::RngExt;
 use rand_distr::{Distribution, Normal, StandardNormal};
+use serde::{Deserialize, Serialize};
+use strum_macros::{AsRefStr, EnumIter, EnumString};
 
 // batted-ball direction (sector)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FieldSector {
-    Pull,      // Pull (right-handed batter → left field, left-handed batter → right field)
-    Center,    // Center field
-    Opposite, // Opposite field (right-handed batter → right field, left-handed batter → left field)
-    FoulLeft, // Third-base-side foul
-    FoulRight, // First-base-side foul
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, EnumIter, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum FieldSector {
+    Pull,      // NOTE: Pull (right-handed batter → left field, left-handed batter → right field)
+    Center,    // NOTE: Center field
+    Opposite, // NOTE: Opposite field (right-handed batter → right field, left-handed batter → left field)
+    FoulLeft, // NOTE: Third-base-side foul
+    FoulRight, // NOTE: First-base-side foul
 }
 
-// TODO: merge into Player
-// Hitter's batted-ball direction ability and tendency data
-pub struct Batter {
-    pub batting_side: RL,
-    pub swing_speed: f64,
-
-    // Weight of probability for each sector (set to sum to 1.0)
-    // TODO: Randomize based on batter type
-    pub weight_pull: f32,
-    pub weight_center: f32,
-    pub weight_opposite: f32,
-    pub weight_foul_left: f32,
-    pub weight_foul_right: f32,
-}
-impl Batter {
-    // Returns the concrete angle range (min, max) for the selected sector
-    fn get_angle_range(&self, sector: FieldSector) -> (f32, f32) {
-        match self.batting_side {
-            RL::Right => match sector {
-                FieldSector::FoulLeft => (-90.0, -45.0),
-                FieldSector::Pull => (-45.0, -15.0), // Right-handed batter's pull → left field (-)
-                FieldSector::Center => (-15.0, 15.0),
-                FieldSector::Opposite => (15.0, 45.0), // Right-handed batter's opposite → right field (+)
-                FieldSector::FoulRight => (45.0, 90.0),
-            },
-            RL::Left => match sector {
-                FieldSector::FoulLeft => (-90.0, -45.0),
-                FieldSector::Opposite => (-45.0, -15.0), // Left-handed batter's opposite → left field (-)
-                FieldSector::Center => (-15.0, 15.0),
-                FieldSector::Pull => (15.0, 45.0), // Left-handed batter's pull → right field (+)
-                FieldSector::FoulRight => (45.0, 90.0),
-            },
-        }
-    }
-}
-
-fn inner_choose_sector(batter: &Batter) -> FieldSector {
+fn inner_choose_sector(batter: &BatterInfo) -> FieldSector {
     let mut rng = rand::rng();
     let total_weight = batter.weight_pull
         + batter.weight_center
@@ -81,7 +50,8 @@ fn inner_choose_sector(batter: &Batter) -> FieldSector {
     return FieldSector::FoulRight;
 }
 
-fn sample_spray_angle(tendency: &Batter) -> f64 {
+// TODO: rng should be passed as parameter
+fn sample_spray_angle(tendency: &BatterInfo) -> f64 {
     let mut rng = rand::rng();
 
     // Step 1: Decide the sector
@@ -101,7 +71,7 @@ fn sample_spray_angle(tendency: &Batter) -> f64 {
     final_angle
 }
 
-pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> BattedBall {
+pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBall {
     let mut rng = rand::rng();
 
     // TODO: decide TrajectoryType mod_slg and meet type should be considered
@@ -182,42 +152,42 @@ pub fn calculate_batted_ball(batter: &Batter, pitch_speed: f64) -> BattedBall {
     )
 }
 
-pub fn simulate_batting(batter: &Player) -> BattingResult {
-    let rng: f64 = rand::random();
-    let result: BattingResult;
-    // TODO: Adjust by mod_slg!
-    let xbh_average: f64 = batter.slg() - batter.hit_average();
-    let double_average: f64 = batter.hit_average() + xbh_average * 0.5;
-    let triple_average: f64 = batter.hit_average() + xbh_average * 0.6;
-    let home_run_average: f64 = batter.hit_average() + xbh_average;
+// pub fn simulate_batting(batter: &Player) -> BattingResult {
+//     let rng: f64 = rand::random();
+//     let result: BattingResult;
+//     // TODO: Adjust by mod_slg!
+//     let xbh_average: f64 = batter.slg() - batter.hit_average();
+//     let double_average: f64 = batter.hit_average() + xbh_average * 0.5;
+//     let triple_average: f64 = batter.hit_average() + xbh_average * 0.6;
+//     let home_run_average: f64 = batter.hit_average() + xbh_average;
 
-    match rng {
-        n if batter.hit_average() > n => result = BattingResult::Single,
-        n if double_average > n => result = BattingResult::Double,
-        n if triple_average > n => result = BattingResult::Triple,
-        n if home_run_average > n => result = BattingResult::HomeRun,
-        _ => result = BattingResult::Out,
-    }
-    result
-}
+//     match rng {
+//         n if batter.hit_average() > n => result = BattingResult::Single,
+//         n if double_average > n => result = BattingResult::Double,
+//         n if triple_average > n => result = BattingResult::Triple,
+//         n if home_run_average > n => result = BattingResult::HomeRun,
+//         _ => result = BattingResult::Out,
+//     }
+//     result
+// }
 
 #[cfg(test)]
 mod tests {
     use crate::domain::resolver::batting_resolver::{
-        Batter, FieldSector, calculate_batted_ball, inner_choose_sector, sample_spray_angle,
+        BatterInfo, FieldSector, calculate_batted_ball, inner_choose_sector, sample_spray_angle,
     };
     use crate::domain::shared::ball::TrajectoryType;
     use crate::domain::shared::player::RL;
 
     fn batter_with_weights(
         batting_side: RL,
-        weight_pull: f32,
-        weight_center: f32,
-        weight_opposite: f32,
-        weight_foul_left: f32,
-        weight_foul_right: f32,
-    ) -> Batter {
-        Batter {
+        weight_pull: f64,
+        weight_center: f64,
+        weight_opposite: f64,
+        weight_foul_left: f64,
+        weight_foul_right: f64,
+    ) -> BatterInfo {
+        BatterInfo {
             batting_side,
             swing_speed: 150.0,
             weight_pull,

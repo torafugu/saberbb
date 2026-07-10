@@ -2,8 +2,8 @@ use super::fielding_resolver::{
     DefensePlayResult, DoublePlayDefensePlayResult, PlayType, StealDefensePlayResult,
 };
 use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
-use crate::domain::shared::game_state::{GameError, Ruling};
-use crate::domain::shared::player::{RL, Runner};
+use crate::domain::shared::game_state::{ActiveRunner, GameError, Ruling};
+use crate::domain::shared::player::RL;
 use crate::domain::shared::stadium::Base;
 
 pub const ACCELERATION_LAG_TO_FIRST_BASE: f64 = 0.5;
@@ -77,12 +77,12 @@ impl RunningPlan {
 
 #[derive(Clone, Debug, Default)]
 pub struct RunnersUnsaved {
-    pub runner_1st: Option<Runner>,
-    pub runner_2nd: Option<Runner>,
-    pub runner_3rd: Option<Runner>,
+    pub runner_1st: Option<ActiveRunner>,
+    pub runner_2nd: Option<ActiveRunner>,
+    pub runner_3rd: Option<ActiveRunner>,
 }
 impl RunnersUnsaved {
-    fn put(&mut self, base: Base, runner: Runner) {
+    fn put(&mut self, base: Base, runner: ActiveRunner) {
         match base {
             Base::First => self.runner_1st = Some(runner),
             Base::Second => self.runner_2nd = Some(runner),
@@ -91,7 +91,7 @@ impl RunnersUnsaved {
         };
     }
 
-    fn put_if_some(&mut self, base: Base, runner: Option<Runner>) {
+    fn put_if_some(&mut self, base: Base, runner: Option<ActiveRunner>) {
         if runner.is_some() {
             match base {
                 Base::First => self.runner_1st = runner,
@@ -102,7 +102,7 @@ impl RunnersUnsaved {
         };
     }
 
-    fn score_if_some(runner: Option<Runner>) -> u16 {
+    fn score_if_some(runner: Option<ActiveRunner>) -> u16 {
         if runner.is_some() { 1 } else { 0 }
     }
 }
@@ -140,10 +140,10 @@ fn judge(defense_time: f64, runner_time: f64) -> (Ruling, f64) {
 #[derive(Clone, Debug, Default)]
 pub struct RunnersOnBase {
     pub batting_side: Option<RL>,
-    pub batter_runner: Option<Runner>,
-    pub runner_1st: Option<Runner>,
-    pub runner_2nd: Option<Runner>,
-    pub runner_3rd: Option<Runner>,
+    pub batter_runner: Option<ActiveRunner>,
+    pub runner_1st: Option<ActiveRunner>,
+    pub runner_2nd: Option<ActiveRunner>,
+    pub runner_3rd: Option<ActiveRunner>,
 }
 impl RunnersOnBase {
     fn empty(&mut self) {
@@ -179,7 +179,7 @@ impl RunnersOnBase {
         self.runner_1st.is_some() && self.runner_3rd.is_some()
     }
 
-    fn runner_on(&self, base: Base) -> Result<Runner, GameError> {
+    fn runner_on(&self, base: Base) -> Result<ActiveRunner, GameError> {
         match base {
             Base::Home => {
                 if let Some(runner) = self.batter_runner {
@@ -231,25 +231,26 @@ impl RunnersOnBase {
 
         let batter_runner_time = ((BASE_DISTANCE * base_count as f64)
             + right_batter_penalty_distance)
-            / batter_runner.speed
+            / batter_runner.skills.speed
             + lag;
 
         Ok(batter_runner_time)
     }
 
-    fn runner_advance_time(runner: Runner, base_count: u8, with_lag: bool) -> f64 {
+    fn runner_advance_time(runner: ActiveRunner, base_count: u8, with_lag: bool) -> f64 {
         let lag = if with_lag {
             ACCELERATION_LAG_AFTER_FIRST_BASE * base_count as f64
         } else {
             0.0
         };
 
-        ((BASE_DISTANCE * base_count as f64) - runner.lead_distance) / runner.speed + lag
+        ((BASE_DISTANCE * base_count as f64) - runner.skills.lead_distance) / runner.skills.speed
+            + lag
     }
 
     pub fn steal_base_runner_time(&self, from_base: Base, to_base: Base) -> Result<f64, GameError> {
         let runner = self.runner_on(from_base)?;
-        Ok(self.total_runner_time(from_base, to_base)? + runner.start_reaction)
+        Ok(self.total_runner_time(from_base, to_base)? + runner.skills.start_reaction)
     }
 
     pub fn total_runner_time(&self, from_base: Base, to_base: Base) -> Result<f64, GameError> {
@@ -853,7 +854,7 @@ impl RunnersOnBase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::player::{Position, RL};
+    use crate::domain::shared::player::{Position, RL, RunningSkills};
 
     const EPSILON: f64 = 1e-9;
 
@@ -864,28 +865,34 @@ mod tests {
         );
     }
 
-    fn runner(speed: f64) -> Runner {
-        Runner {
-            speed,
-            lead_distance: 0.0,
-            start_reaction: 0.1,
+    fn runner(speed: f64) -> ActiveRunner {
+        ActiveRunner {
+            player_id: 0,
+            skills: RunningSkills {
+                speed: speed,
+                lead_distance: 0.0,
+                start_reaction: 0.1,
+            },
         }
     }
 
-    fn runner_with_lead(speed: f64, lead_distance: f64) -> Runner {
-        Runner {
-            speed,
-            lead_distance,
-            start_reaction: 0.1,
+    fn runner_with_lead(speed: f64, lead_distance: f64) -> ActiveRunner {
+        ActiveRunner {
+            player_id: 0,
+            skills: RunningSkills {
+                speed: speed,
+                lead_distance: lead_distance,
+                start_reaction: 0.1,
+            },
         }
     }
 
     fn runners(
         batting_side: RL,
-        batter_runner: Option<Runner>,
-        runner_1st: Option<Runner>,
-        runner_2nd: Option<Runner>,
-        runner_3rd: Option<Runner>,
+        batter_runner: Option<ActiveRunner>,
+        runner_1st: Option<ActiveRunner>,
+        runner_2nd: Option<ActiveRunner>,
+        runner_3rd: Option<ActiveRunner>,
     ) -> RunnersOnBase {
         RunnersOnBase {
             batting_side: Some(batting_side),

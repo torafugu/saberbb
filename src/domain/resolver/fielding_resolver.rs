@@ -4,8 +4,8 @@ use super::throw_target_rules::*;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::{BattedBall, FieldedBall, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
-use crate::domain::shared::game_state::GameError;
-use crate::domain::shared::player::{CatcherData, Fielder, PitcherData, Position};
+use crate::domain::shared::game_state::{ActiveFielder, GameError};
+use crate::domain::shared::player::{CatcherInfo, PitcherInfo, Position};
 use crate::domain::shared::stadium::Base;
 use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::t;
@@ -53,27 +53,27 @@ impl DefenseTimeCalculator {
 
     pub fn direct_throw_time(
         &self,
-        thrower: &Fielder,
+        thrower: &ActiveFielder,
         from: &PolarPosition,
         to: &PolarPosition,
     ) -> f64 {
         let distance = calculate_polar_distance(from, to);
-        thrower.prep_time + self.ball_flight_time(distance, thrower.throw_speed)
+        thrower.info.prep_time + self.ball_flight_time(distance, thrower.info.throw_speed)
     }
 
     pub fn run_to_base_time(
         &self,
-        fielder: &Fielder,
+        fielder: &ActiveFielder,
         from: &PolarPosition,
         to: &PolarPosition,
     ) -> f64 {
         let distance = calculate_polar_distance(from, to);
-        distance / fielder.running_speed
+        distance / fielder.info.running_speed
     }
 
     pub fn direct_play_time(
         &self,
-        thrower: &Fielder,
+        thrower: &ActiveFielder,
         from: &PolarPosition,
         target_base: Base,
         play_type: PlayType,
@@ -89,7 +89,7 @@ impl DefenseTimeCalculator {
 
     pub fn infield_play_time(
         &self,
-        thrower: &Fielder,
+        thrower: &ActiveFielder,
         ball_pos: &PolarPosition,
         throw_target: &ThrowTarget,
     ) -> DefenseTimeResult {
@@ -125,29 +125,29 @@ impl DefenseTimeCalculator {
 
     pub fn relay_throw_time(
         &self,
-        thrower: &Fielder,
+        thrower: &ActiveFielder,
         catch_pos: &PolarPosition,
         target_base: Base,
-        cutoff_fielder: &Fielder,
+        cutoff_fielder: &ActiveFielder,
     ) -> f64 {
         let base_pos = target_base.polar_position();
         let cutoff_pos = self.cutoff_position(catch_pos, target_base);
 
         let first_throw = self.direct_throw_time(thrower, catch_pos, &cutoff_pos);
         let second_flight_distance = calculate_polar_distance(&cutoff_pos, &base_pos);
-        let second_throw = cutoff_fielder.prep_time
-            + self.ball_flight_time(second_flight_distance, cutoff_fielder.throw_speed);
+        let second_throw = cutoff_fielder.info.prep_time
+            + self.ball_flight_time(second_flight_distance, cutoff_fielder.info.throw_speed);
 
         first_throw + second_throw
     }
 
     pub fn best_outfield_throw_time(
         &self,
-        thrower: &Fielder,
+        thrower: &ActiveFielder,
         catch_pos: &PolarPosition,
         target_base: Base,
         play_type: PlayType,
-        cutoff_fielder: Option<&Fielder>,
+        cutoff_fielder: Option<&ActiveFielder>,
     ) -> f64 {
         let direct_time = self.direct_play_time(thrower, catch_pos, target_base, play_type);
 
@@ -162,20 +162,20 @@ impl DefenseTimeCalculator {
 
     pub fn multi_play_throw_time(
         &self,
-        thrower: &Fielder,
+        thrower: &ActiveFielder,
         from_base: Base,
         to_base: Base,
     ) -> Result<f64, GameError> {
         let distance = calculate_base_distance(from_base, to_base)?;
 
-        Ok(thrower.prep_time + self.ball_flight_time(distance, thrower.throw_speed))
+        Ok(thrower.info.prep_time + self.ball_flight_time(distance, thrower.info.throw_speed))
     }
 }
 
 fn find_fielder_by_position(
-    fielders: &[Fielder],
+    fielders: &[ActiveFielder],
     position: Position,
-) -> Result<&Fielder, GameError> {
+) -> Result<&ActiveFielder, GameError> {
     let fielder = fielders
         .iter()
         .find(|i| i.is(position))
@@ -226,7 +226,7 @@ pub fn calculate_base_distance(from_base: Base, to_base: Base) -> Result<f64, Ga
 // CONSTRAINT: Thrower must throw to another base in case double play
 // CONSTRAINT: PlayType is always FourcePlay in case double play
 fn double_play_defense_play(
-    fielders: &[Fielder],
+    fielders: &[ActiveFielder],
     double_play_throw_target: &MultiPlayThrowTarget,
 ) -> Result<Option<DoublePlayDefensePlayResult>, GameError> {
     let thrower =
@@ -285,7 +285,6 @@ fn outfield_hit_tagup_defense_play(
 
     let cutoff_fielder = throw_target
         .cutoff_fielder_position
-        .clone()
         .map(|position| find_fielder_by_position(ctx.fielders, position))
         .transpose()?;
 
@@ -333,8 +332,8 @@ pub struct StealDefensePlayResult {
 #[derive(Debug)]
 pub struct PlayContext<'a> {
     pub runners: &'a RunnersOnBase,
-    pub fielders: &'a [Fielder],
-    pub try_catch_fielder: &'a Fielder,
+    pub fielders: &'a [ActiveFielder],
+    pub try_catch_fielder: &'a ActiveFielder,
     pub fielded_ball: &'a FieldedBall,
 }
 
@@ -572,8 +571,8 @@ pub struct DefensePlayResult {
 
 pub fn evaluate_base_stealing(
     target_base: Base,     // Second (steal 2nd) or Third (steal 3rd)
-    pitcher: &PitcherData, // Quick motion speed, pitch velocity
-    catcher: &CatcherData, // Arm strength (pop time), control
+    pitcher: &PitcherInfo, // Quick motion speed, pitch velocity
+    catcher: &CatcherInfo, // Arm strength (pop time), control
     mut rng: Box<dyn RandomProvider>,
 ) -> StealDefensePlayResult {
     // 1. Defense side: total time from pitch to throw completion to 2nd (or 3rd)
@@ -586,7 +585,7 @@ pub fn evaluate_base_stealing(
     let target_pos = target_base.polar_position();
     let throw_distance = calculate_polar_distance(&home_pos, &target_pos);
 
-    let catcher_pop_time = catcher.prep_time + (throw_distance / catcher.throw_speed);
+    let catcher_pop_time = catcher.info.prep_time + (throw_distance / catcher.info.throw_speed);
 
     let final_fielder_position = if rng.random() < WEIGHT_SS_BASE_COVER {
         Position::SS
@@ -651,11 +650,11 @@ pub struct BoundedBallResult {
 }
 
 pub fn find_closest_fielder<'f>(
-    fielders: &'f [Fielder],
+    fielders: &'f [ActiveFielder],
     ball: &BattedBall,
-) -> Result<&'f Fielder, GameError> {
+) -> Result<&'f ActiveFielder, GameError> {
     // 1. Filter candidate fielders by whether the hit is infield or outfield
-    let candidates: Vec<&Fielder> = fielders
+    let candidates: Vec<&ActiveFielder> = fielders
         .iter()
         .filter(|f| {
             match ball.trajectory {
@@ -698,7 +697,7 @@ pub fn find_closest_fielder<'f>(
 
 // TODO: The lane width should moved to fielder's ability.
 // Determine whether a fielder is in the ball's trajectory lane (lateral coverage)
-fn is_ball_in_fielder_lane(fielder: &Fielder, ball_angle: f64) -> bool {
+fn is_ball_in_fielder_lane(fielder: &ActiveFielder, ball_angle: f64) -> bool {
     // Set lateral coverage angle width by position
     let coverage_angle = match fielder.position {
         Position::P => 4.0, // Pitcher has narrow lateral range
@@ -713,17 +712,17 @@ fn is_ball_in_fielder_lane(fielder: &Fielder, ball_angle: f64) -> bool {
 
 #[derive(Debug, Clone)]
 pub struct DefensiveChainResult<'a> {
-    pub fielder: &'a Fielder,
+    pub fielder: &'a ActiveFielder,
     pub ball: BattedBall,
 }
 
 // Evaluate fielders on the trajectory lane from front to back (revised over-the-head version)
 pub fn process_defensive_chain<'a>(
-    fielders: &'a [Fielder],
+    fielders: &'a [ActiveFielder],
     ball: &BattedBall,
 ) -> Result<DefensiveChainResult<'a>, GameError> {
     // 1. Sort fielders in the same lane by distance (closest first)
-    let mut lane_fielders: Vec<&Fielder> = fielders
+    let mut lane_fielders: Vec<&ActiveFielder> = fielders
         .iter()
         .filter(|f| is_ball_in_fielder_lane(f, ball.angle()))
         .filter(|f| f.distance() <= ball.distance())
@@ -748,7 +747,7 @@ pub fn process_defensive_chain<'a>(
         let dx = fielder_dist * (fielder.angle() - ball.angle()).to_radians().sin();
         let required_move_distance = dx.abs();
         let fielder_arrival_time =
-            fielder.reaction + (required_move_distance / fielder.running_speed);
+            fielder.info.reaction + (required_move_distance / fielder.info.running_speed);
 
         // [Judgment A] Can the fielder reach the spot laterally before the ball passes through?
         if fielder_arrival_time <= ball_arrival_time {
@@ -791,8 +790,10 @@ pub fn process_defensive_chain<'a>(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
-    use crate::domain::shared::player::RL;
-    use crate::domain::shared::player::Runner;
+    use crate::domain::shared::game_state::ActiveRunner;
+    use crate::domain::shared::player::{
+        FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
+    };
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -801,8 +802,19 @@ mod tests {
         );
     }
 
-    fn fielder(position: Position, distance: f64, angle: f64) -> Fielder {
-        Fielder::new(position, distance, angle, 35.0, 7.0, 0.4, 0.6)
+    fn fielder(position: Position, distance: f64, angle: f64) -> ActiveFielder {
+        ActiveFielder {
+            position,
+            player_id: 0,
+            info: FielderInfo {
+                fielder_type: FielderType::Outfielder,
+                throw_speed: 35.0,
+                running_speed: 7.0,
+                reaction: 0.4,
+                prep_time: 0.6,
+            },
+            polar_position: PolarPosition::new(distance, angle),
+        }
     }
 
     fn ball(
@@ -842,11 +854,14 @@ mod tests {
         runner_2nd_speed: Option<f64>,
         runner_3rd_speed: Option<f64>,
     ) -> RunnersOnBase {
-        fn runner(speed: f64) -> Runner {
-            Runner {
-                speed,
-                lead_distance: 0.0,
-                start_reaction: 0.1,
+        fn runner(speed: f64) -> ActiveRunner {
+            ActiveRunner {
+                player_id: 0,
+                skills: RunningSkills {
+                    speed: speed,
+                    lead_distance: 0.0,
+                    start_reaction: 0.1,
+                },
             }
         }
 
@@ -859,16 +874,37 @@ mod tests {
         }
     }
 
-    fn pitcher(delivery_motion_time: f64) -> PitcherData {
-        PitcherData {
+    fn pitcher(delivery_motion_time: f64) -> PitcherInfo {
+        PitcherInfo {
+            pitcher_style: PitcherStyle::BalancedPitcher,
+            velocity: 0.0,
+            control: 0.0,
+            stamina: 0.0,
+            injury_proneness: 0.0,
+            clutch: 0.0,
+            hpp: 0.0,
+            platoon_splitting: 0.0,
             delivery_motion_time,
+            pitch_skills: vec![],
+            fielder_info: FielderInfo {
+                fielder_type: FielderType::Pitcher,
+                throw_speed: 40.0,
+                running_speed: 7.0,
+                reaction: 0.5,
+                prep_time: 0.65,
+            },
         }
     }
 
-    fn catcher(prep_time: f64, throw_speed: f64) -> CatcherData {
-        CatcherData {
-            prep_time,
-            throw_speed,
+    fn catcher(prep_time: f64, throw_speed: f64) -> CatcherInfo {
+        CatcherInfo {
+            info: FielderInfo {
+                fielder_type: FielderType::Catcher,
+                throw_speed: 40.0,
+                running_speed: 7.0,
+                reaction: 0.5,
+                prep_time: 0.65,
+            },
         }
     }
 
@@ -878,19 +914,19 @@ mod tests {
 
     fn expected_steal_defense_time(
         target_base: Base,
-        pitcher: &PitcherData,
-        catcher: &CatcherData,
+        pitcher: &PitcherInfo,
+        catcher: &CatcherInfo,
     ) -> f64 {
         let throw_distance =
             calculate_polar_distance(&Base::Home.polar_position(), &target_base.polar_position());
 
         pitcher.delivery_motion_time
-            + catcher.prep_time
-            + (throw_distance / catcher.throw_speed)
+            + catcher.info.prep_time
+            + (throw_distance / catcher.info.throw_speed)
             + 0.3
     }
 
-    fn default_fielders() -> [Fielder; 9] {
+    fn default_fielders() -> [ActiveFielder; 9] {
         [
             fielder(Position::P, 18.44, 0.0),
             fielder(Position::C, 0.0, 0.0),
@@ -911,17 +947,28 @@ mod tests {
 
     #[test]
     fn fielder_new_sets_polar_position_and_skills() {
-        let fielder = Fielder::new(Position::CF, 80.0, 0.0, 38.0, 7.5, 0.3, 0.5);
+        let fielder = ActiveFielder {
+            position: Position::CF,
+            player_id: 0,
+            info: FielderInfo {
+                fielder_type: FielderType::Outfielder,
+                throw_speed: 38.0,
+                running_speed: 7.5,
+                reaction: 0.3,
+                prep_time: 0.5,
+            },
+            polar_position: PolarPosition::new(80.0, 0.0),
+        };
 
         assert_eq!(fielder.position, Position::CF);
         assert_near(fielder.distance(), 80.0);
         assert_near(fielder.angle(), 0.0);
         assert_near(fielder.x(), 0.0);
         assert_near(fielder.y(), 80.0);
-        assert_near(fielder.throw_speed, 38.0);
-        assert_near(fielder.running_speed, 7.5);
-        assert_near(fielder.reaction, 0.3);
-        assert_near(fielder.prep_time, 0.5);
+        assert_near(fielder.info.throw_speed, 38.0);
+        assert_near(fielder.info.running_speed, 7.5);
+        assert_near(fielder.info.reaction, 0.3);
+        assert_near(fielder.info.prep_time, 0.5);
     }
 
     #[test]
@@ -1002,9 +1049,9 @@ mod tests {
         let result = evaluate_double_play(&ctx, &first_play, fixed_rng())
             .unwrap()
             .unwrap();
-        let expected_defense_time = thrower.prep_time
+        let expected_defense_time = thrower.info.prep_time
             + DefenseTimeCalculator::default()
-                .ball_flight_time(throw_distance, thrower.throw_speed);
+                .ball_flight_time(throw_distance, thrower.info.throw_speed);
 
         assert_eq!(result.throw_target_base, Base::First);
         assert_eq!(result.final_fielder_position, Position::FB);
@@ -1302,8 +1349,8 @@ mod tests {
         let throw_distance =
             calculate_polar_distance(&catch_position, &Base::First.polar_position());
         let expected_defense_time = fielded_ball.time_to_field
-            + (first_baseman.prep_time + (throw_distance / first_baseman.throw_speed))
-                .min(throw_distance / first_baseman.running_speed);
+            + (first_baseman.info.prep_time + (throw_distance / first_baseman.info.throw_speed))
+                .min(throw_distance / first_baseman.info.running_speed);
 
         assert_eq!(result.time_to_field, 0.8);
         assert_eq!(result.throw_target_base, Base::First);

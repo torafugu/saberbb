@@ -2,7 +2,7 @@ use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameScheduler, Inning, TB,
 };
 use crate::domain::shared::game_history::{BattingOrderHistory, BattingResultHistory};
-use crate::domain::shared::player::{DefensiveSkill, Player};
+use crate::domain::shared::player::{DefenseSkills, Player, PlayerInfo};
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
@@ -17,7 +17,7 @@ pub trait GameRepository {
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>, AppError>;
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError>;
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError>;
-    fn load_defensive_skills(&self, player_id: u32) -> Result<Vec<DefensiveSkill>, AppError>;
+    fn load_defensive_skills(&self, player_id: u32) -> Result<DefenseSkills, AppError>;
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError>;
     fn load_batting_order_histories(
         &self,
@@ -118,7 +118,7 @@ impl GameRepository for SqlGameRepository {
                         batting_order_history.team_id,
                         batting_order_history.index,
                         batting_order_history.position,
-                        batting_order_history.player.id
+                        batting_order_history.player.info.id
                     ],
                 )?;
             }
@@ -138,8 +138,8 @@ impl GameRepository for SqlGameRepository {
                         batting_result_history.inning_tb,
                         batting_result_history.count_seq,
                         batting_result_history.team_id,
-                        batting_result_history.pitcher.id,
-                        batting_result_history.batter.id,
+                        batting_result_history.pitcher.info.id,
+                        batting_result_history.batter.info.id,
                         batting_result_history.result
                     ],
                 )?;
@@ -218,12 +218,14 @@ impl GameRepository for SqlGameRepository {
         for game_schedule in &mut game_schedules {
             game_schedule.away_team.players = self.load_team_players(game_schedule.away_team.id)?;
             for away_player in &mut game_schedule.away_team.players {
-                away_player.defensive_skills = self.load_defensive_skills(away_player.id)?;
+                away_player.defense_skills =
+                    self.load_defensive_skills(away_player.info.id as u32)?;
             }
 
             game_schedule.home_team.players = self.load_team_players(game_schedule.home_team.id)?;
             for home_player in &mut game_schedule.home_team.players {
-                home_player.defensive_skills = self.load_defensive_skills(home_player.id)?;
+                home_player.defense_skills =
+                    self.load_defensive_skills(home_player.info.id as u32)?;
             }
         }
         Ok(game_schedules)
@@ -267,25 +269,39 @@ impl GameRepository for SqlGameRepository {
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError> {
         info!("load_team_players() started");
         let query = "SELECT 
-                id AS player_id,
-                first_name AS player_first_name,
-                last_name AS player_last_name,
-                age AS player_age,
-                throw AS player_throw,
-                bat AS player_bat,
-                mod_ba AS player_mod_ba,
-                mod_slg AS player_mod_slg
-            FROM player
+                id,
+                first_name,
+                last_name,
+                age,
+                uniform_number
+            FROM player_info
             WHERE team_id = ?1";
-        self.db_client.query_rows::<Player>(query, params![team_id])
+        let player_infos = self
+            .db_client
+            .query_rows::<PlayerInfo>(query, params![team_id])?;
+        Ok(player_infos
+            .into_iter()
+            .map(|info| Player {
+                info,
+                offense_skills: crate::domain::shared::player::OffenseSkills {
+                    batter: None,
+                    running: crate::domain::shared::player::RunningSkills {
+                        speed: 0.0,
+                        lead_distance: 0.0,
+                        start_reaction: 0.0,
+                    },
+                },
+                defense_skills: DefenseSkills::new(crate::domain::shared::player::Position::DH),
+            })
+            .collect())
     }
 
     #[tracing::instrument(skip(self), fields(player_id = %player_id))]
-    fn load_defensive_skills(&self, player_id: u32) -> Result<Vec<DefensiveSkill>, AppError> {
+    fn load_defensive_skills(&self, player_id: u32) -> Result<DefenseSkills, AppError> {
         info!("load_defensive_skills() started");
-        let query = "SELECT position, mod_uzr FROM defensive_skill WHERE player_id = ?1";
+        let query = "SELECT primary_position FROM defense_skills WHERE player_id = ?1";
         self.db_client
-            .query_rows::<DefensiveSkill>(query, params![player_id])
+            .query_row::<DefenseSkills>(query, params![player_id])
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id))]
@@ -788,24 +804,20 @@ mod tests {
         assert_eq!(schedules[0].round_seq, 2);
         assert_eq!(schedules[0].away_team.players.len(), 9);
         assert_eq!(schedules[0].home_team.players.len(), 9);
-        assert_eq!(schedules[0].away_team.players[0].id, 1);
-        assert_eq!(schedules[0].home_team.players[0].id, 10);
+        assert_eq!(schedules[0].away_team.players[0].info.id, 1);
+        assert_eq!(schedules[0].home_team.players[0].info.id, 10);
         assert!(matches!(
-            schedules[0].away_team.players[0].defensive_skills[0].position,
+            schedules[0].away_team.players[0]
+                .defense_skills
+                .primary_position,
             Position::P
         ));
-        assert_eq!(
-            schedules[0].away_team.players[0].defensive_skills[0].mod_uzr,
-            0.1
-        );
         assert!(matches!(
-            schedules[0].home_team.players[0].defensive_skills[0].position,
+            schedules[0].home_team.players[0]
+                .defense_skills
+                .primary_position,
             Position::P
         ));
-        assert_eq!(
-            schedules[0].home_team.players[0].defensive_skills[0].mod_uzr,
-            1.0
-        );
         std::fs::remove_file(path).ok();
     }
 
@@ -841,7 +853,7 @@ mod tests {
             game.batting_order_histories[0].position,
             Position::P
         ));
-        assert_eq!(game.batting_order_histories[0].player.id, 1);
+        assert_eq!(game.batting_order_histories[0].player.info.id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -889,7 +901,7 @@ mod tests {
         assert_eq!(history.team_id, 1);
         assert_eq!(history.index, 1);
         assert!(matches!(history.position, Position::P));
-        assert_eq!(history.player.id, 1);
+        assert_eq!(history.player.info.id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -911,10 +923,10 @@ mod tests {
         assert!(matches!(history.inning_tb, TB::Top));
         assert_eq!(history.count_seq, 1);
         assert_eq!(history.team_id, 1);
-        assert_eq!(history.pitcher.id, 10);
-        assert_eq!(history.pitcher.first_name.as_ref(), "First10");
-        assert_eq!(history.batter.id, 1);
-        assert_eq!(history.batter.last_name.as_ref(), "Last1");
+        assert_eq!(history.pitcher.info.id, 10);
+        assert_eq!(history.pitcher.info.first_name, "First10");
+        assert_eq!(history.batter.info.id, 1);
+        assert_eq!(history.batter.info.last_name, "Last1");
         assert!(matches!(history.result, BattingResult::Double));
         std::fs::remove_file(path).ok();
     }
@@ -1165,14 +1177,10 @@ mod tests {
         let players = repo.load_team_players(2).unwrap();
 
         assert_eq!(players.len(), 9);
-        assert_eq!(players[0].id, 10);
-        assert_eq!(players[0].first_name.as_ref(), "First10");
-        assert_eq!(players[0].last_name.as_ref(), "Last10");
-        assert_eq!(players[0].age, 30);
-        assert_eq!(players[0].throw, RL::Left);
-        assert_eq!(players[0].bat, RL::Right);
-        assert_eq!(players[0].mod_ba, 0.10);
-        assert_eq!(players[0].mod_slg, 0.20);
+        assert_eq!(players[0].info.id, 10);
+        assert_eq!(players[0].info.first_name, "First10");
+        assert_eq!(players[0].info.last_name, "Last10");
+        assert_eq!(players[0].info.age, 30);
         std::fs::remove_file(path).ok();
     }
 
@@ -1192,17 +1200,7 @@ mod tests {
 
         let skills = repo.load_defensive_skills(1).unwrap();
 
-        assert_eq!(skills.len(), 2);
-        assert!(
-            skills
-                .iter()
-                .any(|skill| matches!(skill.position, Position::P) && skill.mod_uzr == 0.1)
-        );
-        assert!(
-            skills
-                .iter()
-                .any(|skill| matches!(skill.position, Position::DH) && skill.mod_uzr == 2.5)
-        );
+        assert!(matches!(skills.primary_position, Position::P));
         std::fs::remove_file(path).ok();
     }
 }

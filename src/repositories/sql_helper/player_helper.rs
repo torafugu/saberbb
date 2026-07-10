@@ -1,5 +1,6 @@
 use crate::domain::shared::player::{
-    DefensiveSkill, FullName, PitchType, PitcherStyle, Player, Position, RL,
+    BatterInfo, DefenseSkills, FielderInfo, FielderType, FullName, HitterTendency, PitchType,
+    PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
 };
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -17,6 +18,23 @@ impl FromSql for Position {
         let gt = value.as_str()?;
 
         gt.parse::<Position>().map_err(|e| {
+            eprintln!("{} {}: {:?}", "Parse error at ", gt, e);
+            rusqlite::types::FromSqlError::InvalidType
+        })
+    }
+}
+
+impl ToSql for FielderType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_ref()))
+    }
+}
+
+impl FromSql for FielderType {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        gt.parse::<FielderType>().map_err(|e| {
             eprintln!("{} {}: {:?}", "Parse error at ", gt, e);
             rusqlite::types::FromSqlError::InvalidType
         })
@@ -89,19 +107,16 @@ impl ToSql for PitcherStyle {
     }
 }
 
-impl FromRow for Player {
+impl FromRow for PlayerInfo {
     type Error = AppError;
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let player = Player::new(
-            row.get("player_id")?,
-            &row.get::<_, String>("player_first_name")?,
-            &row.get::<_, String>("player_last_name")?,
-            row.get("player_age")?,
-            row.get("player_throw")?,
-            row.get("player_bat")?,
-            row.get("player_mod_ba")?,
-            row.get("player_mod_slg")?,
+        let player = PlayerInfo::new(
+            row.get("id")?,
+            row.get("first_name")?,
+            row.get("last_name")?,
+            row.get("age")?,
+            row.get("uniform_number")?,
         );
 
         player.validate()?;
@@ -110,17 +125,92 @@ impl FromRow for Player {
     }
 }
 
-impl FromRow for DefensiveSkill {
+impl FromRow for DefenseSkills {
     type Error = AppError;
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let defensive_skill = DefensiveSkill {
-            position: row.get("position")?,
-            mod_uzr: row.get("mod_uzr")?,
+        let defensive_skills = DefenseSkills {
+            primary_position: row.get("primary_position")?,
+            pitcher: None,
+            catcher: None,
+            middle_infielder: None,
+            corner_infielder: None,
+            outfielder: None,
         };
 
-        defensive_skill.validate()?;
+        defensive_skills.validate()?;
 
-        Ok(defensive_skill)
+        Ok(defensive_skills)
+    }
+}
+
+impl FromRow for FielderInfo {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let fielder_info = FielderInfo {
+            fielder_type: row.get("fielder_type")?,
+            throw_speed: row.get("throw_speed")?,
+            running_speed: row.get("running_speed")?,
+            reaction: row.get("reaction")?,
+            prep_time: row.get("prep_time")?,
+        };
+
+        fielder_info.validate()?;
+
+        Ok(fielder_info)
+    }
+}
+
+impl FromSql for HitterTendency {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        gt.parse::<HitterTendency>().map_err(|e| {
+            eprintln!("{} {}: {:?}", "Parse error at", gt, e);
+            rusqlite::types::FromSqlError::InvalidType
+        })
+    }
+}
+
+impl ToSql for HitterTendency {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_ref()))
+    }
+}
+
+impl FromRow for BatterInfo {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let batter_info = BatterInfo {
+            batting_side: row.get("batting_side")?,
+            swing_speed: row.get("swing_speed")?,
+            weight_pull: row.get("weight_pull")?,
+            weight_center: row.get("weight_center")?,
+            weight_opposite: row.get("weight_opposite")?,
+            weight_foul_left: row.get("weight_foul_left")?,
+            weight_foul_right: row.get("weight_foul_right")?,
+        };
+
+        batter_info.validate()?;
+
+        Ok(batter_info)
+    }
+}
+
+impl FromRow for RunningSkills {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let running_skills = RunningSkills {
+            speed: row.get("speed")?,
+            lead_distance: row.get("lead_distance")?,
+            start_reaction: row.get("start_reaction")?,
+        };
+
+        running_skills.validate()?;
+
+        Ok(running_skills)
     }
 }

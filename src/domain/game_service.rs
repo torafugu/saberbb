@@ -82,7 +82,7 @@ mod tests {
         Count, GameDetail, GameHeader, GameScheduler, GameType, Inning, TB,
     };
     use crate::domain::shared::game_history::{BattingOrderHistory, BattingResultHistory};
-    use crate::domain::shared::player::{DefensiveSkill, Position, RL};
+    use crate::domain::shared::player::{DefenseSkills, Position, RL};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;
@@ -167,7 +167,7 @@ mod tests {
         fn load_defensive_skills(
             &self,
             _player_id: u32,
-        ) -> std::result::Result<Vec<DefensiveSkill>, AppError> {
+        ) -> std::result::Result<DefenseSkills, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
@@ -221,10 +221,8 @@ mod tests {
             0.0,
             0.0,
         );
-        player.defensive_skills = vec![DefensiveSkill {
-            position: positions[((id - 1) as usize) % positions.len()].clone(),
-            mod_uzr: 0.0,
-        }];
+        player.defense_skills =
+            DefenseSkills::new(positions[((id - 1) as usize) % positions.len()]);
         player
     }
 

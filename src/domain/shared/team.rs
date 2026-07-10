@@ -41,7 +41,7 @@ impl Team {
         // TODO: Consider multiptile defense skills
         for player in &self.players {
             position_map
-                .entry(player.defensive_skills[0].position)
+                .entry(player.defense_skills.primary_position)
                 .or_insert_with(Vec::new)
                 .push(player);
         }
@@ -59,7 +59,7 @@ impl Team {
         }
 
         // TODO: The batting order should be considered by team starategy.
-        batting_orders.sort_by(|a, b| b.player.mod_ba.total_cmp(&a.player.mod_ba));
+        batting_orders.sort_by_key(|order| order.player.info.id);
         for (order, batting_order) in batting_orders.iter_mut().enumerate() {
             batting_order.index = (order + 1) as u8;
         }

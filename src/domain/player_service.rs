@@ -1,27 +1,198 @@
-use super::shared::player::{PitchType, PitcherStyle, Player, Position};
-use super::shared::prob::{PitchSkillProb, PlayerProb};
+use super::shared::player::{
+    FielderType, HitterTendency, PitchType, PitcherStyle, Player, Position,
+};
+use super::shared::prob::{
+    BatterInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs, PlayerInfoProbs,
+    RunningSkillProbs,
+};
+use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::player::FullName;
-use crate::domain::shared::prob::ItemProb;
+use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::i18n::I18nManager;
 use crate::repositories::player_repository::PlayerRepository;
 use anyhow::Result;
+use std::collections::HashMap;
+use strum::IntoEnumIterator;
+
+const PLY: &str = "player";
+const PIF: &str = "player_info";
+const RS: &str = "running_skills";
+const FI: &str = "fielder_info";
+const PTI: &str = "pitcher_info";
+const PT: &str = "pitch_type";
 
 pub struct PlayerService<R: PlayerRepository> {
     pub repo: R,
 }
 
 impl<R: PlayerRepository> PlayerService<R> {
-    pub fn load_player_probs(&self) -> Result<PlayerProb, AppError> {
-        Ok(PlayerProb {
-            player_attribute_prob: self.repo.player_attribute_prob()?,
-            batter_skill_prob: self.repo.batter_skill_prob()?,
-            position_probs: self.repo.position_probs()?,
-            defensive_skill_prob: self.repo.defensive_skill_prob()?,
-            pitcher_style_probs: self.repo.pitcher_style_probs()?,
-            pitcher_attribute_prob: self.repo.pitcher_attribute_prob()?,
+    pub fn load_player_info_probs(&self) -> Result<PlayerInfoProbs, AppError> {
+        Ok(PlayerInfoProbs {
+            age: self.repo.gamma_params(PLY, PIF, "age")?,
         })
+    }
+
+    pub fn load_running_skill_probs(&self) -> Result<RunningSkillProbs, AppError> {
+        let speed = self.repo.normal_params(PLY, RS, "running_speed")?;
+        let lead_distance = self.repo.normal_params(PLY, RS, "lead_distance")?;
+        let start_reaction = self.repo.normal_params(PLY, RS, "start_reaction")?;
+
+        Ok(RunningSkillProbs {
+            speed: speed,
+            lead_distance: lead_distance,
+            start_reaction: start_reaction,
+        })
+    }
+
+    pub fn load_multiple_fielder_type_prob(
+        &self,
+        fielder_type: &FielderType,
+    ) -> Result<Vec<ItemWeighted<FielderType>>, AppError> {
+        let multiple_fielder_type = self
+            .repo
+            .item_probs("multiple_fielder_type", fielder_type.as_ref())?;
+
+        Ok(multiple_fielder_type)
+    }
+
+    pub fn load_fielder_info_probs(&self) -> Result<FielderInfoProbs, AppError> {
+        let fielder_type = self.repo.item_probs(PLY, "fielder_type")?;
+        let throw_speed = self.repo.normal_params(PLY, FI, "throw_speed")?;
+        let running_speed = self.repo.normal_params(PLY, FI, "running_speed")?;
+        let reaction = self.repo.normal_params(PLY, FI, "reaction")?;
+        let prep_time = self.repo.normal_params(PLY, FI, "prep_time")?;
+
+        Ok(FielderInfoProbs {
+            fielder_type: fielder_type,
+            throw_speed: throw_speed,
+            running_speed: running_speed,
+            reaction: reaction,
+            prep_time: prep_time,
+        })
+    }
+
+    pub fn load_batter_info_probs(&self) -> Result<BatterInfoProbs, AppError> {
+        let batting_side = self.repo.item_probs(PLY, "batting_side")?;
+        let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
+        let hitter_tendency = self.repo.item_probs(PLY, "hitter_tendency")?;
+
+        Ok(BatterInfoProbs {
+            batting_side: batting_side,
+            swing_speed: swing_speed,
+            hitter_tendency: hitter_tendency,
+        })
+    }
+
+    pub fn load_field_sector_weights_prob(
+        &self,
+    ) -> Result<HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>>, AppError> {
+        let mut field_sector_weights_map: HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>> =
+            HashMap::new();
+
+        for hitter_tendency in HitterTendency::iter() {
+            field_sector_weights_map.entry(hitter_tendency).or_insert(
+                self.repo
+                    .item_probs("hitter_tendency", hitter_tendency.as_ref())?,
+            );
+        }
+
+        Ok(field_sector_weights_map)
+    }
+
+    pub fn load_pitcher_info_prob(&self) -> Result<PitcherInfoProbs, AppError> {
+        let pitcher_style = self.repo.item_probs(PTI, "pitcher_style")?;
+        let velocity = self.repo.normal_params(PLY, PTI, "throw_speed")?;
+        let control = self.repo.normal_params(PLY, PTI, "control")?;
+        let stamina = self.repo.normal_params(PLY, PTI, "stamina")?;
+        let injury_proneness = self.repo.normal_params(PLY, PTI, "injury_proneness")?;
+        let clutch = self.repo.normal_params(PLY, PTI, "clutch")?;
+        let hpp = self.repo.normal_params(PLY, PTI, "hpp")?;
+        let platoon_splitting = self.repo.normal_params(PLY, PTI, "platoon_splitting")?;
+        let delivery_motion_time = self.repo.normal_params(PLY, PTI, "delivery_motion_time")?;
+
+        Ok(PitcherInfoProbs {
+            pitcher_style: pitcher_style,
+            velocity: velocity,
+            control: control,
+            stamina: stamina,
+            injury_proneness: injury_proneness,
+            clutch: clutch,
+            hpp: hpp,
+            platoon_splitting: platoon_splitting,
+            delivery_motion_time: delivery_motion_time,
+        })
+    }
+
+    pub fn load_pitch_type_prob(
+        &self,
+    ) -> Result<HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>>, AppError> {
+        let mut pitch_type_map: HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>> =
+            HashMap::new();
+
+        for pitcher_style in PitcherStyle::iter() {
+            pitch_type_map.entry(pitcher_style).or_insert(
+                self.repo
+                    .item_probs("pitcher_style", pitcher_style.as_ref())?,
+            );
+        }
+
+        Ok(pitch_type_map)
+    }
+
+    fn load_pitch_skill_prob(&self, pitch_type: PitchType) -> Result<PitchSkillProbs, AppError> {
+        let velocity = self
+            .repo
+            .normal_params(PT, pitch_type.as_ref(), "velocity")?;
+        let control = self
+            .repo
+            .normal_params(PT, pitch_type.as_ref(), "control")?;
+        let stamina = self
+            .repo
+            .normal_params(PT, pitch_type.as_ref(), "stamina")?;
+        let injury_proneness =
+            self.repo
+                .normal_params(PT, pitch_type.as_ref(), "injury_proneness")?;
+        let stuff = self.repo.normal_params(PT, pitch_type.as_ref(), "stuff")?;
+        let fb = self.repo.normal_params(PT, pitch_type.as_ref(), "fb")?;
+        let gp = self.repo.normal_params(PT, pitch_type.as_ref(), "gp")?;
+        let horizontal_movement =
+            self.repo
+                .normal_params(PT, pitch_type.as_ref(), "horizontal_movement")?;
+        let vertical_movement =
+            self.repo
+                .normal_params(PT, pitch_type.as_ref(), "vertical_movement")?;
+        let spin_rate = self
+            .repo
+            .normal_params(PT, pitch_type.as_ref(), "spin_rate")?;
+        let usage = self.repo.normal_params(PT, pitch_type.as_ref(), "usage")?;
+
+        Ok(PitchSkillProbs {
+            velocity: velocity,
+            control: control,
+            stamina: stamina,
+            injury_proneness: injury_proneness,
+            stuff: stuff,
+            fb: fb,
+            gp: gp,
+            horizontal_movement: horizontal_movement,
+            vertical_movement: vertical_movement,
+            spin_rate: spin_rate,
+            usage: usage,
+        })
+    }
+
+    pub fn load_pitch_skill_probs(&self) -> Result<HashMap<PitchType, PitchSkillProbs>, AppError> {
+        let mut pitch_skill_map: HashMap<PitchType, PitchSkillProbs> = HashMap::new();
+
+        for pitch_type in PitchType::iter() {
+            pitch_skill_map
+                .entry(pitch_type)
+                .or_insert(self.load_pitch_skill_prob(pitch_type)?);
+        }
+
+        Ok(pitch_skill_map)
     }
 
     pub fn load_random_name(&self) -> Result<FullName, AppError> {
@@ -41,19 +212,8 @@ impl<R: PlayerRepository> PlayerService<R> {
         Ok(team)
     }
 
-    pub fn pitch_type_probs(
-        &self,
-        pitcher_style: &PitcherStyle,
-    ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
-        self.repo.pitch_type_probs(pitcher_style)
-    }
-
-    pub fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
-        self.repo.pitch_skill_prob(pitch_type)
-    }
-
-    pub fn save_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
-        self.repo.insert_player(team, player)
+    pub fn save_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError> {
+        self.repo.insert_player(team_id, player)
     }
 }
 
@@ -61,12 +221,11 @@ impl<R: PlayerRepository> PlayerService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::player::{
-        DefensiveSkill, FullName, PitchSkill, PitchType, PitcherAttribute, PitcherStyle, Position,
-        RL,
+        BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill, PitchType,
+        PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills,
     };
     use crate::domain::shared::prob::{
-        BatterSkillProb, DefensiveSkillProb, ItemProb, PitchSkillProb, PitcherAttributeProb,
-        PlayerAttributeProb,
+        GammaParam, ItemWeighted, NormalParam, PitcherInfoProbs, PlayerInfoProbs,
     };
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
@@ -74,7 +233,9 @@ mod tests {
     use anyhow::anyhow;
     use rusqlite::Transaction;
     use std::cell::{Cell, RefCell};
+    use std::mem::ManuallyDrop;
     use std::rc::Rc;
+    use std::str::FromStr;
 
     struct RecordingRepo {
         state: Rc<RepoState>,
@@ -84,21 +245,19 @@ mod tests {
         name: FullName,
         team: Team,
         random_team: Team,
-        pitch_type_probs: Vec<ItemProb<PitchType>>,
-        player_attribute_prob: PlayerAttributeProb,
-        batter_skill_prob: BatterSkillProb,
-        defensive_skill_prob: DefensiveSkillProb,
-        pitcher_attribute_prob: PitcherAttributeProb,
+        pitch_type_probs: Vec<ItemWeighted<PitchType>>,
+        player_attribute_prob: PlayerInfoProbs,
+        pitcher_attribute_prob: PitcherInfoProbs,
         random_name_error: Cell<bool>,
         next_team_error: Cell<bool>,
         next_team_not_found: Cell<bool>,
         next_random_team_error: Cell<bool>,
         player_attribute_prob_error: Cell<bool>,
         batter_skill_prob_error: Cell<bool>,
-        position_probs: Vec<ItemProb<Position>>,
+        position_probs: Vec<ItemWeighted<Position>>,
         position_probs_error: Cell<bool>,
         defensive_skill_prob_error: Cell<bool>,
-        pitcher_style_probs: Vec<ItemProb<PitcherStyle>>,
+        pitcher_style_probs: Vec<ItemWeighted<PitcherStyle>>,
         pitcher_style_probs_error: Cell<bool>,
         pitcher_attribute_prob_error: Cell<bool>,
         pitch_type_probs_error: Cell<bool>,
@@ -120,11 +279,18 @@ mod tests {
         pitch_skill_prob_calls: Cell<usize>,
         save_calls: Cell<usize>,
         item_probs_calls: Cell<usize>,
-        saved: RefCell<Vec<(Team, Player)>>,
+        saved: RefCell<Vec<(u16, Player)>>,
     }
 
     impl RecordingRepo {
         fn new() -> (Self, Rc<RepoState>) {
+            let normal = NormalParam {
+                mean: 1.0,
+                std_dev: 0.1,
+                skew: 0.0,
+                coefficient: 1.0,
+                offset: 0.0,
+            };
             let state = Rc::new(RepoState {
                 name: FullName {
                     first: "Shohei".into(),
@@ -132,30 +298,30 @@ mod tests {
                 },
                 team: Team::min(1, "Lions"),
                 random_team: Team::min(99, "Randoms"),
-                pitch_type_probs: vec![ItemProb {
+                pitch_type_probs: vec![ItemWeighted {
                     name: PitchType::Slider,
-                    prob: 1.0,
+                    weight: 1.0,
                 }],
-                player_attribute_prob: PlayerAttributeProb {
-                    age_shape: 2.5,
-                    age_scale: 2.5,
-                    age_offset: 18.0,
-                    throw_lefty: 0.2,
-                    bat_lefty: 0.4,
+                player_attribute_prob: PlayerInfoProbs {
+                    age: GammaParam {
+                        shape: 2.5,
+                        scale: 0.5,
+                        offset: 18.0,
+                    },
                 },
-                batter_skill_prob: BatterSkillProb {
-                    ba_skew: 0.2,
-                    slg_skew: 0.3,
-                },
-                defensive_skill_prob: DefensiveSkillProb { uzr_skew: 0.4 },
-                pitcher_attribute_prob: PitcherAttributeProb {
-                    velocity_skew: 0.5,
-                    control_skew: 0.6,
-                    stamina_skew: 0.7,
-                    injury_proneness_skew: 0.8,
-                    clutch_skew: 0.9,
-                    hpp_skew: 1.0,
-                    platoon_splitting_skew: 1.1,
+                pitcher_attribute_prob: PitcherInfoProbs {
+                    pitcher_style: vec![ItemWeighted {
+                        name: PitcherStyle::BalancedPitcher,
+                        weight: 1.0,
+                    }],
+                    velocity: normal,
+                    control: normal,
+                    stamina: normal,
+                    injury_proneness: normal,
+                    clutch: normal,
+                    hpp: normal,
+                    platoon_splitting: normal,
+                    delivery_motion_time: normal,
                 },
                 random_name_error: Cell::new(false),
                 next_team_error: Cell::new(false),
@@ -163,15 +329,15 @@ mod tests {
                 next_random_team_error: Cell::new(false),
                 player_attribute_prob_error: Cell::new(false),
                 batter_skill_prob_error: Cell::new(false),
-                position_probs: vec![ItemProb {
+                position_probs: vec![ItemWeighted {
                     name: Position::P,
-                    prob: 1.0,
+                    weight: 1.0,
                 }],
                 position_probs_error: Cell::new(false),
                 defensive_skill_prob_error: Cell::new(false),
-                pitcher_style_probs: vec![ItemProb {
+                pitcher_style_probs: vec![ItemWeighted {
                     name: PitcherStyle::BalancedPitcher,
-                    prob: 1.0,
+                    weight: 1.0,
                 }],
                 pitcher_style_probs_error: Cell::new(false),
                 pitcher_attribute_prob_error: Cell::new(false),
@@ -204,10 +370,40 @@ mod tests {
                 state,
             )
         }
+
+        fn cast_item_probs<T>(items: Vec<ItemWeighted<T>>) -> Vec<ItemWeighted<T>> {
+            items
+        }
+
+        unsafe fn cast_pitch_type_probs<T>(
+            items: Vec<ItemWeighted<PitchType>>,
+        ) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
+
+        unsafe fn cast_pitcher_style_probs<T>(
+            items: Vec<ItemWeighted<PitcherStyle>>,
+        ) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
     }
 
     impl PlayerRepository for RecordingRepo {
-        fn insert_player(&mut self, team: Team, player: Player) -> Result<(), AppError> {
+        fn insert_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError> {
             let call_index = self.state.save_calls.get();
             self.state.save_calls.set(call_index + 1);
 
@@ -215,32 +411,68 @@ mod tests {
                 return Err(AppError::Internal(anyhow!("save failed")));
             }
 
-            self.state.saved.borrow_mut().push((team, player));
+            self.state.saved.borrow_mut().push((team_id, player));
             Ok(())
         }
 
-        fn insert_defensive_skill(
+        fn insert_offense_skills(
             &self,
             _tx: &Transaction,
-            _player_id: u32,
-            _defensive_skill: &DefensiveSkill,
+            _player_id: i64,
+            _offense_skills: &OffenseSkills,
+        ) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn insert_batter_info(
+            &self,
+            _tx: &Transaction,
+            _player_id: i64,
+            _batter_info: &BatterInfo,
         ) -> Result<usize, AppError> {
             Ok(1)
         }
 
-        fn insert_pitcher_attribute(
+        fn insert_running_skills(
             &self,
             _tx: &Transaction,
-            _player_id: u32,
-            _pitcher_attribute: &PitcherAttribute,
+            _player_id: i64,
+            _running_skills: &RunningSkills,
         ) -> Result<usize, AppError> {
             Ok(1)
+        }
+
+        fn insert_defense_skills(
+            &self,
+            _tx: &Transaction,
+            _player_id: i64,
+            _defense_skills: &DefenseSkills,
+        ) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn insert_fielder_info(
+            &self,
+            _tx: &Transaction,
+            _player_id: i64,
+            _fielder_info: &FielderInfo,
+        ) -> Result<usize, AppError> {
+            Ok(1)
+        }
+
+        fn insert_pitcher_info(
+            &self,
+            _tx: &Transaction,
+            _player_id: i64,
+            _pitcher_attribute: &PitcherInfo,
+        ) -> Result<(), AppError> {
+            Ok(())
         }
 
         fn insert_pitch_skill(
             &self,
             _tx: &Transaction,
-            _player_id: u32,
+            _player_id: i64,
             _pitch_skill: &PitchSkill,
         ) -> Result<usize, AppError> {
             Ok(1)
@@ -284,135 +516,97 @@ mod tests {
             Ok(self.state.random_team.clone())
         }
 
-        fn position_probs(&self) -> Result<Vec<ItemProb<Position>>, AppError> {
-            self.state
-                .position_probs_calls
-                .set(self.state.position_probs_calls.get() + 1);
-
-            if self.state.position_probs_error.get() {
-                return Err(AppError::Internal(anyhow!("position probs failed")));
-            }
-
-            Ok(self.state.position_probs.clone())
-        }
-
-        fn pitcher_style_probs(&self) -> Result<Vec<ItemProb<PitcherStyle>>, AppError> {
-            self.state
-                .pitcher_style_probs_calls
-                .set(self.state.pitcher_style_probs_calls.get() + 1);
-
-            if self.state.pitcher_style_probs_error.get() {
-                return Err(AppError::Internal(anyhow!("pitcher style probs failed")));
-            }
-
-            Ok(self.state.pitcher_style_probs.clone())
-        }
-
-        fn pitch_type_probs(
+        fn normal_params(
             &self,
-            pitch_style: &PitcherStyle,
-        ) -> Result<Vec<ItemProb<PitchType>>, AppError> {
-            self.state
-                .pitch_type_probs_calls
-                .set(self.state.pitch_type_probs_calls.get() + 1);
-            self.state
-                .pitch_type_prob_styles
-                .borrow_mut()
-                .push(pitch_style.clone());
+            category1: &str,
+            category2: &str,
+            _name: &str,
+        ) -> Result<NormalParam, AppError> {
+            if category1 == PT {
+                self.state
+                    .pitch_skill_prob_calls
+                    .set(self.state.pitch_skill_prob_calls.get() + 1);
+                self.state
+                    .pitch_skill_prob_types
+                    .borrow_mut()
+                    .push(PitchType::from_str(category2).unwrap());
 
-            if self.state.pitch_type_probs_error.get() {
-                return Err(AppError::Internal(anyhow!("pitch type probs failed")));
+                if self.state.pitch_skill_prob_error.get() {
+                    return Err(AppError::Internal(anyhow!("pitch skill prob failed")));
+                }
             }
 
-            Ok(self.state.pitch_type_probs.clone())
-        }
-
-        fn pitch_skill_prob(&self, pitch_type: &PitchType) -> Result<PitchSkillProb, AppError> {
-            self.state
-                .pitch_skill_prob_calls
-                .set(self.state.pitch_skill_prob_calls.get() + 1);
-            self.state
-                .pitch_skill_prob_types
-                .borrow_mut()
-                .push(pitch_type.clone());
-
-            if self.state.pitch_skill_prob_error.get() {
-                return Err(AppError::Internal(anyhow!("pitch skill prob failed")));
-            }
-
-            Ok(PitchSkillProb {
-                pitch_type: pitch_type.clone(),
-                velocity_skew: 0.0,
-                control_skew: 0.0,
-                stamina_skew: 0.0,
-                injury_proneness_skew: 0.0,
-                stuff_skew: 0.0,
-                fb_skew: 0.0,
-                gp_skew: 0.0,
-                horizontal_movement_skew: 0.0,
-                vertical_movement_skew: 0.0,
-                spin_rate_skew: 0.0,
-                usage_skew: 0.0,
+            Ok(NormalParam {
+                mean: 1.0,
+                std_dev: 0.1,
+                skew: 0.0,
+                coefficient: 1.0,
+                offset: 0.0,
             })
         }
 
-        fn player_attribute_prob(&self) -> Result<PlayerAttributeProb, AppError> {
+        fn gamma_params(
+            &self,
+            _category1: &str,
+            _category2: &str,
+            _name: &str,
+        ) -> Result<GammaParam, AppError> {
             self.state
                 .player_attribute_prob_calls
                 .set(self.state.player_attribute_prob_calls.get() + 1);
 
             if self.state.player_attribute_prob_error.get() {
-                return Err(AppError::Internal(anyhow!("player attribute prob failed")));
+                return Err(AppError::Internal(anyhow!("player info prob failed")));
             }
 
-            Ok(self.state.player_attribute_prob.clone())
+            Ok(self.state.player_attribute_prob.age)
         }
 
-        fn item_probs<T>(&self, category: &str) -> Result<Vec<ItemProb<T>>, AppError>
+        fn item_probs<T>(
+            &self,
+            category1: &str,
+            category2: &str,
+        ) -> Result<Vec<ItemWeighted<T>>, AppError>
         where
-            ItemProb<T>: FromRow<Error = AppError>,
+            ItemWeighted<T>: FromRow<Error = AppError>,
         {
             self.state
                 .item_probs_calls
                 .set(self.state.item_probs_calls.get() + 1);
 
-            panic!("item_probs should not be called directly in PlayerService tests: {category}");
-        }
+            match (category1, category2) {
+                (PTI, "pitcher_style") => {
+                    self.state
+                        .pitcher_style_probs_calls
+                        .set(self.state.pitcher_style_probs_calls.get() + 1);
 
-        fn batter_skill_prob(&self) -> Result<BatterSkillProb, AppError> {
-            self.state
-                .batter_skill_prob_calls
-                .set(self.state.batter_skill_prob_calls.get() + 1);
+                    if self.state.pitcher_style_probs_error.get() {
+                        return Err(AppError::Internal(anyhow!("pitcher style probs failed")));
+                    }
 
-            if self.state.batter_skill_prob_error.get() {
-                return Err(AppError::Internal(anyhow!("batter skill prob failed")));
+                    Ok(unsafe {
+                        Self::cast_pitcher_style_probs(self.state.pitcher_style_probs.clone())
+                    })
+                }
+                ("pitcher_style", style) => {
+                    self.state
+                        .pitch_type_probs_calls
+                        .set(self.state.pitch_type_probs_calls.get() + 1);
+                    self.state
+                        .pitch_type_prob_styles
+                        .borrow_mut()
+                        .push(PitcherStyle::from_str(style).unwrap());
+
+                    if self.state.pitch_type_probs_error.get() {
+                        return Err(AppError::Internal(anyhow!("pitch type probs failed")));
+                    }
+
+                    Ok(unsafe { Self::cast_pitch_type_probs(self.state.pitch_type_probs.clone()) })
+                }
+                _ => panic!(
+                    "unexpected item_probs call in PlayerService test: {category1}/{category2}"
+                ),
             }
-
-            Ok(self.state.batter_skill_prob.clone())
-        }
-
-        fn defensive_skill_prob(&self) -> Result<DefensiveSkillProb, AppError> {
-            self.state
-                .defensive_skill_prob_calls
-                .set(self.state.defensive_skill_prob_calls.get() + 1);
-
-            if self.state.defensive_skill_prob_error.get() {
-                return Err(AppError::Internal(anyhow!("defensive skill prob failed")));
-            }
-
-            Ok(self.state.defensive_skill_prob.clone())
-        }
-
-        fn pitcher_attribute_prob(&self) -> Result<PitcherAttributeProb, AppError> {
-            self.state
-                .pitcher_attribute_prob_calls
-                .set(self.state.pitcher_attribute_prob_calls.get() + 1);
-
-            if self.state.pitcher_attribute_prob_error.get() {
-                return Err(AppError::Internal(anyhow!("pitcher attribute prob failed")));
-            }
-
-            Ok(self.state.pitcher_attribute_prob.clone())
         }
     }
 
@@ -422,37 +616,24 @@ mod tests {
     }
 
     #[test]
-    fn load_player_probs_loads_all_probability_groups() {
+    fn load_player_info_probs_loads_from_repository() {
         let (service, state) = service_with_repo();
 
-        let player_prob = service.load_player_probs().unwrap();
+        let probs = service.load_player_info_probs().unwrap();
 
-        assert_eq!(player_prob.player_attribute_prob.age_offset, 18.0);
-        assert_eq!(player_prob.batter_skill_prob.slg_skew, 0.3);
-        assert_eq!(player_prob.position_probs[0].name, Position::P);
-        assert_eq!(player_prob.defensive_skill_prob.uzr_skew, 0.4);
-        assert!(matches!(
-            player_prob.pitcher_style_probs[0].name,
-            PitcherStyle::BalancedPitcher
-        ));
-        assert_eq!(player_prob.pitcher_attribute_prob.velocity_skew, 0.5);
+        assert_eq!(probs.age.shape, 2.5);
+        assert_eq!(probs.age.scale, 0.5);
+        assert_eq!(probs.age.offset, 18.0);
         assert_eq!(state.player_attribute_prob_calls.get(), 1);
-        assert_eq!(state.batter_skill_prob_calls.get(), 1);
-        assert_eq!(state.position_probs_calls.get(), 1);
-        assert_eq!(state.defensive_skill_prob_calls.get(), 1);
-        assert_eq!(state.pitcher_style_probs_calls.get(), 1);
-        assert_eq!(state.pitcher_attribute_prob_calls.get(), 1);
     }
 
     #[test]
-    fn load_player_probs_returns_error_from_repository() {
+    fn load_player_info_probs_returns_error_from_repository() {
         let (repo, state) = RecordingRepo::new();
-        state.position_probs_error.set(true);
+        state.player_attribute_prob_error.set(true);
         let service = PlayerService { repo };
 
-        assert!(service.load_player_probs().is_err());
-        assert_eq!(state.position_probs_calls.get(), 1);
-        assert_eq!(state.defensive_skill_prob_calls.get(), 0);
+        assert!(service.load_player_info_probs().is_err());
     }
 
     #[test]
@@ -461,8 +642,8 @@ mod tests {
 
         let name = service.load_random_name().unwrap();
 
-        assert_eq!(name.first.as_ref(), "Shohei");
-        assert_eq!(name.last.as_ref(), "Ohtani");
+        assert_eq!(name.first, "Shohei");
+        assert_eq!(name.last, "Ohtani");
         assert_eq!(
             *state.random_name_languages.borrow(),
             vec!["us".to_string()]
@@ -524,49 +705,61 @@ mod tests {
     }
 
     #[test]
-    fn pitch_type_probs_delegates_to_repository() {
+    fn pitch_type_prob_loads_all_styles_from_repository() {
         let (service, state) = service_with_repo();
 
-        let probs = service
-            .pitch_type_probs(&PitcherStyle::PowerPitcher)
-            .unwrap();
+        let pitch_type_map = service.load_pitch_type_prob().unwrap();
 
-        assert!(matches!(probs[0].name, PitchType::Slider));
-        assert_eq!(state.pitch_type_probs_calls.get(), 1);
-        assert!(matches!(
-            state.pitch_type_prob_styles.borrow()[0],
-            PitcherStyle::PowerPitcher
-        ));
+        let balanced_probs = pitch_type_map.get(&PitcherStyle::BalancedPitcher).unwrap();
+        assert!(matches!(balanced_probs[0].name, PitchType::Slider));
+        assert_eq!(
+            state.pitch_type_probs_calls.get(),
+            PitcherStyle::iter().count()
+        );
+        assert_eq!(state.item_probs_calls.get(), PitcherStyle::iter().count());
     }
 
     #[test]
-    fn pitch_skill_prob_delegates_to_repository() {
+    fn pitch_skill_probs_load_all_pitch_types_from_repository() {
         let (service, state) = service_with_repo();
 
-        let prob = service.pitch_skill_prob(&PitchType::Changeup).unwrap();
+        let probs = service.load_pitch_skill_probs().unwrap();
 
-        assert!(matches!(prob.pitch_type, PitchType::Changeup));
-        assert_eq!(state.pitch_skill_prob_calls.get(), 1);
-        assert!(matches!(
-            state.pitch_skill_prob_types.borrow()[0],
-            PitchType::Changeup
-        ));
+        assert!(probs.contains_key(&PitchType::Changeup));
+        assert_eq!(
+            state.pitch_skill_prob_calls.get(),
+            PitchType::iter().count() * 11
+        );
+        assert!(state
+            .pitch_skill_prob_types
+            .borrow()
+            .contains(&PitchType::Changeup));
     }
 
     #[test]
     fn save_player_delegates_to_repository() {
         let (mut service, state) = service_with_repo();
-        let mut player = Player::new(7, "First", "Last", 25, RL::Right, RL::Right, 0.0, 0.0);
-        player.throw = RL::Left;
+        let player = Player {
+            info: PlayerInfo::new(7, "First".into(), "Last".into(), 25, 18),
+            offense_skills: OffenseSkills {
+                batter: None,
+                running: RunningSkills {
+                    speed: 0.0,
+                    lead_distance: 0.0,
+                    start_reaction: 0.0,
+                },
+            },
+            defense_skills: DefenseSkills::new(Position::P),
+        };
         let team = Team::min(3, "Tigers");
 
-        service.save_player(team, player).unwrap();
+        service.save_player(team.id, player).unwrap();
 
         let saved = state.saved.borrow();
         assert_eq!(state.save_calls.get(), 1);
         assert_eq!(saved.len(), 1);
-        assert_eq!(saved[0].0.id, 3);
-        assert_eq!(saved[0].1.id, 7);
-        assert_eq!(saved[0].1.first_name.as_ref(), "First");
+        assert_eq!(saved[0].0, 3);
+        assert_eq!(saved[0].1.info.id, 7);
+        assert_eq!(saved[0].1.info.first_name, "First");
     }
 }
