@@ -74,7 +74,6 @@ fn sample_spray_angle(tendency: &BatterInfo) -> f64 {
 pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBall {
     let mut rng = rand::rng();
 
-    // TODO: decide TrajectoryType mod_slg and meet type should be considered
     let trajectory = match rng.random_range(0..4) {
         0 => TrajectoryType::Liner,
         1 => TrajectoryType::Fly,

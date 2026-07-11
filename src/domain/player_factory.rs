@@ -18,6 +18,7 @@ use crate::error::AppError;
 use crate::repositories::player_repository::PlayerRepository;
 use anyhow::Result;
 use std::collections::HashMap;
+use tracing::info;
 
 pub struct PlayerFactory<R: PlayerRepository> {
     service: PlayerService<R>,
@@ -28,7 +29,6 @@ pub struct PlayerFactory<R: PlayerRepository> {
     field_sector_weights_map: HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>>,
     fielder_info_probs: FielderInfoProbs,
     pitcher_info_probs: PitcherInfoProbs,
-    pitch_skill_probs: PitchSkillProbs,
     pitch_type_map: HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>>,
     pitch_skill_map: HashMap<PitchType, PitchSkillProbs>,
 }
@@ -43,13 +43,14 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             field_sector_weights_map: HashMap::new(),
             fielder_info_probs: FielderInfoProbs::default(),
             pitcher_info_probs: PitcherInfoProbs::default(),
-            pitch_skill_probs: PitchSkillProbs::default(),
             pitch_type_map: HashMap::new(),
             pitch_skill_map: HashMap::new(),
         }
     }
 
-    fn load_player_probs(&mut self) -> Result<(), AppError> {
+    pub fn load_player_probs(&mut self) -> Result<(), AppError> {
+        info!("load_player_probs() started");
+
         self.player_info_probs = self.service.load_player_info_probs()?;
         self.running_skill_probs = self.service.load_running_skill_probs()?;
         self.batter_info_probs = self.service.load_batter_info_probs()?;
@@ -63,23 +64,20 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         Ok(())
     }
 
-    pub fn generate_and_save_players(&mut self, count: u16) -> Result<()> {
-        self.load_player_probs()?;
+    pub fn generate_and_save_player(&mut self) -> Result<()> {
+        info!("generate_and_save_players() started");
 
-        let mut players = Vec::new();
+        let player = self.generate_player()?;
+        let team = self.assign_team(&player)?;
 
-        for _ in 0..count {
-            let player = self.generate_player()?;
-            let team = self.assign_team(&player)?;
-            players.push((team.id, player));
-        }
-
-        self.service.save_players(players)?;
+        self.service.save_player(team.id, &player)?;
 
         Ok(())
     }
 
     pub fn generate_player(&mut self) -> Result<Player> {
+        info!("generate_player() started");
+
         let player_info = self.assign_player_info()?;
 
         let fielder_type_1st =

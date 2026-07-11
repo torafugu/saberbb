@@ -5,7 +5,6 @@ use validator::Validate;
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, Validate)]
 pub struct NormalParam {
     pub mean: f64,
-    #[validate(range(min = -5.0, max = 5.0))]
     pub std_dev: f64,
     pub skew: f64,
     pub coefficient: f64,
@@ -18,7 +17,7 @@ pub struct NormalParam {
 pub struct GammaParam {
     #[validate(range(min = 0.0, max = 5.0))]
     pub shape: f64,
-    #[validate(range(min = 0.0, max = 1.0))]
+    #[validate(range(min = 0.0, max = 5.0))]
     pub scale: f64,
     pub offset: f64,
 }

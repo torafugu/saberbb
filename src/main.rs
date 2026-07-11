@@ -24,7 +24,7 @@ fn main() -> Result<()> {
     I18nManager::init(&cfg.language);
 
     init_dirs()?;
-    let log_dir = proj_dirs().data_dir();
+    let log_dir = proj_dirs().data_dir().join("log");
 
     let file_appender = tracing_appender::rolling::daily(log_dir, "app.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -79,9 +79,15 @@ fn main() -> Result<()> {
             repo: app_context().player_repository.clone(),
         };
         let mut player_factory = PlayerFactory::new(player_service);
-        if let Err(e) = player_factory.generate_and_save_players(num_of_players) {
-            let error_msg = t!("error", "function" => "generate_players");
-            bail!("{}, {}", error_msg, e);
+        player_factory.load_player_probs()?;
+
+        for _ in 0..num_of_players {
+            if let Err(e) = player_factory.generate_and_save_player() {
+                let error_msg = t!("error", "function" => "generate_players");
+                bail!("{}, {}", error_msg, e);
+            }
+            info!("1 player generated.");
+            println!("{}", t!("player_generated"));
         }
     }
 

@@ -366,9 +366,6 @@ VALUES
         0.0
     );
 
-
-
-
 INSERT INTO
     normal_param (
         category1,
@@ -622,6 +619,258 @@ VALUES
         0.0
     );
 
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'velocity',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'control',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'stamina',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'injury_proneness',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'stuff',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'fb',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'gp',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'horizontal_movement',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'vertical_movement',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'spin_rate',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'pitch_type',
+        'TwoSeamFastball',
+        'usage',
+        0.0,
+        1.0,
+        0.2,
+        1.0,
+        0.0
+    );
 
 INSERT INTO
     normal_param (
@@ -876,7 +1125,6 @@ VALUES
         0.0
     );
 
-
 INSERT INTO
     normal_param (
         category1,
@@ -1130,7 +1378,6 @@ VALUES
         0.0
     );
 
-
 INSERT INTO
     normal_param (
         category1,
@@ -1384,7 +1631,6 @@ VALUES
         0.0
     );
 
-
 INSERT INTO
     normal_param (
         category1,
@@ -1638,7 +1884,6 @@ VALUES
         0.0
     );
 
-
 INSERT INTO
     normal_param (
         category1,
@@ -1892,7 +2137,6 @@ VALUES
         0.0
     );
 
-
 INSERT INTO
     normal_param (
         category1,
@@ -2146,7 +2390,6 @@ VALUES
         0.0
     );
 
-
 INSERT INTO
     normal_param (
         category1,
@@ -2399,7 +2642,6 @@ VALUES
         1.0,
         0.0
     );
-
 
 INSERT INTO
     normal_param (

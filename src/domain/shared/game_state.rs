@@ -3,7 +3,7 @@ use super::player::{FielderInfo, Player, Position, RunningSkills};
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_config::{
-    FENCE_BOUNCE_COEFF, FENCE_DISTANCE, FIRST_BOUNCE_TIME, LINER_REACTION_TIME,
+    FENCE_BOUNCE_COEFF, FENCE_DISTANCE, FIRST_BOUNCE_TIME,
 };
 use crate::domain::resolver::fielding_resolver::BoundedBallResult;
 use crate::domain::resolver::running_resolver::RunnersOnBase;
@@ -126,7 +126,7 @@ impl ActiveFielder {
         let mut final_reaction = self.info.reaction;
         if ball.trajectory == TrajectoryType::Liner && dy < 0.0 {
             // Delay reaction when moving forward on a liner (harder to judge)
-            final_reaction += LINER_REACTION_TIME;
+            final_reaction += self.info.reaction;
         }
 
         // 4. Calculate arrival time (seconds)

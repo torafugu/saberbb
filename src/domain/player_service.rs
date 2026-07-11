@@ -15,6 +15,7 @@ use crate::repositories::player_repository::PlayerRepository;
 use anyhow::Result;
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
+use tracing::info;
 
 const PLY: &str = "player";
 const PIF: &str = "player_info";
@@ -29,12 +30,16 @@ pub struct PlayerService<R: PlayerRepository> {
 
 impl<R: PlayerRepository> PlayerService<R> {
     pub fn load_player_info_probs(&self) -> Result<PlayerInfoProbs, AppError> {
+        info!("load_player_info_probs() started");
+
         Ok(PlayerInfoProbs {
             age: self.repo.gamma_params(PLY, PIF, "age")?,
         })
     }
 
     pub fn load_running_skill_probs(&self) -> Result<RunningSkillProbs, AppError> {
+        info!("load_running_skill_probs() started");
+
         let speed = self.repo.normal_params(PLY, RS, "running_speed")?;
         let lead_distance = self.repo.normal_params(PLY, RS, "lead_distance")?;
         let start_reaction = self.repo.normal_params(PLY, RS, "start_reaction")?;
@@ -50,6 +55,8 @@ impl<R: PlayerRepository> PlayerService<R> {
         &self,
         fielder_type: &FielderType,
     ) -> Result<Vec<ItemWeighted<FielderType>>, AppError> {
+        info!("load_multiple_fielder_type_prob() started");
+
         let multiple_fielder_type = self
             .repo
             .item_probs("multiple_fielder_type", fielder_type.as_ref())?;
@@ -58,6 +65,8 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     pub fn load_fielder_info_probs(&self) -> Result<FielderInfoProbs, AppError> {
+        info!("load_fielder_info_probs() started");
+
         let fielder_type = self.repo.item_probs(PLY, "fielder_type")?;
         let throw_speed = self.repo.normal_params(PLY, FI, "throw_speed")?;
         let running_speed = self.repo.normal_params(PLY, FI, "running_speed")?;
@@ -74,6 +83,8 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     pub fn load_batter_info_probs(&self) -> Result<BatterInfoProbs, AppError> {
+        info!("load_batter_info_probs() started");
+
         let batting_side = self.repo.item_probs(PLY, "batting_side")?;
         let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
         let hitter_tendency = self.repo.item_probs(PLY, "hitter_tendency")?;
@@ -88,6 +99,8 @@ impl<R: PlayerRepository> PlayerService<R> {
     pub fn load_field_sector_weights_prob(
         &self,
     ) -> Result<HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>>, AppError> {
+        info!("load_field_sector_weights_prob() started");
+
         let mut field_sector_weights_map: HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>> =
             HashMap::new();
 
@@ -102,8 +115,10 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     pub fn load_pitcher_info_prob(&self) -> Result<PitcherInfoProbs, AppError> {
+        info!("load_pitcher_info_prob() started");
+
         let pitcher_style = self.repo.item_probs(PTI, "pitcher_style")?;
-        let velocity = self.repo.normal_params(PLY, PTI, "throw_speed")?;
+        let velocity = self.repo.normal_params(PLY, PTI, "velocity")?;
         let control = self.repo.normal_params(PLY, PTI, "control")?;
         let stamina = self.repo.normal_params(PLY, PTI, "stamina")?;
         let injury_proneness = self.repo.normal_params(PLY, PTI, "injury_proneness")?;
@@ -128,6 +143,8 @@ impl<R: PlayerRepository> PlayerService<R> {
     pub fn load_pitch_type_prob(
         &self,
     ) -> Result<HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>>, AppError> {
+        info!("load_pitch_type_prob() started");
+
         let mut pitch_type_map: HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>> =
             HashMap::new();
 
@@ -142,6 +159,11 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     fn load_pitch_skill_prob(&self, pitch_type: PitchType) -> Result<PitchSkillProbs, AppError> {
+        info!(
+            "load_pitch_skill_prob() started for {}",
+            pitch_type.to_string()
+        );
+
         let velocity = self
             .repo
             .normal_params(PT, pitch_type.as_ref(), "velocity")?;
@@ -184,6 +206,8 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     pub fn load_pitch_skill_probs(&self) -> Result<HashMap<PitchType, PitchSkillProbs>, AppError> {
+        info!("load_pitch_skill_probs() started");
+
         let mut pitch_skill_map: HashMap<PitchType, PitchSkillProbs> = HashMap::new();
 
         for pitch_type in PitchType::iter() {
@@ -196,10 +220,14 @@ impl<R: PlayerRepository> PlayerService<R> {
     }
 
     pub fn load_random_name(&self) -> Result<FullName, AppError> {
+        info!("load_random_name() started");
+
         self.repo.random_name(I18nManager::global().lang_db())
     }
 
     pub fn next_team(&self, position: Position) -> Result<Team, AppError> {
+        info!("next_team() started");
+
         let team = match self.repo.next_player_dist_team(position) {
             Ok(team) => team,
             Err(AppError::NotFound(_)) => self.repo.next_random_team()?,
@@ -212,12 +240,10 @@ impl<R: PlayerRepository> PlayerService<R> {
         Ok(team)
     }
 
-    pub fn save_players(&mut self, players: Vec<(u16, Player)>) -> Result<(), AppError> {
-        for player in players {
-            self.repo.insert_player(player.0, &player.1);
-        }
+    pub fn save_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError> {
+        info!("save_players() started");
 
-        Ok(())
+        self.repo.insert_player(team_id, &player)
     }
 }
 
@@ -762,9 +788,7 @@ mod tests {
         };
         let team = Team::min(3, "Tigers");
 
-        service
-            .save_players(vec![(team.id, player.clone())])
-            .unwrap();
+        service.save_player(team.id, &player.clone()).unwrap();
 
         let saved = state.saved.borrow();
         assert_eq!(state.save_calls.get(), 1);

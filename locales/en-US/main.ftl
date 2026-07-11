@@ -58,6 +58,7 @@ p = P
 pct = PCT
 pitcher = Pitcher 
 pitching_stats = Batting Stats
+player_generated = 1 player generated
 popup = Pop Up
 postseason = Postseason
 power_pitcher = Power

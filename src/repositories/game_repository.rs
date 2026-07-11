@@ -7,7 +7,7 @@ use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
 use rusqlite::params;
-use tracing::{error, info};
+use tracing::info;
 
 pub trait GameRepository {
     fn save_game_result(&mut self, game: &GameResult) -> Result<(), AppError>;

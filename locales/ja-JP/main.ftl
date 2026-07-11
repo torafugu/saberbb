@@ -58,6 +58,7 @@ p = 投
 pct = 勝率
 pitcher = 投手
 pitching_stats = 投手成績
+player_generated = 選手1名が作成されました。
 popup = ポップフライ
 postseason = ポストシーズン
 power_pitcher = 本格派

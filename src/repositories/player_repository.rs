@@ -10,6 +10,7 @@ use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
 use rusqlite::{Transaction, params};
+use tracing::info;
 
 pub trait PlayerRepository {
     fn insert_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError>;
@@ -92,6 +93,8 @@ impl SqlPlayerRepository {
 
 impl PlayerRepository for SqlPlayerRepository {
     fn insert_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError> {
+        info!("insert_player() started");
+
         self.db_client.transaction(|tx| {
             let insert_player_sql = "INSERT INTO player_info (
                                         team_id, first_name, last_name, age, uniform_number
@@ -122,6 +125,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         offense_skills: &OffenseSkills,
     ) -> Result<(), AppError> {
+        info!("insert_offense_skills() started");
+
         if let Some(batter) = &offense_skills.batter {
             self.insert_batter_info(tx, player_id, &batter)?;
         }
@@ -137,6 +142,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         batter_info: &BatterInfo,
     ) -> Result<usize, AppError> {
+        info!("insert_batter_info() started");
+
         let insert_batter_info_sql = "INSERT INTO batter_info (
                                                 player_id, batting_side, weight_pull, weight_center, 
                                                 weight_opposite, weight_foul_left, weight_foul_right
@@ -163,6 +170,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         running_skills: &RunningSkills,
     ) -> Result<usize, AppError> {
+        info!("insert_running_skills() started");
+
         let insert_running_skills_sql = "INSERT INTO running_skills (
                                                 player_id, speed, lead_distance, start_reaction
                                                 ) VALUES (
@@ -185,6 +194,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         defense_skills: &DefenseSkills,
     ) -> Result<(), AppError> {
+        info!("insert_defense_skills() started");
+
         let insert_defensive_skills_sql = "INSERT INTO defense_skills (
                                                 player_id, primary_position
                                                 ) VALUES (
@@ -225,6 +236,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         fielder_info: &FielderInfo,
     ) -> Result<usize, AppError> {
+        info!("insert_fielder_info() started");
+
         let insert_fielder_info_sql = "INSERT INTO fielder_info (
                                                 player_id, fielder_type, throw_speed, running_speed, reaction, prep_time
                                                 ) VALUES (
@@ -249,6 +262,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         pitcher_info: &PitcherInfo,
     ) -> Result<(), AppError> {
+        info!("insert_pitcher_info() started");
+
         let insert_pitcher_info_sql = "INSERT INTO pitcher_info (
                                                             player_id,
                                                             pitcher_style,
@@ -292,6 +307,8 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         pitch_skill: &PitchSkill,
     ) -> Result<usize, AppError> {
+        info!("insert_pitch_skill() started");
+
         let insert_pitch_skill_sql = "INSERT INTO pitch_skill (
                                                             player_id,
                                                             pitch_type,
@@ -330,6 +347,8 @@ impl PlayerRepository for SqlPlayerRepository {
     }
 
     fn random_name(&self, language: String) -> Result<FullName, AppError> {
+        info!("random_name() started");
+
         let query = "SELECT 
 	                        fn.name AS first_name,
 	                        ln.name AS last_name
@@ -355,6 +374,8 @@ impl PlayerRepository for SqlPlayerRepository {
     }
 
     fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError> {
+        info!("next_player_dist_team() started for {}", position);
+
         let query = "SELECT
                             t.id AS id,
                             t.name AS name,
@@ -370,6 +391,8 @@ impl PlayerRepository for SqlPlayerRepository {
     }
 
     fn next_random_team(&self) -> Result<Team, AppError> {
+        info!("next_random_team() started");
+
         let query = "SELECT id, name
                     FROM team
                     ORDER BY RANDOM() 
@@ -383,10 +406,12 @@ impl PlayerRepository for SqlPlayerRepository {
         category2: &str,
         name: &str,
     ) -> Result<NormalParam, AppError> {
+        info!("normal_params() started");
+
         let query = "SELECT 
                         mean, std_dev, skew, coefficient, offset
                         FROM normal_param
-                        WHERE category1 = ?1 AND category = ?2 AND name = ?3";
+                        WHERE category1 = ?1 AND category2 = ?2 AND name = ?3";
         self.db_client
             .query_row::<NormalParam>(query, params![category1, category2, name])
     }
@@ -397,10 +422,12 @@ impl PlayerRepository for SqlPlayerRepository {
         category2: &str,
         name: &str,
     ) -> Result<GammaParam, AppError> {
+        info!("gamma_params() started");
+
         let query = "SELECT 
                         shape, scale, offset 
                         FROM gamma_param
-                        WHERE category1 = ?1 AND category = ?2 AND name = ?3";
+                        WHERE category1 = ?1 AND category2 = ?2 AND name = ?3";
         self.db_client
             .query_row::<GammaParam>(query, params![category1, category2, name])
     }
@@ -413,8 +440,9 @@ impl PlayerRepository for SqlPlayerRepository {
     where
         ItemWeighted<T>: FromRow<Error = AppError>,
     {
-        let query =
-            "SELECT name, weight AS prob FROM item_weighted WHERE category1 = ?1 AND category = ?2";
+        info!("item_probs() started");
+
+        let query = "SELECT name, weight AS prob FROM item_weighted WHERE category1 = ?1 AND category2 = ?2";
         self.db_client
             .query_rows::<ItemWeighted<T>>(query, params![category1, category2])
     }
@@ -550,29 +578,29 @@ mod tests {
 
             CREATE TABLE normal_param (
                 category1 TEXT,
-                category TEXT,
+                category2 TEXT,
                 name TEXT,
                 mean REAL NOT NULL,
                 std_dev REAL NOT NULL,
                 skew REAL NOT NULL,
                 coefficient REAL NOT NULL,
                 offset REAL NOT NULL,
-                PRIMARY KEY (category1, category, name)
+                PRIMARY KEY (category1, category2, name)
             );
 
             CREATE TABLE gamma_param (
                 category1 TEXT,
-                category TEXT,
+                category2 TEXT,
                 name TEXT,
                 shape REAL NOT NULL,
                 scale REAL NOT NULL,
                 offset REAL NOT NULL,
-                PRIMARY KEY (category1, category, name)
+                PRIMARY KEY (category1, category2, name)
             );
 
             CREATE TABLE item_weighted (
                 category1 TEXT,
-                category TEXT,
+                category2 TEXT,
                 name TEXT NOT NULL,
                 weight REAL NOT NULL
             );
@@ -666,7 +694,7 @@ mod tests {
     fn seed_position_prob(repo: &SqlPlayerRepository, position: Position, prob: f64) {
         conn(repo)
             .execute(
-                "INSERT INTO item_weighted (category1, category, name, weight)
+                "INSERT INTO item_weighted (category1, category2, name, weight)
                  VALUES ('player', 'position', ?1, ?2)",
                 params![position, prob],
             )
@@ -676,7 +704,7 @@ mod tests {
     fn seed_pitcher_style_prob(repo: &SqlPlayerRepository, pitcher_style: PitcherStyle, prob: f64) {
         conn(repo)
             .execute(
-                "INSERT INTO item_weighted (category1, category, name, weight)
+                "INSERT INTO item_weighted (category1, category2, name, weight)
                  VALUES ('player', 'pitcher_info', ?1, ?2)",
                 params![pitcher_style, prob],
             )
@@ -691,7 +719,7 @@ mod tests {
     ) {
         conn(repo)
             .execute(
-                "INSERT INTO item_weighted (category1, category, name, weight)
+                "INSERT INTO item_weighted (category1, category2, name, weight)
                  VALUES (?1, 'pitch_type', ?2, ?3)",
                 params![pitcher_style.as_ref(), pitch_type, prob],
             )
@@ -701,16 +729,16 @@ mod tests {
     fn seed_normal_param(
         repo: &SqlPlayerRepository,
         category1: &str,
-        category: &str,
+        category2: &str,
         name: &str,
         mean: f64,
     ) {
         conn(repo)
             .execute(
                 "INSERT INTO normal_param (
-                    category1, category, name, mean, std_dev, skew, coefficient, offset
+                    category1, category2, name, mean, std_dev, skew, coefficient, offset
                 ) VALUES (?1, ?2, ?3, ?4, 1.2, 1.3, 1.4, 1.5)",
-                params![category1, category, name, mean],
+                params![category1, category2, name, mean],
             )
             .unwrap();
     }
@@ -718,16 +746,16 @@ mod tests {
     fn seed_gamma_param(
         repo: &SqlPlayerRepository,
         category1: &str,
-        category: &str,
+        category2: &str,
         name: &str,
         shape: f64,
     ) {
         conn(repo)
             .execute(
                 "INSERT INTO gamma_param (
-                    category1, category, name, shape, scale, offset
+                    category1, category2, name, shape, scale, offset
                 ) VALUES (?1, ?2, ?3, ?4, 0.5, 18.0)",
-                params![category1, category, name, shape],
+                params![category1, category2, name, shape],
             )
             .unwrap();
     }
@@ -1149,7 +1177,7 @@ mod tests {
         seed_position_prob(&repo, Position::P, 0.42);
         conn(&repo)
             .execute(
-                "INSERT INTO item_weighted (category1, category, name, weight)
+                "INSERT INTO item_weighted (category1, category2, name, weight)
                  VALUES ('player', 'batting_side', 'Right', 0.6)",
                 [],
             )

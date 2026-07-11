@@ -67,7 +67,7 @@ impl RandomProvider for RealRng {
         } else {
             let val1: f64 = normal.sample(&mut self.0);
             let val2: f64 = normal.sample(&mut self.0).abs();
-            val1 + skew * val2 * coefficient + offset
+            (val1 + skew * val2) * coefficient + offset
         }
     }
 
@@ -181,88 +181,6 @@ pub fn choose_item_if_exists<T: Clone>(
 
     Ok(existing_items)
 }
-
-// pub trait RandomItemProvider: std::fmt::Debug {
-//     fn choose_item_weighted<'a, T>(
-//         &mut self,
-//         items: &'a [ItemWeighted<T>],
-//     ) -> Result<&'a T, AppError>;
-
-//     fn choose_item_if_exists<T: Clone>(
-//         &mut self,
-//         items: &[ItemWeighted<T>],
-//     ) -> Result<Vec<T>, AppError>;
-// }
-
-// #[derive(Debug)]
-// pub struct RealItemRng(pub StdRng);
-
-// impl RealItemRng {
-//     pub fn new() -> Self {
-//         Self(rand::make_rng())
-//     }
-
-//     pub fn from_seed(seed: u64) -> Self {
-//         Self(StdRng::seed_from_u64(seed))
-//     }
-// }
-
-// impl RandomItemProvider for RealItemRng {}
-
-// #[derive(Debug)]
-// pub struct FixedItemRng {
-//     value: f64,
-// }
-
-// impl FixedItemRng {
-//     pub fn new(value: f64) -> Self {
-//         Self { value }
-//     }
-// }
-
-// impl RandomItemProvider for FixedItemRng {
-//     fn choose_item_if_exists<T: Clone>(
-//         &mut self,
-//         items: &[ItemWeighted<T>],
-//     ) -> Result<Vec<T>, AppError> {
-//         if items.is_empty() {
-//             return Err(AppError::NotFound("item".to_string()));
-//         }
-
-//         let mut existing_items = Vec::new();
-
-//         for item in items {
-//             if item.weight >= self.value {
-//                 existing_items.push(item.name.clone());
-//             }
-//         }
-
-//         Ok(existing_items)
-//     }
-
-//     fn choose_item_weighted<'a, T>(
-//         &mut self,
-//         items: &'a [ItemWeighted<T>],
-//     ) -> Result<&'a T, AppError> {
-//         if items.is_empty() {
-//             return Err(AppError::NotFound("item".to_string()));
-//         }
-
-//         let total_weight: f64 = items.iter().map(|item| item.weight).sum();
-//         let target = self.value * total_weight;
-//         let mut cumulative = 0.0;
-
-//         for item in items {
-//             cumulative += item.weight;
-//             if target <= cumulative {
-//                 return Ok(&item.name);
-//             }
-//         }
-
-//         // Fallback to last item (should not be reached due to float precision)
-//         Ok(&items[items.len() - 1].name)
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
