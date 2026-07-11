@@ -1,6 +1,6 @@
+use crate::I18nManager;
 use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::t;
-use crate::I18nManager;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum_macros::{AsRefStr, EnumIter, EnumString};

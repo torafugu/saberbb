@@ -12,7 +12,7 @@ use anyhow::Result;
 use rusqlite::{Transaction, params};
 
 pub trait PlayerRepository {
-    fn insert_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError>;
+    fn insert_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError>;
     fn insert_offense_skills(
         &self,
         tx: &Transaction,
@@ -91,7 +91,7 @@ impl SqlPlayerRepository {
 }
 
 impl PlayerRepository for SqlPlayerRepository {
-    fn insert_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError> {
+    fn insert_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError> {
         self.db_client.transaction(|tx| {
             let insert_player_sql = "INSERT INTO player_info (
                                         team_id, first_name, last_name, age, uniform_number
@@ -770,7 +770,7 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
 
-        repo.insert_player(1, player()).unwrap();
+        repo.insert_player(1, &player()).unwrap();
 
         let conn = conn(&repo);
         let row: (u16, String, String, u8, u8) = conn
@@ -805,7 +805,7 @@ mod tests {
         let mut player = player();
         player.defense_skills.primary_position = Position::P;
 
-        repo.insert_player(1, player).unwrap();
+        repo.insert_player(1, &player).unwrap();
 
         let conn = conn(&repo);
         let primary_position: String = conn
@@ -838,7 +838,7 @@ mod tests {
             fielder_info: fielder_info(FielderType::Pitcher),
         });
 
-        repo.insert_player(1, player).unwrap();
+        repo.insert_player(1, &player).unwrap();
 
         let conn = conn(&repo);
         let row: (u32, String, f64, f64, f64, f64, f64, f64, f64, f64) = conn
@@ -915,7 +915,7 @@ mod tests {
             fielder_info: fielder_info(FielderType::Pitcher),
         });
 
-        repo.insert_player(1, player).unwrap();
+        repo.insert_player(1, &player).unwrap();
 
         let conn = conn(&repo);
         let row: (
@@ -975,7 +975,7 @@ mod tests {
         let (mut repo, path) = setup_repo_without_player_table();
         seed_team(&repo, 1, "ライオンズ");
 
-        let result = repo.insert_player(1, player());
+        let result = repo.insert_player(1, &player());
 
         assert!(result.is_err());
         std::fs::remove_file(path).ok();

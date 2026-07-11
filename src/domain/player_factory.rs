@@ -66,12 +66,16 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     pub fn generate_and_save_players(&mut self, count: u16) -> Result<()> {
         self.load_player_probs()?;
 
-        // TODO: save_player shoud save all the players at last.
+        let mut players = Vec::new();
+
         for _ in 0..count {
             let player = self.generate_player()?;
             let team = self.assign_team(&player)?;
-            self.service.save_player(team.id, player)?;
+            players.push((team.id, player));
         }
+
+        self.service.save_players(players)?;
+
         Ok(())
     }
 

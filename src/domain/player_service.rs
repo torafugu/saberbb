@@ -212,8 +212,12 @@ impl<R: PlayerRepository> PlayerService<R> {
         Ok(team)
     }
 
-    pub fn save_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError> {
-        self.repo.insert_player(team_id, player)
+    pub fn save_players(&mut self, players: Vec<(u16, Player)>) -> Result<(), AppError> {
+        for player in players {
+            self.repo.insert_player(player.0, &player.1);
+        }
+
+        Ok(())
     }
 }
 
@@ -403,7 +407,7 @@ mod tests {
     }
 
     impl PlayerRepository for RecordingRepo {
-        fn insert_player(&mut self, team_id: u16, player: Player) -> Result<(), AppError> {
+        fn insert_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError> {
             let call_index = self.state.save_calls.get();
             self.state.save_calls.set(call_index + 1);
 
@@ -411,7 +415,10 @@ mod tests {
                 return Err(AppError::Internal(anyhow!("save failed")));
             }
 
-            self.state.saved.borrow_mut().push((team_id, player));
+            self.state
+                .saved
+                .borrow_mut()
+                .push((team_id, player.clone()));
             Ok(())
         }
 
@@ -730,10 +737,12 @@ mod tests {
             state.pitch_skill_prob_calls.get(),
             PitchType::iter().count() * 11
         );
-        assert!(state
-            .pitch_skill_prob_types
-            .borrow()
-            .contains(&PitchType::Changeup));
+        assert!(
+            state
+                .pitch_skill_prob_types
+                .borrow()
+                .contains(&PitchType::Changeup)
+        );
     }
 
     #[test]
@@ -753,7 +762,9 @@ mod tests {
         };
         let team = Team::min(3, "Tigers");
 
-        service.save_player(team.id, player).unwrap();
+        service
+            .save_players(vec![(team.id, player.clone())])
+            .unwrap();
 
         let saved = state.saved.borrow();
         assert_eq!(state.save_calls.get(), 1);

@@ -900,10 +900,10 @@ mod tests {
         CatcherInfo {
             info: FielderInfo {
                 fielder_type: FielderType::Catcher,
-                throw_speed: 40.0,
+                throw_speed,
                 running_speed: 7.0,
                 reaction: 0.5,
-                prep_time: 0.65,
+                prep_time,
             },
         }
     }
