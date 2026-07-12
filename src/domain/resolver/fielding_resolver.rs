@@ -585,7 +585,8 @@ pub fn evaluate_base_stealing(
     let target_pos = target_base.polar_position();
     let throw_distance = calculate_polar_distance(&home_pos, &target_pos);
 
-    let catcher_pop_time = catcher.info.prep_time + (throw_distance / catcher.info.throw_speed);
+    let catcher_pop_time =
+        catcher.fielder_info.prep_time + (throw_distance / catcher.fielder_info.throw_speed);
 
     let final_fielder_position = if rng.random() < WEIGHT_SS_BASE_COVER {
         Position::SS
@@ -898,7 +899,7 @@ mod tests {
 
     fn catcher(prep_time: f64, throw_speed: f64) -> CatcherInfo {
         CatcherInfo {
-            info: FielderInfo {
+            fielder_info: FielderInfo {
                 fielder_type: FielderType::Catcher,
                 throw_speed,
                 running_speed: 7.0,
@@ -921,8 +922,8 @@ mod tests {
             calculate_polar_distance(&Base::Home.polar_position(), &target_base.polar_position());
 
         pitcher.delivery_motion_time
-            + catcher.info.prep_time
-            + (throw_distance / catcher.info.throw_speed)
+            + catcher.fielder_info.prep_time
+            + (throw_distance / catcher.fielder_info.throw_speed)
             + 0.3
     }
 

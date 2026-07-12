@@ -1,13 +1,15 @@
 use super::player::Position;
-use crate::domain::shared::game_state::GameError;
+use crate::domain::random_provider::RandomProvider;
+use crate::domain::shared::game_state::{
+    ActiveBatter, ActiveCatcher, ActiveFielder, ActivePitcher, GameError,
+};
 use crate::domain::shared::player::Player;
-use rand::prelude::IndexedRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use validator::Validate;
 
-pub const MAX_BATTING_ORDER: usize = 9;
+pub const MAX_LINEUP_PLAYERS: usize = 10;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Validate)]
 pub struct League {
@@ -31,14 +33,14 @@ impl Team {
         }
     }
 
-    pub fn lineup(&mut self, is_dh: bool) -> Result<Lineup, GameError> {
-        let mut rng = rand::rng();
-        let mut batting_orders = Vec::new();
-        // let mut players = self.players.clone();
-        // players.shuffle(&mut rng);
+    pub fn lineup(&mut self, mut rng: Box<dyn RandomProvider>) -> Result<Lineup, GameError> {
+        let mut batters = Vec::new();
+        let mut fielders = Vec::new();
+        let mut temp_pitcher: Option<ActivePitcher> = None;
+        let mut temp_catcher: Option<ActiveCatcher> = None;
 
-        let mut position_map = self.init_position_hashmap(is_dh);
-        // TODO: Consider multiptile defense skills
+        let mut position_map = self.init_position_hashmap();
+
         for player in &self.players {
             position_map
                 .entry(player.defense_skills.primary_position)
@@ -47,36 +49,58 @@ impl Team {
         }
 
         for (key, vec) in position_map {
-            if let Some(&random_player) = vec.choose(&mut rng) {
-                batting_orders.push(BattingOrder {
-                    index: 0,
-                    position: key,
-                    player: random_player.clone(),
-                });
-            } else {
+            if vec.is_empty() {
                 return Err(GameError::NoPlayerFor(key.to_string()));
             }
+
+            // TODO: Consider player ability to select the lineup
+            let index = rng.gen_range(0, vec.len() - 1);
+            let random_player = vec[index];
+
+            if random_player.defense_skills.primary_position != Position::P {
+                batters.push(ActiveBatter::new(
+                    random_player.info.id,
+                    random_player.batter()?,
+                ));
+            } else {
+                temp_pitcher = Some(ActivePitcher {
+                    player_id: random_player.info.id,
+                    pitcher: random_player.pitcher()?,
+                });
+            }
+
+            if random_player.defense_skills.primary_position == Position::C {
+                temp_catcher = Some(ActiveCatcher {
+                    player_id: random_player.info.id,
+                    catcher: random_player.catcher()?,
+                });
+            }
+
+            if random_player.defense_skills.primary_position != Position::DH {
+                fielders.push(ActiveFielder::new(
+                    random_player.defense_skills.primary_position,
+                    random_player.info.id,
+                    random_player.fielder()?,
+                ));
+            }
         }
+
+        let pitcher = temp_pitcher.ok_or(GameError::NoPlayerFor(Position::P.to_string()))?;
+        let catcher = temp_catcher.ok_or(GameError::NoPlayerFor(Position::C.to_string()))?;
 
         // TODO: The batting order should be considered by team starategy.
-        batting_orders.sort_by_key(|order| order.player.info.id);
-        for (order, batting_order) in batting_orders.iter_mut().enumerate() {
-            batting_order.index = (order + 1) as u8;
+        batters.sort_by(|a, b| b.batter.swing_speed.total_cmp(&a.batter.swing_speed));
+        for (order, active_batter) in batters.iter_mut().enumerate() {
+            active_batter.index = (order + 1) as u8;
         }
 
-        Ok(Lineup::new(batting_orders)?)
+        Ok(Lineup::new(batters, fielders, pitcher, catcher)?)
     }
 
-    fn init_position_hashmap(&self, is_dh: bool) -> HashMap<Position, Vec<&Player>> {
+    fn init_position_hashmap(&self) -> HashMap<Position, Vec<&Player>> {
         let mut map: HashMap<Position, Vec<&Player>> = HashMap::new();
-        if is_dh {
-            for position in Position::ALL {
-                map.entry(position).or_insert_with(Vec::new);
-            }
-        } else {
-            for position in Position::ALL_NO_DH {
-                map.entry(position).or_insert_with(Vec::new);
-            }
+        for position in Position::ALL {
+            map.entry(position).or_insert_with(Vec::new);
         }
         map
     }
@@ -85,47 +109,42 @@ impl Team {
 #[derive(Clone, Debug)]
 pub struct Lineup {
     pub current_index: usize,
-    pub batters: Vec<BattingOrder>,
+    pub batters: [ActiveBatter; 9],
+    pub fielders: [ActiveFielder; 9],
+    pub pitcher: ActivePitcher,
+    pub catcher: ActiveCatcher,
 }
 impl Lineup {
-    pub fn new(batters: Vec<BattingOrder>) -> Result<Self, GameError> {
-        if batters.is_empty() {
-            return Err(GameError::Lineup("Batting order is empty".to_string()));
-        } else if batters.len() != MAX_BATTING_ORDER {
-            return Err(GameError::Lineup(
-                "Batting order length is not 9".to_string(),
-            ));
-        }
+    pub fn new(
+        vec_batters: Vec<ActiveBatter>,
+        vec_fielders: Vec<ActiveFielder>,
+        pitcher: ActivePitcher,
+        catcher: ActiveCatcher,
+    ) -> Result<Self, GameError> {
+        let arr_batters: [ActiveBatter; 9] = vec_batters
+            .try_into()
+            .expect("Number of batters must be 9.");
+        let arr_fielders: [ActiveFielder; 9] = vec_fielders
+            .try_into()
+            .expect("Number of batters must be 9.");
+
         Ok(Self {
             current_index: 0,
-            batters,
+            batters: arr_batters,
+            fielders: arr_fielders,
+            pitcher: pitcher,
+            catcher: catcher,
         })
     }
-}
-impl Iterator for Lineup {
-    type Item = Player;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn next(&mut self) -> Result<ActiveBatter, GameError> {
         if self.batters.is_empty() {
-            return None;
+            return Err(GameError::Lineup("batters are empty.".to_string()));
         }
 
-        let batting_order = self.batters[self.current_index].clone();
-
-        // Use the modulo operator (%) to rotate the index around the range 0..N
+        let active_batter = self.batters[self.current_index].clone();
         self.current_index = (self.current_index + 1) % self.batters.len();
-        Some(batting_order.player)
-    }
-}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BattingOrder {
-    pub index: u8,
-    pub position: Position,
-    pub player: Player,
-}
-impl BattingOrder {
-    pub fn is(&self, position: Position) -> bool {
-        self.position == position
+        Ok(active_batter)
     }
 }

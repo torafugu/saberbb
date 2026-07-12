@@ -109,7 +109,9 @@ impl<R: PlayerRepository> PlayerFactory<R> {
                     defense_skills.pitcher = Some(self.assign_pitcher_info(&fileder_info)?)
                 }
                 FielderType::Catcher => {
-                    defense_skills.catcher = Some(CatcherInfo { info: fileder_info })
+                    defense_skills.catcher = Some(CatcherInfo {
+                        fielder_info: fileder_info,
+                    })
                 }
             }
         }

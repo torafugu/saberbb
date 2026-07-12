@@ -212,7 +212,7 @@ impl PlayerRepository for SqlPlayerRepository {
         }
 
         if let Some(catcher) = &defense_skills.catcher {
-            self.insert_fielder_info(tx, player_id, &catcher.info)?;
+            self.insert_fielder_info(tx, player_id, &catcher.fielder_info)?;
         }
 
         if let Some(middle_infielder) = &defense_skills.middle_infielder {

@@ -1,4 +1,5 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress, InningState};
+use crate::domain::random_provider::RealRng;
 use crate::domain::shared::game::GameResult;
 use crate::domain::shared::player::Player;
 use crate::repositories::game_repository::GameRepository;
@@ -22,45 +23,43 @@ impl<R: GameRepository> GameService<R> {
             let mut game_state = GameState::new(
                 game_schedule.away_team.id,
                 game_schedule.home_team.id,
-                game_schedule.away_team.lineup(false)?,
-                game_schedule.home_team.lineup(false)?,
+                game_schedule.away_team.lineup(Box::new(RealRng::new()))?,
+                game_schedule.home_team.lineup(Box::new(RealRng::new()))?,
             )?;
             let mut game_result = GameResult::new(
                 game_schedule.id,
                 game_schedule.planned_date,
                 game_schedule.away_team.id,
                 game_schedule.home_team.id,
-                game_state.away_lineup.batters.clone(),
-                game_state.home_lineup.batters.clone(),
+                &game_state.away_lineup.fielders,
+                &game_state.home_lineup.fielders,
             );
 
             while let GameProgress::Ongoing = game_state.progress() {
-                let mut inning = game_state.advance_half_inning();
-                let mut inning_state = InningState::new();
+                game_state.advance_half_inning();
 
-                while let InningProgress::Ongoing = inning_state.progress() {
-                    let batting_result = game_state.batting_resolve()?;
+                while let InningProgress::Ongoing = game_state.inning_state.progress() {
+                    game_state.batting_resolve()?;
 
-                    let count = inning_state.add_count(&batting_result);
-
-                    game_state.add_point(count.point);
                     game_result
                         .batting_result_histories
-                        .push(game_state.add_batting_result_hisrory(count.seq, &batting_result)?);
-                    inning.add_count(count);
+                        .push(game_state.batting_result_hisrory);
 
                     if let GameProgress::WalkOff = game_state.progress() {
                         break;
                     }
                 }
 
-                game_result.update_point(&game_state);
-                game_result.innings.push(inning);
+                game_result.innings.push(game_state.inning.clone());
 
                 if let GameProgress::GameSet = game_state.progress() {
                     break;
                 }
             }
+
+            game_result.away_total_point = game_state.away_total_point;
+            game_result.home_total_point = game_state.home_total_point;
+
             if let Err(e) = self.repo.save_game_result(&game_result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
@@ -81,7 +80,7 @@ mod tests {
     use crate::domain::shared::game::{
         Count, GameDetail, GameHeader, GameScheduler, GameType, Inning, TB,
     };
-    use crate::domain::shared::game_history::{BattingOrderHistory, BattingResultHistory};
+    use crate::domain::shared::game_history::{ActiveFielderHistory, BattingResultHistory};
     use crate::domain::shared::player::{DefenseSkills, Position, RL};
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
@@ -187,7 +186,7 @@ mod tests {
         fn load_batting_order_histories(
             &self,
             _game_id: u32,
-        ) -> std::result::Result<Vec<BattingOrderHistory>, AppError> {
+        ) -> std::result::Result<Vec<ActiveFielderHistory>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
@@ -307,8 +306,14 @@ mod tests {
         let saved = &service.repo.saved_results[0];
         // Consider in case canceled due to rain
         assert!((17..=18).contains(&saved.innings.len()));
-        assert_eq!(saved.away_points, points_by_inning_type(saved, TB::Top));
-        assert_eq!(saved.home_points, points_by_inning_type(saved, TB::Bottom));
+        assert_eq!(
+            saved.away_total_point,
+            points_by_inning_type(saved, TB::Top)
+        );
+        assert_eq!(
+            saved.home_total_point,
+            points_by_inning_type(saved, TB::Bottom)
+        );
 
         for inning in &saved.innings {
             assert!(inning.seq >= 1);

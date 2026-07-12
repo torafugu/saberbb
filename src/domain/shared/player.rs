@@ -1,5 +1,6 @@
 use crate::I18nManager;
 use crate::domain::resolver::batting_resolver::FieldSector;
+use crate::domain::shared::game_state::GameError;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -37,18 +38,6 @@ impl Position {
         Position::CF,
         Position::RF,
         Position::DH,
-    ];
-    // TODO: Tobe removed.
-    pub const ALL_NO_DH: [Position; 9] = [
-        Position::P,
-        Position::C,
-        Position::FB,
-        Position::SB,
-        Position::TB,
-        Position::SS,
-        Position::LF,
-        Position::CF,
-        Position::RF,
     ];
 
     pub fn is_outfielder(self) -> bool {
@@ -168,6 +157,16 @@ impl PlayerInfo {
         }
     }
 
+    pub fn new_min(id: i64, first_name: String, last_name: String) -> Self {
+        Self {
+            id: id,
+            first_name: first_name,
+            last_name: last_name,
+            age: 0,
+            uniform_number: 0,
+        }
+    }
+
     pub fn full_name(&self) -> String {
         I18nManager::global().full_name(&self.first_name, &self.last_name)
     }
@@ -245,6 +244,66 @@ impl Player {
     pub fn full_name(&self) -> String {
         self.info.full_name()
     }
+
+    pub fn batter(&self) -> Result<BatterInfo, GameError> {
+        if let Some(batter) = self.offense_skills.batter {
+            Ok(batter)
+        } else {
+            return Err(GameError::BatterInfo);
+        }
+    }
+
+    pub fn pitcher(&self) -> Result<PitcherInfo, GameError> {
+        if let Some(pitcher) = &self.defense_skills.pitcher {
+            Ok(pitcher.clone())
+        } else {
+            return Err(GameError::PitcherInfo);
+        }
+    }
+
+    pub fn catcher(&self) -> Result<CatcherInfo, GameError> {
+        if let Some(catcher) = self.defense_skills.catcher {
+            Ok(catcher)
+        } else {
+            return Err(GameError::PitcherInfo);
+        }
+    }
+
+    pub fn fielder(&self) -> Result<FielderInfo, GameError> {
+        if self.defense_skills.primary_position == Position::P {
+            if let Some(pitcher) = &self.defense_skills.pitcher {
+                Ok(pitcher.fielder_info)
+            } else {
+                return Err(GameError::FielderInfo);
+            }
+        } else if self.defense_skills.primary_position == Position::C {
+            if let Some(catcher) = self.defense_skills.catcher {
+                Ok(catcher.fielder_info)
+            } else {
+                return Err(GameError::FielderInfo);
+            }
+        } else if self.defense_skills.primary_position.is_middle_infielder() {
+            if let Some(middle_infielder) = self.defense_skills.middle_infielder {
+                Ok(middle_infielder)
+            } else {
+                return Err(GameError::FielderInfo);
+            }
+        } else if self.defense_skills.primary_position.is_corner_infielder() {
+            if let Some(corner_infielder) = self.defense_skills.corner_infielder {
+                Ok(corner_infielder)
+            } else {
+                return Err(GameError::FielderInfo);
+            }
+        } else if self.defense_skills.primary_position.is_outfielder() {
+            if let Some(outfielder) = self.defense_skills.outfielder {
+                Ok(outfielder)
+            } else {
+                return Err(GameError::FielderInfo);
+            }
+        } else {
+            return Err(GameError::FielderInfo);
+        }
+    }
 }
 #[derive(
     Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, EnumIter, Hash, Debug, AsRefStr,
@@ -265,7 +324,7 @@ impl fmt::Display for HitterTendency {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterInfo {
     pub batting_side: RL,
     pub swing_speed: f64,
@@ -308,7 +367,7 @@ pub struct RunningSkills {
 }
 
 // TODO: Randomize throw_speed, running_speed, reaction and prep_time
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Validate)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug, Validate)]
 pub struct FielderInfo {
     pub fielder_type: FielderType,
     pub throw_speed: f64,   // NOTE: Throw speed (m/s) e.g. 35.0 – 42.0 m/s
@@ -318,9 +377,9 @@ pub struct FielderInfo {
 }
 
 // TODO: Consider calling pitches skill
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct CatcherInfo {
-    pub info: FielderInfo,
+    pub fielder_info: FielderInfo,
 }
 
 #[derive(
@@ -419,7 +478,7 @@ impl PitcherInfo {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PitchSkill {
     pub pitch_type: PitchType,
     pub velocity: f64,

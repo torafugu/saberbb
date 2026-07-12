@@ -236,7 +236,7 @@ fn test_through_inning() -> Result<(), GameError> {
     };
 
     let catcher = CatcherInfo {
-        info: FielderInfo {
+        fielder_info: FielderInfo {
             fielder_type: FielderType::Catcher,
             throw_speed: 40.0,
             running_speed: 7.0,
@@ -486,7 +486,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
         },
     };
     let catcher = CatcherInfo {
-        info: FielderInfo {
+        fielder_info: FielderInfo {
             fielder_type: FielderType::Catcher,
             throw_speed: 40.0,
             running_speed: 7.0,

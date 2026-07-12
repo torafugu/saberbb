@@ -135,7 +135,7 @@ impl GameCursor {
         self.current_inning()
             .counts
             .iter()
-            .find(|i| i.seq == self.count_seq)
+            .find(|i| i.seq == self.count_seq as u16)
             .expect("Count is not found")
             .clone()
     }
@@ -169,7 +169,7 @@ impl GameCursor {
                 }
                 if inning.seq == self.inning_seq
                     && inning.tb == self.inning_tb
-                    && count.seq == self.count_seq
+                    && count.seq == self.count_seq as u16
                 {
                     break 'inning;
                 }
@@ -179,12 +179,22 @@ impl GameCursor {
         scoreboard
     }
 
-    fn current_team(&self) -> &Team {
+    fn current_fielding_team(&self) -> &Team {
         if self.inning_tb == TB::Top {
-            &self.game.away_team
-        } else {
             &self.game.home_team
+        } else {
+            &self.game.away_team
         }
+    }
+
+    fn player_by_id(&self, player_id: i64) -> Option<Player> {
+        self.game
+            .away_team
+            .players
+            .iter()
+            .chain(self.game.home_team.players.iter())
+            .find(|player| player.info.id == player_id)
+            .cloned()
     }
 
     pub fn current_pitcher(&mut self) -> Result<Player, GameViewError> {
@@ -227,15 +237,8 @@ impl GameCursor {
         self.game
             .batting_order_histories
             .iter()
-            .find(|i| {
-                i.is_position(
-                    self.current_team().id,
-                    position,
-                    self.inning_seq,
-                    self.count_seq,
-                )
-            })
-            .map(|i| i.player.clone())
+            .find(|i| i.is_position(self.current_fielding_team().id, position, self.count_seq))
+            .and_then(|i| self.player_by_id(i.player_id))
             .ok_or_else(|| GameViewError::NoPlayerFor(position.to_string()))
     }
 
@@ -243,8 +246,8 @@ impl GameCursor {
         self.game
             .batting_result_histories
             .iter()
-            .find(|i| i.is(self.current_team().id, self.inning_seq, self.count_seq))
-            .map(|i| i.batter.clone())
+            .find(|i| i.is(self.count_seq as u16))
+            .and_then(|i| self.player_by_id(i.batter_id))
             .ok_or_else(|| GameViewError::NoPlayerFor("batter".to_string()))
     }
 }

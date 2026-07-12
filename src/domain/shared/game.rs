@@ -1,6 +1,6 @@
-use super::game_history::{BattingOrderHistory, BattingResultHistory};
-use super::game_state::GameState;
-use super::team::{BattingOrder, Team};
+use super::game_history::{ActiveFielderHistory, BattingResultHistory};
+use super::game_state::{ActiveFielder, GameState};
+use super::team::Team;
 use crate::domain::shared::player::Position;
 use crate::t;
 use chrono::NaiveDate;
@@ -78,9 +78,9 @@ pub struct GameResult {
     pub id: u32,
     pub actual_date: NaiveDate,
     pub innings: Vec<Inning>,
-    pub away_points: u8,
-    pub home_points: u8,
-    pub batting_order_histories: Vec<BattingOrderHistory>,
+    pub away_total_point: u8,
+    pub home_total_point: u8,
+    pub active_fielder_histories: Vec<ActiveFielderHistory>,
     pub batting_result_histories: Vec<BattingResultHistory>,
 }
 impl GameResult {
@@ -89,90 +89,66 @@ impl GameResult {
         actual_date: NaiveDate,
         away_team_id: u16,
         home_team_id: u16,
-        away_batting_orders: Vec<BattingOrder>,
-        home_batting_orders: Vec<BattingOrder>,
+        away_active_fielders: &[ActiveFielder; 9],
+        home_active_fielders: &[ActiveFielder; 9],
     ) -> Self {
-        let batting_order_histories = Self::init_batting_order_histories(
+        let active_fielder_histories = Self::init_active_fielder_histories(
             away_team_id,
             home_team_id,
-            away_batting_orders,
-            home_batting_orders,
+            away_active_fielders,
+            home_active_fielders,
         );
         Self {
             id: id,
             actual_date: actual_date,
             innings: Vec::new(),
-            away_points: 0,
-            home_points: 0,
-            batting_order_histories: batting_order_histories,
+            away_total_point: 0,
+            home_total_point: 0,
+            active_fielder_histories,
             batting_result_histories: Vec::new(),
         }
     }
-    pub fn update_point(&mut self, game_state: &GameState) {
-        if game_state.inning_tb == TB::Bottom {
-            self.home_points = game_state.home_total_point;
-        } else {
-            self.away_points = game_state.away_total_point;
-        }
-    }
 
-    fn init_batting_order_histories(
+    fn init_active_fielder_histories(
         away_team_id: u16,
         home_team_id: u16,
-        away_team_batting_orders: Vec<BattingOrder>,
-        home_team_batting_orders: Vec<BattingOrder>,
-    ) -> Vec<BattingOrderHistory> {
-        let mut batting_order_histories = Vec::new();
+        away_team_active_fielders: &[ActiveFielder; 9],
+        home_team_active_fielders: &[ActiveFielder; 9],
+    ) -> Vec<ActiveFielderHistory> {
+        let mut active_fielder_histories = Vec::new();
 
-        for away_team_batting_order in away_team_batting_orders {
-            batting_order_histories.push(Self::add_batting_order_hitstory(
+        for away_team_active_fielder in away_team_active_fielders {
+            active_fielder_histories.push(Self::add_active_fielder_hitstory(
                 1,
-                TB::Top,
                 1,
-                None,
-                None,
-                None,
                 away_team_id,
-                away_team_batting_order,
+                away_team_active_fielder,
             ));
         }
-        for home_team_batting_order in home_team_batting_orders {
-            batting_order_histories.push(Self::add_batting_order_hitstory(
+        for home_team_active_fielder in home_team_active_fielders {
+            active_fielder_histories.push(Self::add_active_fielder_hitstory(
                 1,
-                TB::Bottom,
                 1,
-                None,
-                None,
-                None,
                 home_team_id,
-                home_team_batting_order,
+                home_team_active_fielder,
             ));
         }
 
-        batting_order_histories
+        active_fielder_histories
     }
 
-    fn add_batting_order_hitstory(
-        start_inning_seq: u8,
-        start_inning_tb: TB,
+    fn add_active_fielder_hitstory(
         start_count_seq: u8,
-        end_inning_seq: Option<u8>,
-        end_inning_tb: Option<TB>,
-        end_count_seq: Option<u8>,
+        end_count_seq: u8,
         team_id: u16,
-        batting_order: BattingOrder,
-    ) -> BattingOrderHistory {
-        BattingOrderHistory::new(
-            start_inning_seq,
-            start_inning_tb,
+        active_fielder: &ActiveFielder,
+    ) -> ActiveFielderHistory {
+        ActiveFielderHistory::new(
             start_count_seq,
-            end_inning_seq,
-            end_inning_tb,
             end_count_seq,
             team_id,
-            batting_order.index,
-            batting_order.position,
-            batting_order.player,
+            active_fielder.position,
+            active_fielder.player_id,
         )
     }
 }
@@ -187,7 +163,7 @@ pub struct GameDetail {
     pub innings: Vec<Inning>,
     pub away_points: u8,
     pub home_points: u8,
-    pub batting_order_histories: Vec<BattingOrderHistory>,
+    pub batting_order_histories: Vec<ActiveFielderHistory>,
     pub batting_result_histories: Vec<BattingResultHistory>,
 }
 
@@ -198,6 +174,14 @@ pub struct Inning {
     pub counts: Vec<Count>,
 }
 impl Inning {
+    pub fn new() -> Self {
+        Self {
+            seq: 0,
+            tb: TB::Bottom,
+            counts: Vec::new(),
+        }
+    }
+
     pub fn is(&self, seq: u8, tb: TB) -> bool {
         self.seq == seq && self.tb == tb
     }
@@ -207,9 +191,9 @@ impl Inning {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct Count {
-    pub seq: u8,
+    pub seq: u16,
     pub bases_occupied: u8,
     pub point: u8,
     pub ball: u8,
@@ -217,7 +201,7 @@ pub struct Count {
     pub out: u8,
 }
 
-#[derive(Clone, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
+#[derive(Clone, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum BattingResult {
     Single,

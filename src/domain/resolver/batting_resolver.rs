@@ -71,6 +71,7 @@ fn sample_spray_angle(tendency: &BatterInfo) -> f64 {
     final_angle
 }
 
+// TODO: rng should be passed as parameter
 pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBall {
     let mut rng = rand::rng();
 

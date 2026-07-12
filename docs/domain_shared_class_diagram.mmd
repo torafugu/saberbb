@@ -228,21 +228,6 @@ classDiagram
         +Vec~BattingOrderHistory~ batting_order_histories
     }
 
-    class GameRow {
-        +u32 id
-        +u16 season
-        +u16 round_seq
-        +u16 seq
-        +NaiveDate planned_date
-        +NaiveDate actual_date
-        +Team away_team
-        +Team home_team
-        +GameType game_type
-        +Vec~Inning~ innings
-        +u8 away_points
-        +u8 home_points
-    }
-
     class Inning {
         +u8 seq
         +TB tb

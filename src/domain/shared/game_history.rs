@@ -1,10 +1,10 @@
 use super::game::{BattingResult, TB};
-use super::player::{Player, Position};
+use crate::domain::shared::player::Position;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct BattingOrderHistory {
+pub struct ActiveFielderHistoryView {
     pub start_inning_seq: u8,
     pub start_inning_tb: TB,
     pub start_count_seq: u8,
@@ -12,81 +12,60 @@ pub struct BattingOrderHistory {
     pub end_inning_tb: Option<TB>,
     pub end_count_seq: Option<u8>,
     pub team_id: u16,
-    pub index: u8,
     pub position: Position,
-    pub player: Player,
-}
-impl BattingOrderHistory {
-    pub fn new(
-        start_inning_seq: u8,
-        start_inning_tb: TB,
-        start_count_seq: u8,
-        end_inning_seq: Option<u8>,
-        end_inning_tb: Option<TB>,
-        end_count_seq: Option<u8>,
-        team_id: u16,
-        index: u8,
-        position: Position,
-        player: Player,
-    ) -> Self {
-        Self {
-            start_inning_seq: start_inning_seq,
-            start_inning_tb: start_inning_tb,
-            start_count_seq: start_count_seq,
-            end_inning_seq: end_inning_seq,
-            end_inning_tb: end_inning_tb,
-            end_count_seq: end_count_seq,
-            team_id: team_id,
-            index: index,
-            position: position,
-            player: player,
-        }
-    }
-
-    pub fn is_position(
-        &self,
-        team_id: u16,
-        position: Position,
-        inning_seq: u8,
-        count_seq: u8,
-    ) -> bool {
-        self.team_id == team_id
-            && self.position == position
-            && self.start_inning_seq <= inning_seq
-            && self.start_count_seq <= count_seq
-            && self.end_inning_seq() >= inning_seq
-            && self.end_count_seq() >= count_seq
-    }
-
-    fn end_inning_seq(&self) -> u8 {
-        if let Some(inning_seq) = self.end_inning_seq {
-            inning_seq
-        } else {
-            u8::MAX
-        }
-    }
-
-    fn end_count_seq(&self) -> u8 {
-        if let Some(count_seq) = self.end_count_seq {
-            count_seq
-        } else {
-            u8::MAX
-        }
-    }
+    pub player_id: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct BattingResultHistory {
-    pub inning_seq: u8,
-    pub inning_tb: TB,
-    pub count_seq: u8,
+pub struct ActiveFielderHistory {
+    pub start_count_seq: u8,
+    pub end_count_seq: u8,
     pub team_id: u16,
-    pub pitcher: Player,
-    pub batter: Player,
+    pub position: Position,
+    pub player_id: i64,
+}
+impl ActiveFielderHistory {
+    pub fn new(
+        start_count_seq: u8,
+        end_count_seq: u8,
+        team_id: u16,
+        position: Position,
+        player_id: i64,
+    ) -> Self {
+        Self {
+            start_count_seq: start_count_seq,
+            end_count_seq: end_count_seq,
+            team_id: team_id,
+            position: position,
+            player_id: player_id,
+        }
+    }
+
+    pub fn is_position(&self, team_id: u16, position: Position, count_seq: u8) -> bool {
+        self.team_id == team_id
+            && self.position == position
+            && self.start_count_seq <= count_seq
+            && self.end_count_seq >= count_seq
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
+pub struct BattingResultHistory {
+    pub count_seq: u16,
+    pub pitcher_id: i64,
+    pub batter_id: i64,
     pub result: BattingResult,
 }
 impl BattingResultHistory {
-    pub fn is(&self, team_id: u16, inning_seq: u8, count_seq: u8) -> bool {
-        self.team_id == team_id && self.inning_seq == inning_seq && self.count_seq == count_seq
+    pub fn new() -> Self {
+        Self {
+            count_seq: 0,
+            pitcher_id: 0,
+            batter_id: 0,
+            result: BattingResult::Out,
+        }
+    }
+    pub fn is(&self, count_seq: u16) -> bool {
+        self.count_seq == count_seq
     }
 }
