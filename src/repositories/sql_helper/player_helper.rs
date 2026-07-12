@@ -1,6 +1,6 @@
 use crate::domain::shared::player::{
-    BatterInfo, DefenseSkills, FielderInfo, FielderType, FullName, HitterTendency, PitchType,
-    PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+    BatterInfo, DefenseSkills, FielderInfo, FielderType, FullName, HitterTendency, PitchSkill,
+    PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
 };
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -159,6 +159,55 @@ impl FromRow for FielderInfo {
         fielder_info.validate()?;
 
         Ok(fielder_info)
+    }
+}
+
+impl FromRow for PitcherInfo {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let pitcher_info = PitcherInfo {
+            pitcher_style: row.get("pitcher_style")?,
+            velocity: row.get("velocity")?,
+            control: row.get("control")?,
+            stamina: row.get("stamina")?,
+            injury_proneness: row.get("injury_proneness")?,
+            clutch: row.get("clutch")?,
+            hpp: row.get("hpp")?,
+            platoon_splitting: row.get("platoon_splitting")?,
+            delivery_motion_time: row.get("delivery_motion_time")?,
+            pitch_skills: Vec::new(),
+            fielder_info: FielderInfo::new_pitcher(),
+        };
+
+        pitcher_info.validate()?;
+
+        Ok(pitcher_info)
+    }
+}
+
+impl FromRow for PitchSkill {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let pitch_skill = PitchSkill {
+            pitch_type: row.get("pitch_type")?,
+            velocity: row.get("velocity")?,
+            control: row.get("control")?,
+            stamina: row.get("stamina")?,
+            injury_proneness: row.get("injury_proneness")?,
+            stuff: row.get("stuff")?,
+            fb: row.get("fb")?,
+            gp: row.get("gp")?,
+            horizontal_movement: row.get("horizontal_movement")?,
+            vertical_movement: row.get("vertical_movement")?,
+            spin_rate: row.get("spin_rate")?,
+            usage: row.get("usage")?,
+        };
+
+        pitch_skill.validate()?;
+
+        Ok(pitch_skill)
     }
 }
 

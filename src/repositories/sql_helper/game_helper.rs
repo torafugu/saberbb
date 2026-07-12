@@ -145,8 +145,8 @@ impl FromRow for GameDetail {
             innings: Vec::new(),
             away_points: row.get("away_points")?,
             home_points: row.get("home_points")?,
-            batting_order_histories: Vec::new(),
-            batting_result_histories: Vec::new(),
+            active_fielder_views: Vec::new(),
+            batting_result_views: Vec::new(),
         };
 
         game_detail.validate()?;

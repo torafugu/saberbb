@@ -1,8 +1,11 @@
 use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameScheduler, Inning, TB,
 };
-use crate::domain::shared::game_history::{ActiveFielderHistory, BattingResultHistory};
-use crate::domain::shared::player::{DefenseSkills, Player, PlayerInfo};
+use crate::domain::shared::game_history::{ActiveFielderView, BattingResultView};
+use crate::domain::shared::player::{
+    BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
+    Player, PlayerInfo, Position, RunningSkills,
+};
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
@@ -17,16 +20,19 @@ pub trait GameRepository {
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameScheduler>, AppError>;
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError>;
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError>;
-    fn load_defensive_skills(&self, player_id: u32) -> Result<DefenseSkills, AppError>;
+    fn load_running_skills(&self, player_id: i64) -> Result<RunningSkills, AppError>;
+    fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError>;
+    fn load_fielder_info(
+        &self,
+        player_id: i64,
+        fielder_type: FielderType,
+    ) -> Result<FielderInfo, AppError>;
+    fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError>;
+    fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError>;
+    fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError>;
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError>;
-    fn load_batting_order_histories(
-        &self,
-        game_id: u32,
-    ) -> Result<Vec<ActiveFielderHistory>, AppError>;
-    fn load_batting_result_histories(
-        &self,
-        game_id: u32,
-    ) -> Result<Vec<BattingResultHistory>, AppError>;
+    fn load_active_fielder_views(&self, game_id: u32) -> Result<Vec<ActiveFielderView>, AppError>;
+    fn load_batting_result_views(&self, game_id: u32) -> Result<Vec<BattingResultView>, AppError>;
     fn load_counts(
         &self,
         game_id: u32,
@@ -209,16 +215,7 @@ impl GameRepository for SqlGameRepository {
 
         for game_schedule in &mut game_schedules {
             game_schedule.away_team.players = self.load_team_players(game_schedule.away_team.id)?;
-            for away_player in &mut game_schedule.away_team.players {
-                away_player.defense_skills =
-                    self.load_defensive_skills(away_player.info.id as u32)?;
-            }
-
             game_schedule.home_team.players = self.load_team_players(game_schedule.home_team.id)?;
-            for home_player in &mut game_schedule.home_team.players {
-                home_player.defense_skills =
-                    self.load_defensive_skills(home_player.info.id as u32)?;
-            }
         }
         Ok(game_schedules)
     }
@@ -251,15 +248,20 @@ impl GameRepository for SqlGameRepository {
             inning.counts = self.load_counts(game.id, inning.seq, inning.tb)?;
         }
 
-        game.batting_order_histories = self.load_batting_order_histories(game.id)?;
-        game.batting_result_histories = self.load_batting_result_histories(game.id)?;
+        game.away_team.players = self.load_team_players(game.away_team.id)?;
+        game.home_team.players = self.load_team_players(game.home_team.id)?;
+
+        game.active_fielder_views = self.load_active_fielder_views(game.id)?;
+        game.batting_result_views = self.load_batting_result_views(game.id)?;
 
         Ok(game)
     }
 
+    // CONSTRAINT: Player does not use multiple fielder info in a game.
     #[tracing::instrument(skip(self), fields(team_id = %team_id))]
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError> {
         info!("load_team_players() started");
+
         let query = "SELECT 
                 id,
                 first_name,
@@ -268,28 +270,99 @@ impl GameRepository for SqlGameRepository {
                 uniform_number
             FROM player_info
             WHERE team_id = ?1";
+
         let player_infos = self
             .db_client
             .query_rows::<PlayerInfo>(query, params![team_id])?;
-        Ok(player_infos
-            .into_iter()
-            .map(|info| Player {
-                info,
-                offense_skills: crate::domain::shared::player::OffenseSkills {
-                    batter: None,
-                    running: crate::domain::shared::player::RunningSkills {
-                        speed: 0.0,
-                        lead_distance: 0.0,
-                        start_reaction: 0.0,
-                    },
-                },
-                defense_skills: DefenseSkills::new(crate::domain::shared::player::Position::DH),
-            })
-            .collect())
+
+        let mut players = Vec::new();
+
+        for player_info in player_infos {
+            let mut player = Player::from_player_info(player_info.clone());
+            player.offense_skills.running = self.load_running_skills(player_info.id)?;
+            player.defense_skills = self.load_defense_skills(player_info.id)?;
+
+            if player.defense_skills.primary_position == Position::P {
+                player.defense_skills.pitcher = Some(self.load_pitcher_info(player_info.id)?);
+            } else {
+                player.offense_skills.batter = Some(self.load_batter_info(player_info.id)?);
+
+                if player.defense_skills.primary_position == Position::C {
+                    player.defense_skills.catcher = Some(CatcherInfo::from_fielder_info(
+                        self.load_fielder_info(player_info.id, FielderType::Catcher)?,
+                    ));
+                } else if player.defense_skills.primary_position.is_corner_infielder() {
+                    player.defense_skills.corner_infielder =
+                        Some(self.load_fielder_info(player_info.id, FielderType::CornerInfielder)?);
+                } else if player.defense_skills.primary_position.is_middle_infielder() {
+                    player.defense_skills.middle_infielder =
+                        Some(self.load_fielder_info(player_info.id, FielderType::MiddleInfielder)?);
+                } else if player.defense_skills.primary_position.is_outfielder() {
+                    player.defense_skills.outfielder =
+                        Some(self.load_fielder_info(player_info.id, FielderType::Outfielder)?);
+                }
+            }
+
+            players.push(player);
+        }
+        Ok(players)
+    }
+
+    fn load_running_skills(&self, player_id: i64) -> Result<RunningSkills, AppError> {
+        info!("load_running_skills() started");
+        let query =
+            "SELECT speed, lead_distance, start_reaction FROM running_skills WHERE player_id = ?1";
+        self.db_client
+            .query_row::<RunningSkills>(query, params![player_id])
+    }
+
+    fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError> {
+        info!("load_batter_info() started");
+        let query = "SELECT batting_side, swing_speed, weight_pull, weight_center,
+                weight_opposite, weight_foul_left, weight_foul_right
+                FROM batter_info WHERE player_id = ?1";
+        self.db_client
+            .query_row::<BatterInfo>(query, params![player_id])
+    }
+
+    fn load_fielder_info(
+        &self,
+        player_id: i64,
+        fielder_type: FielderType,
+    ) -> Result<FielderInfo, AppError> {
+        info!("load_fielder_info() started");
+        let query =
+                "SELECT fielder_type, throw_speed, running_speed, reaction, prep_time FROM fielder_info 
+                WHERE player_id = ?1 AND fielder_type = ?2";
+        self.db_client
+            .query_row::<FielderInfo>(query, params![player_id, fielder_type.as_ref()])
+    }
+
+    fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError> {
+        info!("load_pitcher_info() started");
+        let query =
+                "SELECT pitcher_style, velocity, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time 
+                FROM pitcher_info WHERE player_id = ?1";
+        let mut pitcher_info = self
+            .db_client
+            .query_row::<PitcherInfo>(query, params![player_id])?;
+
+        pitcher_info.pitch_skills = self.load_pitch_skill(player_id)?;
+        pitcher_info.fielder_info = self.load_fielder_info(player_id, FielderType::Pitcher)?;
+        Ok(pitcher_info)
+    }
+
+    fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError> {
+        info!("load_pitch_skill() started");
+        let query =
+                "SELECT pitch_type, velocity, control, stamina, injury_proneness, stuff, fb, gp, horizontal_movement, vertical_movement, spin_rate, usage 
+                FROM pitch_skill WHERE player_id = ?1";
+        self.db_client
+            .query_rows::<PitchSkill>(query, params![player_id])
     }
 
     #[tracing::instrument(skip(self), fields(player_id = %player_id))]
-    fn load_defensive_skills(&self, player_id: u32) -> Result<DefenseSkills, AppError> {
+    fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError> {
         info!("load_defensive_skills() started");
         let query = "SELECT primary_position FROM defense_skills WHERE player_id = ?1";
         self.db_client
@@ -320,38 +393,50 @@ impl GameRepository for SqlGameRepository {
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id))]
-    fn load_batting_order_histories(
-        &self,
-        game_id: u32,
-    ) -> Result<Vec<ActiveFielderHistory>, AppError> {
+    fn load_active_fielder_views(&self, game_id: u32) -> Result<Vec<ActiveFielderView>, AppError> {
         info!("load_batting_order_histories() started");
         let query = "SELECT 
                 afh.start_count_seq,
                 afh.end_count_seq,
                 afh.team_id,
                 afh.position,
-                afh.player_id
+                afh.player_id,
+                pi.first_name AS first_name,
+                pi.last_name AS last_name,
+                pi.age AS age,
+                pi.uniform_number AS uniform_number
             FROM active_fielder_history afh
+            LEFT JOIN 
+                player_info pi ON afh.player_id = pi.id
             WHERE afh.game_id = ?1";
         self.db_client
-            .query_rows::<ActiveFielderHistory>(query, params![game_id])
+            .query_rows::<ActiveFielderView>(query, params![game_id])
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id))]
-    fn load_batting_result_histories(
-        &self,
-        game_id: u32,
-    ) -> Result<Vec<BattingResultHistory>, AppError> {
+    fn load_batting_result_views(&self, game_id: u32) -> Result<Vec<BattingResultView>, AppError> {
         info!("load_batting_result_histories() started");
         let query = "SELECT 
                 brh.count_seq,
                 brh.pitcher_id,
+                pi.first_name AS pitcher_first_name,
+                pi.last_name AS pitcher_last_name,
+                pi.age AS pitcher_age,
+                pi.uniform_number AS pitcher_uniform_number,
                 brh.batter_id,
+                bi.first_name AS batter_first_name,
+                bi.last_name AS batter_last_name,
+                bi.age AS batter_age,
+                bi.uniform_number AS batter_uniform_number,
                 brh.result
             FROM batting_result_history brh
+            LEFT JOIN 
+                player_info pi ON brh.pitcher_id = pi.id
+            LEFT JOIN 
+                player_info bi ON brh.batter_id = bi.id
             WHERE brh.game_id = ?1";
         self.db_client
-            .query_rows::<BattingResultHistory>(query, params![game_id])
+            .query_rows::<BattingResultView>(query, params![game_id])
     }
 }
 
@@ -360,7 +445,7 @@ mod tests {
     use super::*;
     use crate::domain::shared::game::{BattingResult, GameType, TB};
     use crate::domain::shared::game_history::ActiveFielderHistory;
-    use crate::domain::shared::player::Position;
+    use crate::domain::shared::player::{FielderType, Position};
     use crate::repositories::db::{DbClient, SqliteManager};
     use deadpool::managed::Pool;
     use rusqlite::Connection;
@@ -415,6 +500,64 @@ mod tests {
             CREATE TABLE defense_skills (
                 player_id INTEGER PRIMARY KEY,
                 primary_position TEXT NOT NULL
+            );
+
+            CREATE TABLE running_skills (
+                player_id INTEGER PRIMARY KEY,
+                speed REAL NOT NULL,
+                lead_distance REAL NOT NULL,
+                start_reaction REAL NOT NULL
+            );
+
+            CREATE TABLE batter_info (
+                player_id INTEGER PRIMARY KEY,
+                batting_side TEXT NOT NULL,
+                swing_speed REAL NOT NULL,
+                weight_pull REAL NOT NULL,
+                weight_center REAL NOT NULL,
+                weight_opposite REAL NOT NULL,
+                weight_foul_left REAL NOT NULL,
+                weight_foul_right REAL NOT NULL
+            );
+
+            CREATE TABLE fielder_info (
+                player_id INTEGER NOT NULL,
+                fielder_type TEXT NOT NULL,
+                throw_speed REAL NOT NULL,
+                running_speed REAL NOT NULL,
+                reaction REAL NOT NULL,
+                prep_time REAL NOT NULL,
+                PRIMARY KEY (player_id, fielder_type)
+            );
+
+            CREATE TABLE pitcher_info (
+                player_id INTEGER PRIMARY KEY,
+                pitcher_style TEXT NOT NULL,
+                velocity REAL NOT NULL,
+                control REAL NOT NULL,
+                stamina REAL NOT NULL,
+                injury_proneness REAL NOT NULL,
+                clutch REAL NOT NULL,
+                hpp REAL NOT NULL,
+                platoon_splitting REAL NOT NULL,
+                delivery_motion_time REAL NOT NULL
+            );
+
+            CREATE TABLE pitch_skill (
+                player_id INTEGER NOT NULL,
+                pitch_type TEXT NOT NULL,
+                velocity REAL NOT NULL,
+                control REAL NOT NULL,
+                stamina REAL NOT NULL,
+                injury_proneness REAL NOT NULL,
+                stuff REAL NOT NULL,
+                fb REAL NOT NULL,
+                gp REAL NOT NULL,
+                horizontal_movement REAL NOT NULL,
+                vertical_movement REAL NOT NULL,
+                spin_rate REAL NOT NULL,
+                usage REAL NOT NULL,
+                PRIMARY KEY (player_id, pitch_type)
             );
 
             CREATE TABLE game (
@@ -568,6 +711,90 @@ mod tests {
         }
     }
 
+    fn seed_player_skills(repo: &SqlGameRepository) {
+        seed_defensive_skills(repo);
+
+        let conn = conn(repo);
+        let positions = [
+            Position::P,
+            Position::C,
+            Position::FB,
+            Position::SB,
+            Position::TB,
+            Position::SS,
+            Position::LF,
+            Position::CF,
+            Position::RF,
+        ];
+
+        for id in 1_i64..=18 {
+            conn.execute(
+                "INSERT INTO running_skills (
+                    player_id, speed, lead_distance, start_reaction
+                ) VALUES (?1, 7.5, 2.0, 0.3)",
+                params![id],
+            )
+            .unwrap();
+
+            let position = positions[((id - 1) as usize) % positions.len()];
+            if position == Position::P {
+                conn.execute(
+                    "INSERT INTO pitcher_info (
+                        player_id, pitcher_style, velocity, control, stamina,
+                        injury_proneness, clutch, hpp, platoon_splitting,
+                        delivery_motion_time
+                    ) VALUES (?1, 'BalancedPitcher', 145.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4)",
+                    params![id],
+                )
+                .unwrap();
+                conn.execute(
+                    "INSERT INTO pitch_skill (
+                        player_id, pitch_type, velocity, control, stamina,
+                        injury_proneness, stuff, fb, gp, horizontal_movement,
+                        vertical_movement, spin_rate, usage
+                    ) VALUES (?1, 'FourSeamFastball', 145.0, 0.7, 90.0, 0.1, 0.8, 0.1, 0.4, 0.0, 12.0, 2200.0, 1.0)",
+                    params![id],
+                )
+                .unwrap();
+                seed_fielder_info(&conn, id, FielderType::Pitcher);
+            } else {
+                conn.execute(
+                    "INSERT INTO batter_info (
+                        player_id, batting_side, swing_speed, weight_pull,
+                        weight_center, weight_opposite, weight_foul_left,
+                        weight_foul_right
+                    ) VALUES (?1, 'Right', 30.0, 0.3, 0.3, 0.2, 0.1, 0.1)",
+                    params![id],
+                )
+                .unwrap();
+
+                if position == Position::C {
+                    seed_fielder_info(&conn, id, FielderType::Catcher);
+                } else if position.is_corner_infielder() {
+                    seed_fielder_info(&conn, id, FielderType::CornerInfielder);
+                } else if position.is_middle_infielder() {
+                    seed_fielder_info(&conn, id, FielderType::MiddleInfielder);
+                } else if position.is_outfielder() {
+                    seed_fielder_info(&conn, id, FielderType::Outfielder);
+                }
+            }
+        }
+    }
+
+    fn seed_fielder_info(
+        conn: &deadpool::managed::Object<SqliteManager>,
+        player_id: i64,
+        fielder_type: FielderType,
+    ) {
+        conn.execute(
+            "INSERT INTO fielder_info (
+                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time
+            ) VALUES (?1, ?2, 38.0, 7.0, 0.5, 0.6)",
+            params![player_id, fielder_type],
+        )
+        .unwrap();
+    }
+
     fn seed_game(
         repo: &SqlGameRepository,
         id: u32,
@@ -704,7 +931,7 @@ mod tests {
         seed_game_season(&repo, 2026, 2);
         seed_teams(&repo);
         seed_players(&repo);
-        seed_defensive_skills(&repo);
+        seed_player_skills(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
         seed_game(&repo, 2, 2026, 2, 1, None);
         seed_game(&repo, 3, 2027, 2, 1, None);
@@ -739,6 +966,7 @@ mod tests {
         let (repo, path) = setup_repo();
         seed_teams(&repo);
         seed_players(&repo);
+        seed_player_skills(&repo);
         seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
         seed_inning(&repo, 1, 1, "Top");
         seed_count(&repo, 1, 1, "Top");
@@ -759,13 +987,10 @@ mod tests {
         assert_eq!(game.innings[0].seq, 1);
         assert!(matches!(game.innings[0].tb, TB::Top));
         assert_eq!(game.innings[0].counts.len(), 1);
-        assert_eq!(game.batting_order_histories.len(), 1);
-        assert_eq!(game.batting_order_histories[0].team_id, 1);
-        assert!(matches!(
-            game.batting_order_histories[0].position,
-            Position::P
-        ));
-        assert_eq!(game.batting_order_histories[0].player_id, 1);
+        assert_eq!(game.active_fielder_views.len(), 1);
+        assert_eq!(game.active_fielder_views[0].team_id, 1);
+        assert!(matches!(game.active_fielder_views[0].position, Position::P));
+        assert_eq!(game.active_fielder_views[0].player.id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -800,7 +1025,7 @@ mod tests {
         seed_active_fielder_history(&repo, 1, 1, Position::P, 1);
         seed_active_fielder_history(&repo, 2, 2, Position::C, 10);
 
-        let histories = repo.load_batting_order_histories(1).unwrap();
+        let histories = repo.load_active_fielder_views(1).unwrap();
 
         assert_eq!(histories.len(), 1);
         let history = &histories[0];
@@ -808,7 +1033,7 @@ mod tests {
         assert_eq!(history.end_count_seq, 3);
         assert_eq!(history.team_id, 1);
         assert!(matches!(history.position, Position::P));
-        assert_eq!(history.player_id, 1);
+        assert_eq!(history.player.id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -822,13 +1047,13 @@ mod tests {
         seed_batting_result_history(&repo, 1, 1, "Top", 1, 1, 10, 1, "Double");
         seed_batting_result_history(&repo, 2, 1, "Bottom", 1, 2, 1, 10, "Single");
 
-        let histories = repo.load_batting_result_histories(1).unwrap();
+        let histories = repo.load_batting_result_views(1).unwrap();
 
         assert_eq!(histories.len(), 1);
         let history = &histories[0];
         assert_eq!(history.count_seq, 1);
-        assert_eq!(history.pitcher_id, 10);
-        assert_eq!(history.batter_id, 1);
+        assert_eq!(history.pitcher.id, 10);
+        assert_eq!(history.batter.id, 1);
         assert!(matches!(history.result, BattingResult::Double));
         std::fs::remove_file(path).ok();
     }
@@ -1022,6 +1247,7 @@ mod tests {
         let (repo, path) = setup_repo();
         seed_teams(&repo);
         seed_players(&repo);
+        seed_player_skills(&repo);
 
         let players = repo.load_team_players(2).unwrap();
 
@@ -1039,7 +1265,7 @@ mod tests {
         seed_teams(&repo);
         seed_players(&repo);
         seed_defensive_skills(&repo);
-        let skills = repo.load_defensive_skills(1).unwrap();
+        let skills = repo.load_defense_skills(1).unwrap();
 
         assert!(matches!(skills.primary_position, Position::P));
         std::fs::remove_file(path).ok();

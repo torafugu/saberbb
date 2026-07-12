@@ -207,23 +207,14 @@ pub struct Player {
     pub defense_skills: DefenseSkills,
 }
 impl Player {
-    pub fn new(
-        id: u32,
-        first_name: &str,
-        last_name: &str,
-        age: u8,
-        _throw: RL,
-        _bat: RL,
-        _mod_ba: f64,
-        _mod_slg: f64,
-    ) -> Self {
+    pub fn from_player_info(info: PlayerInfo) -> Self {
         Self {
             info: PlayerInfo::new(
-                id as i64,
-                first_name.to_string(),
-                last_name.to_string(),
-                age,
-                0,
+                info.id,
+                info.first_name,
+                info.last_name,
+                info.age,
+                info.uniform_number,
             ),
             offense_skills: OffenseSkills {
                 batter: None,
@@ -375,11 +366,29 @@ pub struct FielderInfo {
     pub reaction: f64,      // NOTE: Reaction time (seconds) e.g. 0.3 – 0.7 s (lower is better)
     pub prep_time: f64, // NOTE: Pitch preparation / transfer time (seconds) e.g. 0.5 – 0.8 s (lower is better)
 }
+impl FielderInfo {
+    pub fn new_pitcher() -> Self {
+        Self {
+            fielder_type: FielderType::Pitcher,
+            throw_speed: 0.0,
+            running_speed: 0.0,
+            reaction: 0.0,
+            prep_time: 0.0,
+        }
+    }
+}
 
 // TODO: Consider calling pitches skill
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct CatcherInfo {
     pub fielder_info: FielderInfo,
+}
+impl CatcherInfo {
+    pub fn from_fielder_info(fielder_info: FielderInfo) -> Self {
+        Self {
+            fielder_info: fielder_info,
+        }
+    }
 }
 
 #[derive(

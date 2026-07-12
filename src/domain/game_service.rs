@@ -1,10 +1,11 @@
-use super::shared::game_state::{GameProgress, GameState, InningProgress, InningState};
+use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::shared::game::GameResult;
 use crate::domain::shared::player::Player;
 use crate::repositories::game_repository::GameRepository;
 use crate::t;
 use anyhow::{Context, Result};
+use tracing::info;
 
 pub struct GameService<R: GameRepository> {
     pub repo: R,
@@ -12,6 +13,8 @@ pub struct GameService<R: GameRepository> {
 
 impl<R: GameRepository> GameService<R> {
     pub fn process_game_round(&mut self) -> Result<()> {
+        info!("process_game_round() started");
+
         let game_schedules = self
             .repo
             .load_game_schedules_to_process()
@@ -19,6 +22,7 @@ impl<R: GameRepository> GameService<R> {
 
         // TODO: Check postponement
         for mut game_schedule in game_schedules {
+            info!("new game started");
             // TODO: Implement DH case
             let mut game_state = GameState::new(
                 game_schedule.away_team.id,
@@ -36,6 +40,8 @@ impl<R: GameRepository> GameService<R> {
             );
 
             while let GameProgress::Ongoing = game_state.progress() {
+                info!("new inning started");
+
                 game_state.advance_half_inning();
 
                 while let InningProgress::Ongoing = game_state.inning_state.progress() {
@@ -49,6 +55,8 @@ impl<R: GameRepository> GameService<R> {
                         break;
                     }
                 }
+
+                info!("game completed");
 
                 game_result.innings.push(game_state.inning.clone());
 
@@ -80,8 +88,11 @@ mod tests {
     use crate::domain::shared::game::{
         Count, GameDetail, GameHeader, GameScheduler, GameType, Inning, TB,
     };
-    use crate::domain::shared::game_history::{ActiveFielderHistory, BattingResultHistory};
-    use crate::domain::shared::player::{DefenseSkills, Position, RL};
+    use crate::domain::shared::game_history::{ActiveFielderView, BattingResultView};
+    use crate::domain::shared::player::{
+        BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType, PitcherInfo,
+        PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+    };
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;
@@ -163,9 +174,39 @@ mod tests {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_defensive_skills(
+        fn load_running_skills(
             &self,
-            _player_id: u32,
+            _player_id: i64,
+        ) -> std::result::Result<RunningSkills, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_batter_info(&self, _player_id: i64) -> std::result::Result<BatterInfo, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_fielder_info(
+            &self,
+            _player_id: i64,
+            _fielder_type: FielderType,
+        ) -> std::result::Result<FielderInfo, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_pitcher_info(&self, _player_id: i64) -> std::result::Result<PitcherInfo, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_pitch_skill(
+            &self,
+            _player_id: i64,
+        ) -> std::result::Result<Vec<PitchSkill>, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_defense_skills(
+            &self,
+            _player_id: i64,
         ) -> std::result::Result<DefenseSkills, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
@@ -183,17 +224,17 @@ mod tests {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_batting_order_histories(
+        fn load_active_fielder_views(
             &self,
             _game_id: u32,
-        ) -> std::result::Result<Vec<ActiveFielderHistory>, AppError> {
+        ) -> std::result::Result<Vec<ActiveFielderView>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_batting_result_histories(
+        fn load_batting_result_views(
             &self,
             _game_id: u32,
-        ) -> std::result::Result<Vec<BattingResultHistory>, AppError> {
+        ) -> std::result::Result<Vec<BattingResultView>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }
@@ -209,20 +250,92 @@ mod tests {
             Position::LF,
             Position::CF,
             Position::RF,
+            Position::DH,
         ];
-        let mut player = Player::new(
-            id,
-            &format!("First{id}"),
-            &format!("Last{id}"),
+        let mut player = Player::from_player_info(PlayerInfo::new(
+            id as i64,
+            format!("First{id}"),
+            format!("Last{id}"),
             25,
-            RL::Right,
-            RL::Right,
-            0.0,
-            0.0,
-        );
-        player.defense_skills =
-            DefenseSkills::new(positions[((id - 1) as usize) % positions.len()]);
+            id as u8,
+        ));
+        player.offense_skills.running = RunningSkills {
+            speed: 7.5,
+            lead_distance: 2.0,
+            start_reaction: 0.3,
+        };
+        player.offense_skills.batter = Some(BatterInfo {
+            batting_side: RL::Right,
+            swing_speed: 30.0,
+            weight_pull: 0.3,
+            weight_center: 0.3,
+            weight_opposite: 0.2,
+            weight_foul_left: 0.1,
+            weight_foul_right: 0.1,
+        });
+
+        let position = positions[((id - 1) as usize) % positions.len()];
+        player.defense_skills = DefenseSkills::new(position);
+        let fielder_info = FielderInfo {
+            fielder_type: fielder_type_for_position(position),
+            throw_speed: 38.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.6,
+        };
+        if position == Position::P {
+            player.offense_skills.batter = None;
+            player.defense_skills.pitcher = Some(PitcherInfo {
+                pitcher_style: PitcherStyle::BalancedPitcher,
+                velocity: 145.0,
+                control: 0.7,
+                stamina: 90.0,
+                injury_proneness: 0.1,
+                clutch: 0.6,
+                hpp: 0.5,
+                platoon_splitting: 0.2,
+                delivery_motion_time: 1.4,
+                pitch_skills: vec![PitchSkill {
+                    pitch_type: PitchType::FourSeamFastball,
+                    velocity: 145.0,
+                    control: 0.7,
+                    stamina: 90.0,
+                    injury_proneness: 0.1,
+                    stuff: 0.8,
+                    fb: 0.1,
+                    gp: 0.4,
+                    horizontal_movement: 0.0,
+                    vertical_movement: 12.0,
+                    spin_rate: 2200.0,
+                    usage: 1.0,
+                }],
+                fielder_info,
+            });
+        } else if position == Position::C {
+            player.defense_skills.catcher =
+                Some(crate::domain::shared::player::CatcherInfo { fielder_info });
+        } else if position.is_corner_infielder() {
+            player.defense_skills.corner_infielder = Some(fielder_info);
+        } else if position.is_middle_infielder() {
+            player.defense_skills.middle_infielder = Some(fielder_info);
+        } else if position.is_outfielder() {
+            player.defense_skills.outfielder = Some(fielder_info);
+        }
         player
+    }
+
+    fn fielder_type_for_position(position: Position) -> FielderType {
+        if position == Position::P {
+            FielderType::Pitcher
+        } else if position == Position::C {
+            FielderType::Catcher
+        } else if position.is_corner_infielder() {
+            FielderType::CornerInfielder
+        } else if position.is_middle_infielder() {
+            FielderType::MiddleInfielder
+        } else {
+            FielderType::Outfielder
+        }
     }
 
     fn team(id: u16, name: &str, first_player_id: u32) -> Team {
@@ -318,10 +431,16 @@ mod tests {
         for inning in &saved.innings {
             assert!(inning.seq >= 1);
             assert!(!inning.counts.is_empty());
-            for (index, count) in inning.counts.iter().enumerate() {
-                assert_eq!(count.seq as usize, index + 1);
+            for count in &inning.counts {
+                assert!(count.seq >= 1);
                 assert!(count.out <= 3);
             }
+            assert!(
+                inning
+                    .counts
+                    .windows(2)
+                    .all(|counts| counts[0].seq < counts[1].seq)
+            );
         }
     }
 

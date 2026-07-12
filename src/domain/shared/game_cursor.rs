@@ -17,7 +17,7 @@ pub struct GameCursor {
     game: Arc<GameDetail>,
     pub inning_seq: u8,
     pub inning_tb: TB,
-    pub count_seq: u8,
+    pub count_seq: u16,
     pub is_last_bottom_inning_skiped: bool,
 }
 impl GameCursor {
@@ -118,8 +118,8 @@ impl GameCursor {
         self.game.innings.iter().map(|i| i.seq).max().unwrap_or(0)
     }
 
-    pub fn max_count_seq(&mut self) -> u8 {
-        self.current_inning().counts.len() as u8
+    pub fn max_count_seq(&mut self) -> u16 {
+        self.current_inning().counts.len() as u16
     }
 
     fn current_inning(&mut self) -> Inning {
@@ -235,19 +235,19 @@ impl GameCursor {
 
     fn current_position(&mut self, position: Position) -> Result<Player, GameViewError> {
         self.game
-            .batting_order_histories
+            .active_fielder_views
             .iter()
             .find(|i| i.is_position(self.current_fielding_team().id, position, self.count_seq))
-            .and_then(|i| self.player_by_id(i.player_id))
+            .and_then(|i| self.player_by_id(i.player.id))
             .ok_or_else(|| GameViewError::NoPlayerFor(position.to_string()))
     }
 
     pub fn current_batter(&mut self) -> Result<Player, GameViewError> {
         self.game
-            .batting_result_histories
+            .batting_result_views
             .iter()
             .find(|i| i.is(self.count_seq as u16))
-            .and_then(|i| self.player_by_id(i.batter_id))
+            .and_then(|i| self.player_by_id(i.batter.id))
             .ok_or_else(|| GameViewError::NoPlayerFor("batter".to_string()))
     }
 }

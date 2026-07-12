@@ -1,5 +1,7 @@
-use super::game_history::{ActiveFielderHistory, BattingResultHistory};
-use super::game_state::{ActiveFielder, GameState};
+use super::game_history::{
+    ActiveFielderHistory, ActiveFielderView, BattingResultHistory, BattingResultView,
+};
+use super::game_state::ActiveFielder;
 use super::team::Team;
 use crate::domain::shared::player::Position;
 use crate::t;
@@ -138,8 +140,8 @@ impl GameResult {
     }
 
     fn add_active_fielder_hitstory(
-        start_count_seq: u8,
-        end_count_seq: u8,
+        start_count_seq: u16,
+        end_count_seq: u16,
         team_id: u16,
         active_fielder: &ActiveFielder,
     ) -> ActiveFielderHistory {
@@ -163,8 +165,8 @@ pub struct GameDetail {
     pub innings: Vec<Inning>,
     pub away_points: u8,
     pub home_points: u8,
-    pub batting_order_histories: Vec<ActiveFielderHistory>,
-    pub batting_result_histories: Vec<BattingResultHistory>,
+    pub active_fielder_views: Vec<ActiveFielderView>,
+    pub batting_result_views: Vec<BattingResultView>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
