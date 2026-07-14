@@ -282,22 +282,22 @@ impl GameRepository for SqlGameRepository {
             player.offense_skills.running = self.load_running_skills(player_info.id)?;
             player.defense_skills = self.load_defense_skills(player_info.id)?;
 
-            if player.defense_skills.primary_position == Position::P {
+            if player.defense_skills.position == Position::P {
                 player.defense_skills.pitcher = Some(self.load_pitcher_info(player_info.id)?);
             } else {
                 player.offense_skills.batter = Some(self.load_batter_info(player_info.id)?);
 
-                if player.defense_skills.primary_position == Position::C {
+                if player.defense_skills.position == Position::C {
                     player.defense_skills.catcher = Some(CatcherInfo::from_fielder_info(
                         self.load_fielder_info(player_info.id, FielderType::Catcher)?,
                     ));
-                } else if player.defense_skills.primary_position.is_corner_infielder() {
+                } else if player.defense_skills.position.is_corner_infielder() {
                     player.defense_skills.corner_infielder =
                         Some(self.load_fielder_info(player_info.id, FielderType::CornerInfielder)?);
-                } else if player.defense_skills.primary_position.is_middle_infielder() {
+                } else if player.defense_skills.position.is_middle_infielder() {
                     player.defense_skills.middle_infielder =
                         Some(self.load_fielder_info(player_info.id, FielderType::MiddleInfielder)?);
-                } else if player.defense_skills.primary_position.is_outfielder() {
+                } else if player.defense_skills.position.is_outfielder() {
                     player.defense_skills.outfielder =
                         Some(self.load_fielder_info(player_info.id, FielderType::Outfielder)?);
                 }
@@ -947,15 +947,11 @@ mod tests {
         assert_eq!(schedules[0].away_team.players[0].info.id, 1);
         assert_eq!(schedules[0].home_team.players[0].info.id, 10);
         assert!(matches!(
-            schedules[0].away_team.players[0]
-                .defense_skills
-                .primary_position,
+            schedules[0].away_team.players[0].defense_skills.position,
             Position::P
         ));
         assert!(matches!(
-            schedules[0].home_team.players[0]
-                .defense_skills
-                .primary_position,
+            schedules[0].home_team.players[0].defense_skills.position,
             Position::P
         ));
         std::fs::remove_file(path).ok();
@@ -1267,7 +1263,7 @@ mod tests {
         seed_defensive_skills(&repo);
         let skills = repo.load_defense_skills(1).unwrap();
 
-        assert!(matches!(skills.primary_position, Position::P));
+        assert!(matches!(skills.position, Position::P));
         std::fs::remove_file(path).ok();
     }
 }

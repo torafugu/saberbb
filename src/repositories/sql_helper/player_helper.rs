@@ -130,7 +130,7 @@ impl FromRow for DefenseSkills {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let defensive_skills = DefenseSkills {
-            primary_position: row.get("primary_position")?,
+            position: row.get("position")?,
             pitcher: None,
             catcher: None,
             middle_infielder: None,

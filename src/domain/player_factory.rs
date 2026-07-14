@@ -83,6 +83,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let fielder_type_1st =
             *choose_item_weighted(self.rng.as_mut(), &self.fielder_info_probs.fielder_type)?;
 
+        // NOTE: DH comes here.
         let primary_position = self.assign_position(&fielder_type_1st)?;
 
         let mut fielder_types = choose_item_if_exists(
@@ -194,37 +195,45 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             FielderType::Outfielder => {
                 items.push(ItemWeighted {
                     name: Position::RF,
-                    weight: 0.33,
+                    weight: 0.32,
                 });
                 items.push(ItemWeighted {
                     name: Position::CF,
-                    weight: 0.33,
+                    weight: 0.32,
                 });
                 items.push(ItemWeighted {
                     name: Position::LF,
-                    weight: 0.34,
+                    weight: 0.32,
+                });
+                items.push(ItemWeighted {
+                    name: Position::DH,
+                    weight: 0.04,
                 });
                 Ok(choose_item_weighted(self.rng.as_mut(), &items)?.clone())
             }
             FielderType::MiddleInfielder => {
                 items.push(ItemWeighted {
                     name: Position::SS,
-                    weight: 0.5,
+                    weight: 0.48,
                 });
                 items.push(ItemWeighted {
-                    name: Position::TB,
-                    weight: 0.5,
+                    name: Position::SB,
+                    weight: 0.52,
                 });
                 Ok(choose_item_weighted(self.rng.as_mut(), &items)?.clone())
             }
             FielderType::CornerInfielder => {
                 items.push(ItemWeighted {
-                    name: Position::SS,
+                    name: Position::FB,
                     weight: 0.5,
                 });
                 items.push(ItemWeighted {
                     name: Position::TB,
-                    weight: 0.5,
+                    weight: 0.4,
+                });
+                items.push(ItemWeighted {
+                    name: Position::DH,
+                    weight: 0.1,
                 });
                 Ok(choose_item_weighted(self.rng.as_mut(), &items)?.clone())
             }
@@ -302,6 +311,6 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
     fn assign_team(&self, player: &Player) -> Result<Team, AppError> {
         self.service
-            .next_team(player.defense_skills.primary_position)
+            .next_team(player.defense_skills.position)
     }
 }

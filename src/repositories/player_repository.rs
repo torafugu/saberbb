@@ -197,13 +197,13 @@ impl PlayerRepository for SqlPlayerRepository {
         info!("insert_defense_skills() started");
 
         let insert_defensive_skills_sql = "INSERT INTO defense_skills (
-                                                player_id, primary_position
+                                                player_id, position
                                                 ) VALUES (
                                                 ?1, ?2)";
         self.db_client.execute_tx(
             tx,
             insert_defensive_skills_sql,
-            params![player_id, defense_skills.primary_position,],
+            params![player_id, defense_skills.position,],
         )?;
 
         if let Some(pitcher) = &defense_skills.pitcher {
@@ -383,7 +383,7 @@ impl PlayerRepository for SqlPlayerRepository {
                             FROM team t
                             LEFT JOIN player_info p ON t.id = p.team_id
                             LEFT JOIN defense_skills ds ON ds.player_id = p.id
-                                AND ds.primary_position = ?1
+                                AND ds.position = ?1
                             GROUP BY t.id, t.name
                             ORDER BY player_count, t.id
                             LIMIT 1";
@@ -518,7 +518,7 @@ mod tests {
 
             CREATE TABLE defense_skills (
                 player_id INTEGER PRIMARY KEY,
-                primary_position TEXT NOT NULL
+                position TEXT NOT NULL
             );
 
             CREATE TABLE fielder_info (
@@ -666,7 +666,7 @@ mod tests {
     fn seed_defensive_skill(repo: &SqlPlayerRepository, player_id: u32, position: Position) {
         conn(repo)
             .execute(
-                "INSERT INTO defense_skills (player_id, primary_position)
+                "INSERT INTO defense_skills (player_id, position)
                  VALUES (?1, ?2)",
                 params![player_id, position],
             )
@@ -831,18 +831,16 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
         let mut player = player();
-        player.defense_skills.primary_position = Position::P;
+        player.defense_skills.position = Position::P;
 
         repo.insert_player(1, &player).unwrap();
 
         let conn = conn(&repo);
-        let primary_position: String = conn
-            .query_row("SELECT primary_position FROM defense_skills", [], |row| {
-                row.get(0)
-            })
+        let position: String = conn
+            .query_row("SELECT position FROM defense_skills", [], |row| row.get(0))
             .unwrap();
 
-        assert_eq!(primary_position, "P");
+        assert_eq!(position, "P");
         std::fs::remove_file(path).ok();
     }
 
@@ -851,7 +849,7 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
         let mut player = player();
-        player.defense_skills.primary_position = Position::P;
+        player.defense_skills.position = Position::P;
         player.defense_skills.pitcher = Some(PitcherInfo {
             pitcher_style: PitcherStyle::BalancedPitcher,
             velocity: 1.1,
@@ -915,7 +913,7 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_team(&repo, 1, "ライオンズ");
         let mut player = player();
-        player.defense_skills.primary_position = Position::P;
+        player.defense_skills.position = Position::P;
         player.defense_skills.pitcher = Some(PitcherInfo {
             pitcher_style: PitcherStyle::PowerPitcher,
             velocity: 1.1,

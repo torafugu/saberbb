@@ -23,7 +23,7 @@ impl<R: GameRepository> GameService<R> {
         // TODO: Check postponement
         for mut game_schedule in game_schedules {
             info!("new game started");
-            // TODO: Implement DH case
+
             let mut game_state = GameState::new(
                 game_schedule.away_team.id,
                 game_schedule.home_team.id,
@@ -56,8 +56,6 @@ impl<R: GameRepository> GameService<R> {
                     }
                 }
 
-                info!("game completed");
-
                 game_result.innings.push(game_state.inning.clone());
 
                 if let GameProgress::GameSet = game_state.progress() {
@@ -65,6 +63,7 @@ impl<R: GameRepository> GameService<R> {
                 }
             }
 
+            info!("game completed");
             game_result.away_total_point = game_state.away_total_point;
             game_result.home_total_point = game_state.home_total_point;
 

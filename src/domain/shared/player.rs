@@ -77,6 +77,7 @@ impl std::fmt::Display for Position {
     }
 }
 
+// CONSTRAINT: DH is not a FielderType
 #[derive(
     Clone, Copy, PartialEq, Serialize, Deserialize, EnumString, EnumIter, Eq, Hash, Debug, AsRefStr,
 )]
@@ -180,7 +181,7 @@ pub struct OffenseSkills {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct DefenseSkills {
-    pub primary_position: Position,
+    pub position: Position,
     pub pitcher: Option<PitcherInfo>,
     pub catcher: Option<CatcherInfo>,
     pub middle_infielder: Option<FielderInfo>,
@@ -188,9 +189,9 @@ pub struct DefenseSkills {
     pub outfielder: Option<FielderInfo>,
 }
 impl DefenseSkills {
-    pub fn new(primary_position: Position) -> Self {
+    pub fn new(position: Position) -> Self {
         Self {
-            primary_position: primary_position,
+            position,
             pitcher: None,
             catcher: None,
             middle_infielder: None,
@@ -261,31 +262,31 @@ impl Player {
     }
 
     pub fn fielder(&self) -> Result<FielderInfo, GameError> {
-        if self.defense_skills.primary_position == Position::P {
+        if self.defense_skills.position == Position::P {
             if let Some(pitcher) = &self.defense_skills.pitcher {
                 Ok(pitcher.fielder_info)
             } else {
                 return Err(GameError::FielderInfo);
             }
-        } else if self.defense_skills.primary_position == Position::C {
+        } else if self.defense_skills.position == Position::C {
             if let Some(catcher) = self.defense_skills.catcher {
                 Ok(catcher.fielder_info)
             } else {
                 return Err(GameError::FielderInfo);
             }
-        } else if self.defense_skills.primary_position.is_middle_infielder() {
+        } else if self.defense_skills.position.is_middle_infielder() {
             if let Some(middle_infielder) = self.defense_skills.middle_infielder {
                 Ok(middle_infielder)
             } else {
                 return Err(GameError::FielderInfo);
             }
-        } else if self.defense_skills.primary_position.is_corner_infielder() {
+        } else if self.defense_skills.position.is_corner_infielder() {
             if let Some(corner_infielder) = self.defense_skills.corner_infielder {
                 Ok(corner_infielder)
             } else {
                 return Err(GameError::FielderInfo);
             }
-        } else if self.defense_skills.primary_position.is_outfielder() {
+        } else if self.defense_skills.position.is_outfielder() {
             if let Some(outfielder) = self.defense_skills.outfielder {
                 Ok(outfielder)
             } else {

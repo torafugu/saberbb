@@ -43,7 +43,7 @@ impl Team {
 
         for player in &self.players {
             position_map
-                .entry(player.defense_skills.primary_position)
+                .entry(player.defense_skills.position)
                 .or_insert_with(Vec::new)
                 .push(player);
         }
@@ -57,7 +57,7 @@ impl Team {
             let index = rng.gen_range(0, vec.len() - 1);
             let random_player = vec[index];
 
-            if random_player.defense_skills.primary_position != Position::P {
+            if random_player.defense_skills.position != Position::P {
                 batters.push(ActiveBatter::new(
                     random_player.info.id,
                     random_player.batter()?,
@@ -69,16 +69,16 @@ impl Team {
                 });
             }
 
-            if random_player.defense_skills.primary_position == Position::C {
+            if random_player.defense_skills.position == Position::C {
                 temp_catcher = Some(ActiveCatcher {
                     player_id: random_player.info.id,
                     catcher: random_player.catcher()?,
                 });
             }
 
-            if random_player.defense_skills.primary_position != Position::DH {
+            if random_player.defense_skills.position != Position::DH {
                 fielders.push(ActiveFielder::new(
-                    random_player.defense_skills.primary_position,
+                    random_player.defense_skills.position,
                     random_player.info.id,
                     random_player.fielder()?,
                 ));
