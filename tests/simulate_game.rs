@@ -126,34 +126,42 @@ fn generate_pitcher() -> PitcherInfo {
     }
 }
 
+fn generate_catcher() -> CatcherInfo {
+    CatcherInfo {
+        fielder_info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::Catcher,
+        ),
+    }
+}
+
+fn generate_runner() -> ActiveRunner {
+    let player_service = PlayerService {
+        repo: SqlPlayerRepository::new().expect("failed to initialize player repository"),
+    };
+    let mut player_factory = PlayerFactory::new(player_service);
+    player_factory
+        .load_player_probs()
+        .expect("failed to load player probabilities");
+    let player = player_factory
+        .generate_player()
+        .expect("failed to generate player");
+
+    ActiveRunner {
+        player_id: player.info.id,
+        skills: player.offense_skills.running,
+    }
+}
+
 #[test]
-fn test_through_inning() -> Result<(), GameError> {
+fn test_through_half_inning() -> Result<(), GameError> {
     let stadium = generate_stadium();
     let batter = generate_batter();
     let fielders = generate_default_fielders();
     let pitcher = generate_pitcher();
-
-    let catcher = CatcherInfo {
-        fielder_info: FielderInfo {
-            fielder_type: FielderType::Catcher,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
-    };
+    let catcher = generate_catcher();
+    let batter_runner = generate_runner();
 
     let mut scores = 0;
-
-    let batter_runner = ActiveRunner {
-        player_id: 0,
-        skills: RunningSkills {
-            speed: 7.0,
-            lead_distance: 0.0,
-            start_reaction: 0.1,
-        },
-    };
-
     let mut inning_state = InningState::new();
 
     while let InningProgress::Ongoing = inning_state.progress() {
