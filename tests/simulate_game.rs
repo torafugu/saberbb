@@ -1,6 +1,7 @@
 use rand::RngExt;
 use rand_distr::StandardNormal;
 use rusqlite::params;
+use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
@@ -11,130 +12,87 @@ use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
 use saberbb::domain::util::PolarPosition;
 use saberbb::repositories::db::*;
-use std::collections::HashMap;
+use saberbb::repositories::player_repository::SqlPlayerRepository;
 
 fn generate_stadium() -> Stadium {
     Stadium::new("AAA".to_string(), 98.0, 120.0, 2.0)
 }
 
-// TODO: Retrieve from PlayerFactory
 fn generate_default_fielders() -> [ActiveFielder; 9] {
-    let fielders: HashMap<Position, ActiveFielder> = HashMap::new();
-
     let p = ActiveFielder {
         position: Position::P,
         player_id: 0,
-        info: FielderInfo {
-            fielder_type: FielderType::Pitcher,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Pitcher),
         polar_position: PolarPosition::new(MOUND_DISTANCE, 0.0),
     };
 
     let c = ActiveFielder {
         position: Position::C,
         player_id: 1,
-        info: FielderInfo {
-            fielder_type: FielderType::Catcher,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Catcher),
         polar_position: PolarPosition::new(0.0, 0.0),
     };
 
     let fb = ActiveFielder {
         position: Position::FB,
         player_id: 2,
-        info: FielderInfo {
-            fielder_type: FielderType::CornerInfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::CornerInfielder,
+        ),
         polar_position: PolarPosition::new(35.0, 33.0),
     };
 
     let sb = ActiveFielder {
         position: Position::SB,
         player_id: 3,
-        info: FielderInfo {
-            fielder_type: FielderType::MiddleInfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::MiddleInfielder,
+        ),
         polar_position: PolarPosition::new(40.0, 18.0),
     };
 
     let tb = ActiveFielder {
         position: Position::TB,
         player_id: 4,
-        info: FielderInfo {
-            fielder_type: FielderType::CornerInfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::CornerInfielder,
+        ),
         polar_position: PolarPosition::new(35.0, -33.0),
     };
 
     let ss = ActiveFielder {
         position: Position::SS,
         player_id: 5,
-        info: FielderInfo {
-            fielder_type: FielderType::MiddleInfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::MiddleInfielder,
+        ),
         polar_position: PolarPosition::new(40.0, -18.0),
     };
 
     let rf = ActiveFielder {
         position: Position::RF,
         player_id: 6,
-        info: FielderInfo {
-            fielder_type: FielderType::Outfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::Outfielder,
+        ),
         polar_position: PolarPosition::new(80.0, 26.0),
     };
 
     let cf = ActiveFielder {
         position: Position::CF,
         player_id: 7,
-        info: FielderInfo {
-            fielder_type: FielderType::Outfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::Outfielder,
+        ),
         polar_position: PolarPosition::new(90.0, 0.0),
     };
 
     let lf = ActiveFielder {
         position: Position::LF,
         player_id: 8,
-        info: FielderInfo {
-            fielder_type: FielderType::Outfielder,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+            FielderType::Outfielder,
+        ),
         polar_position: PolarPosition::new(80.0, -26.0),
     };
 

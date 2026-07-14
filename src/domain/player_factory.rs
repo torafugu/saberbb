@@ -136,6 +136,16 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         })
     }
 
+    pub fn default_fielder_info(fielder_type: FielderType) -> FielderInfo {
+        FielderInfo {
+            fielder_type,
+            throw_speed: 40.0,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time: 0.65,
+        }
+    }
+
     fn assign_player_info(&mut self) -> Result<PlayerInfo, AppError> {
         let name = self.service.load_random_name()?;
 
