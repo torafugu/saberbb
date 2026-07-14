@@ -1,7 +1,6 @@
-use rand::RngExt;
-use rand_distr::StandardNormal;
 use rusqlite::params;
 use saberbb::domain::player_factory::PlayerFactory;
+use saberbb::domain::player_service::PlayerService;
 use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
@@ -72,126 +71,67 @@ fn generate_default_fielders() -> [ActiveFielder; 9] {
     let rf = ActiveFielder {
         position: Position::RF,
         player_id: 6,
-        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
-            FielderType::Outfielder,
-        ),
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(80.0, 26.0),
     };
 
     let cf = ActiveFielder {
         position: Position::CF,
         player_id: 7,
-        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
-            FielderType::Outfielder,
-        ),
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(90.0, 0.0),
     };
 
     let lf = ActiveFielder {
         position: Position::LF,
         player_id: 8,
-        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
-            FielderType::Outfielder,
-        ),
+        info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(80.0, -26.0),
     };
 
     [p, c, fb, sb, tb, ss, rf, cf, lf]
 }
 
-// TODO: Retrieve from PlayerFactory
-fn generate_random_batter() -> BatterInfo {
-    let mut rng = rand::rng();
-
-    let roll_rl = rng.random_range(0.0..1.0);
-    let weight_left = 0.3;
-
-    let mut rl = RL::Right;
-    if roll_rl < weight_left {
-        rl = RL::Left;
-    }
-
-    let min_swing_speed = 110.0;
-    let max_swing_speed = 150.0;
-
-    // TODO: Change mean by batter type
-    let mean = (min_swing_speed + max_swing_speed) * 0.5;
-    let std_dev = (max_swing_speed - min_swing_speed) / 6.0;
-    let final_swing_speed = (mean + std_dev * rng.sample::<f64, _>(StandardNormal))
-        .clamp(min_swing_speed, max_swing_speed);
-
-    let pull_hitter = BatterInfo {
-        batting_side: rl,
-        swing_speed: final_swing_speed,
-        weight_pull: 0.55,
-        weight_center: 0.25,
-        weight_opposite: 0.05,
-        weight_foul_left: 0.12,
-        weight_foul_right: 0.03,
+fn generate_batter() -> BatterInfo {
+    let player_service = PlayerService {
+        repo: SqlPlayerRepository::new().expect("failed to initialize player repository"),
     };
+    let mut player_factory = PlayerFactory::new(player_service);
+    player_factory
+        .load_player_probs()
+        .expect("failed to load player probabilities");
+    player_factory
+        .assign_batter_info()
+        .expect("failed to generate batter info")
+}
 
-    let ordinally_hitter = BatterInfo {
-        batting_side: rl,
-        swing_speed: final_swing_speed,
-        weight_pull: 0.35,
-        weight_center: 0.35,
-        weight_opposite: 0.15,
-        weight_foul_left: 0.08,
-        weight_foul_right: 0.07,
+fn generate_pitcher() -> PitcherInfo {
+    let player_service = PlayerService {
+        repo: SqlPlayerRepository::new().expect("failed to initialize player repository"),
     };
+    let mut player_factory = PlayerFactory::new(player_service);
+    player_factory
+        .load_player_probs()
+        .expect("failed to load player probabilities");
 
-    let average_hitter = BatterInfo {
-        batting_side: rl,
-        swing_speed: final_swing_speed,
-        weight_pull: 0.25,
-        weight_center: 0.45,
-        weight_opposite: 0.25,
-        weight_foul_left: 0.02,
-        weight_foul_right: 0.03,
-    };
-
-    let weight_pull_hitter = 0.3;
-    let weight_ordinally_hitter = 0.5;
-    let weight_average_hitter = 0.2;
-
-    let total_hitter_weight = weight_pull_hitter + weight_ordinally_hitter + weight_average_hitter;
-    let mut roll_hitter = rng.random_range(0.0..total_hitter_weight);
-
-    if roll_hitter < weight_pull_hitter {
-        return pull_hitter;
+    loop {
+        if let Some(pitcher_info) = player_factory
+            .generate_player()
+            .expect("failed to generate player")
+            .defense_skills
+            .pitcher
+        {
+            return pitcher_info;
+        }
     }
-    roll_hitter -= weight_pull_hitter;
-
-    if roll_hitter < weight_ordinally_hitter {
-        return ordinally_hitter;
-    }
-    return average_hitter;
 }
 
 #[test]
 fn test_through_inning() -> Result<(), GameError> {
     let stadium = generate_stadium();
-    let batter = generate_random_batter();
+    let batter = generate_batter();
     let fielders = generate_default_fielders();
-    let pitcher = PitcherInfo {
-        pitcher_style: PitcherStyle::BalancedPitcher,
-        velocity: 0.0,
-        control: 0.0,
-        stamina: 0.0,
-        injury_proneness: 0.0,
-        clutch: 0.0,
-        hpp: 0.0,
-        platoon_splitting: 0.0,
-        delivery_motion_time: 2.0,
-        pitch_skills: vec![],
-        fielder_info: FielderInfo {
-            fielder_type: FielderType::Pitcher,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-        },
-    };
+    let pitcher = generate_pitcher();
 
     let catcher = CatcherInfo {
         fielder_info: FielderInfo {

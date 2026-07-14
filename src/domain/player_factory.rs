@@ -159,7 +159,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         ))
     }
 
-    fn assign_batter_info(&mut self) -> Result<BatterInfo, AppError> {
+    pub fn assign_batter_info(&mut self) -> Result<BatterInfo, AppError> {
         let mut batter_info = BatterInfo::default();
         let hitter_tendency =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.hitter_tendency)?;
@@ -186,6 +186,8 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
         batter_info.batting_side =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
+
+        // TODO: Consider correlation　of hitter_tendency.
         batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
 
         Ok(batter_info)
@@ -320,7 +322,6 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     }
 
     fn assign_team(&self, player: &Player) -> Result<Team, AppError> {
-        self.service
-            .next_team(player.defense_skills.position)
+        self.service.next_team(player.defense_skills.position)
     }
 }
