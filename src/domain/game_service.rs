@@ -34,7 +34,8 @@ impl<R: GameRepository> GameService<R> {
                 while let InningProgress::Ongoing = game_state.inning_state.innning_progress() {
                     // TODO: Consider ball updated
                     // TODO: Consider strike updated
-                    game_state.batting_resolve()?;
+                    // game_state.batting_resolve()?;
+                    game_state.process_count()?;
 
                     if let GameProgress::WalkOff = game_state.progress() {
                         break;

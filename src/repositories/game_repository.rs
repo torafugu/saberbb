@@ -112,9 +112,9 @@ impl GameRepository for SqlGameRepository {
 
             let insert_player_game_entry_sql =
                 "INSERT INTO player_game_entry (
-                    game_id, start_count_seq, end_count_seq, team_id, position, player_id
+                    game_id, start_count_seq, end_count_seq, position, player_id
                     ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6)";
+                    ?1, ?2, ?3, ?4, ?5)";
             for player_game_entry in &game.player_entries {
                 self.db_client.execute_tx(
                     tx,
@@ -123,7 +123,6 @@ impl GameRepository for SqlGameRepository {
                         game.id,
                         player_game_entry.start_count_seq,
                         player_game_entry.end_count_seq,
-                        player_game_entry.team_id,
                         player_game_entry.position,
                         player_game_entry.player_id
                     ],
@@ -322,7 +321,8 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_running_skills(&self, player_id: i64) -> Result<RunningSkills, AppError> {
-        info!("load_running_skills() started");
+        info!("load_running_skills() started for {}", player_id);
+
         let query =
             "SELECT speed, lead_distance, start_reaction FROM running_skills WHERE player_id = ?1";
         self.db_client
@@ -330,7 +330,8 @@ impl GameRepository for SqlGameRepository {
     }
 
     fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError> {
-        info!("load_batter_info() started");
+        info!("load_batter_info() started for {}", player_id);
+
         let query = "SELECT batting_side, swing_speed, weight_pull, weight_center,
                 weight_opposite, weight_foul_left, weight_foul_right
                 FROM batter_info WHERE player_id = ?1";
@@ -376,8 +377,8 @@ impl GameRepository for SqlGameRepository {
 
     #[tracing::instrument(skip(self), fields(player_id = %player_id))]
     fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError> {
-        info!("load_defensive_skills() started");
-        let query = "SELECT primary_position FROM defense_skills WHERE player_id = ?1";
+        info!("load_defense_skills() started");
+        let query = "SELECT position FROM defense_skills WHERE player_id = ?1";
         self.db_client
             .query_row::<DefenseSkills>(query, params![player_id])
     }
@@ -414,14 +415,14 @@ impl GameRepository for SqlGameRepository {
         let query = "SELECT 
                 pge.start_count_seq,
                 pge.end_count_seq,
-                pge.team_id,
+                pi.team_id AS team_id,
                 pge.position,
                 pge.player_id,
                 pi.first_name AS first_name,
                 pi.last_name AS last_name,
                 pi.age AS age,
                 pi.uniform_number AS uniform_number
-            pgeOM player_game_entry pge 
+            FROM player_game_entry pge 
             LEFT JOIN 
                 player_info pi ON pge.player_id = pi.id
             WHERE pge.game_id = ?1";
@@ -518,7 +519,7 @@ mod tests {
 
             CREATE TABLE defense_skills (
                 player_id INTEGER PRIMARY KEY,
-                primary_position TEXT NOT NULL
+                position TEXT NOT NULL
             );
 
             CREATE TABLE running_skills (
@@ -627,13 +628,12 @@ mod tests {
                 game_id INTEGER,
                 start_count_seq INTEGER,
                 end_count_seq INTEGER,
-                team_id INTEGER,
                 position TEXT,
                 player_id INTEGER,
                 PRIMARY KEY (
                     game_id,
                     start_count_seq,
-                    position
+                    player_id
                 )
             );
 
@@ -732,7 +732,7 @@ mod tests {
         let conn = conn(repo);
         for id in 1_u32..=18 {
             conn.execute(
-                "INSERT INTO defense_skills (player_id, primary_position)
+                "INSERT INTO defense_skills (player_id, position)
                  VALUES (?1, ?2)",
                 params![id, positions[((id - 1) as usize) % positions.len()]],
             )
@@ -867,16 +867,15 @@ mod tests {
     fn seed_player_game_entry(
         repo: &SqlGameRepository,
         game_id: u32,
-        team_id: u16,
         position: Position,
         player_id: u32,
     ) {
         conn(repo)
             .execute(
                 "INSERT INTO player_game_entry (
-                    game_id, start_count_seq, end_count_seq, team_id, position, player_id
-                ) VALUES (?1, 1, 3, ?2, ?3, ?4)",
-                params![game_id, team_id, position, player_id],
+                    game_id, start_count_seq, end_count_seq, position, player_id
+                ) VALUES (?1, 1, 3, ?2, ?3)",
+                params![game_id, position, player_id],
             )
             .unwrap();
     }
@@ -995,7 +994,7 @@ mod tests {
         seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
         seed_inning(&repo, 1, 1, "Top");
         seed_count(&repo, 1, 1, "Top");
-        seed_player_game_entry(&repo, 1, 1, Position::P, 1);
+        seed_player_game_entry(&repo, 1, Position::P, 1);
 
         let game = repo.load_game_detail(1).unwrap();
 
@@ -1047,8 +1046,8 @@ mod tests {
         seed_players(&repo);
         seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
         seed_game(&repo, 2, 2026, 1, 2, Some("2026-04-02"));
-        seed_player_game_entry(&repo, 1, 1, Position::P, 1);
-        seed_player_game_entry(&repo, 2, 2, Position::C, 10);
+        seed_player_game_entry(&repo, 1, Position::P, 1);
+        seed_player_game_entry(&repo, 2, Position::C, 10);
 
         let histories = repo.load_player_game_entry_views(1).unwrap();
 
@@ -1147,17 +1146,14 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_teams(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
-        let ended_history = PlayerGameEntry::new(1, 3, 1, Position::P, 1);
+        let ended_history = PlayerGameEntry::new(1, 3, Position::P, 1);
         let game = GameResult {
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 0,
             home_total_point: 0,
             innings: Vec::new(),
-            player_entries: vec![
-                ended_history,
-                PlayerGameEntry::new(1, 1, 2, Position::C, 10),
-            ],
+            player_entries: vec![ended_history, PlayerGameEntry::new(1, 1, Position::C, 10)],
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
@@ -1170,9 +1166,9 @@ mod tests {
         let mut stmt = conn
             .prepare(
                 "SELECT
-                    game_id, start_count_seq, end_count_seq, team_id, position, player_id
+                    game_id, start_count_seq, end_count_seq, position, player_id
                 FROM player_game_entry
-                ORDER BY team_id",
+                ORDER BY player_id",
             )
             .unwrap();
         let histories = stmt
@@ -1181,9 +1177,8 @@ mod tests {
                     row.get::<_, u32>(0)?,
                     row.get::<_, u8>(1)?,
                     row.get::<_, u8>(2)?,
-                    row.get::<_, u16>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, u32>(5)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, u32>(4)?,
                 ))
             })
             .unwrap()
@@ -1193,8 +1188,8 @@ mod tests {
         assert_eq!(
             histories,
             vec![
-                (1, 1, 3, 1, "P".to_string(), 1),
-                (1, 1, 1, 2, "C".to_string(), 10),
+                (1, 1, 3, "P".to_string(), 1),
+                (1, 1, 1, "C".to_string(), 10),
             ]
         );
         std::fs::remove_file(path).ok();

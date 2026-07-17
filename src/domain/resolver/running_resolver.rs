@@ -5,6 +5,7 @@ use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
 use crate::domain::shared::game_state::{ActiveRunner, GameError, Ruling};
 use crate::domain::shared::player::RL;
 use crate::domain::shared::stadium::Base;
+use tracing::info;
 
 pub const ACCELERATION_LAG_TO_FIRST_BASE: f64 = 0.5;
 pub const ACCELERATION_LAG_AFTER_FIRST_BASE: f64 = 0.2;
@@ -336,38 +337,53 @@ impl RunnersOnBase {
                 unsaved_runners.put_if_some(Base::Second, self.runner_1st);
                 unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
 
-                runner_time = self.total_runner_time(Base::Third, Base::Home)?;
-                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
+                if unsaved_runners.runner_3rd.is_some() {
+                    runner_time = self.total_runner_time(Base::Third, Base::Home)?;
+                    (ruling, time_difference) =
+                        judge(defense_play_result.defense_time, runner_time);
 
-                if ruling == Ruling::Safe {
-                    runs_scored += 1;
-                    batting_result = BattingResult::FieldersChoice;
-                };
+                    if ruling == Ruling::Safe {
+                        runs_scored += 1;
+                        batting_result = BattingResult::FieldersChoice;
+                    };
+                } else {
+                    (runner_time, time_difference, ruling) = (0.0, 0.0, Ruling::Safe);
+                }
             }
             Base::Third => {
                 unsaved_runners.put_if_some(Base::First, self.batter_runner);
                 unsaved_runners.put_if_some(Base::Second, self.runner_1st);
 
-                runner_time = self.total_runner_time(Base::Second, Base::Third)?;
-                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
+                if unsaved_runners.runner_2nd.is_some() {
+                    runner_time = self.total_runner_time(Base::Second, Base::Third)?;
+                    (ruling, time_difference) =
+                        judge(defense_play_result.defense_time, runner_time);
 
-                if ruling == Ruling::Safe {
-                    unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
-                    batting_result = BattingResult::FieldersChoice;
-                };
+                    if ruling == Ruling::Safe {
+                        unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
+                        batting_result = BattingResult::FieldersChoice;
+                    };
+                } else {
+                    (runner_time, time_difference, ruling) = (0.0, 0.0, Ruling::Safe);
+                }
 
                 runs_scored += RunnersUnsaved::score_if_some(self.runner_3rd);
             }
             Base::Second => {
                 unsaved_runners.put_if_some(Base::First, self.batter_runner);
 
-                runner_time = self.total_runner_time(Base::First, Base::Second)?;
-                (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
+                if unsaved_runners.runner_1st.is_some() {
+                    runner_time = self.total_runner_time(Base::First, Base::Second)?;
+                    (ruling, time_difference) =
+                        judge(defense_play_result.defense_time, runner_time);
 
-                if ruling == Ruling::Safe {
-                    unsaved_runners.runner_2nd = self.runner_1st;
-                    batting_result = BattingResult::FieldersChoice;
-                };
+                    if ruling == Ruling::Safe {
+                        unsaved_runners.runner_2nd = self.runner_1st;
+                        batting_result = BattingResult::FieldersChoice;
+                    };
+                } else {
+                    (runner_time, time_difference, ruling) = (0.0, 0.0, Ruling::Safe);
+                }
 
                 unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
                 runs_scored += RunnersUnsaved::score_if_some(self.runner_3rd);
@@ -406,6 +422,8 @@ impl RunnersOnBase {
         throw_target_base: Base,
         defense_time: f64,
     ) -> Result<(f64, f64, Ruling, Option<Base>, BattingResult), GameError> {
+        info!("resolve_triple_attempt");
+
         let runner_time = match throw_target_base {
             Base::Home => {
                 if self.has_runner_on(Base::First) {
@@ -443,6 +461,8 @@ impl RunnersOnBase {
         throw_target_base: Base,
         defense_time: f64,
     ) -> Result<(f64, f64, Ruling, Option<Base>, BattingResult), GameError> {
+        info!("resolve_double_attempt");
+
         let mut runner_time = 0.0;
         let mut time_difference = 0.0;
         let mut ruling = Ruling::Safe;
@@ -514,6 +534,8 @@ impl RunnersOnBase {
         throw_target_base: Base,
         defense_time: f64,
     ) -> Result<(f64, f64, Ruling, Option<Base>, BattingResult), GameError> {
+        info!("resolve_single_attempt");
+
         let (runner_time, mut retired_runner) = match throw_target_base {
             Base::Home => {
                 if self.has_runner_on(Base::Third) {

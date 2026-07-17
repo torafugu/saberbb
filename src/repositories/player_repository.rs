@@ -145,16 +145,17 @@ impl PlayerRepository for SqlPlayerRepository {
         info!("insert_batter_info() started");
 
         let insert_batter_info_sql = "INSERT INTO batter_info (
-                                                player_id, batting_side, weight_pull, weight_center, 
+                                                player_id, batting_side, swing_speed, weight_pull, weight_center, 
                                                 weight_opposite, weight_foul_left, weight_foul_right
                                                 ) VALUES (
-                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         self.db_client.execute_tx(
             tx,
             insert_batter_info_sql,
             params![
                 player_id,
                 batter_info.batting_side,
+                batter_info.swing_speed,
                 batter_info.weight_pull,
                 batter_info.weight_center,
                 batter_info.weight_opposite,

@@ -45,7 +45,6 @@ impl PlayerGameBattingView {
 pub struct PlayerGameEntry {
     pub start_count_seq: u16,
     pub end_count_seq: u16,
-    pub team_id: u16,
     pub position: Position,
     pub player_id: i64,
 }
@@ -53,14 +52,12 @@ impl PlayerGameEntry {
     pub fn new(
         start_count_seq: u16,
         end_count_seq: u16,
-        team_id: u16,
         position: Position,
         player_id: i64,
     ) -> Self {
         Self {
             start_count_seq: start_count_seq,
             end_count_seq: end_count_seq,
-            team_id: team_id,
             position: position,
             player_id: player_id,
         }

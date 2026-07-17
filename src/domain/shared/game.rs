@@ -95,17 +95,10 @@ impl GameResult {
     pub fn new(
         id: u32,
         actual_date: NaiveDate,
-        away_team_id: u16,
-        home_team_id: u16,
         away_fielders: &[ActiveFielder; 9],
         home_fielders: &[ActiveFielder; 9],
     ) -> Self {
-        let player_entries = Self::init_player_game_entries(
-            away_team_id,
-            home_team_id,
-            away_fielders,
-            home_fielders,
-        );
+        let player_entries = Self::init_player_game_entries(away_fielders, home_fielders);
         Self {
             id: id,
             actual_date: actual_date,
@@ -121,28 +114,16 @@ impl GameResult {
     }
 
     fn init_player_game_entries(
-        away_team_id: u16,
-        home_team_id: u16,
         away_team_players: &[ActiveFielder; 9],
         home_team_players: &[ActiveFielder; 9],
     ) -> Vec<PlayerGameEntry> {
         let mut fielder_records = Vec::new();
 
         for away_team_player in away_team_players {
-            fielder_records.push(Self::add_player_game_entry(
-                1,
-                1,
-                away_team_id,
-                away_team_player,
-            ));
+            fielder_records.push(Self::add_player_game_entry(1, 1, away_team_player));
         }
         for home_team_player in home_team_players {
-            fielder_records.push(Self::add_player_game_entry(
-                1,
-                1,
-                home_team_id,
-                home_team_player,
-            ));
+            fielder_records.push(Self::add_player_game_entry(1, 1, home_team_player));
         }
 
         fielder_records
@@ -151,13 +132,11 @@ impl GameResult {
     fn add_player_game_entry(
         start_count_seq: u16,
         end_count_seq: u16,
-        team_id: u16,
         active_fielder: &ActiveFielder,
     ) -> PlayerGameEntry {
         PlayerGameEntry::new(
             start_count_seq,
             end_count_seq,
-            team_id,
             active_fielder.position,
             active_fielder.id,
         )
@@ -205,7 +184,7 @@ impl Inning {
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct Count {
     pub seq: u16,
-    pub bases_occupied: u8,
+    pub bases_occupied: u8, // TODO: To be removed.
     pub point: u8,
     pub ball: u8,
     pub strike: u8,

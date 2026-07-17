@@ -186,6 +186,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
         batter_info.batting_side =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
+        batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
 
         // TODO: Consider correlation　of hitter_tendency.
         batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);

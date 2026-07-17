@@ -1,4 +1,4 @@
-use super::game::{BaseCode, BattingResult, Count, Inning, TB};
+use super::game::{BattingResult, Count, Inning, TB};
 use super::player::{BatterInfo, CatcherInfo, FielderInfo, PitcherInfo, Position, RunningSkills};
 use super::team::Lineup;
 use crate::domain::random_provider::{RandomProvider, RealRng};
@@ -18,7 +18,7 @@ use crate::domain::shared::ball::{BattedBall, FieldedBall, TrajectoryType};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stat::{PlayerGameBatting, PlayerGameFielding, PlayerGameRunning};
 use crate::domain::shared::stadium::{Base, Stadium};
-use crate::domain::util::{PolarPosition, calculate_polar_distance, is_base_occupied};
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -299,7 +299,7 @@ impl GameState {
         Ok(GameState {
             inning_seq: 0, // CONSTRAINT: Initialization: 1 should be set at the beginning of the game
             inning_tb: TB::Bottom, // CONSTRAINT: Initialization: Top should be set at the beginning of the game
-            count_seq: 0,
+            count_seq: 1,
             away_total_point: 0,
             home_total_point: 0,
             inning_state: InningState::new(),
@@ -307,8 +307,6 @@ impl GameState {
             game_result: GameResult::new(
                 game_schedule.id,
                 game_schedule.planned_date,
-                game_schedule.away_team.id,
-                game_schedule.home_team.id,
                 &away_lineup.fielders,
                 &home_lineup.fielders,
             ),
@@ -416,7 +414,6 @@ impl GameState {
     pub fn process_count(&mut self) -> Result<(), GameError> {
         info!("new count started");
 
-        self.count_seq += 1;
         let mut running_seq = 1;
         let mut fielding_seq = 1;
 
@@ -438,6 +435,7 @@ impl GameState {
 
         // TODO: pitch_speed must be replaced by ActivePitcher
         let ball = calculate_batted_ball(&batter, 150.0);
+        info!("Batted Ball: {:#?}", ball);
 
         if self.stadium.is_stand_in(&ball) {
             if ball.is_foul() {
@@ -462,6 +460,7 @@ impl GameState {
             handler.fielder
         };
         let fielded_ball = fielder.try_catch(&ball);
+        info!("Fielded Ball: {:#?}", fielded_ball);
 
         if fielded_ball.is_fly_catch {
             self.inning_state.add_out();
@@ -498,6 +497,7 @@ impl GameState {
         // TODO: stolen base should cover hit-and-run case
         if self.inning_state.can_steal_base(Box::new(RealRng::new())) {
             running_seq += 1;
+
             let steal_defense_play_result =
                 evaluate_base_stealing(Base::Second, &pitcher, &catcher, Box::new(RealRng::new()));
 
@@ -518,9 +518,8 @@ impl GameState {
 
             if steal_runner_advance_result.ruling == Ruling::Out {
                 self.inning_state.add_out();
-                if self.inning_state.innning_progress() == InningProgress::Over {
-                    return Ok(());
-                }
+                self.add_count(0);
+                return Ok(());
             };
         }
 
@@ -532,22 +531,31 @@ impl GameState {
         };
 
         let defense_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
+        info!("Defense Play Result: {:#?}", defense_play_result);
 
         let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
-            if self.inning_state.allows_tagup() {
+            if fielded_ball.is_fly_catch && self.inning_state.allows_tagup() {
+                info!("Running : Tag-up.");
+
                 self.inning_state
                     .runners
                     .after_tagup(&defense_play_result)?
             } else {
+                info!("Running : Outfield Hit.");
+
                 self.inning_state
                     .runners
                     .after_outfield_hit(&defense_play_result)?
             }
         } else {
+            info!("Running : Infield Grounder.");
+
             self.inning_state
                 .runners
                 .after_infield_grounder(&defense_play_result)?
         };
+
+        info!("Runner Advance Result: {:#?}", runner_advance_result);
 
         let can_try_double_play =
             fielded_ball.fielded_by.is_infielder() && self.inning_state.can_double_play();
@@ -558,9 +566,15 @@ impl GameState {
             None
         };
 
+        info!(
+            "Double Play Defense Play Result: {:#?}",
+            double_play_defense_play_result
+        );
+
+        point += runner_advance_result.runs_scored;
         self.add_player_running(running_seq, &runner_advance_result);
 
-        info!("{:#?}", runner_advance_result);
+        info!("Runner Advance Result:{:#?}", runner_advance_result);
 
         self.add_player_fielding(fielding_seq, &defense_play_result);
 
@@ -591,6 +605,7 @@ impl GameState {
 
             if double_play_runner_advance_result.ruling == Ruling::Out {
                 self.inning_state.add_out();
+                self.add_count(0);
                 if self.inning_state.innning_progress() == InningProgress::Over {
                     return Ok(());
                 }
@@ -604,6 +619,8 @@ impl GameState {
         if runner_advance_result.ruling == Ruling::Out {
             self.inning_state.add_out();
         };
+
+        self.add_count(point);
 
         Ok(())
     }
@@ -749,33 +766,13 @@ impl GameState {
     }
 
     fn add_count(&mut self, point: u8) {
-        self.inning.add_count(Count {
-            seq: self.count_seq,
-            bases_occupied: self.inning_state.bases_occupied,
-            ball: self.inning_state.ball,
-            strike: self.inning_state.strike,
-            out: self.inning_state.out,
-            point: point,
-        });
-    }
-
-    pub fn batting_resolve(&mut self) -> Result<(), GameError> {
-        // TODO: replace to new batting logic. // Ok(simulate_batting(&self.current_batter()?))
-
-        let batting_result = BattingResult::Out;
-
-        self.count_seq += 1;
-
-        if batting_result.is_out() {
-            self.inning_state.add_out();
-        }
-        let point = self.inning_state.advance(&batting_result);
-
         match self.inning_tb {
             TB::Top => self.away_total_point += point,
             TB::Bottom => self.home_total_point += point,
         };
 
+        self.count_seq += 1;
+
         self.inning.add_count(Count {
             seq: self.count_seq,
             bases_occupied: self.inning_state.bases_occupied,
@@ -784,16 +781,43 @@ impl GameState {
             out: self.inning_state.out,
             point: point,
         });
-
-        // self.batting_result_hisrory = PlayerGameBatting {
-        //     count_seq: self.count_seq,
-        //     pitcher_id: self.current_pitcher().player_id,
-        //     batter_id: self.current_batter()?.player_id,
-        //     result: batting_result,
-        // };
-
-        Ok(())
     }
+
+    // pub fn batting_resolve(&mut self) -> Result<(), GameError> {
+    //     // TODO: replace to new batting logic. // Ok(simulate_batting(&self.current_batter()?))
+
+    //     let batting_result = BattingResult::Out;
+
+    //     self.count_seq += 1;
+
+    //     if batting_result.is_out() {
+    //         self.inning_state.add_out();
+    //     }
+    //     let point = self.inning_state.advance(&batting_result);
+
+    //     match self.inning_tb {
+    //         TB::Top => self.away_total_point += point,
+    //         TB::Bottom => self.home_total_point += point,
+    //     };
+
+    //     self.inning.add_count(Count {
+    //         seq: self.count_seq,
+    //         bases_occupied: self.inning_state.bases_occupied,
+    //         ball: self.inning_state.ball,
+    //         strike: self.inning_state.strike,
+    //         out: self.inning_state.out,
+    //         point: point,
+    //     });
+
+    //     // self.batting_result_hisrory = PlayerGameBatting {
+    //     //     count_seq: self.count_seq,
+    //     //     pitcher_id: self.current_pitcher().player_id,
+    //     //     batter_id: self.current_batter()?.player_id,
+    //     //     result: batting_result,
+    //     // };
+
+    //     Ok(())
+    // }
 
     pub fn finish_game(&mut self) {
         self.game_result.away_total_point = self.away_total_point;
@@ -874,63 +898,63 @@ impl InningState {
         }
     }
 
-    // TODO: To be replaced by RunnersOnBase
-    pub fn advance(&mut self, result: &BattingResult) -> u8 {
-        let mut points = 0u8;
+    // // TODO: To be replaced by RunnersOnBase
+    // pub fn advance(&mut self, result: &BattingResult) -> u8 {
+    //     let mut points = 0u8;
 
-        match result {
-            BattingResult::Single => {
-                if is_base_occupied(self.bases_occupied, BaseCode::Third) {
-                    points += 1;
-                }
-                self.shift_runners(1); // All runners go to next base
-                self.put_runner_on(BaseCode::First);
-            }
-            BattingResult::Double => {
-                if is_base_occupied(self.bases_occupied, BaseCode::Third) {
-                    points += 1;
-                }
-                if is_base_occupied(self.bases_occupied, BaseCode::Second) {
-                    points += 1;
-                }
-                self.shift_runners(2);
-                self.put_runner_on(BaseCode::Second);
-            }
-            BattingResult::Triple => {
-                points += self.how_many_runners(); // All runners home in
-                self.clear();
-                self.put_runner_on(BaseCode::Third);
-            }
-            BattingResult::HomeRun => {
-                points += self.how_many_runners() + 1; // All runners and the batter home in
-                self.clear();
-            }
-            BattingResult::Foul => {}
-            BattingResult::FieldersChoice => {} // TODO: Do something
-            BattingResult::Out => {}
-        }
-        points
-    }
+    //     match result {
+    //         BattingResult::Single => {
+    //             if is_base_occupied(self.bases_occupied, BaseCode::Third) {
+    //                 points += 1;
+    //             }
+    //             self.shift_runners(1); // All runners go to next base
+    //             self.put_runner_on(BaseCode::First);
+    //         }
+    //         BattingResult::Double => {
+    //             if is_base_occupied(self.bases_occupied, BaseCode::Third) {
+    //                 points += 1;
+    //             }
+    //             if is_base_occupied(self.bases_occupied, BaseCode::Second) {
+    //                 points += 1;
+    //             }
+    //             self.shift_runners(2);
+    //             self.put_runner_on(BaseCode::Second);
+    //         }
+    //         BattingResult::Triple => {
+    //             points += self.how_many_runners(); // All runners home in
+    //             self.clear();
+    //             self.put_runner_on(BaseCode::Third);
+    //         }
+    //         BattingResult::HomeRun => {
+    //             points += self.how_many_runners() + 1; // All runners and the batter home in
+    //             self.clear();
+    //         }
+    //         BattingResult::Foul => {}
+    //         BattingResult::FieldersChoice => {} // TODO: Do something
+    //         BattingResult::Out => {}
+    //     }
+    //     points
+    // }
 
-    // TODO: To be replaced by RunnersOnBase
-    fn shift_runners(&mut self, bases: u8) {
-        self.bases_occupied = (self.bases_occupied << bases) & 0b00000111;
-    }
+    // // TODO: To be replaced by RunnersOnBase
+    // fn shift_runners(&mut self, bases: u8) {
+    //     self.bases_occupied = (self.bases_occupied << bases) & 0b00000111;
+    // }
 
-    // TODO: To be replaced by RunnersOnBase
-    fn put_runner_on(&mut self, base: BaseCode) {
-        self.bases_occupied |= 1 << (base as u8);
-    }
+    // // TODO: To be replaced by RunnersOnBase
+    // fn put_runner_on(&mut self, base: BaseCode) {
+    //     self.bases_occupied |= 1 << (base as u8);
+    // }
 
-    // TODO: To be replaced by RunnersOnBase
-    fn clear(&mut self) {
-        self.bases_occupied = 0;
-    }
+    // // TODO: To be replaced by RunnersOnBase
+    // fn clear(&mut self) {
+    //     self.bases_occupied = 0;
+    // }
 
-    // TODO: To be replaced by RunnersOnBase
-    fn how_many_runners(&self) -> u8 {
-        self.bases_occupied.count_ones() as u8
-    }
+    // // TODO: To be replaced by RunnersOnBase
+    // fn how_many_runners(&self) -> u8 {
+    //     self.bases_occupied.count_ones() as u8
+    // }
 
     pub fn add_out(&mut self) {
         self.out += 1;
@@ -1120,27 +1144,36 @@ mod tests {
     }
 
     #[test]
-    fn batting_resolve_records_an_out_for_current_batting_team() {
+    fn process_count_records_count_for_current_batting_team() {
         let mut game = game_state();
 
         game.advance_half_inning();
-        game.batting_resolve().unwrap();
+        let away_batter_id = game.away_lineup.batters[0].id;
+        game.process_count().unwrap();
 
         assert_eq!(game.count_seq, 1);
-        assert_eq!(game.away_total_point, 0);
-        assert_eq!(game.home_total_point, 0);
-        assert_eq!(game.inning_state.out, 1);
         assert_eq!(game.inning.counts.len(), 1);
         assert_eq!(game.inning.counts[0].seq, 1);
-        assert_eq!(game.inning.counts[0].out, 1);
+        assert_eq!(game.away_lineup.current_index, 1);
+        assert_eq!(game.home_lineup.current_index, 0);
+        assert_eq!(
+            game.inning_state.runners.batter_runner.unwrap().id,
+            away_batter_id
+        );
 
         game.advance_half_inning();
-        game.batting_resolve().unwrap();
+        let home_batter_id = game.home_lineup.batters[0].id;
+        game.process_count().unwrap();
 
         assert_eq!(game.count_seq, 2);
-        assert_eq!(game.away_total_point, 0);
-        assert_eq!(game.home_total_point, 0);
-        assert_eq!(game.inning_state.out, 1);
+        assert_eq!(game.inning.counts.len(), 1);
+        assert_eq!(game.inning.counts[0].seq, 2);
+        assert_eq!(game.away_lineup.current_index, 1);
+        assert_eq!(game.home_lineup.current_index, 1);
+        assert_eq!(
+            game.inning_state.runners.batter_runner.unwrap().id,
+            home_batter_id
+        );
     }
 
     #[test]
@@ -1236,47 +1269,53 @@ mod tests {
     }
 
     #[test]
-    fn advance_handles_every_base_occupancy_for_every_result() {
-        for bases in 0u8..=0b111 {
-            let runners = bases.count_ones() as u8;
-            let runner_on_second = (bases >> BaseCode::Second as u8) & 1;
-            let runner_on_third = (bases >> BaseCode::Third as u8) & 1;
+    fn count_progress_reports_strikeout_four_ball_and_ongoing_counts() {
+        let mut inning = InningState::new();
 
-            let cases = [
-                (
-                    BattingResult::Single,
-                    ((bases << 1) & 0b111) | 0b001,
-                    runner_on_third,
-                ),
-                (
-                    BattingResult::Double,
-                    ((bases << 2) & 0b111) | 0b010,
-                    runner_on_second + runner_on_third,
-                ),
-                (BattingResult::Triple, 0b100, runners),
-                (BattingResult::HomeRun, 0b000, runners + 1),
-                (BattingResult::Out, bases, 0),
-            ];
+        assert_eq!(inning.count_progress(), CountProgress::Ongoing);
 
-            for (result, expected_bases, expected_points) in cases {
-                let mut inning = InningState {
-                    bases_occupied: bases,
-                    runners: RunnersOnBase::default(),
-                    ball: 0,
-                    strike: 0,
-                    out: 0,
-                };
+        inning.strike = MAX_STRIKE - 1;
+        assert_eq!(inning.count_progress(), CountProgress::Ongoing);
 
-                assert_eq!(
-                    inning.advance(&result),
-                    expected_points,
-                    "{result:?} with bases {bases:03b}"
-                );
-                assert_eq!(
-                    inning.bases_occupied, expected_bases,
-                    "{result:?} with bases {bases:03b}"
-                );
-            }
-        }
+        inning.strike = MAX_STRIKE;
+        assert_eq!(inning.count_progress(), CountProgress::StrikeOut);
+
+        inning.strike = 0;
+        inning.ball = MAX_BALL - 1;
+        assert_eq!(inning.count_progress(), CountProgress::Ongoing);
+
+        inning.ball = MAX_BALL;
+        assert_eq!(inning.count_progress(), CountProgress::FourBall);
+    }
+
+    #[test]
+    fn runner_dependent_inning_state_rules_follow_current_runners() {
+        let runner = ActiveRunner {
+            id: 1,
+            skills: RunningSkills {
+                speed: 7.7,
+                lead_distance: 4.0,
+                start_reaction: 0.1,
+            },
+        };
+        let mut inning = InningState::new();
+
+        assert!(!inning.allows_tagup());
+        assert!(!inning.can_double_play());
+
+        inning.runners.runner_1st = Some(runner);
+        assert!(!inning.allows_tagup());
+        assert!(inning.can_double_play());
+
+        inning.runners.runner_2nd = Some(runner);
+        assert!(inning.allows_tagup());
+        assert!(inning.can_double_play());
+
+        inning.out = 2;
+        assert!(inning.allows_tagup());
+        assert!(!inning.can_double_play());
+
+        inning.out = MAX_OUT;
+        assert!(!inning.allows_tagup());
     }
 }
