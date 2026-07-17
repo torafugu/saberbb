@@ -4,14 +4,17 @@ use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
 use crate::t;
 use kurbo::{Affine, BezPath, CubicBez, Line, PathEl, Point, Shape, Vec2};
+use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
+use strum_macros::{AsRefStr, EnumString};
 use svg::Document;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Line as svgLine, Path, Rectangle, Text};
+use validator::Validate;
 
 pub const MOUND_DISTANCE: f64 = 18.44;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, EnumString, AsRefStr)]
 pub enum Base {
     Home,
     First,
@@ -40,21 +43,51 @@ impl std::fmt::Display for Base {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct Stadium {
+    pub id: u16,
     pub name: String,
     pub foul_pole_distance: f64,
     pub center_fence_distance: f64,
     // pub fair_zone: kurbo::BezPath,
-    fence_line: kurbo::BezPath,
-    fence_height: f64,
+    pub(crate) fence_line: kurbo::BezPath,
+    pub(crate) fence_height: f64,
 }
 impl Stadium {
     pub fn new(
+        id: u16,
         name: String,
         foul_pole_distance: f64,
         center_fence_distance: f64,
         fence_height: f64,
     ) -> Self {
+        let fence_line = Self::build_fence_line(foul_pole_distance, center_fence_distance);
+
+        Self {
+            id,
+            name,
+            foul_pole_distance,
+            center_fence_distance,
+            fence_line,
+            fence_height,
+        }
+    }
+
+    pub fn fence_line_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&self.fence_line)
+    }
+
+    pub fn build_fence_line_json(
+        foul_pole_distance: f64,
+        center_fence_distance: f64,
+    ) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&Self::build_fence_line(
+            foul_pole_distance,
+            center_fence_distance,
+        ))
+    }
+
+    fn build_fence_line(foul_pole_distance: f64, center_fence_distance: f64) -> BezPath {
         let homerun_pole_x = foul_pole_distance / SQRT_2;
         let homerun_pole_y = foul_pole_distance / SQRT_2;
         let center_fence_x = 0.0;
@@ -94,13 +127,7 @@ impl Stadium {
         );
         fence_line.close_path();
 
-        Self {
-            name: name,
-            foul_pole_distance: foul_pole_distance,
-            center_fence_distance: center_fence_distance,
-            fence_line: fence_line,
-            fence_height: fence_height,
-        }
+        fence_line
     }
 
     pub fn draw_fence(&self) {
@@ -153,6 +180,12 @@ impl Stadium {
         } else {
             return false;
         }
+    }
+}
+
+impl Default for Stadium {
+    fn default() -> Self {
+        Self::new(1, "Stadium A".to_string(), 98.0, 120.0, 2.0)
     }
 }
 
@@ -592,4 +625,17 @@ fn find_intersections(path: &BezPath, ray: Line) -> Option<Point> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_fence_line_json_round_trips_to_bez_path() {
+        let json = Stadium::build_fence_line_json(98.0, 120.0).unwrap();
+        let fence_line: BezPath = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(fence_line, Stadium::build_fence_line(98.0, 120.0));
+    }
 }

@@ -1,9 +1,10 @@
-use super::game_history::{
-    ActiveFielderHistory, ActiveFielderView, BattingResultHistory, BattingResultView,
+use super::game_stat::{
+    PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
+    PlayerGameFielding, PlayerGamePitching, PlayerGameRunning,
 };
 use super::game_state::ActiveFielder;
 use super::team::Team;
-use crate::domain::shared::player::Position;
+use crate::domain::shared::stadium::Stadium;
 use crate::t;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,7 @@ use strum_macros::{AsRefStr, EnumString};
 use validator::Validate;
 
 pub const BASE_DISTANCE: f64 = 27.431;
+// TODO: Move to league wise parameter.
 pub const TOTAL_GAMES: u16 = 140;
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString, AsRefStr)]
@@ -53,7 +55,7 @@ pub struct GameSeason {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
-pub struct GameScheduler {
+pub struct GameSchedule {
     pub id: u32,
     pub season: u16,
     pub round_seq: u16,
@@ -62,6 +64,7 @@ pub struct GameScheduler {
     pub away_team: Team,
     pub home_team: Team,
     pub game_type: GameType,
+    pub stadium: Stadium,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
@@ -82,8 +85,11 @@ pub struct GameResult {
     pub innings: Vec<Inning>,
     pub away_total_point: u8,
     pub home_total_point: u8,
-    pub active_fielder_histories: Vec<ActiveFielderHistory>,
-    pub batting_result_histories: Vec<BattingResultHistory>,
+    pub player_entries: Vec<PlayerGameEntry>,
+    pub player_pitchings: Vec<PlayerGamePitching>,
+    pub player_battings: Vec<PlayerGameBatting>,
+    pub player_fieldings: Vec<PlayerGameFielding>,
+    pub player_runnings: Vec<PlayerGameRunning>,
 }
 impl GameResult {
     pub fn new(
@@ -91,14 +97,14 @@ impl GameResult {
         actual_date: NaiveDate,
         away_team_id: u16,
         home_team_id: u16,
-        away_active_fielders: &[ActiveFielder; 9],
-        home_active_fielders: &[ActiveFielder; 9],
+        away_fielders: &[ActiveFielder; 9],
+        home_fielders: &[ActiveFielder; 9],
     ) -> Self {
-        let active_fielder_histories = Self::init_active_fielder_histories(
+        let player_entries = Self::init_player_game_entries(
             away_team_id,
             home_team_id,
-            away_active_fielders,
-            home_active_fielders,
+            away_fielders,
+            home_fielders,
         );
         Self {
             id: id,
@@ -106,51 +112,54 @@ impl GameResult {
             innings: Vec::new(),
             away_total_point: 0,
             home_total_point: 0,
-            active_fielder_histories,
-            batting_result_histories: Vec::new(),
+            player_entries,
+            player_pitchings: Vec::new(),
+            player_battings: Vec::new(),
+            player_fieldings: Vec::new(),
+            player_runnings: Vec::new(),
         }
     }
 
-    fn init_active_fielder_histories(
+    fn init_player_game_entries(
         away_team_id: u16,
         home_team_id: u16,
-        away_team_active_fielders: &[ActiveFielder; 9],
-        home_team_active_fielders: &[ActiveFielder; 9],
-    ) -> Vec<ActiveFielderHistory> {
-        let mut active_fielder_histories = Vec::new();
+        away_team_players: &[ActiveFielder; 9],
+        home_team_players: &[ActiveFielder; 9],
+    ) -> Vec<PlayerGameEntry> {
+        let mut fielder_records = Vec::new();
 
-        for away_team_active_fielder in away_team_active_fielders {
-            active_fielder_histories.push(Self::add_active_fielder_hitstory(
+        for away_team_player in away_team_players {
+            fielder_records.push(Self::add_player_game_entry(
                 1,
                 1,
                 away_team_id,
-                away_team_active_fielder,
+                away_team_player,
             ));
         }
-        for home_team_active_fielder in home_team_active_fielders {
-            active_fielder_histories.push(Self::add_active_fielder_hitstory(
+        for home_team_player in home_team_players {
+            fielder_records.push(Self::add_player_game_entry(
                 1,
                 1,
                 home_team_id,
-                home_team_active_fielder,
+                home_team_player,
             ));
         }
 
-        active_fielder_histories
+        fielder_records
     }
 
-    fn add_active_fielder_hitstory(
+    fn add_player_game_entry(
         start_count_seq: u16,
         end_count_seq: u16,
         team_id: u16,
         active_fielder: &ActiveFielder,
-    ) -> ActiveFielderHistory {
-        ActiveFielderHistory::new(
+    ) -> PlayerGameEntry {
+        PlayerGameEntry::new(
             start_count_seq,
             end_count_seq,
             team_id,
             active_fielder.position,
-            active_fielder.player_id,
+            active_fielder.id,
         )
     }
 }
@@ -165,8 +174,8 @@ pub struct GameDetail {
     pub innings: Vec<Inning>,
     pub away_points: u8,
     pub home_points: u8,
-    pub active_fielder_views: Vec<ActiveFielderView>,
-    pub batting_result_views: Vec<BattingResultView>,
+    pub player_entry_views: Vec<PlayerGameEntryView>,
+    pub player_batting_views: Vec<PlayerGameBattingView>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
@@ -240,25 +249,10 @@ pub enum BaseCode {
     Third = 2,
 }
 
-pub struct FielderPoint {
-    pub position: Position,
-    pub distance: f32,
-    pub angle: f32,
-}
-impl FielderPoint {
-    // Calculate the straight-line distance to another FielderPoint.
-    pub fn distance_to(&self, other: &FielderPoint) -> f32 {
-        let r1 = self.distance;
-        let r2 = other.distance;
-
-        // Convert the difference between the two angles to radians.
-        let angle_diff_rad = (self.angle - other.angle).to_radians();
-
-        // Apply the law of cosines.
-        let cos_val = angle_diff_rad.cos();
-        let distance_squared = (r1 * r1) + (r2 * r2) - (2.0 * r1 * r2 * cos_val);
-
-        // Guard against rare negative values caused by floating-point error.
-        distance_squared.max(0.0).sqrt()
-    }
+#[derive(Clone, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
+#[strum(ascii_case_insensitive)]
+pub enum FieldingResult {
+    Success,
+    FieldersChoice,
+    Error,
 }

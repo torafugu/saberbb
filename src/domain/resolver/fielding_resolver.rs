@@ -9,8 +9,10 @@ use crate::domain::shared::player::{CatcherInfo, PitcherInfo, Position};
 use crate::domain::shared::stadium::Base;
 use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::t;
+use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
 use std::fmt::Debug;
+use strum_macros::{AsRefStr, EnumString};
 
 #[derive(Debug, Clone)]
 pub struct DefenseTimeResult {
@@ -83,7 +85,7 @@ impl DefenseTimeCalculator {
 
         match play_type {
             PlayType::ForcePlay => throw_time,
-            PlayType::TouchPlay => throw_time + self.touch_penalty_time,
+            _ => throw_time + self.touch_penalty_time,
         }
     }
 
@@ -233,7 +235,7 @@ fn double_play_defense_play(
         find_fielder_by_position(fielders, double_play_throw_target.thrower_fielder_position)?;
 
     // TODO: case of final fielder failed to catch
-    let _final_fielder =
+    let final_fielder =
         find_fielder_by_position(fielders, double_play_throw_target.final_fielder_position)?;
 
     let calculator = DefenseTimeCalculator::default();
@@ -246,6 +248,9 @@ fn double_play_defense_play(
 
     let double_play_defense_play_result = DoublePlayDefensePlayResult {
         throw_target_base: double_play_throw_target.to_base,
+        thrower_fielder_id: thrower.id,
+        thrower_fielder_position: double_play_throw_target.thrower_fielder_position,
+        final_fielder_id: final_fielder.id,
         final_fielder_position: double_play_throw_target.final_fielder_position,
         defense_time: defense_time,
     };
@@ -265,11 +270,21 @@ fn infield_grounder_defense_play(
         throw_target,
     );
 
+    let final_player = find_fielder_by_position(ctx.fielders, result.final_fielder_position)?;
+    let cuttoff_fielder_id =
+        if let Some(cutoff_fielder_position) = throw_target.cutoff_fielder_position {
+            Some(find_fielder_by_position(ctx.fielders, cutoff_fielder_position)?.id)
+        } else {
+            None
+        };
+
     let defense_play_result = DefensePlayResult {
         time_to_field: ctx.fielded_ball.time_to_field,
         throw_target_base: throw_target.base,
         play_type: throw_target.play_type,
+        final_fielder_id: final_player.id,
         final_fielder_position: result.final_fielder_position,
+        cutoff_fielder_id: cuttoff_fielder_id,
         cutoff_fielder_position: throw_target.cutoff_fielder_position,
         defense_time: result.defense_time + ctx.fielded_ball.time_to_field,
     };
@@ -297,27 +312,42 @@ fn outfield_hit_tagup_defense_play(
         cutoff_fielder,
     ) + ctx.fielded_ball.time_to_field;
 
+    let final_player = find_fielder_by_position(ctx.fielders, throw_target.final_fielder_position)?;
+    let cutoff_fielder_id = if let Some(fielder) = cutoff_fielder {
+        Some(fielder.id)
+    } else {
+        None
+    };
+
     let defense_play_result = DefensePlayResult {
         time_to_field: ctx.fielded_ball.time_to_field,
         throw_target_base: throw_target.base,
         play_type: throw_target.play_type,
+        final_fielder_id: final_player.id,
         final_fielder_position: throw_target.final_fielder_position,
+        cutoff_fielder_id: cutoff_fielder_id,
         cutoff_fielder_position: throw_target.cutoff_fielder_position,
         defense_time: defense_time,
     };
     Ok(defense_play_result)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, AsRefStr)]
 pub enum PlayType {
     ForcePlay,
     TouchPlay,
+    CatchPlay,
+    ThrowPlay,
+    CutOffPlay,
 }
 impl std::fmt::Display for PlayType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             PlayType::ForcePlay => write!(f, "{}", t!("force_play")),
             PlayType::TouchPlay => write!(f, "{}", t!("touch_play")),
+            PlayType::CatchPlay => write!(f, "{}", t!("catch_play")),
+            PlayType::ThrowPlay => write!(f, "{}", t!("throw_play")),
+            PlayType::CutOffPlay => write!(f, "{}", t!("cutoff_play")),
         }
     }
 }
@@ -555,6 +585,9 @@ fn judge_outfield_hit_throw_target(ctx: &PlayContext, rng: Box<dyn RandomProvide
 #[derive(Debug)]
 pub struct DoublePlayDefensePlayResult {
     pub throw_target_base: Base,
+    pub thrower_fielder_id: i64,
+    pub thrower_fielder_position: Position,
+    pub final_fielder_id: i64,
     pub final_fielder_position: Position,
     pub defense_time: f64,
 }
@@ -564,7 +597,9 @@ pub struct DefensePlayResult {
     pub time_to_field: f64,
     pub throw_target_base: Base,
     pub play_type: PlayType,
+    pub final_fielder_id: i64,
     pub final_fielder_position: Position,
+    pub cutoff_fielder_id: Option<i64>,
     pub cutoff_fielder_position: Option<Position>,
     pub defense_time: f64,
 }
@@ -806,7 +841,7 @@ mod tests {
     fn fielder(position: Position, distance: f64, angle: f64) -> ActiveFielder {
         ActiveFielder {
             position,
-            player_id: 0,
+            id: 0,
             info: FielderInfo {
                 fielder_type: FielderType::Outfielder,
                 throw_speed: 35.0,
@@ -857,7 +892,7 @@ mod tests {
     ) -> RunnersOnBase {
         fn runner(speed: f64) -> ActiveRunner {
             ActiveRunner {
-                player_id: 0,
+                id: 0,
                 skills: RunningSkills {
                     speed: speed,
                     lead_distance: 0.0,
@@ -950,7 +985,7 @@ mod tests {
     fn fielder_new_sets_polar_position_and_skills() {
         let fielder = ActiveFielder {
             position: Position::CF,
-            player_id: 0,
+            id: 0,
             info: FielderInfo {
                 fielder_type: FielderType::Outfielder,
                 throw_speed: 38.0,
@@ -1042,7 +1077,9 @@ mod tests {
             time_to_field: 1.0,
             throw_target_base: Base::Second,
             play_type: PlayType::ForcePlay,
+            final_fielder_id: 0,
             final_fielder_position: Position::SS,
+            cutoff_fielder_id: None,
             cutoff_fielder_position: None,
             defense_time: 1.2,
         };
@@ -1075,7 +1112,9 @@ mod tests {
             time_to_field: 1.0,
             throw_target_base: Base::Second,
             play_type: PlayType::ForcePlay,
+            final_fielder_id: 0,
             final_fielder_position: Position::SB,
+            cutoff_fielder_id: None,
             cutoff_fielder_position: None,
             defense_time: 1.2,
         };
@@ -1129,14 +1168,15 @@ mod tests {
     }
 
     #[test]
-    fn liner_beyond_fielder_adds_reaction_delay() {
+    fn liner_beyond_fielder_adds_reaction_delay_and_falls_in() {
         let center_fielder = fielder(Position::CF, 80.0, 0.0);
         let mut liner_beyond_fielder = ball(TrajectoryType::Liner, 90.0, 0.0, 2.0, 110.0, 15.0);
 
         let result = center_fielder.try_catch(&mut liner_beyond_fielder);
 
-        assert!(result.is_fly_catch);
-        assert_near(result.time_to_field, liner_beyond_fielder.hang_time);
+        assert!(!result.is_fly_catch);
+        assert!(result.time_to_field > liner_beyond_fielder.hang_time);
+        assert!(result.ball.distance() > liner_beyond_fielder.distance());
     }
 
     #[test]

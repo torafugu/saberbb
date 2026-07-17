@@ -11,7 +11,7 @@ pub fn is_base_occupied(bases_occupied: u8, base: BaseCode) -> bool {
     (bases_occupied & (1 << base as u8)) != 0
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 pub struct PolarPosition {
     pub distance: f64, // NOTE: Distance from home plate in meters
     pub angle: f64, // NOTE: Angle in degrees. 0° points toward second base, positive values go clockwise

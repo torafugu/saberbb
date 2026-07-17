@@ -1,4 +1,4 @@
-use crate::domain::shared::game::{GameScheduler, GameSeason};
+use crate::domain::shared::game::{GameSchedule, GameSeason};
 use crate::domain::shared::team::{League, Team};
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
@@ -8,7 +8,7 @@ use rusqlite::params;
 pub trait ScheduleRepository {
     fn load_game_season(&self) -> Result<GameSeason, AppError>;
     fn load_all_leagues(&self) -> Result<Vec<League>, AppError>;
-    fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<(), AppError>;
+    fn save_game_schedules(&mut self, game_schedules: Vec<GameSchedule>) -> Result<(), AppError>;
     fn update_scheduled_season(&self) -> Result<usize, AppError>;
 }
 
@@ -44,11 +44,11 @@ impl ScheduleRepository for SqlScheduleRepository {
         Ok(leagues)
     }
 
-    fn save_game_schedules(&mut self, game_schedules: Vec<GameScheduler>) -> Result<(), AppError> {
+    fn save_game_schedules(&mut self, game_schedules: Vec<GameSchedule>) -> Result<(), AppError> {
         let insert_game_sql = "INSERT INTO game (
-            season, round_seq, seq, planned_date, away_team_id, home_team_id, game_type
+            season, round_seq, seq, planned_date, away_team_id, home_team_id, stadium_id, game_type
             ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         for game_schedule in game_schedules {
             self.db_client.execute(
                 insert_game_sql,
@@ -59,6 +59,7 @@ impl ScheduleRepository for SqlScheduleRepository {
                     game_schedule.planned_date,
                     game_schedule.away_team.id,
                     game_schedule.home_team.id,
+                    game_schedule.stadium.id,
                     game_schedule.game_type
                 ],
             )?;
@@ -77,6 +78,7 @@ impl ScheduleRepository for SqlScheduleRepository {
 mod tests {
     use super::*;
     use crate::domain::shared::game::GameType;
+    use crate::domain::shared::stadium::Stadium;
     use crate::repositories::db::SqliteManager;
     use chrono::NaiveDate;
     use deadpool::managed::Pool;
@@ -134,6 +136,7 @@ mod tests {
                 actual_date TEXT,
                 away_team_id INTEGER NOT NULL,
                 home_team_id INTEGER NOT NULL,
+                stadium_id INTEGER NOT NULL DEFAULT 1,
                 game_type TEXT NOT NULL,
                 away_points INTEGER,
                 home_points INTEGER
@@ -202,8 +205,8 @@ mod tests {
             .unwrap();
     }
 
-    fn game_schedule(id: u32, season: u16, round_seq: u16, seq: u16) -> GameScheduler {
-        GameScheduler {
+    fn game_schedule(id: u32, season: u16, round_seq: u16, seq: u16) -> GameSchedule {
+        GameSchedule {
             id,
             season,
             round_seq,
@@ -211,6 +214,7 @@ mod tests {
             planned_date: NaiveDate::from_ymd_opt(2026, 4, seq as u32).unwrap(),
             away_team: Team::min(1, "Away"),
             home_team: Team::min(2, "Home"),
+            stadium: Stadium::default(),
             game_type: GameType::Regular,
         }
     }
@@ -293,10 +297,10 @@ mod tests {
             .unwrap();
 
         let conn = conn(&repo);
-        let row: (u16, u16, u16, String, u16, u16, String) = conn
+        let row: (u16, u16, u16, String, u16, u16, u16, String) = conn
             .query_row(
                 "SELECT season, round_seq, seq, planned_date,
-                    away_team_id, home_team_id, game_type
+                    away_team_id, home_team_id, stadium_id, game_type
                  FROM game",
                 [],
                 |row| {
@@ -308,6 +312,7 @@ mod tests {
                         row.get(4)?,
                         row.get(5)?,
                         row.get(6)?,
+                        row.get(7)?,
                     ))
                 },
             )
@@ -319,7 +324,8 @@ mod tests {
         assert_eq!(row.3, "2026-04-03");
         assert_eq!(row.4, 1);
         assert_eq!(row.5, 2);
-        assert_eq!(row.6, "Regular");
+        assert_eq!(row.6, 1);
+        assert_eq!(row.7, "Regular");
         std::fs::remove_file(path).ok();
     }
 

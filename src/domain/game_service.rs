@@ -1,5 +1,4 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress};
-use crate::domain::random_provider::RealRng;
 use crate::domain::shared::game::GameResult;
 use crate::domain::shared::player::Player;
 use crate::repositories::game_repository::GameRepository;
@@ -15,48 +14,34 @@ impl<R: GameRepository> GameService<R> {
     pub fn process_game_round(&mut self) -> Result<()> {
         info!("process_game_round() started");
 
+        // TODO: move stadium to GameSchedule
         let game_schedules = self
             .repo
             .load_game_schedules_to_process()
             .context(t!("error", "function" => "load_game_schedules_to_process"))?;
 
         // TODO: Check postponement
-        for mut game_schedule in game_schedules {
+        for game_schedule in game_schedules {
             info!("new game started");
 
-            let mut game_state = GameState::new(
-                game_schedule.away_team.id,
-                game_schedule.home_team.id,
-                game_schedule.away_team.lineup(Box::new(RealRng::new()))?,
-                game_schedule.home_team.lineup(Box::new(RealRng::new()))?,
-            )?;
-            let mut game_result = GameResult::new(
-                game_schedule.id,
-                game_schedule.planned_date,
-                game_schedule.away_team.id,
-                game_schedule.home_team.id,
-                &game_state.away_lineup.fielders,
-                &game_state.home_lineup.fielders,
-            );
+            let mut game_state = GameState::new(game_schedule)?;
 
             while let GameProgress::Ongoing = game_state.progress() {
                 info!("new inning started");
 
                 game_state.advance_half_inning();
 
-                while let InningProgress::Ongoing = game_state.inning_state.progress() {
+                while let InningProgress::Ongoing = game_state.inning_state.innning_progress() {
+                    // TODO: Consider ball updated
+                    // TODO: Consider strike updated
                     game_state.batting_resolve()?;
-
-                    game_result
-                        .batting_result_histories
-                        .push(game_state.batting_result_hisrory);
 
                     if let GameProgress::WalkOff = game_state.progress() {
                         break;
                     }
                 }
 
-                game_result.innings.push(game_state.inning.clone());
+                game_state.finish_half_inning();
 
                 if let GameProgress::GameSet = game_state.progress() {
                     break;
@@ -64,10 +49,9 @@ impl<R: GameRepository> GameService<R> {
             }
 
             info!("game completed");
-            game_result.away_total_point = game_state.away_total_point;
-            game_result.home_total_point = game_state.home_total_point;
+            game_state.finish_game();
 
-            if let Err(e) = self.repo.save_game_result(&game_result) {
+            if let Err(e) = self.repo.save_game_result(&game_state.game_result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
             }
@@ -85,20 +69,21 @@ impl<R: GameRepository> GameService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::game::{
-        Count, GameDetail, GameHeader, GameScheduler, GameType, Inning, TB,
+        Count, GameDetail, GameHeader, GameSchedule, GameType, Inning, TB,
     };
-    use crate::domain::shared::game_history::{ActiveFielderView, BattingResultView};
+    use crate::domain::shared::game_stat::{PlayerGameBattingView, PlayerGameEntryView};
     use crate::domain::shared::player::{
         BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType, PitcherInfo,
         PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
+    use crate::domain::shared::stadium::Stadium;
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use anyhow::anyhow;
     use chrono::NaiveDate;
 
     struct RecordingRepo {
-        schedules: Vec<GameScheduler>,
+        schedules: Vec<GameSchedule>,
         load_error: bool,
         save_error_at: Option<usize>,
         update_error: bool,
@@ -108,7 +93,7 @@ mod tests {
     }
 
     impl RecordingRepo {
-        fn new(schedules: Vec<GameScheduler>) -> Self {
+        fn new(schedules: Vec<GameSchedule>) -> Self {
             Self {
                 schedules,
                 load_error: false,
@@ -157,7 +142,7 @@ mod tests {
 
         fn load_game_schedules_to_process(
             &self,
-        ) -> std::result::Result<Vec<GameScheduler>, AppError> {
+        ) -> std::result::Result<Vec<GameSchedule>, AppError> {
             if self.load_error {
                 return Err(AppError::Internal(anyhow!("load failed")));
             }
@@ -223,17 +208,17 @@ mod tests {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_active_fielder_views(
+        fn load_player_game_entry_views(
             &self,
             _game_id: u32,
-        ) -> std::result::Result<Vec<ActiveFielderView>, AppError> {
+        ) -> std::result::Result<Vec<PlayerGameEntryView>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_batting_result_views(
+        fn load_player_game_batting_views(
             &self,
             _game_id: u32,
-        ) -> std::result::Result<Vec<BattingResultView>, AppError> {
+        ) -> std::result::Result<Vec<PlayerGameBattingView>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }
@@ -347,8 +332,8 @@ mod tests {
         }
     }
 
-    fn schedule(id: u32) -> GameScheduler {
-        GameScheduler {
+    fn schedule(id: u32) -> GameSchedule {
+        GameSchedule {
             id,
             season: 2026,
             round_seq: 1,
@@ -356,6 +341,7 @@ mod tests {
             planned_date: NaiveDate::from_ymd_opt(2026, 4, id).unwrap(),
             away_team: team(1, "AAA", 1),
             home_team: team(2, "BBB", 101),
+            stadium: Stadium::default(),
             game_type: GameType::Regular,
         }
     }

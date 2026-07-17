@@ -9,6 +9,7 @@ CREATE TABLE game (
     actual_date TEXT,
     away_team_id INTEGER NOT NULL,
     home_team_id INTEGER NOT NULL,
+    stadium_id INTEGER NOT NULL DEFAULT 1,
     game_type TEXT NOT NULL,
     away_points INTEGER,
     home_points INTEGER

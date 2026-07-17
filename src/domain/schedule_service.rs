@@ -1,4 +1,5 @@
-use super::shared::game::{GameScheduler, GameType, TOTAL_GAMES};
+use super::shared::game::{GameSchedule, GameType, TOTAL_GAMES};
+use super::shared::stadium::Stadium;
 use crate::repositories::schedule_repository::ScheduleRepository;
 use crate::t;
 use anyhow::{Context, Result};
@@ -66,7 +67,7 @@ impl<R: ScheduleRepository> ScheduleService<R> {
 
                         if *games_played.get(&home.id).unwrap_or(&0) < TOTAL_GAMES {
                             // last_game_id += 1;
-                            game_schedules.push(GameScheduler {
+                            game_schedules.push(GameSchedule {
                                 id: 0, // Dummy
                                 season: game_season.season + 1,
                                 round_seq: round_seq,
@@ -74,6 +75,7 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                                 planned_date: game_date,
                                 home_team: home.clone(),
                                 away_team: away.clone(),
+                                stadium: Stadium::default(),
                                 game_type: GameType::Regular,
                             });
                         }
@@ -139,7 +141,7 @@ mod tests {
         load_game_season_calls: Cell<usize>,
         load_all_leagues_calls: Cell<usize>,
         update_calls: Cell<usize>,
-        saved_batches: Vec<Vec<GameScheduler>>,
+        saved_batches: Vec<Vec<GameSchedule>>,
         call_log: RefCell<Vec<&'static str>>,
     }
 
@@ -194,7 +196,7 @@ mod tests {
 
         fn save_game_schedules(
             &mut self,
-            game_schedules: Vec<GameScheduler>,
+            game_schedules: Vec<GameSchedule>,
         ) -> Result<(), AppError> {
             self.call_log.borrow_mut().push("save_game_schedules");
             let call_index = self.saved_batches.len();
@@ -233,7 +235,7 @@ mod tests {
         }
     }
 
-    fn team_game_count(schedules: &[GameScheduler], team_id: u16) -> usize {
+    fn team_game_count(schedules: &[GameSchedule], team_id: u16) -> usize {
         schedules
             .iter()
             .filter(|schedule| schedule.home_team.id == team_id || schedule.away_team.id == team_id)

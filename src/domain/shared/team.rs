@@ -1,7 +1,7 @@
 use super::player::Position;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::game_state::{
-    ActiveBatter, ActiveCatcher, ActiveFielder, ActivePitcher, GameError,
+    ActiveBatter, ActiveCatcher, ActiveFielder, ActivePitcher, ActiveRunner, GameError,
 };
 use crate::domain::shared::player::Player;
 use serde::{Deserialize, Serialize};
@@ -61,17 +61,18 @@ impl Team {
                 batters.push(ActiveBatter::new(
                     random_player.info.id,
                     random_player.batter()?,
+                    random_player.runner(),
                 ));
             } else {
                 temp_pitcher = Some(ActivePitcher {
-                    player_id: random_player.info.id,
+                    id: random_player.info.id,
                     pitcher: random_player.pitcher()?,
                 });
             }
 
             if random_player.defense_skills.position == Position::C {
                 temp_catcher = Some(ActiveCatcher {
-                    player_id: random_player.info.id,
+                    id: random_player.info.id,
                     catcher: random_player.catcher()?,
                 });
             }
@@ -137,12 +138,12 @@ impl Lineup {
         })
     }
 
-    pub fn next(&mut self) -> Result<ActiveBatter, GameError> {
+    pub fn next(&mut self) -> Result<&ActiveBatter, GameError> {
         if self.batters.is_empty() {
             return Err(GameError::Lineup("batters are empty.".to_string()));
         }
 
-        let active_batter = self.batters[self.current_index].clone();
+        let active_batter = &self.batters[self.current_index];
         self.current_index = (self.current_index + 1) % self.batters.len();
 
         Ok(active_batter)

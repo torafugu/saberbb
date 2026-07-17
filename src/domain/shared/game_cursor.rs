@@ -235,7 +235,7 @@ impl GameCursor {
 
     fn current_position(&mut self, position: Position) -> Result<Player, GameViewError> {
         self.game
-            .active_fielder_views
+            .player_entry_views
             .iter()
             .find(|i| i.is_position(self.current_fielding_team().id, position, self.count_seq))
             .and_then(|i| self.player_by_id(i.player.id))
@@ -244,7 +244,7 @@ impl GameCursor {
 
     pub fn current_batter(&mut self) -> Result<Player, GameViewError> {
         self.game
-            .batting_result_views
+            .player_batting_views
             .iter()
             .find(|i| i.is(self.count_seq as u16))
             .and_then(|i| self.player_by_id(i.batter.id))

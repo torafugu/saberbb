@@ -39,7 +39,7 @@ pub struct RunnerAdvanceResult {
     pub play_type: PlayType,
     pub ruling: Ruling,
     pub batting_result: BattingResult,
-    pub runs_scored: u16,
+    pub runs_scored: u8,
     pub unsaved_runners: RunnersUnsaved,
 }
 
@@ -102,8 +102,35 @@ impl RunnersUnsaved {
         };
     }
 
-    fn score_if_some(runner: Option<ActiveRunner>) -> u16 {
+    fn score_if_some(runner: Option<ActiveRunner>) -> u8 {
         if runner.is_some() { 1 } else { 0 }
+    }
+
+    pub fn runner_id_on(&self, base: Base) -> Option<i64> {
+        match base {
+            Base::First => {
+                if let Some(runner) = self.runner_1st {
+                    Some(runner.id)
+                } else {
+                    return None;
+                }
+            }
+            Base::Second => {
+                if let Some(runner) = self.runner_2nd {
+                    Some(runner.id)
+                } else {
+                    return None;
+                }
+            }
+            Base::Third => {
+                if let Some(runner) = self.runner_3rd {
+                    Some(runner.id)
+                } else {
+                    return None;
+                }
+            }
+            _ => None,
+        }
     }
 }
 
@@ -177,6 +204,14 @@ impl RunnersOnBase {
 
     pub fn has_first_and_third(&self) -> bool {
         self.runner_1st.is_some() && self.runner_3rd.is_some()
+    }
+
+    pub fn current_runners(&self) -> RunnersUnsaved {
+        RunnersUnsaved {
+            runner_1st: self.runner_1st,
+            runner_2nd: self.runner_2nd,
+            runner_3rd: self.runner_3rd,
+        }
     }
 
     fn runner_on(&self, base: Base) -> Result<ActiveRunner, GameError> {
@@ -268,8 +303,8 @@ impl RunnersOnBase {
         Ok(Self::runner_advance_time(runner, base_count, true))
     }
 
-    pub fn after_homerun(&mut self) -> u16 {
-        let mut runs_scored: u16 = 1;
+    pub fn after_homerun(&mut self) -> u8 {
+        let mut runs_scored: u8 = 1;
         runs_scored += RunnersUnsaved::score_if_some(self.runner_1st);
         runs_scored += RunnersUnsaved::score_if_some(self.runner_2nd);
         runs_scored += RunnersUnsaved::score_if_some(self.runner_3rd);
@@ -293,7 +328,7 @@ impl RunnersOnBase {
         let mut unsaved_runners = RunnersUnsaved::default();
         let ruling;
         let mut batting_result = BattingResult::Out;
-        let mut runs_scored: u16 = 0;
+        let mut runs_scored: u8 = 0;
 
         match defense_play_result.throw_target_base {
             Base::Home => {
@@ -541,8 +576,8 @@ impl RunnersOnBase {
         &self,
         batter_target_base: Base,
         retired_runner: Option<Base>,
-    ) -> Result<u16, GameError> {
-        let mut runs_scored: u16 = 0;
+    ) -> Result<u8, GameError> {
+        let mut runs_scored: u8 = 0;
 
         match batter_target_base {
             Base::Third => {
@@ -694,7 +729,7 @@ impl RunnersOnBase {
         let mut time_difference = 0.0;
         let mut unsaved_runners: RunnersUnsaved = RunnersUnsaved::default();
         let mut ruling = Ruling::Safe;
-        let mut runs_scored: u16 = 0;
+        let mut runs_scored: u8 = 0;
 
         match defense_play_result.throw_target_base {
             Base::Home => {
@@ -867,7 +902,7 @@ mod tests {
 
     fn runner(speed: f64) -> ActiveRunner {
         ActiveRunner {
-            player_id: 0,
+            id: 0,
             skills: RunningSkills {
                 speed: speed,
                 lead_distance: 0.0,
@@ -878,7 +913,7 @@ mod tests {
 
     fn runner_with_lead(speed: f64, lead_distance: f64) -> ActiveRunner {
         ActiveRunner {
-            player_id: 0,
+            id: 0,
             skills: RunningSkills {
                 speed: speed,
                 lead_distance: lead_distance,
@@ -913,7 +948,9 @@ mod tests {
             time_to_field,
             throw_target_base,
             play_type,
+            final_fielder_id: 0,
             final_fielder_position: Position::FB,
+            cutoff_fielder_id: None,
             cutoff_fielder_position: None,
             defense_time,
         }
@@ -925,6 +962,9 @@ mod tests {
     ) -> DoublePlayDefensePlayResult {
         DoublePlayDefensePlayResult {
             throw_target_base,
+            thrower_fielder_id: 0,
+            thrower_fielder_position: Position::SS,
+            final_fielder_id: 0,
             final_fielder_position: Position::FB,
             defense_time,
         }

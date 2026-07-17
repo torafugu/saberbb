@@ -1,6 +1,7 @@
 use crate::domain::shared::game::{
-    BattingResult, Count, GameDetail, GameHeader, GameScheduler, GameSeason, GameType, Inning, TB,
+    BattingResult, Count, GameDetail, GameHeader, GameSchedule, GameSeason, GameType, Inning, TB,
 };
+use crate::domain::shared::stadium::Stadium;
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -99,11 +100,23 @@ impl FromRow for GameHeader {
     }
 }
 
-impl FromRow for GameScheduler {
+impl FromRow for GameSchedule {
     type Error = AppError;
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let game_scheduler = GameScheduler {
+        let default_stadium = Stadium::default();
+        let stadium = Stadium::new(
+            row.get("stadium_id").unwrap_or(default_stadium.id),
+            row.get("stadium_name").unwrap_or(default_stadium.name),
+            row.get("stadium_foul_pole_distance")
+                .unwrap_or(default_stadium.foul_pole_distance),
+            row.get("stadium_center_fence_distance")
+                .unwrap_or(default_stadium.center_fence_distance),
+            row.get("stadium_fence_height")
+                .unwrap_or(default_stadium.fence_height),
+        );
+
+        let game_scheduler = GameSchedule {
             id: row.get("id")?,
             season: row.get("season")?,
             round_seq: row.get("round_seq")?,
@@ -118,6 +131,7 @@ impl FromRow for GameScheduler {
                 &row.get::<_, String>("home_team_name")?,
             ),
             game_type: row.get::<_, GameType>("game_type")?,
+            stadium,
         };
 
         game_scheduler.validate()?;
@@ -145,8 +159,8 @@ impl FromRow for GameDetail {
             innings: Vec::new(),
             away_points: row.get("away_points")?,
             home_points: row.get("home_points")?,
-            active_fielder_views: Vec::new(),
-            batting_result_views: Vec::new(),
+            player_entry_views: Vec::new(),
+            player_batting_views: Vec::new(),
         };
 
         game_detail.validate()?;

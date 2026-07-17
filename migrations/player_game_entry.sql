@@ -1,6 +1,6 @@
-DROP TABLE active_fielder_history;
+DROP TABLE player_game_entry;
 
-CREATE TABLE active_fielder_history (
+CREATE TABLE player_game_entry (
     game_id INTEGER,
     start_count_seq INTEGER,
     end_count_seq INTEGER,

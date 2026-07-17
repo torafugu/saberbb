@@ -245,6 +245,10 @@ impl Player {
         }
     }
 
+    pub fn runner(&self) -> RunningSkills {
+        self.offense_skills.running
+    }
+
     pub fn pitcher(&self) -> Result<PitcherInfo, GameError> {
         if let Some(pitcher) = &self.defense_skills.pitcher {
             Ok(pitcher.clone())

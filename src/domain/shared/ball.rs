@@ -1,6 +1,7 @@
 use crate::domain::shared::player::Position;
 use crate::domain::util::{GRAVIY, PolarPosition};
 use crate::t;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 
@@ -8,7 +9,7 @@ const FOUL_DEGREE: f64 = 45.0;
 const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum TrajectoryType {
     Grounder,
     Liner,
@@ -34,7 +35,7 @@ pub struct FieldedBall {
     pub is_fly_catch: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct BattedBall {
     pub launch_speed_kmh: f64,
     pub launch_angle: f64, // Z arc degree

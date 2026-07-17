@@ -1,6 +1,6 @@
-DROP TABLE batting_result_history;
+DROP TABLE batting_record;
 
-CREATE TABLE batting_result_history (
+CREATE TABLE player_game_batting (
     game_id INTEGER,
     count_seq INTEGER,
     team_id INTEGER,

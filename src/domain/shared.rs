@@ -1,7 +1,7 @@
 pub mod ball;
 pub mod game;
 pub mod game_cursor;
-pub mod game_history;
+pub mod game_stat;
 pub mod game_state;
 pub mod player;
 pub mod prob;

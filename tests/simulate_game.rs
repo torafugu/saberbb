@@ -14,27 +14,27 @@ use saberbb::repositories::db::*;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 
 fn generate_stadium() -> Stadium {
-    Stadium::new("AAA".to_string(), 98.0, 120.0, 2.0)
+    Stadium::new(1, "AAA".to_string(), 98.0, 120.0, 2.0)
 }
 
 fn generate_default_fielders() -> [ActiveFielder; 9] {
     let p = ActiveFielder {
         position: Position::P,
-        player_id: 0,
+        id: 0,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Pitcher),
         polar_position: PolarPosition::new(MOUND_DISTANCE, 0.0),
     };
 
     let c = ActiveFielder {
         position: Position::C,
-        player_id: 1,
+        id: 1,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Catcher),
         polar_position: PolarPosition::new(0.0, 0.0),
     };
 
     let fb = ActiveFielder {
         position: Position::FB,
-        player_id: 2,
+        id: 2,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
             FielderType::CornerInfielder,
         ),
@@ -43,7 +43,7 @@ fn generate_default_fielders() -> [ActiveFielder; 9] {
 
     let sb = ActiveFielder {
         position: Position::SB,
-        player_id: 3,
+        id: 3,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
             FielderType::MiddleInfielder,
         ),
@@ -52,7 +52,7 @@ fn generate_default_fielders() -> [ActiveFielder; 9] {
 
     let tb = ActiveFielder {
         position: Position::TB,
-        player_id: 4,
+        id: 4,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
             FielderType::CornerInfielder,
         ),
@@ -61,7 +61,7 @@ fn generate_default_fielders() -> [ActiveFielder; 9] {
 
     let ss = ActiveFielder {
         position: Position::SS,
-        player_id: 5,
+        id: 5,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
             FielderType::MiddleInfielder,
         ),
@@ -70,21 +70,21 @@ fn generate_default_fielders() -> [ActiveFielder; 9] {
 
     let rf = ActiveFielder {
         position: Position::RF,
-        player_id: 6,
+        id: 6,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(80.0, 26.0),
     };
 
     let cf = ActiveFielder {
         position: Position::CF,
-        player_id: 7,
+        id: 7,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(90.0, 0.0),
     };
 
     let lf = ActiveFielder {
         position: Position::LF,
-        player_id: 8,
+        id: 8,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(80.0, -26.0),
     };
@@ -147,7 +147,7 @@ fn generate_runner() -> ActiveRunner {
         .expect("failed to generate player");
 
     ActiveRunner {
-        player_id: player.info.id,
+        id: player.info.id,
         skills: player.offense_skills.running,
     }
 }
@@ -164,7 +164,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
     let mut scores = 0;
     let mut inning_state = InningState::new();
 
-    while let InningProgress::Ongoing = inning_state.progress() {
+    while let InningProgress::Ongoing = inning_state.innning_progress() {
         println!("\n--- New count ---");
         inning_state.runners.batting_side = Some(batter.batting_side);
         inning_state.runners.batter_runner = Some(batter_runner);
@@ -231,7 +231,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
             if steal_runner_advance_result.ruling == Ruling::Out {
                 inning_state.add_out();
-                if inning_state.progress() == InningProgress::HalfInningOver {
+                if inning_state.innning_progress() == InningProgress::Over {
                     break;
                 }
             };
@@ -283,7 +283,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
                 if double_play_runner_advance_result.ruling == Ruling::Out {
                     inning_state.add_out();
-                    if inning_state.progress() == InningProgress::Ongoing {
+                    if inning_state.innning_progress() == InningProgress::Ongoing {
                         break;
                     }
                 };
@@ -309,7 +309,7 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     let fielders = generate_default_fielders();
 
     let batter_runner = ActiveRunner {
-        player_id: 0,
+        id: 0,
         skills: RunningSkills {
             speed: 7.0,
             lead_distance: 0.0,
@@ -318,7 +318,7 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     };
 
     let runner_on_first = ActiveRunner {
-        player_id: 1,
+        id: 1,
         skills: RunningSkills {
             speed: 7.0,
             lead_distance: 0.0,
@@ -401,7 +401,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
         },
     };
     let runner_on_first = ActiveRunner {
-        player_id: 0,
+        id: 0,
         skills: RunningSkills {
             speed: 7.0,
             lead_distance: 0.0,
