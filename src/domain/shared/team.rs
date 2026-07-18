@@ -1,9 +1,11 @@
 use super::player::Position;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::game_state::{
-    ActiveBatter, ActiveCatcher, ActiveFielder, ActivePitcher, ActiveRunner, GameError,
+    ActiveBatter, ActiveCatcher, ActiveFielder, ActivePitcher, GameError,
 };
 use crate::domain::shared::player::Player;
+use crate::domain::shared::stadium::MOUND_DISTANCE;
+use crate::domain::util::PolarPosition;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -78,11 +80,28 @@ impl Team {
             }
 
             if random_player.defense_skills.position != Position::DH {
-                fielders.push(ActiveFielder::new(
-                    random_player.defense_skills.position,
-                    random_player.info.id,
-                    random_player.fielder()?,
-                ));
+                // TODO: Move to team pameter
+                let polar_position = match random_player.defense_skills.position {
+                    Position::P => PolarPosition::new(MOUND_DISTANCE, 0.0),
+                    Position::C => PolarPosition::new(0.0, 0.0),
+                    Position::FB => PolarPosition::new(35.0, 33.0),
+                    Position::SB => PolarPosition::new(40.0, 18.0),
+                    Position::TB => PolarPosition::new(35.0, -33.0),
+                    Position::SS => PolarPosition::new(40.0, -18.0),
+                    Position::RF => PolarPosition::new(80.0, 26.0),
+                    Position::CF => PolarPosition::new(90.0, 0.0),
+                    Position::LF => PolarPosition::new(80.0, 80.0),
+                    Position::DH => {
+                        return Err(GameError::Lineup("No polar position for DH".to_string()));
+                    }
+                };
+
+                fielders.push(ActiveFielder {
+                    position: random_player.defense_skills.position,
+                    id: random_player.info.id,
+                    info: random_player.fielder()?,
+                    polar_position: polar_position,
+                });
             }
         }
 

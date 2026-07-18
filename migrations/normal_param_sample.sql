@@ -14,11 +14,11 @@ VALUES
         'player',
         'running_skills',
         'running_speed',
-        0.0,
+        7.5,
+        0.4,
+        0.07,
         1.0,
-        0.1,
-        0.5,
-        7.7
+        0.0
     );
 
 INSERT INTO
@@ -83,8 +83,8 @@ VALUES
         'player',
         'batter_info',
         'swing_speed',
-        130.0,
-        6.67,
+        115.0,
+        6.0,
         0.1,
         1.0,
         0.0
@@ -129,11 +129,11 @@ VALUES
         'player',
         'fielder_info',
         'running_speed',
-        0.0,
+        7.5,
+        0.4,
+        0.07,
         1.0,
-        0.1,
-        0.5,
-        7.7
+        0.0
     );
 
 INSERT INTO

@@ -337,7 +337,7 @@ impl RunnersOnBase {
                 unsaved_runners.put_if_some(Base::Second, self.runner_1st);
                 unsaved_runners.put_if_some(Base::Third, self.runner_2nd);
 
-                if unsaved_runners.runner_3rd.is_some() {
+                if self.runner_3rd.is_some() {
                     runner_time = self.total_runner_time(Base::Third, Base::Home)?;
                     (ruling, time_difference) =
                         judge(defense_play_result.defense_time, runner_time);
@@ -354,7 +354,7 @@ impl RunnersOnBase {
                 unsaved_runners.put_if_some(Base::First, self.batter_runner);
                 unsaved_runners.put_if_some(Base::Second, self.runner_1st);
 
-                if unsaved_runners.runner_2nd.is_some() {
+                if self.runner_2nd.is_some() {
                     runner_time = self.total_runner_time(Base::Second, Base::Third)?;
                     (ruling, time_difference) =
                         judge(defense_play_result.defense_time, runner_time);
@@ -372,7 +372,7 @@ impl RunnersOnBase {
             Base::Second => {
                 unsaved_runners.put_if_some(Base::First, self.batter_runner);
 
-                if unsaved_runners.runner_1st.is_some() {
+                if self.runner_1st.is_some() {
                     runner_time = self.total_runner_time(Base::First, Base::Second)?;
                     (ruling, time_difference) =
                         judge(defense_play_result.defense_time, runner_time);

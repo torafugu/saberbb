@@ -262,7 +262,7 @@ impl ActiveFielder {
         let time_to_pick_up = fielder_arrival_time.max(ball.hang_time + FIRST_BOUNCE_TIME);
         BoundedBallResult {
             final_distance,
-            time_to_fumble: time_to_pick_up, // ★This becomes the time_to_field for the next throw play!
+            time_to_fumble: time_to_pick_up, // NOTE: This becomes the time_to_field for the next throw play!
         }
     }
 }
@@ -277,8 +277,6 @@ pub enum GameProgress {
 
 #[derive(Debug)]
 pub struct GameState {
-    // away_team_id: u16,
-    // home_team_id: u16,
     pub inning_seq: u8,
     pub inning_tb: TB,
     pub count_seq: u16,
@@ -496,8 +494,6 @@ impl GameState {
 
         // TODO: stolen base should cover hit-and-run case
         if self.inning_state.can_steal_base(Box::new(RealRng::new())) {
-            running_seq += 1;
-
             let steal_defense_play_result =
                 evaluate_base_stealing(Base::Second, &pitcher, &catcher, Box::new(RealRng::new()));
 
@@ -508,13 +504,18 @@ impl GameState {
                 .runners
                 .after_base_stealing(steal_defense_play_result)?;
 
-            info!("{:#?}", steal_runner_advance_result);
+            info!(
+                "Steal Runner Advance Result: {:#?}",
+                steal_runner_advance_result
+            );
 
             self.add_player_running_from_stolen_base(
-                running_seq,
+                1,
                 self.inning_state.runners.current_runners(),
                 &steal_runner_advance_result,
             );
+
+            running_seq += 1;
 
             if steal_runner_advance_result.ruling == Ruling::Out {
                 self.inning_state.add_out();
@@ -557,6 +558,9 @@ impl GameState {
 
         info!("Runner Advance Result: {:#?}", runner_advance_result);
 
+        point += runner_advance_result.runs_scored;
+
+        // NOTE: Double play evaluation must run prior to add player game running and batting.
         let can_try_double_play =
             fielded_ball.fielded_by.is_infielder() && self.inning_state.can_double_play();
 
@@ -566,13 +570,27 @@ impl GameState {
             None
         };
 
+        self.add_player_running(running_seq, &runner_advance_result);
+        // NOTE: Batting Result is able to fix afer the running resulted.
+        self.add_player_batting(
+            pitcher_id,
+            batter_id,
+            ball,
+            Some(fielded_ball.fielded_by),
+            runner_advance_result.batting_result,
+        );
+        if runner_advance_result.ruling == Ruling::Out {
+            self.inning_state.add_out();
+            if self.inning_state.innning_progress() == InningProgress::Over {
+                self.add_count(point);
+                return Ok(());
+            }
+        };
+
         info!(
             "Double Play Defense Play Result: {:#?}",
             double_play_defense_play_result
         );
-
-        point += runner_advance_result.runs_scored;
-        self.add_player_running(running_seq, &runner_advance_result);
 
         info!("Runner Advance Result:{:#?}", runner_advance_result);
 
@@ -594,6 +612,7 @@ impl GameState {
 
             info!("{:#?}", double_play_runner_advance_result);
 
+            running_seq += 1;
             self.add_player_running_from_double_play(
                 running_seq,
                 &double_play_runner_advance_result,
@@ -605,20 +624,13 @@ impl GameState {
 
             if double_play_runner_advance_result.ruling == Ruling::Out {
                 self.inning_state.add_out();
-                self.add_count(0);
-                if self.inning_state.innning_progress() == InningProgress::Over {
-                    return Ok(());
-                }
+                // self.add_count(0);
             };
         } else {
             self.inning_state
                 .runners
                 .commit_unsaved_runners(runner_advance_result.unsaved_runners);
         }
-
-        if runner_advance_result.ruling == Ruling::Out {
-            self.inning_state.add_out();
-        };
 
         self.add_count(point);
 
@@ -782,42 +794,6 @@ impl GameState {
             point: point,
         });
     }
-
-    // pub fn batting_resolve(&mut self) -> Result<(), GameError> {
-    //     // TODO: replace to new batting logic. // Ok(simulate_batting(&self.current_batter()?))
-
-    //     let batting_result = BattingResult::Out;
-
-    //     self.count_seq += 1;
-
-    //     if batting_result.is_out() {
-    //         self.inning_state.add_out();
-    //     }
-    //     let point = self.inning_state.advance(&batting_result);
-
-    //     match self.inning_tb {
-    //         TB::Top => self.away_total_point += point,
-    //         TB::Bottom => self.home_total_point += point,
-    //     };
-
-    //     self.inning.add_count(Count {
-    //         seq: self.count_seq,
-    //         bases_occupied: self.inning_state.bases_occupied,
-    //         ball: self.inning_state.ball,
-    //         strike: self.inning_state.strike,
-    //         out: self.inning_state.out,
-    //         point: point,
-    //     });
-
-    //     // self.batting_result_hisrory = PlayerGameBatting {
-    //     //     count_seq: self.count_seq,
-    //     //     pitcher_id: self.current_pitcher().player_id,
-    //     //     batter_id: self.current_batter()?.player_id,
-    //     //     result: batting_result,
-    //     // };
-
-    //     Ok(())
-    // }
 
     pub fn finish_game(&mut self) {
         self.game_result.away_total_point = self.away_total_point;

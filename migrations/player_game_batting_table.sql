@@ -1,15 +1,16 @@
-DROP TABLE batting_record;
+DROP TABLE player_game_batting;
 
 CREATE TABLE player_game_batting (
     game_id INTEGER,
     count_seq INTEGER,
-    team_id INTEGER,
-    pitcher_id INTEGER,
-    batter_id INTEGER,
+    pitcher_id INTEGER NOT NULL,
+    batter_id INTEGER NOT NULL,
+    launch_speed REAL NOT NULL,
+    launch_angle REAL NOT NULL,
+    polar_distance REAL NOT NULL,
+    polar_angle REAL NOT NULL,
+    hang_time REAL NOT NULL,
+    trajectory TEXT NOT NULL,
     result TEXT NOT NULL,
-    PRIMARY KEY (
-        game_id,
-        count_seq,
-        batter_id
-    )
+    PRIMARY KEY (game_id, count_seq)
 );

@@ -52,7 +52,7 @@ impl<R: GameRepository> GameService<R> {
             info!("game completed");
             game_state.finish_game();
 
-            if let Err(e) = self.repo.save_game_result(&game_state.game_result) {
+            if let Err(e) = self.repo.update_game_result(&game_state.game_result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
             }
@@ -72,7 +72,10 @@ mod tests {
     use crate::domain::shared::game::{
         Count, GameDetail, GameHeader, GameSchedule, GameType, Inning, TB,
     };
-    use crate::domain::shared::game_stat::{PlayerGameBattingView, PlayerGameEntryView};
+    use crate::domain::shared::game_stat::{
+        PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
+        PlayerGameFielding, PlayerGameRunning,
+    };
     use crate::domain::shared::player::{
         BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType, PitcherInfo,
         PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
@@ -82,6 +85,7 @@ mod tests {
     use crate::error::AppError;
     use anyhow::anyhow;
     use chrono::NaiveDate;
+    use rusqlite::Transaction;
 
     struct RecordingRepo {
         schedules: Vec<GameSchedule>,
@@ -108,7 +112,7 @@ mod tests {
     }
 
     impl GameRepository for RecordingRepo {
-        fn save_game_result(&mut self, game: &GameResult) -> std::result::Result<(), AppError> {
+        fn update_game_result(&mut self, game: &GameResult) -> std::result::Result<(), AppError> {
             let call_index = self.save_calls;
             self.save_calls += 1;
 
@@ -118,6 +122,42 @@ mod tests {
 
             self.saved_results.push(game.clone());
             Ok(())
+        }
+
+        fn insert_player_entry(
+            &self,
+            _tx: &Transaction,
+            _game_id: u32,
+            _player_game_entry: &PlayerGameEntry,
+        ) -> std::result::Result<usize, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn insert_player_batting(
+            &self,
+            _tx: &Transaction,
+            _game_id: u32,
+            _player_game_batting: &PlayerGameBatting,
+        ) -> std::result::Result<usize, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn insert_player_fielding(
+            &self,
+            _tx: &Transaction,
+            _game_id: u32,
+            _player_game_fielding: &PlayerGameFielding,
+        ) -> std::result::Result<usize, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn insert_player_running(
+            &self,
+            _tx: &Transaction,
+            _game_id: u32,
+            _player_game_running: &PlayerGameRunning,
+        ) -> std::result::Result<usize, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
         }
 
         fn update_current_round_seq(&mut self) -> std::result::Result<usize, AppError> {

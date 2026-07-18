@@ -7,11 +7,6 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
 use validator::Validate;
 
-const BATTING_MIN_HIT_AVERAGE: f64 = 0.2;
-const BATTING_MAX_HIT_AVERAGE: f64 = 0.32;
-const BATTING_MIN_SLG: f64 = 0.3;
-const BATTING_MAX_SLG: f64 = 0.55;
-
 #[derive(Clone, Copy, Hash, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum Position {

@@ -1,7 +1,9 @@
 use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB,
 };
-use crate::domain::shared::game_stat::{PlayerGameBattingView, PlayerGameEntryView};
+use crate::domain::shared::game_stat::{
+    PlayerGameBatting, PlayerGameBattingView, PlayerGameEntryView,PlayerGameEntry, PlayerGameFielding, PlayerGameRunning
+};
 use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
     Player, PlayerInfo, Position, RunningSkills,
@@ -9,11 +11,35 @@ use crate::domain::shared::player::{
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::params;
+use rusqlite::{Transaction, params};
 use tracing::info;
 
 pub trait GameRepository {
-    fn save_game_result(&mut self, game: &GameResult) -> Result<(), AppError>;
+    fn update_game_result(&mut self, game: &GameResult) -> Result<(), AppError>;
+    fn insert_player_entry(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_entry: &PlayerGameEntry,
+    ) -> Result<usize, AppError>;
+    fn insert_player_batting(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_batting: &PlayerGameBatting,
+    ) -> Result<usize, AppError>;
+    fn insert_player_fielding(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_fielding: &PlayerGameFielding,
+    ) -> Result<usize, AppError>;
+    fn insert_player_running(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_running: &PlayerGameRunning,
+    ) -> Result<usize, AppError>;
     fn update_current_round_seq(&mut self) -> Result<usize, AppError>;
     fn load_processed_seasons(&self) -> Result<Vec<u16>, AppError>;
     fn load_processed_game_headers(&self, season: u16) -> Result<Vec<GameHeader>, AppError>;
@@ -59,8 +85,8 @@ impl SqlGameRepository {
     }
 }
 impl GameRepository for SqlGameRepository {
-    #[tracing::instrument(skip(self), fields(game_id = %game.id))]
-    fn save_game_result(&mut self, game: &GameResult) -> Result<(), AppError> {
+    #[tracing::instrument(skip(self, game), fields(game_id = %game.id))]
+    fn update_game_result(&mut self, game: &GameResult) -> Result<(), AppError> {
         info!("save_game_result() started");
         self.db_client.transaction(|tx| {
             let update_game_sql =
@@ -109,47 +135,160 @@ impl GameRepository for SqlGameRepository {
                     )?;
                 }
             }
+           
+            for player_game_entry in &game.player_entries {
+                self.insert_player_entry(tx, game.id, player_game_entry)?;
+            }
+            
+            for player_game_batting in &game.player_battings {
+                self.insert_player_batting(tx, game.id, player_game_batting)?;
+            }
 
-            let insert_player_game_entry_sql =
+            
+            for player_game_fielding in &game.player_fieldings {
+                self.insert_player_fielding(tx, game.id, player_game_fielding)?;
+            }
+            
+            for player_game_running in &game.player_runnings {
+                self.insert_player_running(tx, game.id, player_game_running)?;
+            }
+
+            Ok(())
+        })
+    }
+
+    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_entry.start_count_seq, player_id = %player_game_entry.player_id))]
+    fn insert_player_entry(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_entry: &PlayerGameEntry,
+    ) -> Result<usize, AppError> {
+        info!("insert_player_entry() started for Start Count:{}, Player ID:{}", player_game_entry.start_count_seq, player_game_entry.player_id);
+
+        let insert_player_game_entry_sql =
                 "INSERT INTO player_game_entry (
                     game_id, start_count_seq, end_count_seq, position, player_id
                     ) VALUES (
                     ?1, ?2, ?3, ?4, ?5)";
-            for player_game_entry in &game.player_entries {
-                self.db_client.execute_tx(
+        self.db_client.execute_tx(
                     tx,
                     insert_player_game_entry_sql,
                     params![
-                        game.id,
+                        game_id,
                         player_game_entry.start_count_seq,
                         player_game_entry.end_count_seq,
                         player_game_entry.position,
                         player_game_entry.player_id
                     ],
-                )?;
-            }
+                )
+    }
 
-            let insert_player_game_batting_sql =
+    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_batting.count_seq))]
+    fn insert_player_batting(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_batting: &PlayerGameBatting,
+    ) -> Result<usize, AppError> {
+        info!("insert_player_batting() for Started Count:{}", player_game_batting.count_seq);
+
+        let insert_player_game_batting_sql =
                 "INSERT INTO player_game_batting (
-                    game_id, count_seq, pitcher_id, batter_id, result
+                    game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle, polar_distance, polar_angle, 
+                    hang_time, trajectory, result
                     ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5)";
-            for player_game_batting in &game.player_battings {
-                self.db_client.execute_tx(
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+        self.db_client.execute_tx(
                     tx,
                     insert_player_game_batting_sql,
                     params![
-                        game.id,
+                        game_id,
                         player_game_batting.count_seq,
                         player_game_batting.pitcher_id,
                         player_game_batting.batter_id,
+                        player_game_batting.ball.launch_speed_kmh,
+                        player_game_batting.ball.launch_angle,
+                        player_game_batting.ball.polar_position.distance,
+                        player_game_batting.ball.polar_position.angle,
+                        player_game_batting.ball.hang_time,
+                        player_game_batting.ball.trajectory,
                         player_game_batting.result
                     ],
-                )?;
-            }
-            Ok(())
-        })
+                )        
     }
+
+    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_fielding.count_seq, seq = player_game_fielding.seq))]
+    fn insert_player_fielding(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_fielding: &PlayerGameFielding,
+    ) -> Result<usize, AppError> {
+        info!("insert_player_fielding() for Count:{}, Seq:{}", player_game_fielding.count_seq, player_game_fielding.seq);
+
+        let insert_player_game_fielding_sql =
+                "INSERT INTO player_game_fielding (
+                    game_id, count_seq, seq, catch_fielder_id, catch_fielder_position, cutoff_fielder_id, cutoff_fielder_position, 
+                    final_fielder_id, final_fielder_position, time_to_field, play_type
+                    ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+        self.db_client.execute_tx(
+                    tx,
+                    insert_player_game_fielding_sql,
+                    params![
+                        game_id,
+                        player_game_fielding.count_seq,
+                        player_game_fielding.seq,
+                        player_game_fielding.catch_fielder_id,
+                        player_game_fielding.catch_fielder_position,
+                        player_game_fielding.cutoff_fielder_id,
+                        player_game_fielding.cutoff_fielder_position,
+                        player_game_fielding.final_fielder_id,
+                        player_game_fielding.final_fielder_position,
+                        player_game_fielding.time_to_field,
+                        player_game_fielding.play_type
+                    ],
+                )
+    }
+
+
+    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_running.count_seq, seq = player_game_running.seq))]
+    fn insert_player_running(
+        &self,
+        tx: &Transaction,
+        game_id: u32,
+        player_game_running: &PlayerGameRunning,
+    ) -> Result<usize, AppError> {
+        info!("insert_player_fielding() for Count:{}, Seq:{}", player_game_running.count_seq, player_game_running.seq);
+
+        let insert_player_game_running_sql =
+                "INSERT INTO player_game_running (
+                    game_id, count_seq, seq, defense_time, runner_time, throw_target_base, play_type, 
+                    ruling, runs_scored, runner_1st_id, runner_2nd_id, runner_3rd_id
+                    ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+        self.db_client.execute_tx(
+                    tx,
+                    insert_player_game_running_sql,
+                    params![
+                        game_id,
+                        player_game_running.count_seq,
+                        player_game_running.seq,
+                        player_game_running.defense_time,
+                        player_game_running.runner_time,
+                        player_game_running.throw_target_base,
+                        player_game_running.play_type,
+                        player_game_running.ruling,
+                        player_game_running.runs_scored,
+                        player_game_running.runner_1st_id,
+                        player_game_running.runner_2nd_id,
+                        player_game_running.runner_3rd_id
+                    ],
+                )
+    }
+
+
 
     fn update_current_round_seq(&mut self) -> Result<usize, AppError> {
         info!("update_current_round_seq() started");
@@ -1112,7 +1251,7 @@ mod tests {
             player_runnings: Vec::new(),
         };
 
-        repo.save_game_result(&game).unwrap();
+        repo.update_game_result(&game).unwrap();
 
         let conn = conn(&repo);
         let (actual_date, away_points, home_points): (String, u8, u8) = conn
@@ -1160,7 +1299,7 @@ mod tests {
             player_runnings: Vec::new(),
         };
 
-        repo.save_game_result(&game).unwrap();
+        repo.update_game_result(&game).unwrap();
 
         let conn = conn(&repo);
         let mut stmt = conn
@@ -1226,7 +1365,7 @@ mod tests {
             player_runnings: Vec::new(),
         };
 
-        assert!(repo.save_game_result(&game).is_err());
+        assert!(repo.update_game_result(&game).is_err());
 
         let conn = conn(&repo);
         let (actual_date, away_points, home_points): (Option<String>, u8, u8) = conn
