@@ -11,7 +11,6 @@ CREATE TABLE count (
     inning_seq INTEGER,
     inning_tb TEXT,
     seq INTEGER,
-    bases_occupied INTEGER NOT NULL DEFAULT 0,
     point INTEGER NOT NULL,
     ball INTEGER NOT NULL,
     strike INTEGER NOT NULL,
@@ -29,17 +28,16 @@ CREATE TABLE count (
 
 ## Columns
 
-| Name           | Type    | Default | Nullable | Children | Parents | Comment |
-| -------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_id        | INTEGER |         | true     |          |         |         |
-| inning_seq     | INTEGER |         | true     |          |         |         |
-| inning_tb      | TEXT    |         | true     |          |         |         |
-| seq            | INTEGER |         | true     |          |         |         |
-| bases_occupied | INTEGER | 0       | false    |          |         |         |
-| point          | INTEGER |         | false    |          |         |         |
-| ball           | INTEGER |         | false    |          |         |         |
-| strike         | INTEGER |         | false    |          |         |         |
-| out            | INTEGER |         | false    |          |         |         |
+| Name       | Type    | Default | Nullable | Children | Parents | Comment |
+| ---------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id    | INTEGER |         | true     |          |         |         |
+| inning_seq | INTEGER |         | true     |          |         |         |
+| inning_tb  | TEXT    |         | true     |          |         |         |
+| seq        | INTEGER |         | true     |          |         |         |
+| point      | INTEGER |         | false    |          |         |         |
+| ball       | INTEGER |         | false    |          |         |         |
+| strike     | INTEGER |         | false    |          |         |         |
+| out        | INTEGER |         | false    |          |         |         |
 
 ## Constraints
 

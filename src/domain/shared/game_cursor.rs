@@ -140,6 +140,33 @@ impl GameCursor {
             .clone()
     }
 
+    pub fn has_runner_on_first(&self) -> bool {
+        self.current_running()
+            .and_then(|running| running.runner_1st_id)
+            .is_some()
+    }
+
+    pub fn has_runner_on_second(&self) -> bool {
+        self.current_running()
+            .and_then(|running| running.runner_2nd_id)
+            .is_some()
+    }
+
+    pub fn has_runner_on_third(&self) -> bool {
+        self.current_running()
+            .and_then(|running| running.runner_3rd_id)
+            .is_some()
+    }
+
+    fn current_running(&self) -> Option<crate::domain::shared::game_stats::PlayerGameRunning> {
+        self.game
+            .player_runnings
+            .iter()
+            .filter(|running| running.count_seq == self.count_seq)
+            .max_by_key(|running| running.seq)
+            .copied()
+    }
+
     pub fn current_scoreboard(&mut self) -> ScoreBoard {
         let mut scoreboard = ScoreBoard {
             away_team_name: self.game.away_team.name.to_string(),
@@ -235,7 +262,7 @@ impl GameCursor {
 
     fn current_position(&mut self, position: Position) -> Result<Player, GameViewError> {
         self.game
-            .player_entry_views
+            .player_entries
             .iter()
             .find(|i| i.is_position(self.current_fielding_team().id, position, self.count_seq))
             .and_then(|i| self.player_by_id(i.player.id))
@@ -244,7 +271,7 @@ impl GameCursor {
 
     pub fn current_batter(&mut self) -> Result<Player, GameViewError> {
         self.game
-            .player_batting_views
+            .player_battings
             .iter()
             .find(|i| i.is(self.count_seq as u16))
             .and_then(|i| self.player_by_id(i.batter.id))

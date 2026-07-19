@@ -1,7 +1,9 @@
 use crate::domain::resolver::fielding_resolver::PlayType;
 use crate::domain::shared::game::{BattingResult, FieldingResult};
-use crate::domain::shared::game_stat::{PlayerGameBattingView, PlayerGameEntryView};
 use crate::domain::shared::game_state::Ruling;
+use crate::domain::shared::game_stats::{
+    PlayerGameBattingView, PlayerGameEntryView, PlayerGameRunning,
+};
 use crate::domain::shared::player::PlayerInfo;
 use crate::domain::shared::stadium::Base;
 use crate::error::AppError;
@@ -133,5 +135,29 @@ impl FromRow for PlayerGameBattingView {
         batting_result_view.validate()?;
 
         Ok(batting_result_view)
+    }
+}
+
+impl FromRow for PlayerGameRunning {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let player_game_running = PlayerGameRunning {
+            count_seq: row.get("count_seq")?,
+            seq: row.get("seq")?,
+            defense_time: row.get("defense_time")?,
+            runner_time: row.get("runner_time")?,
+            throw_target_base: row.get("throw_target_base")?,
+            play_type: row.get("play_type")?,
+            ruling: row.get("ruling")?,
+            runs_scored: row.get("runs_scored")?,
+            runner_1st_id: row.get("runner_1st_id")?,
+            runner_2nd_id: row.get("runner_2nd_id")?,
+            runner_3rd_id: row.get("runner_3rd_id")?,
+        };
+
+        player_game_running.validate()?;
+
+        Ok(player_game_running)
     }
 }

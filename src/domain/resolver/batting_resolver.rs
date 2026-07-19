@@ -1,9 +1,7 @@
+use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::{BattedBall, TrajectoryType};
-use crate::domain::shared::game::BattingResult;
-use crate::domain::shared::player::{BatterInfo, Player};
+use crate::domain::shared::player::BatterInfo;
 use crate::domain::util::GRAVIY;
-use rand::RngExt;
-use rand_distr::{Distribution, Normal, StandardNormal};
 use serde::{Deserialize, Serialize};
 use strum_macros::{AsRefStr, EnumIter, EnumString};
 
@@ -20,14 +18,13 @@ pub enum FieldSector {
     FoulRight, // NOTE: First-base-side foul
 }
 
-fn inner_choose_sector(batter: &BatterInfo) -> FieldSector {
-    let mut rng = rand::rng();
+fn inner_choose_sector(rng: &mut dyn RandomProvider, batter: &BatterInfo) -> FieldSector {
     let total_weight = batter.weight_pull
         + batter.weight_center
         + batter.weight_opposite
         + batter.weight_foul_left
         + batter.weight_foul_right;
-    let mut roll = rng.random_range(0.0..total_weight);
+    let mut roll = rng.range_f64(0.0, total_weight);
 
     if roll < batter.weight_pull {
         return FieldSector::Pull;
@@ -50,12 +47,9 @@ fn inner_choose_sector(batter: &BatterInfo) -> FieldSector {
     return FieldSector::FoulRight;
 }
 
-// TODO: rng should be passed as parameter
-fn sample_spray_angle(tendency: &BatterInfo) -> f64 {
-    let mut rng = rand::rng();
-
+fn sample_spray_angle(rng: &mut dyn RandomProvider, tendency: &BatterInfo) -> f64 {
     // Step 1: Decide the sector
-    let chosen_sector = inner_choose_sector(tendency);
+    let chosen_sector = inner_choose_sector(rng, tendency);
 
     // Step 2: Get the angle range for that sector
     let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
@@ -65,17 +59,19 @@ fn sample_spray_angle(tendency: &BatterInfo) -> f64 {
     // Step 3: Randomly sample within the range
     let mean = (min_angle + max_angle) * 0.5;
     let std_dev = (max_angle - min_angle) / 6.0;
-    let final_angle =
-        (mean + std_dev * rng.sample::<f64, _>(StandardNormal)).clamp(min_angle, max_angle);
+    let final_angle = rng
+        .normal_random(mean, std_dev, 0.0, 1.0, 0.0)
+        .clamp(min_angle, max_angle);
 
     final_angle
 }
 
-// TODO: rng should be passed as parameter
-pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBall {
-    let mut rng = rand::rng();
-
-    let trajectory = match rng.random_range(0..4) {
+pub fn calculate_batted_ball(
+    rng: &mut dyn RandomProvider,
+    batter: &BatterInfo,
+    pitch_speed: f64,
+) -> BattedBall {
+    let trajectory = match rng.gen_range(0, 3) {
         0 => TrajectoryType::Liner,
         1 => TrajectoryType::Fly,
         2 => TrajectoryType::Grounder,
@@ -90,18 +86,17 @@ pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBal
 
     // 2. Randomly select the damping factor based on TrajectoryType (contact quality)
     let contact_efficiency = match &trajectory {
-        TrajectoryType::Liner => rng.random_range(0.85..1.00),
-        TrajectoryType::Fly => rng.random_range(0.70..0.92),
-        TrajectoryType::Grounder => rng.random_range(0.65..0.90),
-        TrajectoryType::PopUp => rng.random_range(0.40..0.60),
+        TrajectoryType::Liner => rng.range_f64(0.85, 1.00),
+        TrajectoryType::Fly => rng.range_f64(0.70, 0.92),
+        TrajectoryType::Grounder => rng.range_f64(0.65, 0.90),
+        TrajectoryType::PopUp => rng.range_f64(0.40, 0.60),
     };
 
     // 3. Determine the base exit velocity
     let mut base_speed = v_max * contact_efficiency;
 
     // 4. Add the final variation with normally distributed noise (mean 0, standard deviation 5 km/h)
-    let normal_dist = Normal::new(0.0, 5.0).unwrap();
-    let noise = normal_dist.sample(&mut rng);
+    let noise = rng.normal_random(0.0, 5.0, 0.0, 1.0, 0.0);
 
     base_speed += noise;
 
@@ -109,12 +104,12 @@ pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBal
     let launch_speed = base_speed.max(30.0);
 
     let launch_angle: f64 = match &trajectory {
-        TrajectoryType::Grounder => rng.random_range(0.0..10.0),
-        TrajectoryType::Liner => rng.random_range(10.0..25.0),
-        TrajectoryType::Fly => rng.random_range(25.0..50.0),
-        TrajectoryType::PopUp => rng.random_range(50.0..80.0),
+        TrajectoryType::Grounder => rng.range_f64(0.0, 10.0),
+        TrajectoryType::Liner => rng.range_f64(10.0, 25.0),
+        TrajectoryType::Fly => rng.range_f64(25.0, 50.0),
+        TrajectoryType::PopUp => rng.range_f64(50.0, 80.0),
     };
-    let spray_angle = sample_spray_angle(batter);
+    let spray_angle = sample_spray_angle(rng, batter);
 
     let v = launch_speed * 0.278; // Convert to m/s
     let theta = launch_angle.to_radians();
@@ -137,7 +132,7 @@ pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBal
         TrajectoryType::Grounder => {
             // Grounder-specific calculation for infield arrival time and final rolling distance
             let time_to_infield = 30.0 / (v * theta.cos() * 0.8);
-            let total_dist = v * 1.5 + rand::random_range(-5.0..5.0);
+            let total_dist = v * 1.5 + rng.range_f64(-5.0, 5.0);
             (total_dist, time_to_infield)
         }
     };
@@ -152,27 +147,9 @@ pub fn calculate_batted_ball(batter: &BatterInfo, pitch_speed: f64) -> BattedBal
     )
 }
 
-// pub fn simulate_batting(batter: &Player) -> BattingResult {
-//     let rng: f64 = rand::random();
-//     let result: BattingResult;
-//     // TODO: Adjust by mod_slg!
-//     let xbh_average: f64 = batter.slg() - batter.hit_average();
-//     let double_average: f64 = batter.hit_average() + xbh_average * 0.5;
-//     let triple_average: f64 = batter.hit_average() + xbh_average * 0.6;
-//     let home_run_average: f64 = batter.hit_average() + xbh_average;
-
-//     match rng {
-//         n if batter.hit_average() > n => result = BattingResult::Single,
-//         n if double_average > n => result = BattingResult::Double,
-//         n if triple_average > n => result = BattingResult::Triple,
-//         n if home_run_average > n => result = BattingResult::HomeRun,
-//         _ => result = BattingResult::Out,
-//     }
-//     result
-// }
-
 #[cfg(test)]
 mod tests {
+    use crate::domain::random_provider::FixedRng;
     use crate::domain::resolver::batting_resolver::{
         BatterInfo, FieldSector, calculate_batted_ball, inner_choose_sector, sample_spray_angle,
     };
@@ -254,7 +231,8 @@ mod tests {
         ];
 
         for (batter, expected_sector) in cases {
-            assert_eq!(inner_choose_sector(&batter), expected_sector);
+            let mut rng = FixedRng::new(0.5);
+            assert_eq!(inner_choose_sector(&mut rng, &batter), expected_sector);
         }
     }
 
@@ -300,7 +278,8 @@ mod tests {
 
         for (batter, min_angle, max_angle) in cases {
             for _ in 0..20 {
-                assert_between(sample_spray_angle(&batter), min_angle, max_angle);
+                let mut rng = FixedRng::new(0.5);
+                assert_between(sample_spray_angle(&mut rng, &batter), min_angle, max_angle);
             }
         }
     }
@@ -310,7 +289,8 @@ mod tests {
         let right_pull_hitter = batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0);
 
         for _ in 0..50 {
-            let ball = calculate_batted_ball(&right_pull_hitter, 150.0);
+            let mut rng = FixedRng::new(0.5);
+            let ball = calculate_batted_ball(&mut rng, &right_pull_hitter, 150.0);
 
             assert!(ball.launch_speed_kmh >= 30.0);
             assert!(ball.distance().is_finite());

@@ -401,11 +401,11 @@ pub struct ThrowTargetPlan {
 }
 
 #[derive(Debug)]
-struct CoverDecision {
+struct CoverDecision<'a> {
     middle_infield_ss_weight: f64,
-    rng: Box<dyn RandomProvider>,
+    rng: &'a mut dyn RandomProvider,
 }
-impl CoverDecision {
+impl<'a> CoverDecision<'a> {
     fn resolve(
         &mut self,
         assignment: CoverAssignment,
@@ -522,7 +522,7 @@ fn select_throw_target(ctx: &PlayContext, rules: &[ThrowRule]) -> ThrowTargetPla
         .expect("throw target rules must include a default rule")
 }
 
-fn judge_tagup_throw_target(ctx: &PlayContext, rng: Box<dyn RandomProvider>) -> ThrowTarget {
+fn judge_tagup_throw_target(ctx: &PlayContext, rng: &mut dyn RandomProvider) -> ThrowTarget {
     let plan = select_throw_target(ctx, TAGUP_RULES);
 
     resolve_throw_target_plan(
@@ -537,7 +537,7 @@ fn judge_tagup_throw_target(ctx: &PlayContext, rng: Box<dyn RandomProvider>) -> 
 
 fn judge_double_play_throw_target(
     ctx: &DefensePlayResult,
-    rng: Box<dyn RandomProvider>,
+    rng: &mut dyn RandomProvider,
 ) -> Option<MultiPlayThrowTarget> {
     if let Some(plan) = select_multiplay_throw_target(ctx, INFIELD_GROUNDER_DOUBLE_PLAY_RULES) {
         Some(resolve_multiplay_throw_target_plan(
@@ -555,7 +555,7 @@ fn judge_double_play_throw_target(
 
 fn judge_infield_grounder_throw_target(
     ctx: &PlayContext,
-    rng: Box<dyn RandomProvider>,
+    rng: &mut dyn RandomProvider,
 ) -> ThrowTarget {
     let plan = select_throw_target(ctx, INFIELD_GROUNDER_RULES);
 
@@ -569,7 +569,7 @@ fn judge_infield_grounder_throw_target(
     )
 }
 
-fn judge_outfield_hit_throw_target(ctx: &PlayContext, rng: Box<dyn RandomProvider>) -> ThrowTarget {
+fn judge_outfield_hit_throw_target(ctx: &PlayContext, rng: &mut dyn RandomProvider) -> ThrowTarget {
     let plan = select_throw_target(ctx, OUTFIELD_HIT_RULES);
 
     resolve_throw_target_plan(
@@ -608,7 +608,7 @@ pub fn evaluate_base_stealing(
     target_base: Base,     // Second (steal 2nd) or Third (steal 3rd)
     pitcher: &PitcherInfo, // Quick motion speed, pitch velocity
     catcher: &CatcherInfo, // Arm strength (pop time), control
-    mut rng: Box<dyn RandomProvider>,
+    rng: &mut dyn RandomProvider,
 ) -> StealDefensePlayResult {
     // 1. Defense side: total time from pitch to throw completion to 2nd (or 3rd)
     // Pitcher's motion time (1.0s for quick motion, ~1.3s for normal)
@@ -642,7 +642,7 @@ pub fn evaluate_base_stealing(
 pub fn evaluate_double_play(
     ctx: &PlayContext,
     defense_play_result: &DefensePlayResult,
-    rng: Box<dyn RandomProvider>,
+    rng: &mut dyn RandomProvider,
 ) -> Result<Option<DoublePlayDefensePlayResult>, GameError> {
     let double_play_throw_target = judge_double_play_throw_target(defense_play_result, rng);
     if double_play_throw_target.is_none() {
@@ -661,7 +661,7 @@ pub fn evaluate_double_play(
 // TODO: Consider double play by picking off
 pub fn evaluate_defense_play(
     ctx: &PlayContext,
-    rng: Box<dyn RandomProvider>,
+    rng: &mut dyn RandomProvider,
 ) -> Result<DefensePlayResult, GameError> {
     if ctx.fielded_ball.ball.is_infield() {
         let throw_target = judge_infield_grounder_throw_target(ctx, rng);
@@ -826,10 +826,12 @@ pub fn process_defensive_chain<'a>(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
+    use crate::domain::resolver::fielding_physics::try_catch;
     use crate::domain::shared::game_state::ActiveRunner;
     use crate::domain::shared::player::{
         FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
     };
+    use crate::domain::shared::stadium::Stadium;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -944,6 +946,10 @@ mod tests {
         }
     }
 
+    fn stadium() -> Stadium {
+        Stadium::default()
+    }
+
     fn fixed_rng() -> Box<dyn RandomProvider> {
         Box::new(FixedRng::new(0.1))
     }
@@ -1024,8 +1030,9 @@ mod tests {
     fn evaluate_base_stealing_to_second_returns_defense_time_and_covering_fielder() {
         let pitcher = pitcher(1.0);
         let catcher = catcher(0.4, 35.0);
+        let mut rng = fixed_rng();
 
-        let result = evaluate_base_stealing(Base::Second, &pitcher, &catcher, fixed_rng());
+        let result = evaluate_base_stealing(Base::Second, &pitcher, &catcher, &mut *rng);
 
         assert_eq!(result.throw_target_base, Base::Second);
         assert!(matches!(
@@ -1042,8 +1049,11 @@ mod tests {
     fn evaluate_base_stealing_to_third_returns_shorter_throw_time() {
         let pitcher = pitcher(1.0);
         let catcher = catcher(0.4, 35.0);
-        let second_result = evaluate_base_stealing(Base::Second, &pitcher, &catcher, fixed_rng());
-        let third_result = evaluate_base_stealing(Base::Third, &pitcher, &catcher, fixed_rng());
+        let mut second_rng = fixed_rng();
+        let mut third_rng = fixed_rng();
+        let second_result =
+            evaluate_base_stealing(Base::Second, &pitcher, &catcher, &mut *second_rng);
+        let third_result = evaluate_base_stealing(Base::Third, &pitcher, &catcher, &mut *third_rng);
 
         assert_eq!(third_result.throw_target_base, Base::Third);
         assert_near(
@@ -1084,7 +1094,9 @@ mod tests {
             defense_time: 1.2,
         };
 
-        let result = evaluate_double_play(&ctx, &first_play, fixed_rng())
+        let mut rng = fixed_rng();
+
+        let result = evaluate_double_play(&ctx, &first_play, &mut *rng)
             .unwrap()
             .unwrap();
         let expected_defense_time = thrower.info.prep_time
@@ -1119,7 +1131,9 @@ mod tests {
             defense_time: 1.2,
         };
 
-        let result = evaluate_double_play(&ctx, &first_play, fixed_rng());
+        let mut rng = fixed_rng();
+
+        let result = evaluate_double_play(&ctx, &first_play, &mut *rng);
 
         assert!(
             matches!(result, Err(GameError::NoPlayerFor(position)) if position == Position::SB.to_string())
@@ -1131,7 +1145,7 @@ mod tests {
         let center_fielder = fielder(Position::CF, 75.0, 0.0);
         let fly_ball = ball(TrajectoryType::Fly, 80.0, 0.0, 3.0, 120.0, 35.0);
 
-        let result = center_fielder.try_catch(&fly_ball);
+        let result = try_catch(&center_fielder, &fly_ball, &stadium());
 
         assert!(result.is_fly_catch);
         assert_near(result.time_to_field, fly_ball.hang_time);
@@ -1142,11 +1156,11 @@ mod tests {
     #[test]
     fn try_catch_returns_safe_and_bounded_distance_when_airborne_ball_falls_in() {
         let center_fielder = fielder(Position::CF, 60.0, 0.0);
-        let mut liner = ball(TrajectoryType::Liner, 80.0, 0.0, 1.0, 100.0, 15.0);
+        let liner = ball(TrajectoryType::Liner, 80.0, 0.0, 1.0, 100.0, 15.0);
         let original_distance = liner.distance();
         let original_hang_time = liner.hang_time;
 
-        let result = center_fielder.try_catch(&mut liner);
+        let result = try_catch(&center_fielder, &liner, &stadium());
 
         assert!(!result.is_fly_catch);
         assert!(result.time_to_field > original_hang_time);
@@ -1159,7 +1173,7 @@ mod tests {
         let shortstop = fielder(Position::SS, 30.0, -5.0);
         let grounder = ball(TrajectoryType::Grounder, 32.0, -5.0, 0.9, 95.0, 4.0);
 
-        let result = shortstop.try_catch(&grounder);
+        let result = try_catch(&shortstop, &grounder, &stadium());
 
         assert!(!result.is_fly_catch);
         assert_near(result.time_to_field, 0.4 + (2.0 / 7.0));
@@ -1170,9 +1184,9 @@ mod tests {
     #[test]
     fn liner_beyond_fielder_adds_reaction_delay_and_falls_in() {
         let center_fielder = fielder(Position::CF, 80.0, 0.0);
-        let mut liner_beyond_fielder = ball(TrajectoryType::Liner, 90.0, 0.0, 2.0, 110.0, 15.0);
+        let liner_beyond_fielder = ball(TrajectoryType::Liner, 90.0, 0.0, 2.0, 110.0, 15.0);
 
-        let result = center_fielder.try_catch(&mut liner_beyond_fielder);
+        let result = try_catch(&center_fielder, &liner_beyond_fielder, &stadium());
 
         assert!(!result.is_fly_catch);
         assert!(result.time_to_field > liner_beyond_fielder.hang_time);
@@ -1283,7 +1297,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let target = judge_infield_grounder_throw_target(&ctx, fixed_rng());
+        let mut rng = fixed_rng();
+
+        let target = judge_infield_grounder_throw_target(&ctx, &mut *rng);
 
         assert_target(target, Base::Home, PlayType::ForcePlay);
     }
@@ -1302,7 +1318,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let target = judge_infield_grounder_throw_target(&ctx, fixed_rng());
+        let mut rng = fixed_rng();
+
+        let target = judge_infield_grounder_throw_target(&ctx, &mut *rng);
 
         assert_target(target, Base::Third, PlayType::ForcePlay);
     }
@@ -1321,7 +1339,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let target = judge_outfield_hit_throw_target(&ctx, fixed_rng());
+        let mut rng = fixed_rng();
+
+        let target = judge_outfield_hit_throw_target(&ctx, &mut *rng);
 
         assert_target(target, Base::Home, PlayType::TouchPlay);
     }
@@ -1340,7 +1360,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let target = judge_outfield_hit_throw_target(&ctx, fixed_rng());
+        let mut rng = fixed_rng();
+
+        let target = judge_outfield_hit_throw_target(&ctx, &mut *rng);
 
         assert_target(target, Base::Third, PlayType::TouchPlay);
     }
@@ -1359,7 +1381,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let target = judge_outfield_hit_throw_target(&ctx, fixed_rng());
+        let mut rng = fixed_rng();
+
+        let target = judge_outfield_hit_throw_target(&ctx, &mut *rng);
 
         assert_target(target, Base::Second, PlayType::TouchPlay);
     }
@@ -1386,7 +1410,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let result = evaluate_defense_play(&ctx, fixed_rng()).unwrap();
+        let mut rng = fixed_rng();
+
+        let result = evaluate_defense_play(&ctx, &mut *rng).unwrap();
         let throw_distance =
             calculate_polar_distance(&catch_position, &Base::First.polar_position());
         let expected_defense_time = fielded_ball.time_to_field
@@ -1423,7 +1449,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let result = evaluate_defense_play(&ctx, fixed_rng()).unwrap();
+        let mut rng = fixed_rng();
+
+        let result = evaluate_defense_play(&ctx, &mut *rng).unwrap();
         let shortstop = fielders
             .iter()
             .find(|fielder| fielder.is(Position::SS))
@@ -1459,7 +1487,9 @@ mod tests {
             fielded_ball: &fielded_ball,
         };
 
-        let result = evaluate_defense_play(&ctx, fixed_rng()).unwrap();
+        let mut rng = fixed_rng();
+
+        let result = evaluate_defense_play(&ctx, &mut *rng).unwrap();
         let shortstop = fielders
             .iter()
             .find(|fielder| fielder.is(Position::SS))

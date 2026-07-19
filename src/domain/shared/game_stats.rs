@@ -1,13 +1,11 @@
 use super::game::BattingResult;
 use crate::domain::resolver::fielding_resolver::PlayType;
-use crate::domain::shared::game::FieldingResult;
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::stadium::Base;
 use crate::domain::shared::{
     ball::BattedBall,
     player::{PlayerInfo, Position},
 };
-use crate::domain::util::PolarPosition;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

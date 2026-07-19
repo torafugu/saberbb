@@ -5,7 +5,6 @@ CREATE TABLE count (
     inning_seq INTEGER,
     inning_tb TEXT,
     seq INTEGER,
-    bases_occupied INTEGER NOT NULL DEFAULT 0,
     point INTEGER NOT NULL,
     ball INTEGER NOT NULL,
     strike INTEGER NOT NULL,

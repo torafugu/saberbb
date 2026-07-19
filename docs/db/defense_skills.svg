@@ -21,8 +21,8 @@
 <text text-anchor="start" x="53.2" y="-89.2" font-family="Arial" font-size="14.00">player_id </text>
 <text text-anchor="start" x="113.9" y="-89.2" font-family="Arial" font-size="14.00" fill="#666666">[INTEGER]</text>
 <polygon fill="none" stroke="black" points="46.2,-46.2 46.2,-77 231.43,-77 231.43,-46.2 46.2,-46.2"/>
-<text text-anchor="start" x="53.2" y="-58.4" font-family="Arial" font-size="14.00">primary_position </text>
-<text text-anchor="start" x="159.8" y="-58.4" font-family="Arial" font-size="14.00" fill="#666666">[TEXT]</text>
+<text text-anchor="start" x="53.2" y="-58.4" font-family="Arial" font-size="14.00">position </text>
+<text text-anchor="start" x="105.34" y="-58.4" font-family="Arial" font-size="14.00" fill="#666666">[TEXT]</text>
 <polygon fill="none" stroke="black" stroke-width="3" points="44.7,-44.7 44.7,-144.9 232.93,-144.9 232.93,-44.7 44.7,-44.7"/>
 </g>
 </g>

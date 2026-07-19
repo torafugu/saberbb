@@ -3,6 +3,7 @@ use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
 use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
+use saberbb::domain::resolver::fielding_physics::try_catch;
 use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
@@ -163,13 +164,14 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
     let mut scores = 0;
     let mut inning_state = InningState::new();
+    let mut rng = RealRng::new();
 
-    while let InningProgress::Ongoing = inning_state.innning_progress() {
+    while let InningProgress::Ongoing = inning_state.inning_progress() {
         println!("\n--- New count ---");
         inning_state.runners.batting_side = Some(batter.batting_side);
         inning_state.runners.batter_runner = Some(batter_runner);
 
-        let ball = calculate_batted_ball(&batter, 150.0);
+        let ball = calculate_batted_ball(&mut rng, &batter, 150.0);
 
         println!("{:#?}", ball);
 
@@ -194,7 +196,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
         println!("{:#?}", fielder);
 
-        let fielded_ball = fielder.try_catch(&ball);
+        let fielded_ball = try_catch(fielder, &ball, &stadium);
 
         println!("{:#?}", fielded_ball);
 
@@ -206,8 +208,6 @@ fn test_through_half_inning() -> Result<(), GameError> {
                 inning_state.out, scores
             );
 
-            // TODO: Record fielding result
-
             if fielded_ball.fielded_by.is_infielder() || !inning_state.allows_tagup() {
                 println!("No tag-up.");
                 continue;
@@ -215,9 +215,11 @@ fn test_through_half_inning() -> Result<(), GameError> {
         }
 
         // TODO: stolen base tunrned into hit-and-run case
-        if inning_state.can_steal_base(Box::new(RealRng::new())) {
+        let mut steal_attempt_rng = RealRng::new();
+        if inning_state.can_steal_base(&mut steal_attempt_rng) {
+            let mut steal_defense_rng = RealRng::new();
             let steal_defense_play_result =
-                evaluate_base_stealing(Base::Second, &pitcher, &catcher, Box::new(RealRng::new()));
+                evaluate_base_stealing(Base::Second, &pitcher, &catcher, &mut steal_defense_rng);
 
             println!("{:#?}", steal_defense_play_result);
 
@@ -227,11 +229,9 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
             println!("{:#?}", steal_runner_advance_result);
 
-            // TODO: Record stolen base result
-
             if steal_runner_advance_result.ruling == Ruling::Out {
                 inning_state.add_out();
-                if inning_state.innning_progress() == InningProgress::Over {
+                if inning_state.inning_progress() == InningProgress::Over {
                     break;
                 }
             };
@@ -244,7 +244,8 @@ fn test_through_half_inning() -> Result<(), GameError> {
             fielded_ball: &fielded_ball,
         };
 
-        let defense_play_result = evaluate_defense_play(&ctx, Box::new(RealRng::new()))?;
+        let mut defense_rng = RealRng::new();
+        let defense_play_result = evaluate_defense_play(&ctx, &mut defense_rng)?;
 
         println!("{:#?}", defense_play_result);
 
@@ -265,15 +266,15 @@ fn test_through_half_inning() -> Result<(), GameError> {
         println!("{:#?}", runner_advance_result);
 
         if ctx.fielded_ball.fielded_by.is_infielder() && inning_state.can_double_play() {
+            let mut double_play_rng = RealRng::new();
             if let Some(double_play_defense_play_result) =
-                evaluate_double_play(&ctx, &defense_play_result, Box::new(RealRng::new()))?
+                evaluate_double_play(&ctx, &defense_play_result, &mut double_play_rng)?
             {
                 println!("{:#?}", double_play_defense_play_result);
 
-                let double_play_runner_advance_result = inning_state.runners.after_double_play(
-                    double_play_defense_play_result,
-                    runner_advance_result.unsaved_runners,
-                )?;
+                let double_play_runner_advance_result = inning_state
+                    .runners
+                    .after_double_play(&double_play_defense_play_result, &runner_advance_result)?;
 
                 println!("{:#?}", double_play_runner_advance_result);
 
@@ -283,7 +284,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
                 if double_play_runner_advance_result.ruling == Ruling::Out {
                     inning_state.add_out();
-                    if inning_state.innning_progress() == InningProgress::Ongoing {
+                    if inning_state.inning_progress() == InningProgress::Ongoing {
                         break;
                     }
                 };
@@ -348,19 +349,20 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
         fielded_ball: &fielded_ball,
     };
 
-    let first_play = evaluate_defense_play(&ctx, Box::new(FixedRng::new(0.1)))?;
+    let mut first_play_rng = FixedRng::new(0.1);
+    let first_play = evaluate_defense_play(&ctx, &mut first_play_rng)?;
     let first_advance = inning_state.runners.after_infield_grounder(&first_play)?;
 
     assert_eq!(first_advance.ruling, Ruling::Out);
 
-    let second_play =
-        evaluate_double_play(&ctx, &first_play, Box::new(FixedRng::new(0.1)))?.unwrap();
+    let mut second_play_rng = FixedRng::new(0.1);
+    let second_play = evaluate_double_play(&ctx, &first_play, &mut second_play_rng)?.unwrap();
 
     inning_state.add_out();
 
     let second_advance = inning_state
         .runners
-        .after_double_play(second_play, first_advance.unsaved_runners)?;
+        .after_double_play(&second_play, &first_advance)?;
 
     assert_eq!(second_advance.ruling, Ruling::Out);
     inning_state.add_out();
@@ -403,8 +405,8 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
     let runner_on_first = ActiveRunner {
         id: 0,
         skills: RunningSkills {
-            speed: 7.0,
-            lead_distance: 0.0,
+            speed: 9.5,
+            lead_distance: 3.0,
             start_reaction: 0.1,
         },
     };
@@ -412,14 +414,12 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
     let mut inning_state = InningState::new();
     inning_state.runners.runner_1st = Some(runner_on_first);
 
-    assert!(inning_state.can_steal_base(Box::new(FixedRng::new(0.1))));
+    let mut steal_attempt_rng = FixedRng::new(0.1);
+    assert!(inning_state.can_steal_base(&mut steal_attempt_rng));
 
-    let steal_defense_play_result = evaluate_base_stealing(
-        Base::Second,
-        &pitcher,
-        &catcher,
-        Box::new(FixedRng::new(0.1)),
-    );
+    let mut steal_defense_rng = FixedRng::new(0.1);
+    let steal_defense_play_result =
+        evaluate_base_stealing(Base::Second, &pitcher, &catcher, &mut steal_defense_rng);
     let steal_runner_advance_result = inning_state
         .runners
         .after_base_stealing(steal_defense_play_result)?;
@@ -483,8 +483,10 @@ fn test_catch_batted_ball() {
         weight_foul_right: 0.07,
     };
 
+    let mut rng = RealRng::new();
+
     for _ in 0..1000 {
-        let ball = calculate_batted_ball(&right_average_hitter, 150.0);
+        let ball = calculate_batted_ball(&mut rng, &right_average_hitter, 150.0);
         conn.execute(
             "INSERT INTO test_batted_ball (launch_speed_kmh, launch_angle,  spray_angle, distance, hang_time, trajectory) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

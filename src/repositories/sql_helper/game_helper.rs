@@ -159,8 +159,9 @@ impl FromRow for GameDetail {
             innings: Vec::new(),
             away_points: row.get("away_points")?,
             home_points: row.get("home_points")?,
-            player_entry_views: Vec::new(),
-            player_batting_views: Vec::new(),
+            player_entries: Vec::new(),
+            player_battings: Vec::new(),
+            player_runnings: Vec::new(),
         };
 
         game_detail.validate()?;
@@ -191,7 +192,6 @@ impl FromRow for Count {
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let count = Count {
             seq: row.get("seq")?,
-            bases_occupied: row.get("bases_occupied")?,
             point: row.get("point")?,
             ball: row.get("ball")?,
             strike: row.get("strike")?,

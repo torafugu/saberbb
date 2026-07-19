@@ -35,7 +35,7 @@ impl Team {
         }
     }
 
-    pub fn lineup(&mut self, mut rng: Box<dyn RandomProvider>) -> Result<Lineup, GameError> {
+    pub fn lineup(&mut self, rng: &mut dyn RandomProvider) -> Result<Lineup, GameError> {
         let mut batters = Vec::new();
         let mut fielders = Vec::new();
         let mut temp_pitcher: Option<ActivePitcher> = None;

@@ -28,10 +28,11 @@ pub struct DoublePlayRunnerAdvanceResult {
     pub time_difference: f64,
     pub throw_target_base: Base,
     pub ruling: Ruling,
+    pub batting_result: BattingResult,
     pub unsaved_runners: RunnersUnsaved,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct RunnerAdvanceResult {
     pub defense_time: f64,
     pub runner_time: f64,
@@ -76,7 +77,7 @@ impl RunningPlan {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct RunnersUnsaved {
     pub runner_1st: Option<ActiveRunner>,
     pub runner_2nd: Option<ActiveRunner>,
@@ -804,17 +805,18 @@ impl RunnersOnBase {
     // CONSTRAINT: Temporary runners do not go to the next base.
     pub fn after_double_play(
         &self,
-        double_play_defense_play_result: DoublePlayDefensePlayResult,
-        previous_unsaved_runners: RunnersUnsaved,
+        double_play_defense_play_result: &DoublePlayDefensePlayResult,
+        previous_runner_advanced_result: &RunnerAdvanceResult,
     ) -> Result<DoublePlayRunnerAdvanceResult, GameError> {
         let runner_time;
         let time_difference;
         let mut unsaved_runners: RunnersUnsaved = RunnersUnsaved {
-            runner_1st: previous_unsaved_runners.runner_1st,
-            runner_2nd: previous_unsaved_runners.runner_2nd,
-            runner_3rd: previous_unsaved_runners.runner_3rd,
+            runner_1st: previous_runner_advanced_result.unsaved_runners.runner_1st,
+            runner_2nd: previous_runner_advanced_result.unsaved_runners.runner_2nd,
+            runner_3rd: previous_runner_advanced_result.unsaved_runners.runner_3rd,
         };
         let ruling;
+        let mut batting_result = previous_runner_advanced_result.batting_result;
 
         match double_play_defense_play_result.throw_target_base {
             Base::First => {
@@ -824,6 +826,7 @@ impl RunnersOnBase {
 
                 if ruling == Ruling::Out {
                     unsaved_runners.runner_1st = None;
+                    batting_result = BattingResult::DoublePlay;
                 };
             }
             Base::Second => {
@@ -833,6 +836,7 @@ impl RunnersOnBase {
 
                 if ruling == Ruling::Out {
                     unsaved_runners.runner_2nd = None;
+                    batting_result = BattingResult::DoublePlay;
                 };
             }
             Base::Third => {
@@ -842,6 +846,7 @@ impl RunnersOnBase {
 
                 if ruling == Ruling::Out {
                     unsaved_runners.runner_3rd = None;
+                    batting_result = BattingResult::DoublePlay;
                 };
             }
             _ => {
@@ -855,6 +860,7 @@ impl RunnersOnBase {
             time_difference: time_difference,
             throw_target_base: double_play_defense_play_result.throw_target_base,
             ruling: ruling,
+            batting_result: batting_result,
             unsaved_runners: unsaved_runners,
         };
 
@@ -997,6 +1003,23 @@ mod tests {
             throw_target_base,
             final_fielder_position: Position::SB,
             defense_time,
+        }
+    }
+
+    fn runner_advance_result(
+        batting_result: BattingResult,
+        unsaved_runners: RunnersUnsaved,
+    ) -> RunnerAdvanceResult {
+        RunnerAdvanceResult {
+            defense_time: 0.0,
+            runner_time: 0.0,
+            time_difference: 0.0,
+            throw_target_base: Base::First,
+            play_type: PlayType::ForcePlay,
+            ruling: Ruling::Safe,
+            batting_result,
+            runs_scored: 0,
+            unsaved_runners,
         }
     }
 
@@ -1223,13 +1246,40 @@ mod tests {
 
         let result = runners
             .after_double_play(
-                double_play_result(Base::Second, runner_time - 0.01),
-                previous_unsaved,
+                &double_play_result(Base::Second, runner_time - 0.01),
+                &runner_advance_result(BattingResult::FieldersChoice, previous_unsaved),
             )
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Out);
+        assert_eq!(result.batting_result, BattingResult::DoublePlay);
         assert!(result.unsaved_runners.runner_2nd.is_none());
+    }
+
+    #[test]
+    fn after_double_play_keeps_previous_batting_result_when_second_throw_loses() {
+        let runners = runners(RL::Left, Some(runner(8.0)), Some(runner(7.0)), None, None);
+        let previous_unsaved = RunnersUnsaved {
+            runner_1st: None,
+            runner_2nd: Some(runner(7.0)),
+            runner_3rd: None,
+        };
+        let previous_result =
+            runner_advance_result(BattingResult::FieldersChoice, previous_unsaved);
+        let runner_time = runners
+            .total_runner_time(Base::First, Base::Second)
+            .unwrap();
+
+        let result = runners
+            .after_double_play(
+                &double_play_result(Base::Second, runner_time + 0.01),
+                &previous_result,
+            )
+            .unwrap();
+
+        assert_eq!(result.ruling, Ruling::Safe);
+        assert_eq!(result.batting_result, BattingResult::FieldersChoice);
+        assert!(result.unsaved_runners.runner_2nd.is_some());
     }
 
     #[test]
@@ -1238,8 +1288,8 @@ mod tests {
 
         assert!(matches!(
             runners.after_double_play(
-                double_play_result(Base::Home, 1.0),
-                RunnersUnsaved::default()
+                &double_play_result(Base::Home, 1.0),
+                &runner_advance_result(BattingResult::Out, RunnersUnsaved::default())
             ),
             Err(GameError::DoublePlayTargetBase)
         ));

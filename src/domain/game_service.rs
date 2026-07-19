@@ -1,4 +1,5 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress};
+use crate::domain::random_provider::RealRng;
 use crate::domain::shared::game::GameResult;
 use crate::domain::shared::player::Player;
 use crate::repositories::game_repository::GameRepository;
@@ -24,14 +25,14 @@ impl<R: GameRepository> GameService<R> {
         for game_schedule in game_schedules {
             info!("new game started");
 
-            let mut game_state = GameState::new(game_schedule)?;
+            let mut game_state = GameState::new(Box::new(RealRng::new()), game_schedule)?;
 
             while let GameProgress::Ongoing = game_state.progress() {
                 info!("new inning started");
 
                 game_state.advance_half_inning();
 
-                while let InningProgress::Ongoing = game_state.inning_state.innning_progress() {
+                while let InningProgress::Ongoing = game_state.inning_state.inning_progress() {
                     // TODO: Consider ball updated
                     // TODO: Consider strike updated
                     // game_state.batting_resolve()?;
@@ -72,7 +73,7 @@ mod tests {
     use crate::domain::shared::game::{
         Count, GameDetail, GameHeader, GameSchedule, GameType, Inning, TB,
     };
-    use crate::domain::shared::game_stat::{
+    use crate::domain::shared::game_stats::{
         PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
         PlayerGameFielding, PlayerGameRunning,
     };
@@ -260,6 +261,13 @@ mod tests {
             &self,
             _game_id: u32,
         ) -> std::result::Result<Vec<PlayerGameBattingView>, AppError> {
+            unimplemented!("not used by GameService::process_game_round")
+        }
+
+        fn load_player_game_runnings(
+            &self,
+            _game_id: u32,
+        ) -> std::result::Result<Vec<PlayerGameRunning>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }

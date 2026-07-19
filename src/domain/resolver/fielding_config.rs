@@ -1,5 +1,3 @@
-// TODO: fence distance should be retrieved from the stadium
-pub const FENCE_DISTANCE: f64 = 100.0; // Stadium fence distance (assumed 100m)
 pub const FENCE_BOUNCE_COEFF: f64 = 0.25; // NOTE: Fence bounce coefficient (grounder cushion is quite damped)
 pub const DEEP_OUTFIELD_DISTANCE: f64 = 90.0;
 pub const SHALLOW_INFIELD_DISTANCE: f64 = 25.0;

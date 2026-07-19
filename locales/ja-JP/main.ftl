@@ -19,6 +19,7 @@ cutoff_play = カットオフ
 date_parse_error = 日付パースエラー
 dh = 指
 double = 二塁打
+double_play = ダブルプレー
 draws = 引分
 error = {$function}() でエラーが発生しました。
 exhibition = オープン戦

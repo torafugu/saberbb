@@ -8,7 +8,7 @@
 ```sql
 CREATE TABLE defense_skills (
     player_id INTEGER PRIMARY KEY,
-    primary_position TEXT NOT NULL
+    position TEXT NOT NULL
 )
 ```
 
@@ -16,10 +16,10 @@ CREATE TABLE defense_skills (
 
 ## Columns
 
-| Name             | Type    | Default | Nullable | Children | Parents | Comment |
-| ---------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| player_id        | INTEGER |         | true     |          |         |         |
-| primary_position | TEXT    |         | false    |          |         |         |
+| Name      | Type    | Default | Nullable | Children | Parents | Comment |
+| --------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| player_id | INTEGER |         | true     |          |         |         |
+| position  | TEXT    |         | false    |          |         |         |
 
 ## Constraints
 

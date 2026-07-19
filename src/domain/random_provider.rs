@@ -7,6 +7,7 @@ use rand_distr::{Distribution, Gamma};
 pub trait RandomProvider: std::fmt::Debug {
     fn random(&mut self) -> f64;
     fn gen_range(&mut self, low: usize, high: usize) -> usize;
+    fn range_f64(&mut self, low: f64, high: f64) -> f64;
     fn normal(&mut self, normal: NormalParam) -> f64;
     fn normal_random(
         &mut self,
@@ -40,6 +41,10 @@ impl RandomProvider for RealRng {
 
     fn gen_range(&mut self, low: usize, high: usize) -> usize {
         self.0.random_range(low..=high)
+    }
+
+    fn range_f64(&mut self, low: f64, high: f64) -> f64 {
+        self.0.random_range(low..high)
     }
 
     fn normal(&mut self, normal: NormalParam) -> f64 {
@@ -99,6 +104,10 @@ impl RandomProvider for FixedRng {
 
     fn gen_range(&mut self, low: usize, high: usize) -> usize {
         low + (self.value * (high - low) as f64).round() as usize
+    }
+
+    fn range_f64(&mut self, low: f64, high: f64) -> f64 {
+        low + self.value * (high - low)
     }
 
     fn normal(&mut self, normal: NormalParam) -> f64 {
@@ -470,9 +479,9 @@ mod tests {
     }
 
     #[test]
-    fn different_seeds_may_choose_different_weighted_items() {
-        let mut rng1 = RealRng::from_seed(1);
-        let mut rng2 = RealRng::from_seed(42);
+    fn choose_item_weighted_selects_different_items_for_different_thresholds() {
+        let mut rng1 = FixedRng::new(0.1);
+        let mut rng2 = FixedRng::new(0.9);
         let items = [
             ItemWeighted {
                 name: "A",
@@ -491,9 +500,8 @@ mod tests {
         let a = choose_item_weighted(&mut rng1, &items).unwrap();
         let b = choose_item_weighted(&mut rng2, &items).unwrap();
 
-        // With different seeds, the chosen items should differ at least sometimes
-        // (not a guaranteed assertion, but strong for reproducibility)
-        assert_ne!(*a, *b);
+        assert_eq!(*a, "A");
+        assert_eq!(*b, "C");
     }
 
     #[test]

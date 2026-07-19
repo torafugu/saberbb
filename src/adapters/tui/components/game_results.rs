@@ -1,9 +1,8 @@
 use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
-use crate::domain::shared::game::{BaseCode, Count, GameHeader};
+use crate::domain::shared::game::{Count, GameHeader};
 use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
-use crate::domain::util::is_base_occupied;
 use crate::repositories::game_repository::GameRepository;
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
@@ -402,7 +401,7 @@ impl GameResultsWidget {
             count_area,
         );
         frame.render_widget(
-            Paragraph::new(Self::format_runner(&count)).block(Block::new().padding(Padding {
+            Paragraph::new(Self::format_runner(cursor)).block(Block::new().padding(Padding {
                 left: 1,
                 right: 0,
                 top: 0,
@@ -418,7 +417,7 @@ impl GameResultsWidget {
         let strike_zone_area = strike_zone_and_batter_areas[0];
         let batter_area = strike_zone_and_batter_areas[1];
 
-        Self::draw_strike_zone(frame, strike_zone_area, cursor);
+        Self::draw_strike_zone(frame, strike_zone_area);
         frame.render_widget(
             Paragraph::new(Self::format_batter_and_pitcher(cursor)?).block(Block::new().padding(
                 Padding {
@@ -533,19 +532,19 @@ impl GameResultsWidget {
         formatted_count
     }
 
-    fn format_runner(count: &Count) -> String {
+    fn format_runner(game_cursor: &GameCursor) -> String {
         format!(
             "  <{}>\n<{}> <{}>\n  <H>\n",
-            Self::display_runner(count.bases_occupied, BaseCode::Second),
-            Self::display_runner(count.bases_occupied, BaseCode::Third),
-            Self::display_runner(count.bases_occupied, BaseCode::First)
+            Self::display_runner(game_cursor.has_runner_on_second()),
+            Self::display_runner(game_cursor.has_runner_on_third()),
+            Self::display_runner(game_cursor.has_runner_on_first())
         )
     }
 
-    fn draw_strike_zone(frame: &mut Frame, area: Rect, game_cursor: &mut GameCursor) {
+    fn draw_strike_zone(frame: &mut Frame, area: Rect) {
         // println!("width:{}, height:{}", area.width, area.height);
         let canvas = Canvas::default()
-            .marker(Marker::Braille) // これ大事！ 細かい図形ならBraille推奨
+            .marker(Marker::Braille)
             .x_bounds([0.0, area.width as f64])
             .y_bounds([0.0, area.height as f64])
             .paint(|ctx| {
@@ -701,12 +700,8 @@ impl GameResultsWidget {
         Ok(formatted_lineup)
     }
 
-    fn display_runner(bases_occupied: u8, base: BaseCode) -> &'static str {
-        if is_base_occupied(bases_occupied, base) {
-            RUNNER
-        } else {
-            NO_RUNNER
-        }
+    fn display_runner(has_runner: bool) -> &'static str {
+        if has_runner { RUNNER } else { NO_RUNNER }
     }
 
     fn display_count_number(number: u8) -> String {

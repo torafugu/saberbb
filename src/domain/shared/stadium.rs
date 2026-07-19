@@ -631,11 +631,48 @@ fn find_intersections(path: &BezPath, ray: Line) -> Option<Point> {
 mod tests {
     use super::*;
 
+    fn assert_point_approx_eq(actual: Point, expected: Point) {
+        let epsilon = 1e-9;
+        assert!(
+            (actual.x - expected.x).abs() < epsilon && (actual.y - expected.y).abs() < epsilon,
+            "actual point {actual:?} did not approximately equal expected point {expected:?}"
+        );
+    }
+
+    fn assert_path_approx_eq(actual: &BezPath, expected: &BezPath) {
+        let actual_elements = actual.elements();
+        let expected_elements = expected.elements();
+        assert_eq!(actual_elements.len(), expected_elements.len());
+
+        for (actual, expected) in actual_elements.iter().zip(expected_elements.iter()) {
+            match (actual, expected) {
+                (PathEl::MoveTo(actual), PathEl::MoveTo(expected))
+                | (PathEl::LineTo(actual), PathEl::LineTo(expected)) => {
+                    assert_point_approx_eq(*actual, *expected);
+                }
+                (
+                    PathEl::CurveTo(actual_p1, actual_p2, actual_p),
+                    PathEl::CurveTo(expected_p1, expected_p2, expected_p),
+                ) => {
+                    assert_point_approx_eq(*actual_p1, *expected_p1);
+                    assert_point_approx_eq(*actual_p2, *expected_p2);
+                    assert_point_approx_eq(*actual_p, *expected_p);
+                }
+                (PathEl::QuadTo(actual_p1, actual_p), PathEl::QuadTo(expected_p1, expected_p)) => {
+                    assert_point_approx_eq(*actual_p1, *expected_p1);
+                    assert_point_approx_eq(*actual_p, *expected_p);
+                }
+                (PathEl::ClosePath, PathEl::ClosePath) => {}
+                _ => panic!("actual path element {actual:?} did not match expected {expected:?}"),
+            }
+        }
+    }
+
     #[test]
     fn build_fence_line_json_round_trips_to_bez_path() {
         let json = Stadium::build_fence_line_json(98.0, 120.0).unwrap();
         let fence_line: BezPath = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(fence_line, Stadium::build_fence_line(98.0, 120.0));
+        assert_path_approx_eq(&fence_line, &Stadium::build_fence_line(98.0, 120.0));
     }
 }

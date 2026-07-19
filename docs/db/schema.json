@@ -266,452 +266,6 @@
       "def": "CREATE TABLE game_season (\n    season_start_date TEXT NOT NULL,\n    scheduled_season INTEGER NOT NULL,\n    current_season INTEGER NOT NULL,\n    current_round_seq INTEGER NOT NULL\n)"
     },
     {
-      "name": "game",
-      "type": "table",
-      "columns": [
-        {
-          "name": "id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "season",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "round_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "planned_date",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "actual_date",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "away_team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "home_team_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "game_type",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "away_points",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "home_points",
-          "type": "INTEGER",
-          "nullable": true
-        }
-      ],
-      "constraints": [
-        {
-          "name": "id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
-          "table": "game",
-          "columns": [
-            "id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE game (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    season INTEGER,\n    round_seq INTEGER,\n    seq INTEGER,\n    planned_date TEXT NOT NULL,\n    actual_date TEXT,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    game_type TEXT NOT NULL,\n    away_points INTEGER,\n    home_points INTEGER\n)"
-    },
-    {
-      "name": "batting_order_history",
-      "type": "table",
-      "columns": [
-        {
-          "name": "game_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "start_inning_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "start_inning_tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "start_count_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "end_inning_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "end_inning_tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "end_count_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "team_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "index_num",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "position",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_batting_order_history_1",
-          "def": "PRIMARY KEY (game_id, start_inning_seq, start_inning_tb, start_count_seq, index_num)",
-          "table": "batting_order_history",
-          "columns": [
-            "game_id",
-            "start_inning_seq",
-            "start_inning_tb",
-            "start_count_seq",
-            "index_num"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "game_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id)",
-          "table": "batting_order_history",
-          "columns": [
-            "game_id"
-          ]
-        },
-        {
-          "name": "start_inning_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (start_inning_seq)",
-          "table": "batting_order_history",
-          "columns": [
-            "start_inning_seq"
-          ]
-        },
-        {
-          "name": "start_inning_tb",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (start_inning_tb)",
-          "table": "batting_order_history",
-          "columns": [
-            "start_inning_tb"
-          ]
-        },
-        {
-          "name": "start_count_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (start_count_seq)",
-          "table": "batting_order_history",
-          "columns": [
-            "start_count_seq"
-          ]
-        },
-        {
-          "name": "index_num",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (index_num)",
-          "table": "batting_order_history",
-          "columns": [
-            "index_num"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_batting_order_history_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id, start_inning_seq, start_inning_tb, start_count_seq, index_num)",
-          "table": "batting_order_history",
-          "columns": [
-            "game_id",
-            "start_inning_seq",
-            "start_inning_tb",
-            "start_count_seq",
-            "index_num"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE batting_order_history (\n    game_id INTEGER,\n    start_inning_seq INTEGER,\n    start_inning_tb TEXT,\n    start_count_seq INTEGER,\n    end_inning_seq INTEGER,\n    end_inning_tb TEXT,\n    end_count_seq INTEGER,\n    team_id INTEGER,\n    index_num INTEGER,\n    position TEXT,\n    player_id INTEGER,\n    PRIMARY KEY (\n        game_id,\n        start_inning_seq,\n        start_inning_tb,\n        start_count_seq,\n        index_num\n    )\n)"
-    },
-    {
-      "name": "batting_result_history",
-      "type": "table",
-      "columns": [
-        {
-          "name": "game_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "count_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "team_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "pitcher_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "batter_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "result",
-          "type": "TEXT",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_batting_result_history_1",
-          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, count_seq, batter_id)",
-          "table": "batting_result_history",
-          "columns": [
-            "game_id",
-            "inning_seq",
-            "inning_tb",
-            "count_seq",
-            "batter_id"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "game_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id)",
-          "table": "batting_result_history",
-          "columns": [
-            "game_id"
-          ]
-        },
-        {
-          "name": "inning_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_seq)",
-          "table": "batting_result_history",
-          "columns": [
-            "inning_seq"
-          ]
-        },
-        {
-          "name": "inning_tb",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_tb)",
-          "table": "batting_result_history",
-          "columns": [
-            "inning_tb"
-          ]
-        },
-        {
-          "name": "count_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (count_seq)",
-          "table": "batting_result_history",
-          "columns": [
-            "count_seq"
-          ]
-        },
-        {
-          "name": "batter_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (batter_id)",
-          "table": "batting_result_history",
-          "columns": [
-            "batter_id"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_batting_result_history_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, count_seq, batter_id)",
-          "table": "batting_result_history",
-          "columns": [
-            "game_id",
-            "inning_seq",
-            "inning_tb",
-            "count_seq",
-            "batter_id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE batting_result_history (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    count_seq INTEGER,\n    team_id INTEGER,\n    pitcher_id INTEGER,\n    batter_id INTEGER,\n    result TEXT NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        count_seq,\n        batter_id\n    )\n)"
-    },
-    {
-      "name": "count",
-      "type": "table",
-      "columns": [
-        {
-          "name": "game_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "inning_tb",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "bases_occupied",
-          "type": "INTEGER",
-          "nullable": false,
-          "default": "0"
-        },
-        {
-          "name": "point",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "ball",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "strike",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "out",
-          "type": "INTEGER",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_count_1",
-          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
-          "table": "count",
-          "columns": [
-            "game_id",
-            "inning_seq",
-            "inning_tb",
-            "seq"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "game_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id)",
-          "table": "count",
-          "columns": [
-            "game_id"
-          ]
-        },
-        {
-          "name": "inning_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_seq)",
-          "table": "count",
-          "columns": [
-            "inning_seq"
-          ]
-        },
-        {
-          "name": "inning_tb",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (inning_tb)",
-          "table": "count",
-          "columns": [
-            "inning_tb"
-          ]
-        },
-        {
-          "name": "seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (seq)",
-          "table": "count",
-          "columns": [
-            "seq"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_count_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
-          "table": "count",
-          "columns": [
-            "game_id",
-            "inning_seq",
-            "inning_tb",
-            "seq"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    bases_occupied INTEGER NOT NULL DEFAULT 0,\n    point INTEGER NOT NULL,\n    ball INTEGER NOT NULL,\n    strike INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
-    },
-    {
       "name": "sqlite_stat1",
       "type": "table",
       "columns": [
@@ -932,59 +486,6 @@
         }
       ],
       "def": "CREATE TABLE fielder_info (\n    player_id INTEGER,\n    fielder_type TEXT,\n    throw_speed REAL NOT NULL,\n    running_speed REAL NOT NULL,\n    reaction REAL NOT NULL,\n    prep_time REAL NOT NULL,\n    PRIMARY KEY (player_id, fielder_type)\n)"
-    },
-    {
-      "name": "batter_info",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "batting_side",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "weight_pull",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_center",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_opposite",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_foul_left",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_foul_right",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "batter_info",
-          "columns": [
-            "player_id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE batter_info (\n    player_id INTEGER PRIMARY KEY,\n    batting_side TEXT NOT NULL,\n    weight_pull REAL NOT NULL,\n    weight_center REAL NOT NULL,\n    weight_opposite REAL NOT NULL,\n    weight_foul_left REAL NOT NULL,\n    weight_foul_right REAL NOT NULL\n)"
     },
     {
       "name": "running_skills",
@@ -1360,34 +861,6 @@
       "def": "CREATE TABLE pitcher_info(\n    player_id INTEGER PRIMARY KEY,\n    pitcher_style TEXT NOT NULL,\n    velocity REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    clutch REAL NOT NULL,\n    hpp REAL NOT NULL,\n    platoon_splitting REAL NOT NULL,\n    delivery_motion_time REAL NOT NULL\n)"
     },
     {
-      "name": "defense_skills",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "primary_position",
-          "type": "TEXT",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "defense_skills",
-          "columns": [
-            "player_id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE defense_skills (\n    player_id INTEGER PRIMARY KEY,\n    primary_position TEXT NOT NULL\n)"
-    },
-    {
       "name": "pitch_skill",
       "type": "table",
       "columns": [
@@ -1499,6 +972,749 @@
         }
       ],
       "def": "CREATE TABLE pitch_skill (\n    player_id INTEGER,\n    pitch_type TEXT,\n    velocity REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    stuff REAL NOT NULL,\n    fb REAL NOT NULL,\n    gp REAL NOT NULL,\n    horizontal_movement REAL NOT NULL,\n    vertical_movement REAL NOT NULL,\n    spin_rate REAL NOT NULL,\n    usage REAL NOT NULL,\n    PRIMARY KEY (player_id, pitch_type)\n)"
+    },
+    {
+      "name": "defense_skills",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "position",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "defense_skills",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE defense_skills (\n    player_id INTEGER PRIMARY KEY,\n    position TEXT NOT NULL\n)"
+    },
+    {
+      "name": "stadium",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "foul_pole_distance",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "center_fence_distance",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "fence_line",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "fence_height",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "stadium",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE stadium (\n    id INTEGER PRIMARY KEY,\n    name TEXT NOT NULL,\n    foul_pole_distance REAL NOT NULL,\n    center_fence_distance REAL NOT NULL,\n    fence_line TEXT,\n    fence_height REAL NOT NULL\n)"
+    },
+    {
+      "name": "game",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "season",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "round_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "planned_date",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "actual_date",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "away_team_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "home_team_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "stadium_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "game_type",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "away_points",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "home_points",
+          "type": "INTEGER",
+          "nullable": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "game",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE game (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    season INTEGER,\n    round_seq INTEGER,\n    seq INTEGER,\n    planned_date TEXT NOT NULL,\n    actual_date TEXT,\n    away_team_id INTEGER NOT NULL,\n    home_team_id INTEGER NOT NULL,\n    stadium_id INTEGER NOT NULL DEFAULT 1,\n    game_type TEXT NOT NULL,\n    away_points INTEGER,\n    home_points INTEGER\n)"
+    },
+    {
+      "name": "batter_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "batting_side",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "swing_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_pull",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_center",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_opposite",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_foul_left",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "weight_foul_right",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "batter_info",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE batter_info (\n    player_id INTEGER PRIMARY KEY,\n    batting_side TEXT NOT NULL,\n    swing_speed REAL NOT NULL,\n    weight_pull REAL NOT NULL,\n    weight_center REAL NOT NULL,\n    weight_opposite REAL NOT NULL,\n    weight_foul_left REAL NOT NULL,\n    weight_foul_right REAL NOT NULL\n)"
+    },
+    {
+      "name": "player_game_entry",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "start_count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "end_count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "position",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_player_game_entry_1",
+          "def": "PRIMARY KEY (game_id, start_count_seq, player_id)",
+          "table": "player_game_entry",
+          "columns": [
+            "game_id",
+            "start_count_seq",
+            "player_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "player_game_entry",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "start_count_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (start_count_seq)",
+          "table": "player_game_entry",
+          "columns": [
+            "start_count_seq"
+          ]
+        },
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "player_game_entry",
+          "columns": [
+            "player_id"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_player_game_entry_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, start_count_seq, player_id)",
+          "table": "player_game_entry",
+          "columns": [
+            "game_id",
+            "start_count_seq",
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player_game_entry (\n    game_id INTEGER,\n    start_count_seq INTEGER,\n    end_count_seq INTEGER,\n    position TEXT,\n    player_id INTEGER,\n    PRIMARY KEY (\n        game_id,\n        start_count_seq,\n        player_id\n    )\n)"
+    },
+    {
+      "name": "player_game_batting",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "pitcher_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "batter_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "launch_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "launch_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "polar_distance",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "polar_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "hang_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "trajectory",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "result",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_player_game_batting_1",
+          "def": "PRIMARY KEY (game_id, count_seq)",
+          "table": "player_game_batting",
+          "columns": [
+            "game_id",
+            "count_seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "player_game_batting",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "count_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (count_seq)",
+          "table": "player_game_batting",
+          "columns": [
+            "count_seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_player_game_batting_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, count_seq)",
+          "table": "player_game_batting",
+          "columns": [
+            "game_id",
+            "count_seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player_game_batting (\n    game_id INTEGER,\n    count_seq INTEGER,\n    pitcher_id INTEGER NOT NULL,\n    batter_id INTEGER NOT NULL,\n    launch_speed REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    polar_distance REAL NOT NULL,\n    polar_angle REAL NOT NULL,\n    hang_time REAL NOT NULL,\n    trajectory TEXT NOT NULL,\n    result TEXT NOT NULL,\n    PRIMARY KEY (game_id, count_seq)\n)"
+    },
+    {
+      "name": "player_game_running",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "defense_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "runner_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "throw_target_base",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "play_type",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "ruling",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "runs_scored",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "runner_1st_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "runner_2nd_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "runner_3rd_id",
+          "type": "INTEGER",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_player_game_running_1",
+          "def": "PRIMARY KEY (game_id, count_seq, seq)",
+          "table": "player_game_running",
+          "columns": [
+            "game_id",
+            "count_seq",
+            "seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "player_game_running",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "count_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (count_seq)",
+          "table": "player_game_running",
+          "columns": [
+            "count_seq"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "player_game_running",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_player_game_running_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, count_seq, seq)",
+          "table": "player_game_running",
+          "columns": [
+            "game_id",
+            "count_seq",
+            "seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player_game_running (\n    game_id INTEGER,\n    count_seq INTEGER,\n    seq INTEGER,\n    defense_time REAL NOT NULL,\n    runner_time REAL NOT NULL,\n    throw_target_base TEXT NOT NULL,\n    play_type TEXT NOT NULL,\n    ruling TEXT NOT NULL,\n    runs_scored INTEGER NOT NULL,\n    runner_1st_id INTEGER,\n    runner_2nd_id INTEGER,\n    runner_3rd_id INTEGER,\n    PRIMARY KEY (game_id, count_seq, seq)\n)"
+    },
+    {
+      "name": "player_game_fielding",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "catch_fielder_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "catch_fielder_position",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "cutoff_fielder_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "cutoff_fielder_position",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "final_fielder_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "final_fielder_position",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "time_to_field",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "play_type",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_player_game_fielding_1",
+          "def": "PRIMARY KEY (game_id, count_seq, seq)",
+          "table": "player_game_fielding",
+          "columns": [
+            "game_id",
+            "count_seq",
+            "seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "player_game_fielding",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "count_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (count_seq)",
+          "table": "player_game_fielding",
+          "columns": [
+            "count_seq"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "player_game_fielding",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_player_game_fielding_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, count_seq, seq)",
+          "table": "player_game_fielding",
+          "columns": [
+            "game_id",
+            "count_seq",
+            "seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player_game_fielding (\n    game_id INTEGER,\n    count_seq INTEGER,\n    seq INTEGER,\n    catch_fielder_id INTEGER NOT NULL,\n    catch_fielder_position TEXT NOT NULL,\n    cutoff_fielder_id INTEGER,\n    cutoff_fielder_position TEXT,\n    final_fielder_id INTEGER,\n    final_fielder_position TEXT,\n    time_to_field REAL NOT NULL,\n    play_type TEXT NOT NULL,\n    PRIMARY KEY (game_id, count_seq, seq)\n)"
+    },
+    {
+      "name": "count",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "inning_tb",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "point",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "ball",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "strike",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "out",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_count_1",
+          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
+          "table": "count",
+          "columns": [
+            "game_id",
+            "inning_seq",
+            "inning_tb",
+            "seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "count",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "inning_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_seq)",
+          "table": "count",
+          "columns": [
+            "inning_seq"
+          ]
+        },
+        {
+          "name": "inning_tb",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (inning_tb)",
+          "table": "count",
+          "columns": [
+            "inning_tb"
+          ]
+        },
+        {
+          "name": "seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (seq)",
+          "table": "count",
+          "columns": [
+            "seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_count_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, inning_seq, inning_tb, seq)",
+          "table": "count",
+          "columns": [
+            "game_id",
+            "inning_seq",
+            "inning_tb",
+            "seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    point INTEGER NOT NULL,\n    ball INTEGER NOT NULL,\n    strike INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
     }
   ],
   "driver": {

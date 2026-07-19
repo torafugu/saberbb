@@ -19,6 +19,7 @@ cutoff_play = Cut Off Play
 date_parse_error = Date parse error
 dh = DH
 double = Double
+double_play = Double Play
 draws = Draws
 error = An error occurred in {$function}()
 exhibition = Exhibition

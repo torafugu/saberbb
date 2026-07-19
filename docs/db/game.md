@@ -15,6 +15,7 @@ CREATE TABLE game (
     actual_date TEXT,
     away_team_id INTEGER NOT NULL,
     home_team_id INTEGER NOT NULL,
+    stadium_id INTEGER NOT NULL DEFAULT 1,
     game_type TEXT NOT NULL,
     away_points INTEGER,
     home_points INTEGER
@@ -35,6 +36,7 @@ CREATE TABLE game (
 | actual_date  | TEXT    |         | true     |          |         |         |
 | away_team_id | INTEGER |         | false    |          |         |         |
 | home_team_id | INTEGER |         | false    |          |         |         |
+| stadium_id   | INTEGER | 1       | false    |          |         |         |
 | game_type    | TEXT    |         | false    |          |         |         |
 | away_points  | INTEGER |         | true     |          |         |         |
 | home_points  | INTEGER |         | true     |          |         |         |
