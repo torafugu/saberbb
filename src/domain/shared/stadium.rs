@@ -7,9 +7,9 @@ use kurbo::{Affine, BezPath, CubicBez, Line, PathEl, Point, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
 use strum_macros::{AsRefStr, EnumString};
-use svg::Document;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Line as svgLine, Path, Rectangle, Text};
+use svg::Document;
 use validator::Validate;
 
 pub const MOUND_DISTANCE: f64 = 18.44;
@@ -162,15 +162,11 @@ impl Stadium {
             return false;
         };
 
-        let home_point = Point { x: 0.0, y: 0.0 };
-        let final_point = Point {
-            x: ball.x(),
-            y: ball.y(),
-        };
-        let ray = Line::new(home_point, final_point);
+        if let Some(distance) = self.fence_distance_at_angle(ball.angle()) {
+            if ball.distance() < distance {
+                return false;
+            }
 
-        if let Some(intersect_pt) = find_intersections(&self.fence_line, ray) {
-            let distance = intersect_pt.distance(home_point);
             let ball_height = ball.calculate_height_at_distance(distance);
             if ball_height > self.fence_height {
                 return true;
@@ -180,6 +176,25 @@ impl Stadium {
         } else {
             return false;
         }
+    }
+
+    pub fn fence_distance_at_angle(&self, angle: f64) -> Option<f64> {
+        self.fence_intersection_at_angle(angle)
+            .map(|intersect_pt| intersect_pt.distance(Point::ORIGIN))
+    }
+
+    fn fence_intersection_at_angle(&self, angle: f64) -> Option<Point> {
+        let ray_distance = self.center_fence_distance.max(self.foul_pole_distance) * 2.0;
+        let ray_end_position = PolarPosition::new(ray_distance, angle);
+        let ray = Line::new(
+            Point::ORIGIN,
+            Point {
+                x: ray_end_position.x,
+                y: ray_end_position.y,
+            },
+        );
+
+        find_intersections(&self.fence_line, ray)
     }
 }
 
@@ -639,6 +654,14 @@ mod tests {
         );
     }
 
+    fn assert_f64_approx_eq(actual: f64, expected: f64) {
+        let epsilon = 1e-6;
+        assert!(
+            (actual - expected).abs() < epsilon,
+            "actual value {actual} did not approximately equal expected value {expected}"
+        );
+    }
+
     fn assert_path_approx_eq(actual: &BezPath, expected: &BezPath) {
         let actual_elements = actual.elements();
         let expected_elements = expected.elements();
@@ -674,5 +697,19 @@ mod tests {
         let fence_line: BezPath = serde_json::from_str(&json).unwrap();
 
         assert_path_approx_eq(&fence_line, &Stadium::build_fence_line(98.0, 120.0));
+    }
+
+    #[test]
+    fn fence_distance_at_angle_uses_actual_fence_line() {
+        let stadium = Stadium::new(1, "Test Stadium".to_string(), 98.0, 120.0, 2.0);
+
+        let center_distance = stadium.fence_distance_at_angle(0.0).unwrap();
+        let right_field_distance = stadium.fence_distance_at_angle(45.0).unwrap();
+
+        assert_f64_approx_eq(center_distance, 120.0);
+        assert!(
+            right_field_distance < center_distance,
+            "right field fence distance {right_field_distance} should be shorter than center {center_distance}"
+        );
     }
 }

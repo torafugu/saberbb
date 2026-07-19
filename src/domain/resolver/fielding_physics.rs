@@ -78,10 +78,11 @@ fn process_bounded_ball(
     let mut final_distance = ball.distance() + roll_distance;
 
     // The fence bounce (cushion) logic
-    // TODO: fence distance should be calculated from fence line instead of center_fence_distance
-    if final_distance > stadium.center_fence_distance {
-        let overflow = final_distance - stadium.center_fence_distance;
-        final_distance = stadium.center_fence_distance - (overflow * FENCE_BOUNCE_COEFF);
+    if let Some(fence_distance) = stadium.fence_distance_at_angle(ball.angle()) {
+        if final_distance > fence_distance {
+            let overflow = final_distance - fence_distance;
+            final_distance = fence_distance - (overflow * FENCE_BOUNCE_COEFF);
+        }
     }
 
     // 5. Defense: time for the fielder to chase down and pick up the rolling ball
