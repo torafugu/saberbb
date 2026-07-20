@@ -700,6 +700,37 @@ impl GameResultsWidget {
             batting_result
         ));
 
+        if let Some(batting_view) = game_cursor.current_batting_view() {
+            let ball = &batting_view.ball;
+            formatted_batter_and_pitcher.push_str(&format!(
+                "\n{}: {:.0}km/h\n",
+                t!("launch_speed"),
+                ball.launch_speed_kmh
+            ));
+            formatted_batter_and_pitcher.push_str(&format!(
+                "{}: {:.0}m\n",
+                t!("distance"),
+                ball.polar_position.distance
+            ));
+            formatted_batter_and_pitcher.push_str(&format!(
+                "{}: {:.1}s\n",
+                t!("hang_time"),
+                ball.hang_time
+            ));
+            formatted_batter_and_pitcher.push_str(&format!(
+                "{}: {}\n",
+                t!("trajectory"),
+                ball.trajectory
+            ));
+            if let Some(fielder_pos) = batting_view.fielder_position {
+                formatted_batter_and_pitcher.push_str(&format!(
+                    "{}: {}\n",
+                    t!("fielder_position"),
+                    fielder_pos
+                ));
+            }
+        }
+
         Ok(formatted_batter_and_pitcher)
     }
 

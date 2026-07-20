@@ -31,6 +31,8 @@ pub struct PlayerGameBattingView {
     pub count_seq: u16,
     pub pitcher: PlayerInfo,
     pub batter: PlayerInfo,
+    pub ball: BattedBall,
+    pub fielder_position: Option<Position>,
     pub result: BattingResult,
 }
 impl PlayerGameBattingView {

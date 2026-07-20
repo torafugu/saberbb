@@ -1,4 +1,5 @@
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
+use super::game_stats::PlayerGameBattingView;
 use super::player::{Player, Position};
 use super::team::Team;
 use std::sync::Arc;
@@ -329,6 +330,13 @@ impl GameCursor {
             .find(|i| i.is(self.count_seq as u16))
             .map(|i| i.result)
             .ok_or(GameViewError::CurrentBattingResult)
+    }
+
+    pub fn current_batting_view(&self) -> Option<&PlayerGameBattingView> {
+        self.game
+            .player_battings
+            .iter()
+            .find(|i| i.is(self.count_seq as u16))
     }
 }
 

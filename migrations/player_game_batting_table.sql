@@ -11,6 +11,7 @@ CREATE TABLE player_game_batting (
     polar_angle REAL NOT NULL,
     hang_time REAL NOT NULL,
     trajectory TEXT NOT NULL,
+    fielder_position TEXT,
     result TEXT NOT NULL,
     PRIMARY KEY (game_id, count_seq)
 );

@@ -1,13 +1,15 @@
 use crate::domain::resolver::fielding_resolver::PlayType;
+use crate::domain::shared::ball::{BattedBall, TrajectoryType};
 use crate::domain::shared::game::{BattingResult, FieldingResult};
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::game_stats::{
     PlayerGameBattingView, PlayerGameEntryView, PlayerGameRunning,
 };
-use crate::domain::shared::player::PlayerInfo;
+use crate::domain::shared::player::{PlayerInfo, Position};
 use crate::domain::shared::stadium::Base;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
+use anyhow::anyhow;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use validator::Validate;
 
@@ -129,6 +131,15 @@ impl FromRow for PlayerGameBattingView {
             count_seq: row.get("count_seq")?,
             pitcher: pitcher_info,
             batter: batter_info,
+            ball: BattedBall::new(
+                row.get("launch_speed")?,
+                row.get("launch_angle")?,
+                row.get("polar_angle")?,
+                row.get("polar_distance")?,
+                row.get("hang_time")?,
+                row.get("trajectory")?,
+            ),
+            fielder_position: row.get("fielder_position")?,
             result: row.get::<_, BattingResult>("result")?,
         };
 

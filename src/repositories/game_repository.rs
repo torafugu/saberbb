@@ -203,12 +203,15 @@ impl GameRepository for SqlGameRepository {
             player_game_batting.count_seq
         );
 
+        let fielder_position_str: Option<&str> =
+            player_game_batting.fielder_position.as_ref().map(|p| p.as_ref());
+
         let insert_player_game_batting_sql =
                 "INSERT INTO player_game_batting (
                     game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle, polar_distance, polar_angle, 
-                    hang_time, trajectory, result
+                    hang_time, trajectory, fielder_position, result
                     ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
         self.db_client.execute_tx(
             tx,
             insert_player_game_batting_sql,
@@ -223,6 +226,7 @@ impl GameRepository for SqlGameRepository {
                 player_game_batting.ball.polar_position.angle,
                 player_game_batting.ball.hang_time,
                 player_game_batting.ball.trajectory,
+                fielder_position_str,
                 player_game_batting.result
             ],
         )
@@ -601,6 +605,13 @@ impl GameRepository for SqlGameRepository {
                 bi.last_name AS batter_last_name,
                 bi.age AS batter_age,
                 bi.uniform_number AS batter_uniform_number,
+                pgb.launch_speed,
+                pgb.launch_angle,
+                pgb.polar_distance,
+                pgb.polar_angle,
+                pgb.hang_time,
+                pgb.trajectory,
+                pgb.fielder_position,
                 pgb.result
             FROM player_game_batting pgb
             LEFT JOIN 
@@ -825,6 +836,13 @@ mod tests {
                 team_id INTEGER,
                 pitcher_id INTEGER,
                 batter_id INTEGER,
+                launch_speed REAL NOT NULL DEFAULT 0.0,
+                launch_angle REAL NOT NULL DEFAULT 0.0,
+                polar_distance REAL NOT NULL DEFAULT 0.0,
+                polar_angle REAL NOT NULL DEFAULT 0.0,
+                hang_time REAL NOT NULL DEFAULT 0.0,
+                trajectory TEXT NOT NULL DEFAULT 'Grounder',
+                fielder_position TEXT,
                 result TEXT NOT NULL,
                 PRIMARY KEY (
                     game_id,
@@ -1076,9 +1094,25 @@ mod tests {
         conn(repo)
             .execute(
                 "INSERT INTO player_game_batting (
-                    game_id, count_seq, team_id, pitcher_id, batter_id, result
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![game_id, count_seq, team_id, pitcher_id, batter_id, result],
+                    game_id, count_seq, team_id, pitcher_id, batter_id,
+                    launch_speed, launch_angle, polar_distance, polar_angle,
+                    hang_time, trajectory, fielder_position, result
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    game_id,
+                    count_seq,
+                    team_id,
+                    pitcher_id,
+                    batter_id,
+                    0.0,   // launch_speed
+                    0.0,   // launch_angle
+                    0.0,   // polar_distance
+                    0.0,   // polar_angle
+                    0.0,   // hang_time
+                    "Grounder", // trajectory
+                    Option::<&str>::None, // fielder_position
+                    result,
+                ],
             )
             .unwrap();
     }
