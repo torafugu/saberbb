@@ -495,7 +495,9 @@ impl GameResultsWidget {
             if scoreboard.is_last_bottom_inning_skiped
                 && inning_index + 1 == scoreboard.max_inning_num as usize
             {
-                home_cells.push(Cell::from(WALK_OFF));
+                home_cells.push(Cell::from(
+                    Line::from(WALK_OFF).alignment(Alignment::Center),
+                ));
             } else {
                 home_cells.push(Cell::from(
                     Line::from(
@@ -684,12 +686,18 @@ impl GameResultsWidget {
     fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
         let pitcher = game_cursor.current_pitcher()?;
         let batter = game_cursor.current_batter()?;
+        let batting_result = game_cursor.current_batting_result()?;
         let mut formatted_batter_and_pitcher =
             format!("{}: {}\n", t!("pitcher"), pitcher.full_name());
         formatted_batter_and_pitcher.push_str(&format!(
             "{}: {}\n",
             t!("batter"),
             batter.full_name()
+        ));
+        formatted_batter_and_pitcher.push_str(&format!(
+            "{}: {}\n",
+            t!("batting_result"),
+            batting_result
         ));
 
         Ok(formatted_batter_and_pitcher)

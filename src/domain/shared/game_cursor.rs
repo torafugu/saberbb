@@ -1,4 +1,4 @@
-use super::game::{Count, GameDetail, Inning, TB};
+use super::game::{BattingResult, Count, GameDetail, Inning, TB};
 use super::player::{Player, Position};
 use super::team::Team;
 use std::sync::Arc;
@@ -10,6 +10,9 @@ pub enum GameViewError {
 
     #[error("Failed to retrieve current batter")]
     CurrentBatter,
+
+    #[error("Failed to retrieve current batting result")]
+    CurrentBattingResult,
 }
 
 #[derive(Debug)]
@@ -317,6 +320,15 @@ impl GameCursor {
             .find(|i| i.is(self.count_seq as u16))
             .and_then(|i| self.player_by_id(i.batter.id))
             .ok_or_else(|| GameViewError::NoPlayerFor("batter".to_string()))
+    }
+
+    pub fn current_batting_result(&self) -> Result<BattingResult, GameViewError> {
+        self.game
+            .player_battings
+            .iter()
+            .find(|i| i.is(self.count_seq as u16))
+            .map(|i| i.result)
+            .ok_or(GameViewError::CurrentBattingResult)
     }
 }
 
