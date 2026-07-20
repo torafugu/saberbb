@@ -158,9 +158,9 @@ impl GameResultsWidget {
         }
     }
 
-    #[tracing::instrument(fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
     fn load_game_detail(&mut self, game_id: u32) {
-        info!("load_games started.");
+        info!("load_game_detail started.");
         let game_row_res = APP_CONTEXT
             .get()
             .context("App context is not initialized")
@@ -261,6 +261,25 @@ impl GameResultsWidget {
                 }
             }
             GameResultsView::GameDetail => {}
+        }
+    }
+
+    fn back(&mut self) {
+        match self.view {
+            GameResultsView::SelectSeason => {}
+            GameResultsView::SelectGame => {
+                self.games.clear();
+                self.game_state.select(None);
+                self.selected_game_id = None;
+                self.game_cursor = None;
+                self.view = GameResultsView::SelectSeason;
+            }
+            GameResultsView::GameDetail => {
+                self.selected_game_id = None;
+                self.game_cursor = None;
+                self.selected_tab = GameDetailTab::GameResult;
+                self.view = GameResultsView::SelectGame;
+            }
         }
     }
 
@@ -755,6 +774,7 @@ impl Component for GameResultsWidget {
 
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
         match key.code {
+            KeyCode::Esc | KeyCode::Backspace => Ok(Some(Action::Back)),
             KeyCode::Char('1') if matches!(self.view, GameResultsView::GameDetail) => {
                 Ok(Some(Action::SelectGameDetailTab(0)))
             }
@@ -792,6 +812,10 @@ impl Component for GameResultsWidget {
             }
             Action::ConfirmSelection => {
                 self.confirm_selection();
+                Ok(Some(Action::Render))
+            }
+            Action::Back => {
+                self.back();
                 Ok(Some(Action::Render))
             }
             Action::NextCount => {

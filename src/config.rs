@@ -34,8 +34,18 @@ impl Default for AppConfig {
 }
 
 pub fn load_app_config() -> anyhow::Result<AppConfig> {
-    let app_config = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
+    let mut app_config = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
+    merge_default_keybindings(&mut app_config.keybindings);
     Ok(app_config)
+}
+
+fn merge_default_keybindings(keybindings: &mut KeybindingConfig) {
+    for (mode, defaults) in default_keybindings() {
+        let mode_keybindings = keybindings.entry(mode).or_default();
+        for (key, action) in defaults {
+            mode_keybindings.entry(key).or_insert(action);
+        }
+    }
 }
 
 fn default_keybindings() -> KeybindingConfig {
@@ -50,6 +60,8 @@ fn default_keybindings() -> KeybindingConfig {
             ("<up>".to_string(), "SelectPrevious".to_string()),
             ("<right>".to_string(), "NextCount".to_string()),
             ("<left>".to_string(), "PreviousCount".to_string()),
+            ("<esc>".to_string(), "Back".to_string()),
+            ("<backspace>".to_string(), "Back".to_string()),
             ("<enter>".to_string(), "ConfirmSelection".to_string()),
         ]),
     )])

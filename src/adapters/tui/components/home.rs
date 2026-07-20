@@ -106,6 +106,7 @@ impl Component for Home {
                 Action::SelectNext
                     | Action::SelectPrevious
                     | Action::ConfirmSelection
+                    | Action::Back
                     | Action::SelectGameDetailTab(_)
                     | Action::NextCount
                     | Action::PreviousCount

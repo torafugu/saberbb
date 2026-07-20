@@ -32,6 +32,7 @@ pub enum Action {
     ClearScreen,
     Error(String),
     Help,
+    Back,
     SelectNext,
     SelectPrevious,
     ConfirmSelection,

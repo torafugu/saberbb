@@ -7,9 +7,9 @@ use kurbo::{Affine, BezPath, CubicBez, Line, PathEl, Point, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
 use strum_macros::{AsRefStr, EnumString};
+use svg::Document;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Line as svgLine, Path, Rectangle, Text};
-use svg::Document;
 use validator::Validate;
 
 pub const MOUND_DISTANCE: f64 = 18.44;

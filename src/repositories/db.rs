@@ -60,9 +60,22 @@ impl SqlDb {
     }
 
     pub fn get_conn(&self) -> Result<Object<SqliteManager>, DbError> {
-        futures::executor::block_on(self.pool.get())
-            .map_err(|e| Box::new(e) as _)
-            .map_err(DbError::Pool)
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let pool = self.pool.clone();
+            std::thread::spawn(move || futures::executor::block_on(pool.get()))
+                .join()
+                .map_err(|_| {
+                    DbError::Pool(Box::new(std::io::Error::other(
+                        "DB connection thread panicked",
+                    )))
+                })?
+                .map_err(|e| Box::new(e) as _)
+                .map_err(DbError::Pool)
+        } else {
+            futures::executor::block_on(self.pool.get())
+                .map_err(|e| Box::new(e) as _)
+                .map_err(DbError::Pool)
+        }
     }
 }
 

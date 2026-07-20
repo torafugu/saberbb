@@ -91,6 +91,7 @@ fn parse_action(raw: &str) -> color_eyre::Result<Action, String> {
         "Quit" => Ok(Action::Quit),
         "ClearScreen" => Ok(Action::ClearScreen),
         "Help" => Ok(Action::Help),
+        "Back" => Ok(Action::Back),
         "SelectNext" => Ok(Action::SelectNext),
         "SelectPrevious" => Ok(Action::SelectPrevious),
         "ConfirmSelection" => Ok(Action::ConfirmSelection),
