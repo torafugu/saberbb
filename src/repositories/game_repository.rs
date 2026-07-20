@@ -168,6 +168,12 @@ impl GameRepository for SqlGameRepository {
             player_game_entry.start_count_seq, player_game_entry.player_id
         );
 
+        let end_count_seq = if let Some(seq) = player_game_entry.end_count_seq {
+            seq
+        } else {
+            0
+        };
+
         let insert_player_game_entry_sql = "INSERT INTO player_game_entry (
                     game_id, start_count_seq, end_count_seq, position, player_id
                     ) VALUES (
@@ -178,7 +184,7 @@ impl GameRepository for SqlGameRepository {
             params![
                 game_id,
                 player_game_entry.start_count_seq,
-                player_game_entry.end_count_seq,
+                end_count_seq,
                 player_game_entry.position,
                 player_game_entry.player_id
             ],
@@ -1321,14 +1327,14 @@ mod tests {
         let (mut repo, path) = setup_repo();
         seed_teams(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
-        let ended_history = PlayerGameEntry::new(1, 3, Position::P, 1);
+        let ended_history = PlayerGameEntry::new(1, Some(3), Position::P, 1);
         let game = GameResult {
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 0,
             home_total_point: 0,
             innings: Vec::new(),
-            player_entries: vec![ended_history, PlayerGameEntry::new(1, 1, Position::C, 10)],
+            player_entries: vec![ended_history, PlayerGameEntry::new(1, Some(1), Position::C, 10)],
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),

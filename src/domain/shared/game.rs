@@ -128,10 +128,10 @@ impl GameResult {
         let mut fielder_records = Vec::new();
 
         for away_team_player in away_team_players {
-            fielder_records.push(Self::add_player_game_entry(1, 1, away_team_player));
+            fielder_records.push(Self::add_player_game_entry(1, None, away_team_player));
         }
         for home_team_player in home_team_players {
-            fielder_records.push(Self::add_player_game_entry(1, 1, home_team_player));
+            fielder_records.push(Self::add_player_game_entry(1, None, home_team_player));
         }
 
         fielder_records
@@ -139,7 +139,7 @@ impl GameResult {
 
     fn add_player_game_entry(
         start_count_seq: u16,
-        end_count_seq: u16,
+        end_count_seq: Option<u16>,
         active_fielder: &ActiveFielder,
     ) -> PlayerGameEntry {
         PlayerGameEntry::new(
@@ -148,6 +148,14 @@ impl GameResult {
             active_fielder.position,
             active_fielder.id,
         )
+    }
+
+    pub fn update_player_game_entry_at_game_end(&mut self, end_count_seq: u16) {
+        for player_entry in &mut self.player_entries {
+            if player_entry.end_count_seq.is_none() {
+                player_entry.end_count_seq = Some(end_count_seq);
+            }
+        }
     }
 
     pub fn add_player_batting(

@@ -719,6 +719,8 @@ impl GameState {
     pub fn finish_game(&mut self) {
         self.game_result.away_total_point = self.away_total_point;
         self.game_result.home_total_point = self.home_total_point;
+        self.game_result
+            .update_player_game_entry_at_game_end(self.count_seq);
     }
 }
 
