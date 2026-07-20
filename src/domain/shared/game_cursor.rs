@@ -38,13 +38,10 @@ impl GameCursor {
     pub fn prev(&mut self) {
         if !self.is_first_count() {
             self.prev_count();
-        } else if self.is_bottom_inning() {
-            self.inning_tb = TB::Top;
-            self.count_seq = self.max_count_seq();
-        } else if !self.is_first_inning() {
-            self.prev_inning();
-            self.inning_tb = TB::Bottom;
-            self.count_seq = self.max_count_seq();
+        } else if let Some((inning_seq, inning_tb, count_seq)) = self.prev_inning_cursor() {
+            self.inning_seq = inning_seq;
+            self.inning_tb = inning_tb;
+            self.count_seq = count_seq;
         }
         self.is_last_bottom_inning_skiped = false;
     }
@@ -52,13 +49,15 @@ impl GameCursor {
     pub fn next(&mut self) {
         if !self.is_last_count() {
             self.next_count();
-        } else if self.is_top_inning() && !self.is_last_bottom_inning_skiped {
-            self.inning_tb = TB::Bottom;
-            self.count_seq = 1;
-        } else if !self.is_last_inning() {
-            self.next_inning();
-            self.inning_tb = TB::Top;
-            self.count_seq = 1;
+        } else if let Some((inning_seq, inning_tb, count_seq)) = self.next_inning_cursor() {
+            self.inning_seq = inning_seq;
+            self.inning_tb = inning_tb;
+            self.count_seq = count_seq;
+        } else if self.is_top_inning()
+            && self.is_last_inning()
+            && self.is_last_bottom_inning_skiped()
+        {
+            self.is_last_bottom_inning_skiped = true;
         }
     }
 
@@ -66,11 +65,7 @@ impl GameCursor {
         self.game.away_points < self.game.home_points
     }
 
-    fn is_first_inning(&self) -> bool {
-        self.inning_seq == 1
-    }
-
-    pub fn is_last_count(&mut self) -> bool {
+    pub fn is_last_count(&self) -> bool {
         self.count_seq == self.max_count_seq()
     }
 
@@ -79,15 +74,11 @@ impl GameCursor {
     }
 
     fn is_first_count(&self) -> bool {
-        self.count_seq == 1
+        self.count_seq == self.min_count_seq()
     }
 
     fn is_top_inning(&self) -> bool {
         self.inning_tb == TB::Top
-    }
-
-    fn is_bottom_inning(&self) -> bool {
-        self.inning_tb == TB::Bottom
     }
 
     fn prev_count(&mut self) {
@@ -106,23 +97,73 @@ impl GameCursor {
         }
     }
 
-    fn prev_inning(&mut self) {
-        self.inning_seq -= 1;
-    }
-
-    fn next_inning(&mut self) {
-        self.inning_seq += 1;
-    }
-
     pub fn max_inning_seq(&mut self) -> u8 {
         self.game.innings.iter().map(|i| i.seq).max().unwrap_or(0)
     }
 
-    pub fn max_count_seq(&mut self) -> u16 {
-        self.current_inning().counts.len() as u16
+    pub fn max_count_seq(&self) -> u16 {
+        self.current_inning()
+            .counts
+            .iter()
+            .map(|count| count.seq)
+            .max()
+            .unwrap_or(0)
     }
 
-    fn current_inning(&mut self) -> Inning {
+    fn min_count_seq(&self) -> u16 {
+        self.current_inning()
+            .counts
+            .iter()
+            .map(|count| count.seq)
+            .min()
+            .unwrap_or(0)
+    }
+
+    fn next_inning_cursor(&self) -> Option<(u8, TB, u16)> {
+        let innings = self.innings_with_counts();
+        let current_index = self.current_inning_index(&innings)?;
+        let inning = innings.get(current_index + 1)?;
+        let count_seq = inning.counts.iter().map(|count| count.seq).min()?;
+
+        Some((inning.seq, inning.tb, count_seq))
+    }
+
+    fn prev_inning_cursor(&self) -> Option<(u8, TB, u16)> {
+        let innings = self.innings_with_counts();
+        let current_index = self.current_inning_index(&innings)?;
+        let inning = current_index
+            .checked_sub(1)
+            .and_then(|index| innings.get(index))?;
+        let count_seq = inning.counts.iter().map(|count| count.seq).max()?;
+
+        Some((inning.seq, inning.tb, count_seq))
+    }
+
+    fn current_inning_index(&self, innings: &[&Inning]) -> Option<usize> {
+        innings
+            .iter()
+            .position(|inning| inning.is(self.inning_seq, self.inning_tb))
+    }
+
+    fn innings_with_counts(&self) -> Vec<&Inning> {
+        let mut innings: Vec<&Inning> = self
+            .game
+            .innings
+            .iter()
+            .filter(|inning| !inning.counts.is_empty())
+            .collect();
+        innings.sort_by_key(|inning| (inning.seq, Self::tb_order(inning.tb)));
+        innings
+    }
+
+    fn tb_order(tb: TB) -> u8 {
+        match tb {
+            TB::Top => 0,
+            TB::Bottom => 1,
+        }
+    }
+
+    fn current_inning(&self) -> Inning {
         self.game
             .innings
             .iter()
@@ -289,4 +330,108 @@ pub struct ScoreBoard {
     pub away_innning_points: Vec<u8>,
     pub home_innning_points: Vec<u8>,
     pub is_last_bottom_inning_skiped: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::game::GameType;
+    use chrono::NaiveDate;
+
+    fn game_detail(innings: Vec<Inning>) -> GameDetail {
+        GameDetail {
+            id: 1,
+            actual_date: NaiveDate::from_ymd_opt(2026, 7, 20).unwrap(),
+            away_team: Team::min(1, "away"),
+            home_team: Team::min(2, "home"),
+            game_type: GameType::Exhibition,
+            innings,
+            away_points: 0,
+            home_points: 0,
+            player_entries: Vec::new(),
+            player_battings: Vec::new(),
+            player_runnings: Vec::new(),
+        }
+    }
+
+    fn inning(seq: u8, tb: TB, count_seqs: &[u16]) -> Inning {
+        Inning {
+            seq,
+            tb,
+            counts: count_seqs
+                .iter()
+                .map(|seq| Count {
+                    seq: *seq,
+                    point: 0,
+                    ball: 0,
+                    strike: 0,
+                    out: 0,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn next_moves_to_first_game_wide_count_seq_in_next_inning() {
+        let mut cursor = GameCursor::new(game_detail(vec![
+            inning(1, TB::Top, &[1, 2]),
+            inning(1, TB::Bottom, &[3, 4]),
+        ]));
+        cursor.count_seq = 2;
+
+        cursor.next();
+
+        assert_eq!(cursor.inning_seq, 1);
+        assert_eq!(cursor.inning_tb, TB::Bottom);
+        assert_eq!(cursor.count_seq, 3);
+    }
+
+    #[test]
+    fn prev_moves_to_last_game_wide_count_seq_in_previous_inning() {
+        let mut cursor = GameCursor::new(game_detail(vec![
+            inning(1, TB::Top, &[1, 2]),
+            inning(1, TB::Bottom, &[3, 4]),
+        ]));
+        cursor.inning_tb = TB::Bottom;
+        cursor.count_seq = 3;
+
+        cursor.prev();
+
+        assert_eq!(cursor.inning_seq, 1);
+        assert_eq!(cursor.inning_tb, TB::Top);
+        assert_eq!(cursor.count_seq, 2);
+    }
+
+    #[test]
+    fn next_stays_on_last_game_wide_count_seq_in_current_inning() {
+        let mut cursor = GameCursor::new(game_detail(vec![inning(1, TB::Bottom, &[3, 4])]));
+        cursor.inning_tb = TB::Bottom;
+        cursor.count_seq = 4;
+
+        cursor.next();
+
+        assert_eq!(cursor.inning_seq, 1);
+        assert_eq!(cursor.inning_tb, TB::Bottom);
+        assert_eq!(cursor.count_seq, 4);
+    }
+
+    #[test]
+    fn next_does_not_enter_empty_skipped_bottom_inning() {
+        let mut game = game_detail(vec![
+            inning(9, TB::Top, &[17, 18]),
+            inning(9, TB::Bottom, &[]),
+        ]);
+        game.away_points = 1;
+        game.home_points = 2;
+        let mut cursor = GameCursor::new(game);
+        cursor.inning_seq = 9;
+        cursor.count_seq = 18;
+
+        cursor.next();
+
+        assert_eq!(cursor.inning_seq, 9);
+        assert_eq!(cursor.inning_tb, TB::Top);
+        assert_eq!(cursor.count_seq, 18);
+        assert!(cursor.is_last_bottom_inning_skiped);
+    }
 }
