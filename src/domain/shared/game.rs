@@ -1,14 +1,15 @@
 use super::game_state::ActiveFielder;
 use super::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGamePitching, PlayerGameRunning,
+    PlayerGameFielding, PlayerGamePitching, PlayerGameRunning, PlayerGameRunningView,
 };
 use super::team::Team;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, DoublePlayDefensePlayResult, PlayType,
 };
 use crate::domain::resolver::running_resolver::{
-    DoublePlayRunnerAdvanceResult, RunnerAdvanceResult, RunnersUnsaved, StealRunnerAdvanceResult,
+    DoublePlayRunnerAdvanceResult, RunnerAdvanceResult, RunnersUnsaved, RunningEvent,
+    StealRunnerAdvanceResult,
 };
 use crate::domain::shared::ball::BattedBall;
 use crate::domain::shared::player::Position;
@@ -246,12 +247,20 @@ impl GameResult {
         seq: u8,
         result: &DoublePlayRunnerAdvanceResult,
     ) {
+        let target_runner_id = if let Some(target_runner) = result.target_runner {
+            Some(target_runner.id)
+        } else {
+            None
+        };
+
         let player_running = PlayerGameRunning {
             count_seq: count_seq,
             seq: seq,
             defense_time: result.defense_time,
             runner_time: result.runner_time,
             throw_target_base: result.throw_target_base,
+            target_runner_id: target_runner_id,
+            event: RunningEvent::DoublePlay,
             play_type: PlayType::TouchPlay,
             ruling: result.ruling,
             runs_scored: 0,
@@ -268,12 +277,20 @@ impl GameResult {
         runners: RunnersUnsaved,
         result: &StealRunnerAdvanceResult,
     ) {
+        let target_runner_id = if let Some(target_runner) = result.target_runner {
+            Some(target_runner.id)
+        } else {
+            None
+        };
+
         let player_running = PlayerGameRunning {
             count_seq: count_seq,
             seq: 1,
             defense_time: result.defense_time,
             runner_time: result.runner_time,
             throw_target_base: result.throw_target_base,
+            target_runner_id: target_runner_id,
+            event: RunningEvent::BaseSteal,
             play_type: PlayType::TouchPlay,
             ruling: result.ruling,
             runs_scored: 0,
@@ -284,13 +301,27 @@ impl GameResult {
         self.player_runnings.push(player_running);
     }
 
-    pub fn add_player_running(&mut self, count_seq: u16, seq: u8, result: &RunnerAdvanceResult) {
+    pub fn add_player_running(
+        &mut self,
+        count_seq: u16,
+        seq: u8,
+        event: RunningEvent,
+        result: &RunnerAdvanceResult,
+    ) {
+        let target_runner_id = if let Some(target_runner) = result.target_runner {
+            Some(target_runner.id)
+        } else {
+            None
+        };
+
         let player_running = PlayerGameRunning {
             count_seq: count_seq,
             seq: seq,
             defense_time: result.defense_time,
             runner_time: result.runner_time,
             throw_target_base: result.throw_target_base,
+            target_runner_id: target_runner_id,
+            event: event,
             play_type: result.play_type,
             ruling: result.ruling,
             runs_scored: result.runs_scored,
@@ -314,7 +345,7 @@ pub struct GameDetail {
     pub home_points: u8,
     pub player_entries: Vec<PlayerGameEntryView>,
     pub player_battings: Vec<PlayerGameBattingView>,
-    pub player_runnings: Vec<PlayerGameRunning>,
+    pub player_runnings: Vec<PlayerGameRunningView>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]

@@ -1,5 +1,5 @@
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
-use super::game_stats::PlayerGameBattingView;
+use super::game_stats::{PlayerGameBattingView, PlayerGameRunningView};
 use super::player::{Player, Position};
 use super::team::Team;
 use std::sync::Arc;
@@ -8,6 +8,9 @@ use std::sync::Arc;
 pub enum GameViewError {
     #[error("No players for position: {0}")]
     NoPlayerFor(String),
+
+    #[error("No players for base: {0}")]
+    NoRunnerFor(String),
 
     #[error("Failed to retrieve current batter")]
     CurrentBatter,
@@ -186,30 +189,30 @@ impl GameCursor {
     }
 
     pub fn has_runner_on_first(&self) -> bool {
-        self.current_running()
-            .and_then(|running| running.runner_1st_id)
+        self.current_running_view()
+            .and_then(|running| running.runner_1st)
             .is_some()
     }
 
     pub fn has_runner_on_second(&self) -> bool {
-        self.current_running()
-            .and_then(|running| running.runner_2nd_id)
+        self.current_running_view()
+            .and_then(|running| running.runner_2nd)
             .is_some()
     }
 
     pub fn has_runner_on_third(&self) -> bool {
-        self.current_running()
-            .and_then(|running| running.runner_3rd_id)
+        self.current_running_view()
+            .and_then(|running| running.runner_3rd)
             .is_some()
     }
 
-    fn current_running(&self) -> Option<crate::domain::shared::game_stats::PlayerGameRunning> {
+    pub fn current_running_view(&self) -> Option<PlayerGameRunningView> {
         self.game
             .player_runnings
             .iter()
             .filter(|running| running.count_seq == self.count_seq)
             .max_by_key(|running| running.seq)
-            .copied()
+            .cloned()
     }
 
     pub fn current_scoreboard(&mut self) -> ScoreBoard {
@@ -315,19 +318,13 @@ impl GameCursor {
     }
 
     pub fn current_batter(&mut self) -> Result<Player, GameViewError> {
-        self.game
-            .player_battings
-            .iter()
-            .find(|i| i.is(self.count_seq as u16))
+        self.current_or_previous_batting_view()
             .and_then(|i| self.player_by_id(i.batter.id))
             .ok_or_else(|| GameViewError::NoPlayerFor("batter".to_string()))
     }
 
     pub fn current_batting_result(&self) -> Result<BattingResult, GameViewError> {
-        self.game
-            .player_battings
-            .iter()
-            .find(|i| i.is(self.count_seq as u16))
+        self.current_batting_view()
             .map(|i| i.result)
             .ok_or(GameViewError::CurrentBattingResult)
     }
@@ -336,7 +333,15 @@ impl GameCursor {
         self.game
             .player_battings
             .iter()
-            .find(|i| i.is(self.count_seq as u16))
+            .find(|i| i.is(self.count_seq))
+    }
+
+    fn current_or_previous_batting_view(&self) -> Option<&PlayerGameBattingView> {
+        self.game
+            .player_battings
+            .iter()
+            .filter(|i| i.count_seq <= self.count_seq)
+            .max_by_key(|i| i.count_seq)
     }
 }
 
@@ -355,7 +360,9 @@ pub struct ScoreBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::ball::{BattedBall, TrajectoryType};
     use crate::domain::shared::game::GameType;
+    use crate::domain::shared::player::PlayerInfo;
     use chrono::NaiveDate;
 
     fn game_detail(innings: Vec<Inning>) -> GameDetail {
@@ -388,6 +395,29 @@ mod tests {
                     out: 0,
                 })
                 .collect(),
+        }
+    }
+
+    fn player(id: i64) -> Player {
+        Player::from_player_info(PlayerInfo::new_min(
+            id,
+            format!("First{id}"),
+            format!("Last{id}"),
+        ))
+    }
+
+    fn batting_view(count_seq: u16, batter_id: i64) -> PlayerGameBattingView {
+        PlayerGameBattingView {
+            count_seq,
+            pitcher: PlayerInfo::new_min(1, "Pitcher".to_string(), "One".to_string()),
+            batter: PlayerInfo::new_min(
+                batter_id,
+                format!("First{batter_id}"),
+                format!("Last{batter_id}"),
+            ),
+            ball: BattedBall::new(100.0, 20.0, 30.0, 80.0, 3.0, TrajectoryType::Fly),
+            fielder_position: None,
+            result: BattingResult::Single,
         }
     }
 
@@ -453,5 +483,37 @@ mod tests {
         assert_eq!(cursor.inning_tb, TB::Top);
         assert_eq!(cursor.count_seq, 18);
         assert!(cursor.is_last_bottom_inning_skiped);
+    }
+
+    #[test]
+    fn current_batter_uses_exact_batting_view_when_available() {
+        let mut game = game_detail(vec![inning(1, TB::Top, &[1, 2, 3])]);
+        game.away_team.players = vec![player(10), player(11)];
+        game.player_battings = vec![batting_view(1, 10), batting_view(3, 11)];
+        let mut cursor = GameCursor::new(game);
+        cursor.count_seq = 3;
+
+        let batter = cursor.current_batter().unwrap();
+
+        assert_eq!(batter.info.id, 11);
+        assert_eq!(cursor.current_batting_view().unwrap().count_seq, 3);
+    }
+
+    #[test]
+    fn current_batter_falls_back_to_most_recent_batting_view() {
+        let mut game = game_detail(vec![inning(1, TB::Top, &[1, 2])]);
+        game.away_team.players = vec![player(10)];
+        game.player_battings = vec![batting_view(1, 10)];
+        let mut cursor = GameCursor::new(game);
+        cursor.count_seq = 2;
+
+        let batter = cursor.current_batter().unwrap();
+
+        assert_eq!(batter.info.id, 10);
+        assert_eq!(
+            cursor.current_batting_result().unwrap_err().to_string(),
+            GameViewError::CurrentBattingResult.to_string()
+        );
+        assert!(cursor.current_batting_view().is_none());
     }
 }

@@ -7,6 +7,8 @@ CREATE TABLE player_game_running (
     defense_time REAL NOT NULL,
     runner_time REAL NOT NULL,
     throw_target_base TEXT NOT NULL,
+    target_runner_id INTEGER,
+    event TEXT NOT NULL,
     play_type TEXT NOT NULL,
     ruling TEXT NOT NULL,
     runs_scored INTEGER NOT NULL,

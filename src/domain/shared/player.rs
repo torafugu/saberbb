@@ -53,6 +53,10 @@ impl Position {
     pub fn is_corner_infielder(self) -> bool {
         matches!(self, Position::FB | Position::TB)
     }
+
+    pub fn short(&self) -> LongPositionFormatter<'_> {
+        LongPositionFormatter(self)
+    }
 }
 
 impl std::fmt::Display for Position {
@@ -67,6 +71,25 @@ impl std::fmt::Display for Position {
             Position::LF => write!(f, "{}", t!("lf")),
             Position::CF => write!(f, "{}", t!("cf")),
             Position::RF => write!(f, "{}", t!("rf")),
+            Position::DH => write!(f, "{}", t!("dh")),
+        }
+    }
+}
+
+pub struct LongPositionFormatter<'a>(&'a Position);
+
+impl<'a> std::fmt::Display for LongPositionFormatter<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.0 {
+            Position::P => write!(f, "{}", t!("pitcher")),
+            Position::C => write!(f, "{}", t!("catcher")),
+            Position::FB => write!(f, "{}", t!("first_baseman")),
+            Position::SB => write!(f, "{}", t!("second_baseman")),
+            Position::TB => write!(f, "{}", t!("third_baseman")),
+            Position::SS => write!(f, "{}", t!("shortstop")),
+            Position::LF => write!(f, "{}", t!("left_fielder")),
+            Position::CF => write!(f, "{}", t!("center_fielder")),
+            Position::RF => write!(f, "{}", t!("right_fielder")),
             Position::DH => write!(f, "{}", t!("dh")),
         }
     }

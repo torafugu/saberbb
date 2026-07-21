@@ -1,5 +1,6 @@
 use super::game::BattingResult;
 use crate::domain::resolver::fielding_resolver::PlayType;
+use crate::domain::resolver::running_resolver::RunningEvent;
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::stadium::Base;
 use crate::domain::shared::{
@@ -38,6 +39,28 @@ pub struct PlayerGameBattingView {
 impl PlayerGameBattingView {
     pub fn is(&self, count_seq: u16) -> bool {
         self.count_seq == count_seq
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct PlayerGameRunningView {
+    pub count_seq: u16,
+    pub seq: u8,
+    pub defense_time: f64,
+    pub runner_time: f64,
+    pub throw_target_base: Base,
+    pub target_runner: Option<PlayerInfo>,
+    pub event: RunningEvent,
+    pub play_type: PlayType,
+    pub ruling: Ruling,
+    pub runs_scored: u8,
+    pub runner_1st: Option<PlayerInfo>,
+    pub runner_2nd: Option<PlayerInfo>,
+    pub runner_3rd: Option<PlayerInfo>,
+}
+impl PlayerGameRunningView {
+    pub fn is(&self, count_seq: u16, seq: u8) -> bool {
+        self.count_seq == count_seq && self.seq == seq
     }
 }
 
@@ -101,6 +124,8 @@ pub struct PlayerGameRunning {
     pub defense_time: f64,
     pub runner_time: f64,
     pub throw_target_base: Base,
+    pub target_runner_id: Option<i64>,
+    pub event: RunningEvent,
     pub play_type: PlayType,
     pub ruling: Ruling,
     pub runs_scored: u8,

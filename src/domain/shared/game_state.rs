@@ -11,7 +11,7 @@ use crate::domain::resolver::fielding_resolver::{
     evaluate_double_play, process_defensive_chain,
 };
 use crate::domain::resolver::running_resolver::{
-    RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved,
+    RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
 use crate::domain::shared::ball::BattedBall;
 use crate::domain::shared::game::{GameResult, GameSchedule};
@@ -382,6 +382,13 @@ impl GameState {
                 .runners
                 .after_tagup(&defense_play_result)?;
 
+            self.game_result.add_player_running(
+                self.count_seq,
+                1,
+                RunningEvent::TagUp,
+                &runner_advance_result,
+            );
+
             if runner_advance_result.ruling == Ruling::Out {
                 self.inning_state.add_out();
             } else {
@@ -649,8 +656,12 @@ impl GameState {
 
         self.game_result
             .add_player_fielding(self.count_seq, &defense_play_result);
-        self.game_result
-            .add_player_running(self.count_seq, running_seq, &runner_advance_result);
+        self.game_result.add_player_running(
+            self.count_seq,
+            running_seq,
+            RunningEvent::GrounderPlay,
+            &runner_advance_result,
+        );
         running_seq += 1;
 
         if runner_advance_result.ruling == Ruling::Out {

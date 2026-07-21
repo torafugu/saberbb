@@ -35,7 +35,6 @@ impl<R: GameRepository> GameService<R> {
                 while let InningProgress::Ongoing = game_state.inning_state.inning_progress() {
                     // TODO: Consider ball updated
                     // TODO: Consider strike updated
-                    // game_state.batting_resolve()?;
                     game_state.process_count()?;
 
                     if let GameProgress::WalkOff = game_state.progress() {
@@ -75,7 +74,7 @@ mod tests {
     };
     use crate::domain::shared::game_stats::{
         PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-        PlayerGameFielding, PlayerGameRunning,
+        PlayerGameFielding, PlayerGameRunning, PlayerGameRunningView,
     };
     use crate::domain::shared::player::{
         BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType, PitcherInfo,
@@ -264,10 +263,10 @@ mod tests {
             unimplemented!("not used by GameService::process_game_round")
         }
 
-        fn load_player_game_runnings(
+        fn load_player_game_running_views(
             &self,
             _game_id: u32,
-        ) -> std::result::Result<Vec<PlayerGameRunning>, AppError> {
+        ) -> std::result::Result<Vec<PlayerGameRunningView>, AppError> {
             unimplemented!("not used by GameService::process_game_round")
         }
     }

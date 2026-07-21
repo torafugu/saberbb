@@ -3,7 +3,7 @@ use crate::domain::shared::game::{
 };
 use crate::domain::shared::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGameRunning,
+    PlayerGameFielding, PlayerGameRunningView,PlayerGameRunning
 };
 use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
@@ -66,7 +66,7 @@ pub trait GameRepository {
         &self,
         game_id: u32,
     ) -> Result<Vec<PlayerGameBattingView>, AppError>;
-    fn load_player_game_runnings(&self, game_id: u32) -> Result<Vec<PlayerGameRunning>, AppError>;
+    fn load_player_game_running_views(&self, game_id: u32) -> Result<Vec<PlayerGameRunningView>, AppError>;
     fn load_counts(
         &self,
         game_id: u32,
@@ -283,10 +283,11 @@ impl GameRepository for SqlGameRepository {
 
         let insert_player_game_running_sql =
                 "INSERT INTO player_game_running (
-                    game_id, count_seq, seq, defense_time, runner_time, throw_target_base, play_type, 
-                    ruling, runs_scored, runner_1st_id, runner_2nd_id, runner_3rd_id
+                    game_id, count_seq, seq, defense_time, runner_time, throw_target_base, event,
+                    play_type, 
+                    ruling, runs_scored, target_runner_id, runner_1st_id, runner_2nd_id, runner_3rd_id
                     ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
         self.db_client.execute_tx(
             tx,
             insert_player_game_running_sql,
@@ -297,9 +298,11 @@ impl GameRepository for SqlGameRepository {
                 player_game_running.defense_time,
                 player_game_running.runner_time,
                 player_game_running.throw_target_base,
+                player_game_running.event.as_ref(),
                 player_game_running.play_type,
                 player_game_running.ruling,
                 player_game_running.runs_scored,
+                player_game_running.target_runner_id,
                 player_game_running.runner_1st_id,
                 player_game_running.runner_2nd_id,
                 player_game_running.runner_3rd_id
@@ -421,7 +424,7 @@ impl GameRepository for SqlGameRepository {
 
         game.player_entries = self.load_player_game_entry_views(game.id)?;
         game.player_battings = self.load_player_game_batting_views(game.id)?;
-        game.player_runnings = self.load_player_game_runnings(game.id)?;
+        game.player_runnings = self.load_player_game_running_views(game.id)?;
 
         Ok(game)
     }
@@ -624,8 +627,8 @@ impl GameRepository for SqlGameRepository {
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id))]
-    fn load_player_game_runnings(&self, game_id: u32) -> Result<Vec<PlayerGameRunning>, AppError> {
-        info!("load_player_game_runnings() started");
+    fn load_player_game_running_views(&self, game_id: u32) -> Result<Vec<PlayerGameRunningView>, AppError> {
+        info!("load_player_game_running_views() started");
         let table_count = self.db_client.query_row::<i64>(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'player_game_running'",
             params![],
@@ -635,22 +638,44 @@ impl GameRepository for SqlGameRepository {
         }
 
         let query = "SELECT
-                count_seq,
-                seq,
-                defense_time,
-                runner_time,
-                throw_target_base,
-                play_type,
-                ruling,
-                runs_scored,
-                runner_1st_id,
-                runner_2nd_id,
-                runner_3rd_id
-            FROM player_game_running
-            WHERE game_id = ?1
-            ORDER BY count_seq, seq";
+                pgr.count_seq,
+                pgr.seq,
+                pgr.defense_time,
+                pgr.runner_time,
+                pgr.throw_target_base,
+                pgr.play_type,
+                pgr.event,
+                pgr.ruling,
+                pgr.runs_scored,
+                pgr.target_runner_id,
+                tr.first_name AS target_runner_first_name,
+                tr.last_name AS target_runner_last_name,
+                tr.age AS target_runner_age,
+                tr.uniform_number AS target_runner_uniform_number,
+                pgr.runner_1st_id,
+                r1.first_name AS runner_1st_first_name,
+                r1.last_name AS runner_1st_last_name,
+                r1.age AS runner_1st_age,
+                r1.uniform_number AS runner_1st_uniform_number,
+                pgr.runner_2nd_id,
+                r2.first_name AS runner_2nd_first_name,
+                r2.last_name AS runner_2nd_last_name,
+                r2.age AS runner_2nd_age,
+                r2.uniform_number AS runner_2nd_uniform_number,
+                pgr.runner_3rd_id,
+                r3.first_name AS runner_3rd_first_name,
+                r3.last_name AS runner_3rd_last_name,
+                r3.age AS runner_3rd_age,
+                r3.uniform_number AS runner_3rd_uniform_number
+            FROM player_game_running pgr
+            LEFT JOIN player_info tr ON pgr.target_runner_id = tr.id
+            LEFT JOIN player_info r1 ON pgr.runner_1st_id = r1.id
+            LEFT JOIN player_info r2 ON pgr.runner_2nd_id = r2.id
+            LEFT JOIN player_info r3 ON pgr.runner_3rd_id = r3.id
+            WHERE pgr.game_id = ?1
+            ORDER BY pgr.count_seq, pgr.seq";
         self.db_client
-            .query_rows::<PlayerGameRunning>(query, params![game_id])
+            .query_rows::<PlayerGameRunningView>(query, params![game_id])
     }
 }
 

@@ -686,21 +686,22 @@ impl GameResultsWidget {
     fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
         let pitcher = game_cursor.current_pitcher()?;
         let batter = game_cursor.current_batter()?;
-        let batting_result = game_cursor.current_batting_result()?;
+
         let mut formatted_batter_and_pitcher =
-            format!("{}: {}\n", t!("pitcher"), pitcher.full_name());
+            format!("{}: {}\n", t!("pitcher2"), pitcher.full_name());
         formatted_batter_and_pitcher.push_str(&format!(
             "{}: {}\n",
             t!("batter"),
             batter.full_name()
         ));
-        formatted_batter_and_pitcher.push_str(&format!(
-            "{}: {}\n",
-            t!("batting_result"),
-            batting_result
-        ));
 
         if let Some(batting_view) = game_cursor.current_batting_view() {
+            formatted_batter_and_pitcher.push_str(&format!(
+                "{}: {}\n",
+                t!("result"),
+                batting_view.result
+            ));
+
             let ball = &batting_view.ball;
             formatted_batter_and_pitcher.push_str(&format!(
                 "\n{}: {:.0}km/h\n",
@@ -717,16 +718,34 @@ impl GameResultsWidget {
                 t!("hang_time"),
                 ball.hang_time
             ));
+            let point_trajectory = if let Some(fielder_pos) = batting_view.fielder_position {
+                format!("{} {}", fielder_pos.short(), ball.trajectory)
+            } else {
+                ball.trajectory.to_string()
+            };
+            formatted_batter_and_pitcher.push_str(&format!("{}\n", point_trajectory));
+        } else if let Some(running_view) = game_cursor.current_running_view() {
+            formatted_batter_and_pitcher.push_str(&format!(
+                "\n{}: {}\n",
+                t!("running_event"),
+                running_view.event
+            ));
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {}\n",
-                t!("trajectory"),
-                ball.trajectory
+                t!("target_base"),
+                running_view.throw_target_base
             ));
-            if let Some(fielder_pos) = batting_view.fielder_position {
+            formatted_batter_and_pitcher.push_str(&format!(
+                "{}: {}\n",
+                t!("ruling"),
+                running_view.ruling
+            ));
+
+            if let Some(target_runner) = running_view.target_runner {
                 formatted_batter_and_pitcher.push_str(&format!(
                     "{}: {}\n",
-                    t!("fielder_position"),
-                    fielder_pos
+                    t!("runner"),
+                    target_runner.full_name()
                 ));
             }
         }
