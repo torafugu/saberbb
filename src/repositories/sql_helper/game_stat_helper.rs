@@ -115,6 +115,7 @@ impl FromRow for PlayerGameEntryView {
             end_count_seq: row.get("end_count_seq")?,
             team_id: row.get("team_id")?,
             position: row.get("position")?,
+            batting_order: row.get("batting_order")?,
             player: player_info,
         };
 

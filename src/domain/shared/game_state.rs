@@ -94,6 +94,67 @@ impl fmt::Display for Ruling {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ActivePlayer {
+    pub id: i64,
+    pub batting_order: Option<u8>,
+    pub batter: Option<BatterInfo>,
+    pub runner: RunningSkills,
+    pub fielding_position: Option<Position>,
+    pub fielder: Option<FielderInfo>,
+    pub polar_position: Option<PolarPosition>,
+    pub pitcher: Option<PitcherInfo>,
+    pub catcher: Option<CatcherInfo>,
+}
+impl ActivePlayer {
+    pub fn is_batter(&self) -> bool {
+        self.batting_order.is_some()
+    }
+
+    pub fn is_fielder(&self) -> bool {
+        self.fielding_position.is_some()
+    }
+
+    pub fn active_batter(&self) -> Option<ActiveBatter> {
+        Some(ActiveBatter {
+            id: self.id,
+            index: self.batting_order?,
+            batter: self.batter.clone()?,
+            runner: self.runner,
+        })
+    }
+
+    pub fn active_fielder(&self) -> Option<ActiveFielder> {
+        Some(ActiveFielder {
+            position: self.fielding_position?,
+            id: self.id,
+            info: self.fielder?,
+            polar_position: self.polar_position?,
+        })
+    }
+
+    pub fn active_pitcher(&self) -> Option<ActivePitcher> {
+        Some(ActivePitcher {
+            id: self.id,
+            pitcher: self.pitcher.clone()?,
+        })
+    }
+
+    pub fn active_catcher(&self) -> Option<ActiveCatcher> {
+        Some(ActiveCatcher {
+            id: self.id,
+            catcher: self.catcher?,
+        })
+    }
+
+    pub fn runner(&self) -> ActiveRunner {
+        ActiveRunner {
+            id: self.id,
+            skills: self.runner,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ActiveBatter {
     pub id: i64,
     pub index: u8,
@@ -217,8 +278,8 @@ impl GameState {
             game_result: GameResult::new(
                 game_schedule.id,
                 game_schedule.planned_date,
-                &away_lineup.fielders,
-                &home_lineup.fielders,
+                &away_lineup.players,
+                &home_lineup.players,
             ),
             away_lineup: away_lineup,
             home_lineup: home_lineup,
@@ -289,23 +350,23 @@ impl GameState {
         self.game_result.innings.push(self.inning.clone());
     }
 
-    pub fn current_pitcher(&self) -> &ActivePitcher {
+    pub fn current_pitcher(&self) -> ActivePitcher {
         if self.inning_tb == TB::Top {
-            &self.home_lineup.pitcher
+            self.home_lineup.pitcher()
         } else {
-            &self.away_lineup.pitcher
+            self.away_lineup.pitcher()
         }
     }
 
-    pub fn current_catcher(&self) -> &ActiveCatcher {
+    pub fn current_catcher(&self) -> ActiveCatcher {
         if self.inning_tb == TB::Top {
-            &self.home_lineup.catcher
+            self.home_lineup.catcher()
         } else {
-            &self.away_lineup.catcher
+            self.away_lineup.catcher()
         }
     }
 
-    pub fn current_batter(&mut self) -> Result<&ActiveBatter, GameError> {
+    pub fn current_batter(&mut self) -> Result<ActiveBatter, GameError> {
         if self.inning_tb == TB::Top {
             self.away_lineup.next()
         } else {
@@ -313,11 +374,11 @@ impl GameState {
         }
     }
 
-    pub fn current_fielders(&self) -> &[ActiveFielder; 9] {
+    pub fn current_fielders(&self) -> Vec<ActiveFielder> {
         if self.inning_tb == TB::Top {
-            &self.home_lineup.fielders
+            self.home_lineup.fielders()
         } else {
-            &self.away_lineup.fielders
+            self.away_lineup.fielders()
         }
     }
 
@@ -956,10 +1017,12 @@ mod tests {
         assert_eq!(game.inning_tb, TB::Bottom);
         assert_eq!(game.away_total_point, 0);
         assert_eq!(game.home_total_point, 0);
-        assert_eq!(game.away_lineup.batters.len(), 9);
-        assert_eq!(game.home_lineup.batters.len(), 9);
-        assert_eq!(game.away_lineup.fielders.len(), 9);
-        assert_eq!(game.home_lineup.fielders.len(), 9);
+        assert_eq!(game.away_lineup.players.len(), 10);
+        assert_eq!(game.home_lineup.players.len(), 10);
+        assert_eq!(game.away_lineup.batters().len(), 9);
+        assert_eq!(game.home_lineup.batters().len(), 9);
+        assert_eq!(game.away_lineup.fielders().len(), 9);
+        assert_eq!(game.home_lineup.fielders().len(), 9);
         assert_eq!(game.away_lineup.current_index, 0);
         assert_eq!(game.home_lineup.current_index, 0);
     }
@@ -992,7 +1055,7 @@ mod tests {
         let mut game = game_state();
 
         game.advance_half_inning();
-        let away_batter_id = game.away_lineup.batters[0].id;
+        let away_batter_id = game.away_lineup.batters()[0].id;
         game.process_count().unwrap();
 
         assert_eq!(game.count_seq, 2);
@@ -1006,7 +1069,7 @@ mod tests {
         );
 
         game.advance_half_inning();
-        let home_batter_id = game.home_lineup.batters[0].id;
+        let home_batter_id = game.home_lineup.batters()[0].id;
         game.process_count().unwrap();
 
         assert_eq!(game.count_seq, 3);

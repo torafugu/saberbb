@@ -16,6 +16,7 @@ pub struct PlayerGameEntryView {
     pub end_count_seq: u16,
     pub team_id: u16,
     pub position: Position,
+    pub batting_order: u8,
     pub player: PlayerInfo,
 }
 impl PlayerGameEntryView {
@@ -69,6 +70,7 @@ pub struct PlayerGameEntry {
     pub start_count_seq: u16,
     pub end_count_seq: Option<u16>,
     pub position: Position,
+    pub batting_order: u8,
     pub player_id: i64,
 }
 impl PlayerGameEntry {
@@ -76,12 +78,14 @@ impl PlayerGameEntry {
         start_count_seq: u16,
         end_count_seq: Option<u16>,
         position: Position,
+        batting_order: u8,
         player_id: i64,
     ) -> Self {
         Self {
             start_count_seq: start_count_seq,
             end_count_seq: end_count_seq,
             position: position,
+            batting_order: batting_order,
             player_id: player_id,
         }
     }

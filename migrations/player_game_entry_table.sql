@@ -5,6 +5,7 @@ CREATE TABLE player_game_entry (
     start_count_seq INTEGER,
     end_count_seq INTEGER,
     position TEXT,
+    batting_order INTEGER,
     player_id INTEGER,
     PRIMARY KEY (
         game_id,

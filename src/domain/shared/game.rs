@@ -1,4 +1,4 @@
-use super::game_state::ActiveFielder;
+use super::game_state::ActivePlayer;
 use super::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
     PlayerGameFielding, PlayerGamePitching, PlayerGameRunning, PlayerGameRunningView,
@@ -104,10 +104,10 @@ impl GameResult {
     pub fn new(
         id: u32,
         actual_date: NaiveDate,
-        away_fielders: &[ActiveFielder; 9],
-        home_fielders: &[ActiveFielder; 9],
+        away_players: &[ActivePlayer],
+        home_players: &[ActivePlayer],
     ) -> Self {
-        let player_entries = Self::init_player_game_entries(away_fielders, home_fielders);
+        let player_entries = Self::init_player_game_entries(away_players, home_players);
         Self {
             id: id,
             actual_date: actual_date,
@@ -123,16 +123,16 @@ impl GameResult {
     }
 
     fn init_player_game_entries(
-        away_team_players: &[ActiveFielder; 9],
-        home_team_players: &[ActiveFielder; 9],
+        away_players: &[ActivePlayer],
+        home_players: &[ActivePlayer],
     ) -> Vec<PlayerGameEntry> {
         let mut fielder_records = Vec::new();
 
-        for away_team_player in away_team_players {
-            fielder_records.push(Self::add_player_game_entry(1, None, away_team_player));
+        for away_player in away_players {
+            fielder_records.push(Self::add_player_game_entry(1, None, away_player));
         }
-        for home_team_player in home_team_players {
-            fielder_records.push(Self::add_player_game_entry(1, None, home_team_player));
+        for home_player in home_players {
+            fielder_records.push(Self::add_player_game_entry(1, None, home_player));
         }
 
         fielder_records
@@ -141,13 +141,14 @@ impl GameResult {
     fn add_player_game_entry(
         start_count_seq: u16,
         end_count_seq: Option<u16>,
-        active_fielder: &ActiveFielder,
+        active_player: &ActivePlayer,
     ) -> PlayerGameEntry {
         PlayerGameEntry::new(
             start_count_seq,
             end_count_seq,
-            active_fielder.position,
-            active_fielder.id,
+            active_player.fielding_position.unwrap_or(Position::DH),
+            active_player.batting_order.unwrap_or(0),
+            active_player.id,
         )
     }
 
