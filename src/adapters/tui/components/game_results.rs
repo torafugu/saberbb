@@ -2,7 +2,7 @@ use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::{Count, GameHeader};
-use crate::domain::shared::game_cursor::{GameCursor, ScoreBoard};
+use crate::domain::shared::game_cursor::{BatterGameStatView, GameCursor, ScoreBoard};
 use crate::repositories::game_repository::GameRepository;
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
@@ -356,7 +356,7 @@ impl GameResultsWidget {
 
         match self.selected_tab {
             GameDetailTab::GameResult => self.draw_game_result_tab(frame, layout[1])?,
-            GameDetailTab::BattingStats => self.draw_batting_stats_tab(frame, layout[1]),
+            GameDetailTab::BattingStats => self.draw_batting_stats_tab(frame, layout[1])?,
             GameDetailTab::PitchingStats => self.draw_pitching_stats_tab(frame, layout[1]),
         }
 
@@ -453,8 +453,75 @@ impl GameResultsWidget {
         Ok(())
     }
 
-    fn draw_batting_stats_tab(&self, frame: &mut Frame, area: Rect) {
-        frame.render_widget(Paragraph::new(t!("batting_stats")), area);
+    fn draw_batting_stats_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
+        let Some(cursor) = &mut self.game_cursor else {
+            frame.render_widget(Paragraph::new(t!("select_game")), area);
+            return Ok(());
+        };
+
+        let table_areas =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
+
+        Self::draw_batting_stats_table(
+            frame,
+            table_areas[0],
+            cursor.away_team_name(),
+            cursor.current_batting_stats_for_team(cursor.away_team_id()),
+        );
+        Self::draw_batting_stats_table(
+            frame,
+            table_areas[1],
+            cursor.home_team_name(),
+            cursor.current_batting_stats_for_team(cursor.home_team_id()),
+        );
+
+        Ok(())
+    }
+
+    fn draw_batting_stats_table(
+        frame: &mut Frame,
+        area: Rect,
+        team_name: String,
+        batting_stats: Vec<BatterGameStatView>,
+    ) {
+        let header = Row::new([
+            Cell::from("#"),
+            Cell::from("Player"),
+            Cell::from("PA"),
+            Cell::from("AB"),
+            Cell::from("H"),
+            Cell::from("2B"),
+            Cell::from("3B"),
+            Cell::from("HR"),
+        ]);
+        let rows = batting_stats.into_iter().map(|stat| {
+            Row::new([
+                Cell::from(stat.batting_order.to_string()),
+                Cell::from(stat.player.full_name()),
+                Cell::from(stat.plate_appearances.to_string()),
+                Cell::from(stat.at_bats.to_string()),
+                Cell::from(stat.hits.to_string()),
+                Cell::from(stat.doubles.to_string()),
+                Cell::from(stat.triples.to_string()),
+                Cell::from(stat.home_runs.to_string()),
+            ])
+        });
+        let widths = [
+            Constraint::Length(3),
+            Constraint::Min(12),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+        ];
+        let table = Table::new(rows, widths)
+            .header(header)
+            .column_spacing(1)
+            .block(Block::bordered().title(team_name));
+
+        frame.render_widget(table, area);
     }
 
     fn draw_pitching_stats_tab(&self, frame: &mut Frame, area: Rect) {

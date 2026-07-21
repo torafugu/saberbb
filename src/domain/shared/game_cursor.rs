@@ -1,7 +1,8 @@
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
 use super::game_stats::{PlayerGameBattingView, PlayerGameRunningView};
-use super::player::{Player, Position};
+use super::player::{Player, PlayerInfo, Position};
 use super::team::Team;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
@@ -27,6 +28,20 @@ pub struct GameCursor {
     pub count_seq: u16,
     pub is_last_bottom_inning_skiped: bool,
 }
+
+#[derive(Clone, Debug)]
+pub struct BatterGameStatView {
+    pub team_id: u16,
+    pub batting_order: u8,
+    pub player: PlayerInfo,
+    pub plate_appearances: u16,
+    pub at_bats: u16,
+    pub hits: u16,
+    pub doubles: u16,
+    pub triples: u16,
+    pub home_runs: u16,
+}
+
 impl GameCursor {
     pub fn new(game: GameDetail) -> Self {
         Self {
@@ -40,6 +55,22 @@ impl GameCursor {
 
     pub fn game_type(&self) -> String {
         self.game.game_type.to_string()
+    }
+
+    pub fn away_team_id(&self) -> u16 {
+        self.game.away_team.id
+    }
+
+    pub fn home_team_id(&self) -> u16 {
+        self.game.home_team.id
+    }
+
+    pub fn away_team_name(&self) -> String {
+        self.game.away_team.name.to_string()
+    }
+
+    pub fn home_team_name(&self) -> String {
+        self.game.home_team.name.to_string()
     }
 
     pub fn prev(&mut self) {
@@ -343,6 +374,88 @@ impl GameCursor {
             .filter(|i| i.count_seq <= self.count_seq)
             .max_by_key(|i| i.count_seq)
     }
+
+    pub fn current_batting_stats(&self) -> Vec<PlayerGameBattingView> {
+        self.game
+            .player_battings
+            .iter()
+            .filter(|batting| batting.count_seq <= self.count_seq)
+            .cloned()
+            .collect()
+    }
+
+    pub fn current_batting_stats_for_team(&self, team_id: u16) -> Vec<BatterGameStatView> {
+        let mut stats = self
+            .game
+            .player_entries
+            .iter()
+            .filter(|entry| entry.team_id == team_id)
+            .filter(|entry| entry.start_count_seq == 1)
+            .filter(|entry| entry.batting_order > 0)
+            .map(|entry| {
+                (
+                    entry.player.id,
+                    BatterGameStatView {
+                        team_id,
+                        batting_order: entry.batting_order,
+                        player: entry.player.clone(),
+                        plate_appearances: 0,
+                        at_bats: 0,
+                        hits: 0,
+                        doubles: 0,
+                        triples: 0,
+                        home_runs: 0,
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        for batting in self
+            .game
+            .player_battings
+            .iter()
+            .filter(|batting| batting.count_seq <= self.count_seq)
+        {
+            let Some(stat) = stats.get_mut(&batting.batter.id) else {
+                continue;
+            };
+
+            match batting.result {
+                BattingResult::Single => {
+                    stat.plate_appearances += 1;
+                    stat.at_bats += 1;
+                    stat.hits += 1;
+                }
+                BattingResult::Double => {
+                    stat.plate_appearances += 1;
+                    stat.at_bats += 1;
+                    stat.hits += 1;
+                    stat.doubles += 1;
+                }
+                BattingResult::Triple => {
+                    stat.plate_appearances += 1;
+                    stat.at_bats += 1;
+                    stat.hits += 1;
+                    stat.triples += 1;
+                }
+                BattingResult::HomeRun => {
+                    stat.plate_appearances += 1;
+                    stat.at_bats += 1;
+                    stat.hits += 1;
+                    stat.home_runs += 1;
+                }
+                BattingResult::FieldersChoice | BattingResult::Out | BattingResult::DoublePlay => {
+                    stat.plate_appearances += 1;
+                    stat.at_bats += 1;
+                }
+                BattingResult::Foul => {}
+            }
+        }
+
+        let mut rows = stats.into_values().collect::<Vec<_>>();
+        rows.sort_by_key(|row| row.batting_order);
+        rows
+    }
 }
 
 #[derive(Debug)]
@@ -362,6 +475,7 @@ mod tests {
     use super::*;
     use crate::domain::shared::ball::{BattedBall, TrajectoryType};
     use crate::domain::shared::game::GameType;
+    use crate::domain::shared::game_stats::PlayerGameEntryView;
     use crate::domain::shared::player::PlayerInfo;
     use chrono::NaiveDate;
 
@@ -404,6 +518,21 @@ mod tests {
             format!("First{id}"),
             format!("Last{id}"),
         ))
+    }
+
+    fn player_entry(team_id: u16, batting_order: u8, player_id: i64) -> PlayerGameEntryView {
+        PlayerGameEntryView {
+            start_count_seq: 1,
+            end_count_seq: 3,
+            team_id,
+            position: Position::DH,
+            batting_order,
+            player: PlayerInfo::new_min(
+                player_id,
+                format!("First{player_id}"),
+                format!("Last{player_id}"),
+            ),
+        }
     }
 
     fn batting_view(count_seq: u16, batter_id: i64) -> PlayerGameBattingView {
@@ -515,5 +644,48 @@ mod tests {
             GameViewError::CurrentBattingResult.to_string()
         );
         assert!(cursor.current_batting_view().is_none());
+    }
+
+    #[test]
+    fn current_batting_stats_returns_battings_up_to_current_count() {
+        let mut game = game_detail(vec![inning(1, TB::Top, &[1, 2, 3])]);
+        game.player_battings = vec![
+            batting_view(1, 10),
+            batting_view(2, 11),
+            batting_view(3, 12),
+        ];
+        let mut cursor = GameCursor::new(game);
+        cursor.count_seq = 2;
+
+        let stats = cursor.current_batting_stats();
+
+        assert_eq!(stats.len(), 2);
+        assert_eq!(stats[0].batter.id, 10);
+        assert_eq!(stats[1].batter.id, 11);
+    }
+
+    #[test]
+    fn current_batting_stats_for_team_lists_opening_lineup_and_updates_by_count() {
+        let mut game = game_detail(vec![inning(1, TB::Top, &[1, 2, 3])]);
+        game.player_entries = vec![player_entry(1, 1, 10), player_entry(1, 2, 11)];
+        game.player_battings = vec![batting_view(1, 10), batting_view(2, 11)];
+        let mut cursor = GameCursor::new(game);
+        cursor.count_seq = 1;
+
+        let stats = cursor.current_batting_stats_for_team(1);
+
+        assert_eq!(stats.len(), 2);
+        assert_eq!(stats[0].player.id, 10);
+        assert_eq!(stats[0].plate_appearances, 1);
+        assert_eq!(stats[0].hits, 1);
+        assert_eq!(stats[1].player.id, 11);
+        assert_eq!(stats[1].plate_appearances, 0);
+        assert_eq!(stats[1].hits, 0);
+
+        cursor.count_seq = 2;
+        let stats = cursor.current_batting_stats_for_team(1);
+
+        assert_eq!(stats[1].plate_appearances, 1);
+        assert_eq!(stats[1].hits, 1);
     }
 }
