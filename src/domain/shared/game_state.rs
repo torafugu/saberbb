@@ -382,9 +382,24 @@ impl GameState {
         }
     }
 
-    fn prepare_plate_appearance(&mut self, batting_side: RL, batter_runner: ActiveRunner) {
-        self.inning_state.runners.batting_side = Some(batting_side);
+    fn prepare_plate_appearance(&mut self, batter_runner: ActiveRunner) {
         self.inning_state.runners.batter_runner = Some(batter_runner);
+    }
+
+    fn active_batter_for_count(&mut self) -> Result<ActiveBatter, GameError> {
+        if let Some(active_batter) = &self.inning_state.active_batter {
+            return Ok(active_batter.clone());
+        }
+
+        let active_batter = self.current_batter()?;
+        self.inning_state.active_batter = Some(active_batter.clone());
+
+        Ok(active_batter)
+    }
+
+    fn finish_plate_appearance(&mut self) {
+        self.inning_state.active_batter = None;
+        self.inning_state.runners.batter_runner = None;
     }
 
     fn resolve_stand_in_ball(
@@ -418,6 +433,7 @@ impl GameState {
                 BattingResult::HomeRun,
             );
             self.add_count(point);
+            self.finish_plate_appearance();
         }
         Ok(())
     }
@@ -477,6 +493,7 @@ impl GameState {
         );
 
         self.add_count(point);
+        self.finish_plate_appearance();
 
         Ok(())
     }
@@ -522,6 +539,7 @@ impl GameState {
         rng: &mut dyn RandomProvider,
         runners: &RunnersOnBase,
         ctx: &PlayContext,
+        batting_side: RL,
     ) -> Result<(DefensePlayResult, RunnerAdvanceResult), GameError> {
         let defense_play_result = evaluate_defense_play(&ctx, rng)?;
         info!("Defense Play Result: {:#?}", defense_play_result);
@@ -529,11 +547,11 @@ impl GameState {
         let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
             info!("Running : Outfield Hit.");
 
-            runners.after_outfield_hit(&defense_play_result)?
+            runners.after_outfield_hit(&defense_play_result, batting_side)?
         } else {
             info!("Running : Infield Grounder.");
 
-            runners.after_infield_grounder(&defense_play_result)?
+            runners.after_infield_grounder(&defense_play_result, batting_side)?
         };
 
         info!("Runner Advance Result: {:#?}", runner_advance_result);
@@ -549,6 +567,7 @@ impl GameState {
         running_seq: u8,
         defense_play_result: &DefensePlayResult,
         runner_advance_result: &RunnerAdvanceResult,
+        batting_side: RL,
     ) -> Result<bool, GameError> {
         let double_play_defense_play_result =
             evaluate_double_play(&ctx, &defense_play_result, self.rng.as_mut())?;
@@ -566,10 +585,11 @@ impl GameState {
 
             info!("{:#?}", double_play_defense_play_result);
 
-            let double_play_runner_advance_result = self
-                .inning_state
-                .runners
-                .after_double_play(&double_play_defense_play_result, &runner_advance_result)?;
+            let double_play_runner_advance_result = self.inning_state.runners.after_double_play(
+                &double_play_defense_play_result,
+                &runner_advance_result,
+                batting_side,
+            )?;
 
             info!("{:#?}", double_play_runner_advance_result);
 
@@ -621,6 +641,7 @@ impl GameState {
         );
 
         self.add_count(point);
+        self.finish_plate_appearance();
 
         Ok(())
     }
@@ -632,13 +653,13 @@ impl GameState {
         let mut point = 0;
 
         let pitcher_id = self.current_pitcher().id;
-        let active_batter = self.current_batter()?;
+        let active_batter = self.active_batter_for_count()?;
         let batter_id = active_batter.id;
         let batter = active_batter.batter.clone();
         let batting_side = active_batter.batter.batting_side;
         let batter_runner = active_batter.runner();
 
-        self.prepare_plate_appearance(batting_side, batter_runner);
+        self.prepare_plate_appearance(batter_runner);
 
         // TODO: pitch_speed must be replaced by ActivePitcher
         let ball = calculate_batted_ball(self.rng.as_mut(), &batter, 150.0);
@@ -711,8 +732,12 @@ impl GameState {
             ctx
         };
 
-        let (defense_play_result, runner_advance_result) =
-            Self::resolve_ball_in_play(self.rng.as_mut(), &self.inning_state.runners, &ctx)?;
+        let (defense_play_result, runner_advance_result) = Self::resolve_ball_in_play(
+            self.rng.as_mut(),
+            &self.inning_state.runners,
+            &ctx,
+            batting_side,
+        )?;
         point += runner_advance_result.runs_scored;
 
         self.game_result
@@ -752,6 +777,7 @@ impl GameState {
                 running_seq,
                 &defense_play_result,
                 &runner_advance_result,
+                batting_side,
             )?;
 
             if is_double_play_occured {
@@ -808,6 +834,7 @@ pub struct InningState {
     pub ball: u8,
     pub strike: u8,
     pub out: u8,
+    pub active_batter: Option<ActiveBatter>,
 }
 impl InningState {
     pub fn new() -> InningState {
@@ -816,6 +843,7 @@ impl InningState {
             ball: 0,
             strike: 0,
             out: 0,
+            active_batter: None,
         }
     }
 
@@ -1002,8 +1030,8 @@ mod tests {
     }
 
     fn assert_no_runners(inning_state: &InningState) {
-        assert!(inning_state.runners.batting_side.is_none());
         assert!(inning_state.runners.batter_runner.is_none());
+        assert!(inning_state.active_batter.is_none());
         assert!(!inning_state.runners.has_runner_on(Base::First));
         assert!(!inning_state.runners.has_runner_on(Base::Second));
         assert!(!inning_state.runners.has_runner_on(Base::Third));
@@ -1064,9 +1092,10 @@ mod tests {
         assert_eq!(game.away_lineup.current_index, 1);
         assert_eq!(game.home_lineup.current_index, 0);
         assert_eq!(
-            game.inning_state.runners.batter_runner.unwrap().id,
+            game.game_result.player_battings.last().unwrap().batter_id,
             away_batter_id
         );
+        assert!(game.inning_state.active_batter.is_none());
 
         game.advance_half_inning();
         let home_batter_id = game.home_lineup.batters()[0].id;
@@ -1078,9 +1107,10 @@ mod tests {
         assert_eq!(game.away_lineup.current_index, 1);
         assert_eq!(game.home_lineup.current_index, 1);
         assert_eq!(
-            game.inning_state.runners.batter_runner.unwrap().id,
+            game.game_result.player_battings.last().unwrap().batter_id,
             home_batter_id
         );
+        assert!(game.inning_state.active_batter.is_none());
     }
 
     #[test]
@@ -1095,6 +1125,27 @@ mod tests {
 
         game.advance_half_inning();
         assert_eq!(game.current_batter().unwrap().id, 102);
+    }
+
+    #[test]
+    fn active_batter_for_count_reuses_batter_until_plate_appearance_finishes() {
+        let mut game = game_state();
+
+        game.advance_half_inning();
+
+        let first_batter = game.active_batter_for_count().unwrap();
+        assert_eq!(first_batter.id, 2);
+        assert_eq!(game.away_lineup.current_index, 1);
+
+        let same_batter = game.active_batter_for_count().unwrap();
+        assert_eq!(same_batter.id, 2);
+        assert_eq!(game.away_lineup.current_index, 1);
+
+        game.finish_plate_appearance();
+
+        let next_batter = game.active_batter_for_count().unwrap();
+        assert_eq!(next_batter.id, 3);
+        assert_eq!(game.away_lineup.current_index, 2);
     }
 
     #[test]

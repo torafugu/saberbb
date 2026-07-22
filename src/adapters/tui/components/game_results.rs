@@ -485,36 +485,36 @@ impl GameResultsWidget {
         batting_stats: Vec<BatterGameStatView>,
     ) {
         let header = Row::new([
-            Cell::from("#"),
-            Cell::from("Player"),
-            Cell::from("PA"),
-            Cell::from("AB"),
-            Cell::from("H"),
-            Cell::from("2B"),
-            Cell::from("3B"),
-            Cell::from("HR"),
+            Self::right_aligned_cell("#"),
+            Cell::from(t!("pos")),
+            Cell::from(t!("player")),
+            Self::right_aligned_cell(t!("ab")),
+            Self::right_aligned_cell(t!("h")),
+            Self::right_aligned_cell(t!("double")),
+            Self::right_aligned_cell(t!("triple")),
+            Self::right_aligned_cell(t!("hr")),
         ]);
         let rows = batting_stats.into_iter().map(|stat| {
             Row::new([
-                Cell::from(stat.batting_order.to_string()),
+                Self::right_aligned_cell(stat.batting_order),
+                Cell::from(stat.position.to_string()),
                 Cell::from(stat.player.full_name()),
-                Cell::from(stat.plate_appearances.to_string()),
-                Cell::from(stat.at_bats.to_string()),
-                Cell::from(stat.hits.to_string()),
-                Cell::from(stat.doubles.to_string()),
-                Cell::from(stat.triples.to_string()),
-                Cell::from(stat.home_runs.to_string()),
+                Self::right_aligned_cell(stat.at_bats),
+                Self::right_aligned_cell(stat.hits),
+                Self::right_aligned_cell(stat.doubles),
+                Self::right_aligned_cell(stat.triples),
+                Self::right_aligned_cell(stat.home_runs),
             ])
         });
         let widths = [
-            Constraint::Length(3),
-            Constraint::Min(12),
+            Constraint::Length(2),
+            Constraint::Length(4),
+            Constraint::Min(8),
             Constraint::Length(4),
             Constraint::Length(4),
             Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
+            Constraint::Length(6),
+            Constraint::Length(6),
         ];
         let table = Table::new(rows, widths)
             .header(header)
@@ -522,6 +522,10 @@ impl GameResultsWidget {
             .block(Block::bordered().title(team_name));
 
         frame.render_widget(table, area);
+    }
+
+    fn right_aligned_cell(value: impl ToString) -> Cell<'static> {
+        Cell::from(Line::from(value.to_string()).alignment(Alignment::Right))
     }
 
     fn draw_pitching_stats_tab(&self, frame: &mut Frame, area: Rect) {

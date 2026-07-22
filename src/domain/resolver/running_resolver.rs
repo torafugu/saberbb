@@ -213,7 +213,6 @@ impl HitAttemptResult {
 
 #[derive(Clone, Debug, Default)]
 pub struct RunnersOnBase {
-    pub batting_side: Option<RL>,
     pub batter_runner: Option<ActiveRunner>,
     pub runner_1st: Option<ActiveRunner>,
     pub runner_2nd: Option<ActiveRunner>,
@@ -221,7 +220,6 @@ pub struct RunnersOnBase {
 }
 impl RunnersOnBase {
     fn empty(&mut self) {
-        self.batting_side = None;
         self.batter_runner = None;
         self.runner_1st = None;
         self.runner_2nd = None;
@@ -294,15 +292,16 @@ impl RunnersOnBase {
         }
     }
 
-    fn batter_runner_time_to(&self, to_base: Base, with_lag: bool) -> Result<f64, GameError> {
+    fn batter_runner_time_to(
+        &self,
+        to_base: Base,
+        with_lag: bool,
+        batting_side: RL,
+    ) -> Result<f64, GameError> {
         let batter_runner = self.runner_on(Base::Home)?;
         let base_count = advance_count(Base::Home, to_base)?;
 
-        let right_batter_penalty_distance = if let Some(batting_side) = &self.batting_side {
-            if *batting_side == RL::Right { 2.0 } else { 0.0 }
-        } else {
-            return Err(GameError::BatterRunner);
-        };
+        let right_batter_penalty_distance = if batting_side == RL::Right { 2.0 } else { 0.0 };
 
         let lag = if with_lag {
             ACCELERATION_LAG_TO_FIRST_BASE
@@ -341,7 +340,7 @@ impl RunnersOnBase {
         }
 
         if from_base == Base::Home {
-            return self.batter_runner_time_to(to_base, true);
+            return Err(GameError::BatterRunnerTargetBase);
         }
 
         let runner = self.runner_on(from_base)?;
@@ -369,6 +368,7 @@ impl RunnersOnBase {
     pub fn after_infield_grounder(
         &self,
         defense_play_result: &DefensePlayResult,
+        batting_side: RL,
     ) -> Result<RunnerAdvanceResult, GameError> {
         let mut target_runner = None;
         let runner_time;
@@ -440,7 +440,7 @@ impl RunnersOnBase {
             }
             Base::First => {
                 target_runner = self.batter_runner;
-                runner_time = self.batter_runner_time_to(Base::First, true)?;
+                runner_time = self.batter_runner_time_to(Base::First, true, batting_side)?;
                 (ruling, time_difference) = judge(defense_play_result.defense_time, runner_time);
 
                 if ruling == Ruling::Safe {
@@ -473,7 +473,8 @@ impl RunnersOnBase {
         &self,
         throw_target_base: Base,
         defense_time: f64,
-    ) -> Result<(HitAttemptResult), GameError> {
+        batting_side: RL,
+    ) -> Result<HitAttemptResult, GameError> {
         info!("resolve_triple_attempt");
 
         let (from_base, target_runner, runner_time) = match throw_target_base {
@@ -491,7 +492,7 @@ impl RunnersOnBase {
             Base::Third => (
                 Some(Base::Home),
                 self.batter_runner,
-                self.batter_runner_time_to(Base::Third, true)?,
+                self.batter_runner_time_to(Base::Third, true, batting_side)?,
             ),
             _ => (None, None, 0.0),
         };
@@ -521,7 +522,8 @@ impl RunnersOnBase {
         &self,
         throw_target_base: Base,
         defense_time: f64,
-    ) -> Result<(HitAttemptResult), GameError> {
+        batting_side: RL,
+    ) -> Result<HitAttemptResult, GameError> {
         info!("resolve_double_attempt");
 
         let mut from_base = None;
@@ -570,7 +572,7 @@ impl RunnersOnBase {
             Base::Second => (
                 Some(Base::Home),
                 self.batter_runner,
-                self.batter_runner_time_to(Base::Second, true)?,
+                self.batter_runner_time_to(Base::Second, true, batting_side)?,
             ),
             _ => (None, None, 0.0),
         };
@@ -601,7 +603,8 @@ impl RunnersOnBase {
         &self,
         throw_target_base: Base,
         defense_time: f64,
-    ) -> Result<(HitAttemptResult), GameError> {
+        batting_side: RL,
+    ) -> Result<HitAttemptResult, GameError> {
         info!("resolve_single_attempt");
 
         let (mut from_base, target_runner, runner_time) = match throw_target_base {
@@ -641,7 +644,7 @@ impl RunnersOnBase {
             Base::First => (
                 Some(Base::Home),
                 self.batter_runner,
-                self.batter_runner_time_to(Base::First, true)?,
+                self.batter_runner_time_to(Base::First, true, batting_side)?,
             ),
         };
 
@@ -766,9 +769,11 @@ impl RunnersOnBase {
     pub fn after_outfield_hit(
         &self,
         defense_play_result: &DefensePlayResult,
+        batting_side: RL,
     ) -> Result<RunnerAdvanceResult, GameError> {
-        let batter_to_second_time = self.batter_runner_time_to(Base::Second, false)?;
-        let batter_to_third_time = self.batter_runner_time_to(Base::Third, false)?;
+        let batter_to_second_time =
+            self.batter_runner_time_to(Base::Second, false, batting_side)?;
+        let batter_to_third_time = self.batter_runner_time_to(Base::Third, false, batting_side)?;
 
         let running_plan = RunningPlan::set(
             defense_play_result.defense_time,
@@ -781,16 +786,19 @@ impl RunnersOnBase {
             Base::Third => self.resolve_triple_attempt(
                 defense_play_result.throw_target_base,
                 defense_play_result.defense_time,
+                batting_side,
             )?,
             Base::Second => self.resolve_double_attempt(
                 defense_play_result.throw_target_base,
                 defense_play_result.defense_time,
+                batting_side,
             )?,
             // throw_target_base is always second base
             // CONSTRAINT: Right Goundout case is not supported.
             Base::First => self.resolve_single_attempt(
                 defense_play_result.throw_target_base,
                 defense_play_result.defense_time,
+                batting_side,
             )?,
             // CONSTRAINT: inside-the-park homerun is not supported.
             _ => {
@@ -891,6 +899,7 @@ impl RunnersOnBase {
         &self,
         double_play_defense_play_result: &DoublePlayDefensePlayResult,
         previous_runner_advanced_result: &RunnerAdvanceResult,
+        batting_side: RL,
     ) -> Result<DoublePlayRunnerAdvanceResult, GameError> {
         let target_runner;
         let runner_time;
@@ -906,7 +915,7 @@ impl RunnersOnBase {
         match double_play_defense_play_result.throw_target_base {
             Base::First => {
                 target_runner = self.batter_runner;
-                runner_time = self.batter_runner_time_to(Base::First, true)?;
+                runner_time = self.batter_runner_time_to(Base::First, true, batting_side)?;
                 (ruling, time_difference) =
                     judge(double_play_defense_play_result.defense_time, runner_time);
 
@@ -1044,14 +1053,12 @@ mod tests {
     }
 
     fn runners(
-        batting_side: RL,
         batter_runner: Option<ActiveRunner>,
         runner_1st: Option<ActiveRunner>,
         runner_2nd: Option<ActiveRunner>,
         runner_3rd: Option<ActiveRunner>,
     ) -> RunnersOnBase {
         RunnersOnBase {
-            batting_side: Some(batting_side),
             batter_runner,
             runner_1st,
             runner_2nd,
@@ -1120,14 +1127,15 @@ mod tests {
     #[test]
     fn total_runner_time_applies_batter_side_penalty_lag_and_runner_lead() {
         let runners = runners(
-            RL::Right,
             Some(runner(8.0)),
             Some(runner_with_lead(7.0, 3.0)),
             None,
             None,
         );
 
-        let batter_to_second = runners.total_runner_time(Base::Home, Base::Second).unwrap();
+        let batter_to_second = runners
+            .batter_runner_time_to(Base::Second, true, RL::Right)
+            .unwrap();
         let runner_to_third = runners.total_runner_time(Base::First, Base::Third).unwrap();
 
         assert_near(
@@ -1144,7 +1152,7 @@ mod tests {
 
     #[test]
     fn total_runner_time_rejects_same_or_missing_runner_paths() {
-        let empty_runners = runners(RL::Left, Some(runner(8.0)), None, None, None);
+        let empty_runners = runners(Some(runner(8.0)), None, None, None);
 
         assert!(matches!(
             empty_runners.total_runner_time(Base::First, Base::First),
@@ -1154,8 +1162,7 @@ mod tests {
             empty_runners.total_runner_time(Base::Second, Base::Home),
             Err(GameError::Runner2nd)
         ));
-        let runners_with_second =
-            runners(RL::Left, Some(runner(8.0)), None, Some(runner(7.0)), None);
+        let runners_with_second = runners(Some(runner(8.0)), None, Some(runner(7.0)), None);
         assert!(matches!(
             runners_with_second.total_runner_time(Base::Second, Base::First),
             Err(GameError::UnsupportedPath)
@@ -1165,7 +1172,6 @@ mod tests {
     #[test]
     fn after_homerun_scores_all_occupied_bases_and_clears_runners() {
         let mut runners = runners(
-            RL::Left,
             Some(runner(8.0)),
             Some(runner(7.0)),
             Some(runner(7.1)),
@@ -1175,7 +1181,6 @@ mod tests {
         let runs_scored = runners.after_homerun();
 
         assert_eq!(runs_scored, 4);
-        assert!(runners.batting_side.is_none());
         assert!(runners.batter_runner.is_none());
         assert!(runners.runner_1st.is_none());
         assert!(runners.runner_2nd.is_none());
@@ -1185,21 +1190,20 @@ mod tests {
     #[test]
     fn after_infield_grounder_safe_at_first_records_single_and_forced_advances() {
         let runners = runners(
-            RL::Left,
             Some(runner(8.0)),
             Some(runner(7.0)),
             Some(runner(7.0)),
             Some(runner(7.0)),
         );
-        let batter_time = runners.batter_runner_time_to(Base::First, true).unwrap();
+        let batter_time = runners
+            .batter_runner_time_to(Base::First, true, RL::Left)
+            .unwrap();
 
         let result = runners
-            .after_infield_grounder(&defense_result(
-                Base::First,
-                PlayType::ForcePlay,
-                1.0,
-                batter_time + 0.01,
-            ))
+            .after_infield_grounder(
+                &defense_result(Base::First, PlayType::ForcePlay, 1.0, batter_time + 0.01),
+                RL::Left,
+            )
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Safe);
@@ -1213,7 +1217,6 @@ mod tests {
     #[test]
     fn after_infield_grounder_out_at_home_keeps_force_advances_without_scoring() {
         let runners = runners(
-            RL::Left,
             Some(runner(8.0)),
             Some(runner(7.0)),
             Some(runner(7.0)),
@@ -1222,12 +1225,10 @@ mod tests {
         let runner_time = runners.total_runner_time(Base::Third, Base::Home).unwrap();
 
         let result = runners
-            .after_infield_grounder(&defense_result(
-                Base::Home,
-                PlayType::ForcePlay,
-                1.0,
-                runner_time - 0.01,
-            ))
+            .after_infield_grounder(
+                &defense_result(Base::Home, PlayType::ForcePlay, 1.0, runner_time - 0.01),
+                RL::Left,
+            )
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Out);
@@ -1241,23 +1242,28 @@ mod tests {
     #[test]
     fn after_outfield_hit_late_fielding_attempts_double_and_scores_existing_runners() {
         let runners = runners(
-            RL::Left,
             Some(runner(8.0)),
             Some(runner(7.0)),
             Some(runner(7.0)),
             Some(runner(7.0)),
         );
-        let batter_to_first_without_lag =
-            runners.batter_runner_time_to(Base::First, false).unwrap();
-        let batter_to_second = runners.batter_runner_time_to(Base::Second, true).unwrap();
+        let batter_to_first_without_lag = runners
+            .batter_runner_time_to(Base::First, false, RL::Left)
+            .unwrap();
+        let batter_to_second = runners
+            .batter_runner_time_to(Base::Second, true, RL::Left)
+            .unwrap();
 
         let result = runners
-            .after_outfield_hit(&defense_result(
-                Base::Second,
-                PlayType::TouchPlay,
-                batter_to_first_without_lag + 0.01,
-                batter_to_second + 0.01,
-            ))
+            .after_outfield_hit(
+                &defense_result(
+                    Base::Second,
+                    PlayType::TouchPlay,
+                    batter_to_first_without_lag + 0.01,
+                    batter_to_second + 0.01,
+                ),
+                RL::Left,
+            )
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Safe);
@@ -1271,23 +1277,28 @@ mod tests {
     #[test]
     fn after_outfield_hit_batter_out_still_scores_existing_runner_from_third() {
         let runners = runners(
-            RL::Left,
             Some(runner(8.0)),
             Some(runner(7.0)),
             None,
             Some(runner(7.0)),
         );
-        let batter_to_first_without_lag =
-            runners.batter_runner_time_to(Base::First, false).unwrap();
-        let batter_to_first = runners.batter_runner_time_to(Base::First, true).unwrap();
+        let batter_to_first_without_lag = runners
+            .batter_runner_time_to(Base::First, false, RL::Left)
+            .unwrap();
+        let batter_to_first = runners
+            .batter_runner_time_to(Base::First, true, RL::Left)
+            .unwrap();
 
         let result = runners
-            .after_outfield_hit(&defense_result(
-                Base::First,
-                PlayType::ForcePlay,
-                batter_to_first_without_lag - 0.01,
-                batter_to_first - 0.01,
-            ))
+            .after_outfield_hit(
+                &defense_result(
+                    Base::First,
+                    PlayType::ForcePlay,
+                    batter_to_first_without_lag - 0.01,
+                    batter_to_first - 0.01,
+                ),
+                RL::Left,
+            )
             .unwrap();
 
         assert_eq!(result.ruling, Ruling::Out);
@@ -1301,7 +1312,6 @@ mod tests {
     #[test]
     fn after_tagup_safe_at_home_scores_and_holds_other_runners() {
         let runners = runners(
-            RL::Left,
             Some(runner(8.0)),
             Some(runner(7.0)),
             Some(runner(7.0)),
@@ -1328,7 +1338,7 @@ mod tests {
 
     #[test]
     fn after_double_play_removes_runner_when_second_throw_wins() {
-        let runners = runners(RL::Left, Some(runner(8.0)), Some(runner(7.0)), None, None);
+        let runners = runners(Some(runner(8.0)), Some(runner(7.0)), None, None);
         let previous_unsaved = RunnersUnsaved {
             runner_1st: None,
             runner_2nd: Some(runner(7.0)),
@@ -1342,6 +1352,7 @@ mod tests {
             .after_double_play(
                 &double_play_result(Base::Second, runner_time - 0.01),
                 &runner_advance_result(BattingResult::FieldersChoice, previous_unsaved),
+                RL::Left,
             )
             .unwrap();
 
@@ -1352,7 +1363,7 @@ mod tests {
 
     #[test]
     fn after_double_play_keeps_previous_batting_result_when_second_throw_loses() {
-        let runners = runners(RL::Left, Some(runner(8.0)), Some(runner(7.0)), None, None);
+        let runners = runners(Some(runner(8.0)), Some(runner(7.0)), None, None);
         let previous_unsaved = RunnersUnsaved {
             runner_1st: None,
             runner_2nd: Some(runner(7.0)),
@@ -1368,6 +1379,7 @@ mod tests {
             .after_double_play(
                 &double_play_result(Base::Second, runner_time + 0.01),
                 &previous_result,
+                RL::Left,
             )
             .unwrap();
 
@@ -1378,12 +1390,13 @@ mod tests {
 
     #[test]
     fn after_double_play_rejects_home_target() {
-        let runners = runners(RL::Left, Some(runner(8.0)), None, None, None);
+        let runners = runners(Some(runner(8.0)), None, None, None);
 
         assert!(matches!(
             runners.after_double_play(
                 &double_play_result(Base::Home, 1.0),
-                &runner_advance_result(BattingResult::Out, RunnersUnsaved::default())
+                &runner_advance_result(BattingResult::Out, RunnersUnsaved::default()),
+                RL::Left
             ),
             Err(GameError::DoublePlayTargetBase)
         ));
@@ -1391,7 +1404,7 @@ mod tests {
 
     #[test]
     fn after_base_stealing_safe_to_second_moves_runner() {
-        let mut runners = runners(RL::Left, None, Some(runner(7.0)), None, None);
+        let mut runners = runners(None, Some(runner(7.0)), None, None);
         let runner_time = runners
             .total_runner_time(Base::First, Base::Second)
             .unwrap();
@@ -1407,7 +1420,7 @@ mod tests {
 
     #[test]
     fn after_base_stealing_out_to_third_keeps_runner_on_second() {
-        let mut runners = runners(RL::Left, None, None, Some(runner(7.0)), None);
+        let mut runners = runners(None, None, Some(runner(7.0)), None);
         let runner_time = runners
             .total_runner_time(Base::Second, Base::Third)
             .unwrap();
@@ -1423,7 +1436,7 @@ mod tests {
 
     #[test]
     fn after_base_stealing_rejects_unsupported_target() {
-        let mut runners = runners(RL::Left, None, Some(runner(7.0)), None, None);
+        let mut runners = runners(None, Some(runner(7.0)), None, None);
 
         assert!(matches!(
             runners.after_base_stealing(steal_result(Base::Home, 1.0)),

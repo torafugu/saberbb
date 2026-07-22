@@ -33,6 +33,7 @@ pub struct GameCursor {
 pub struct BatterGameStatView {
     pub team_id: u16,
     pub batting_order: u8,
+    pub position: Position,
     pub player: PlayerInfo,
     pub plate_appearances: u16,
     pub at_bats: u16,
@@ -398,6 +399,7 @@ impl GameCursor {
                     BatterGameStatView {
                         team_id,
                         batting_order: entry.batting_order,
+                        position: entry.position,
                         player: entry.player.clone(),
                         plate_appearances: 0,
                         at_bats: 0,
@@ -676,6 +678,7 @@ mod tests {
 
         assert_eq!(stats.len(), 2);
         assert_eq!(stats[0].player.id, 10);
+        assert_eq!(stats[0].position, Position::DH);
         assert_eq!(stats[0].plate_appearances, 1);
         assert_eq!(stats[0].hits, 1);
         assert_eq!(stats[1].player.id, 11);

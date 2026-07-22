@@ -828,9 +828,7 @@ mod tests {
     use crate::domain::random_provider::FixedRng;
     use crate::domain::resolver::fielding_physics::try_catch;
     use crate::domain::shared::game_state::ActiveRunner;
-    use crate::domain::shared::player::{
-        FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
-    };
+    use crate::domain::shared::player::{FielderInfo, FielderType, PitcherStyle, RunningSkills};
     use crate::domain::shared::stadium::Stadium;
 
     fn assert_near(actual: f64, expected: f64) {
@@ -904,7 +902,6 @@ mod tests {
         }
 
         RunnersOnBase {
-            batting_side: Some(RL::Left),
             batter_runner: Some(runner(7.0)),
             runner_1st: runner_1st_speed.map(runner),
             runner_2nd: runner_2nd_speed.map(runner),
