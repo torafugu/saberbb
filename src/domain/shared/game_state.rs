@@ -4,12 +4,13 @@ use super::player::{
 };
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::resolver::batting_resolver::calculate_batted_ball;
+use crate::domain::resolver::batting_resolver::{calculate_batted_ball, evaluate_swing};
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_defensive_chain,
 };
+use crate::domain::resolver::pitching_resolver::calculate_pitched_ball;
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
@@ -652,7 +653,9 @@ impl GameState {
         let mut running_seq = 1;
         let mut point = 0;
 
-        let pitcher_id = self.current_pitcher().id;
+        let active_pitcher = self.current_pitcher();
+        let pitcher_id = active_pitcher.id;
+        let pitcher = active_pitcher.pitcher.clone();
         let active_batter = self.active_batter_for_count()?;
         let batter_id = active_batter.id;
         let batter = active_batter.batter.clone();
@@ -661,21 +664,24 @@ impl GameState {
 
         self.prepare_plate_appearance(batter_runner);
 
-        // TODO: pitch_speed must be replaced by ActivePitcher
-        let ball = calculate_batted_ball(self.rng.as_mut(), &batter, 150.0);
-        info!("Batted Ball: {:#?}", ball);
+        let pitched_ball = calculate_pitched_ball(self.rng.as_mut(), &pitcher);
 
-        if self.stadium.is_stand_in(&ball) {
-            self.resolve_stand_in_ball(pitcher_id, batter_id, &ball)?;
+        // TODO: pitch_speed must be replaced by ActivePitcher
+        let contact = evaluate_swing(&batter, &pitched_ball);
+        let batted_ball = calculate_batted_ball(self.rng.as_mut(), &batter, pitched_ball, &contact);
+        info!("Batted Ball: {:#?}", batted_ball);
+
+        if self.stadium.is_stand_in(&batted_ball) {
+            self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
             return Ok(());
         }
 
         let fielders = self.current_fielders().clone();
         let fielder = {
-            let handler = process_defensive_chain(&fielders, &ball)?;
+            let handler = process_defensive_chain(&fielders, &batted_ball)?;
             handler.fielder
         };
-        let fielded_ball = try_catch(fielder, &ball, &self.stadium);
+        let fielded_ball = try_catch(fielder, &batted_ball, &self.stadium);
         info!("Fielded Ball: {:#?}", fielded_ball);
 
         let ctx = PlayContext {
@@ -690,14 +696,14 @@ impl GameState {
             return Ok(());
         }
 
-        if ball.is_foul() {
+        if batted_ball.is_foul() {
             info!("Foul");
 
             self.game_result.add_player_batting(
                 self.count_seq,
                 pitcher_id,
                 batter_id,
-                ball,
+                batted_ball,
                 None,
                 BattingResult::Foul,
             );
@@ -919,11 +925,13 @@ mod tests {
         player.offense_skills.batter = batting_order.map(|order| BatterInfo {
             batting_side: RL::Right,
             swing_speed: 100.0 - order as f64,
+            base_launch_angle: 28.0,
+            consistency_sigma: 0.03,
             weight_pull: 0.2,
             weight_center: 0.2,
             weight_opposite: 0.2,
-            weight_foul_left: 0.2,
-            weight_foul_right: 0.2,
+            weight_foul_pull: 0.2,
+            weight_foul_opposite: 0.2,
         });
 
         player.defense_skills = DefenseSkills::new(position);

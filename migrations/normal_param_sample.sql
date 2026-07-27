@@ -1,3 +1,6 @@
+DELETE FROM
+    normal_param;
+
 INSERT INTO
     normal_param (
         category1,
@@ -86,6 +89,52 @@ VALUES
         115.0,
         6.0,
         0.1,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
+        'base_launch_angle',
+        15.0,
+        3.5,
+        0.08,
+        1.0,
+        8.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
+        'consistency_sigma',
+        0.03,
+        0.012,
+        0.0,
         1.0,
         0.0
     );

@@ -498,8 +498,8 @@ impl GameRepository for SqlGameRepository {
     fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError> {
         info!("load_batter_info() started for {}", player_id);
 
-        let query = "SELECT batting_side, swing_speed, weight_pull, weight_center,
-                weight_opposite, weight_foul_left, weight_foul_right
+        let query = "SELECT batting_side, swing_speed, base_launch_angle, consistency_sigma,
+                weight_pull, weight_center, weight_opposite, weight_foul_pull, weight_foul_opposite
                 FROM batter_info WHERE player_id = ?1";
         self.db_client
             .query_row::<BatterInfo>(query, params![player_id])
@@ -762,11 +762,13 @@ mod tests {
                 player_id INTEGER PRIMARY KEY,
                 batting_side TEXT NOT NULL,
                 swing_speed REAL NOT NULL,
+                base_launch_angle REAL NOT NULL,
+                consistency_sigma REAL NOT NULL,
                 weight_pull REAL NOT NULL,
                 weight_center REAL NOT NULL,
                 weight_opposite REAL NOT NULL,
-                weight_foul_left REAL NOT NULL,
-                weight_foul_right REAL NOT NULL
+                weight_foul_pull REAL NOT NULL,
+                weight_foul_opposite REAL NOT NULL
             );
 
             CREATE TABLE fielder_info (
@@ -1025,10 +1027,10 @@ mod tests {
             } else {
                 conn.execute(
                     "INSERT INTO batter_info (
-                        player_id, batting_side, swing_speed, weight_pull,
-                        weight_center, weight_opposite, weight_foul_left,
-                        weight_foul_right
-                    ) VALUES (?1, 'Right', 30.0, 0.3, 0.3, 0.2, 0.1, 0.1)",
+                        player_id, batting_side, swing_speed, base_launch_angle,
+                        consistency_sigma, weight_pull, weight_center, weight_opposite,
+                        weight_foul_pull, weight_foul_opposite
+                    ) VALUES (?1, 'Right', 30.0, 28.0, 0.03, 0.3, 0.3, 0.2, 0.1, 0.1)",
                     params![id],
                 )
                 .unwrap();

@@ -299,11 +299,13 @@ mod tests {
         player.offense_skills.batter = Some(BatterInfo {
             batting_side: RL::Right,
             swing_speed: 30.0,
+            base_launch_angle: 28.0,
+            consistency_sigma: 0.03,
             weight_pull: 0.3,
             weight_center: 0.3,
             weight_opposite: 0.2,
-            weight_foul_left: 0.1,
-            weight_foul_right: 0.1,
+            weight_foul_pull: 0.1,
+            weight_foul_opposite: 0.1,
         });
 
         let position = positions[((id - 1) as usize) % positions.len()];

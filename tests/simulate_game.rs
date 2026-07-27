@@ -5,6 +5,7 @@ use saberbb::domain::random_provider::{FixedRng, RealRng};
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_physics::try_catch;
 use saberbb::domain::resolver::fielding_resolver::*;
+use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
@@ -168,10 +169,12 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
     while let InningProgress::Ongoing = inning_state.inning_progress() {
         println!("\n--- New count ---");
-        inning_state.runners.batting_side = Some(batter.batting_side);
         inning_state.runners.batter_runner = Some(batter_runner);
 
-        let ball = calculate_batted_ball(&mut rng, &batter, 150.0);
+        let pitched_ball = calculate_pitched_ball(&mut rng, &pitcher);
+
+        let contact = evaluate_swing(&batter, &pitched_ball);
+        let ball = calculate_batted_ball(&mut rng, &batter, pitched_ball, &contact);
 
         println!("{:#?}", ball);
 
@@ -255,12 +258,12 @@ fn test_through_half_inning() -> Result<(), GameError> {
             } else {
                 inning_state
                     .runners
-                    .after_outfield_hit(&defense_play_result)?
+                    .after_outfield_hit(&defense_play_result, batter.batting_side)?
             }
         } else {
             inning_state
                 .runners
-                .after_infield_grounder(&defense_play_result)?
+                .after_infield_grounder(&defense_play_result, batter.batting_side)?
         };
 
         println!("{:#?}", runner_advance_result);
@@ -272,9 +275,11 @@ fn test_through_half_inning() -> Result<(), GameError> {
             {
                 println!("{:#?}", double_play_defense_play_result);
 
-                let double_play_runner_advance_result = inning_state
-                    .runners
-                    .after_double_play(&double_play_defense_play_result, &runner_advance_result)?;
+                let double_play_runner_advance_result = inning_state.runners.after_double_play(
+                    &double_play_defense_play_result,
+                    &runner_advance_result,
+                    batter.batting_side,
+                )?;
 
                 println!("{:#?}", double_play_runner_advance_result);
 
@@ -328,7 +333,6 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     };
 
     let mut inning_state = InningState::new();
-    inning_state.runners.batting_side = Some(RL::Left);
     inning_state.runners.batter_runner = Some(batter_runner);
     inning_state.runners.runner_1st = Some(runner_on_first);
 
@@ -351,7 +355,9 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
 
     let mut first_play_rng = FixedRng::new(0.1);
     let first_play = evaluate_defense_play(&ctx, &mut first_play_rng)?;
-    let first_advance = inning_state.runners.after_infield_grounder(&first_play)?;
+    let first_advance = inning_state
+        .runners
+        .after_infield_grounder(&first_play, RL::Left)?;
 
     assert_eq!(first_advance.ruling, Ruling::Out);
 
@@ -360,9 +366,10 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
 
     inning_state.add_out();
 
-    let second_advance = inning_state
-        .runners
-        .after_double_play(&second_play, &first_advance)?;
+    let second_advance =
+        inning_state
+            .runners
+            .after_double_play(&second_play, &first_advance, RL::Left)?;
 
     assert_eq!(second_advance.ruling, Ruling::Out);
     inning_state.add_out();
@@ -470,23 +477,38 @@ fn test_base_running() {
 }
 
 #[test]
-fn test_catch_batted_ball() {
+fn test_batted_ball() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
 
     let right_average_hitter = BatterInfo {
         batting_side: RL::Right,
         swing_speed: 125.0,
+        base_launch_angle: 28.0,
+        consistency_sigma: 0.03,
         weight_pull: 0.35,
         weight_center: 0.35,
         weight_opposite: 0.15,
-        weight_foul_left: 0.08,
-        weight_foul_right: 0.07,
+        weight_foul_pull: 0.08,
+        weight_foul_opposite: 0.07,
     };
 
     let mut rng = RealRng::new();
 
     for _ in 0..1000 {
-        let ball = calculate_batted_ball(&mut rng, &right_average_hitter, 150.0);
+        let ball = calculate_batted_ball(
+            &mut rng,
+            &right_average_hitter,
+            PitchedBall {
+                speed: 150.0,
+                spin_rate: 2300.0,
+                spin_angle: 30.0,
+            },
+            &SwingContactResult {
+                vertical_offset: 0.0,
+                horizontal_offset: -0.1,
+                timing_offset: 0.0,
+            },
+        );
         conn.execute(
             "INSERT INTO test_batted_ball (launch_speed_kmh, launch_angle,  spray_angle, distance, hang_time, trajectory) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

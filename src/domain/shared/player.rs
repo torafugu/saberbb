@@ -342,32 +342,34 @@ impl fmt::Display for HitterTendency {
 pub struct BatterInfo {
     pub batting_side: RL,
     pub swing_speed: f64,
+    pub base_launch_angle: f64, // Ex. 28.0 deg
+    pub consistency_sigma: f64, // Ex. 0.03
 
     // NOTE: Weight of probability for each sector (set to sum to 1.0)
     // CONSTRAINT: Randomize based on batter type
+    pub weight_foul_pull: f64,
     pub weight_pull: f64,
     pub weight_center: f64,
     pub weight_opposite: f64,
-    pub weight_foul_left: f64,
-    pub weight_foul_right: f64,
+    pub weight_foul_opposite: f64,
 }
 impl BatterInfo {
     // Returns the concrete angle range (min, max) for the selected sector
     pub fn get_angle_range(&self, sector: FieldSector) -> (f32, f32) {
         match self.batting_side {
             RL::Right => match sector {
-                FieldSector::FoulLeft => (-90.0, -45.0),
+                FieldSector::FoulPull => (-90.0, -45.0),
                 FieldSector::Pull => (-45.0, -15.0), // Right-handed batter's pull → left field (-)
                 FieldSector::Center => (-15.0, 15.0),
                 FieldSector::Opposite => (15.0, 45.0), // Right-handed batter's opposite → right field (+)
-                FieldSector::FoulRight => (45.0, 90.0),
+                FieldSector::FoulOpposite => (45.0, 90.0),
             },
             RL::Left => match sector {
-                FieldSector::FoulLeft => (-90.0, -45.0),
+                FieldSector::FoulOpposite => (-90.0, -45.0),
                 FieldSector::Opposite => (-45.0, -15.0), // Left-handed batter's opposite → left field (-)
                 FieldSector::Center => (-15.0, 15.0),
                 FieldSector::Pull => (15.0, 45.0), // Left-handed batter's pull → right field (+)
-                FieldSector::FoulRight => (45.0, 90.0),
+                FieldSector::FoulPull => (45.0, 90.0),
             },
         }
     }
@@ -380,7 +382,6 @@ pub struct RunningSkills {
     pub start_reaction: f64, // TODO: judge mechanism should be implemented.
 }
 
-// TODO: Randomize throw_speed, running_speed, reaction and prep_time
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug, Validate)]
 pub struct FielderInfo {
     pub fielder_type: FielderType,

@@ -46,6 +46,8 @@ pub struct BatterInfoProbs {
     pub batting_side: Vec<ItemWeighted<RL>>,
     pub swing_speed: NormalParam,
     pub hitter_tendency: Vec<ItemWeighted<HitterTendency>>,
+    pub base_launch_angle: NormalParam,
+    pub consistency_sigma: NormalParam,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]

@@ -172,11 +172,11 @@ impl<R: PlayerRepository> PlayerFactory<R> {
                     FieldSector::Opposite => {
                         batter_info.weight_opposite = field_sector_weight.weight
                     }
-                    FieldSector::FoulLeft => {
-                        batter_info.weight_foul_left = field_sector_weight.weight
+                    FieldSector::FoulOpposite => {
+                        batter_info.weight_foul_pull = field_sector_weight.weight
                     }
-                    FieldSector::FoulRight => {
-                        batter_info.weight_foul_right = field_sector_weight.weight
+                    FieldSector::FoulPull => {
+                        batter_info.weight_foul_opposite = field_sector_weight.weight
                     }
                 }
             }
@@ -186,10 +186,12 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
         batter_info.batting_side =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
-        batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
 
         // TODO: Consider correlation　of hitter_tendency.
         batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
+        // TODO: Consider correlation　of hitter_tendency.
+        batter_info.base_launch_angle = self.rng.normal(self.batter_info_probs.base_launch_angle);
+        batter_info.consistency_sigma = self.rng.normal(self.batter_info_probs.consistency_sigma);
 
         Ok(batter_info)
     }

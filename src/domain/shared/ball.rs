@@ -1,5 +1,5 @@
 use crate::domain::shared::player::Position;
-use crate::domain::util::{GRAVIY, PolarPosition};
+use crate::domain::util::{GRAVITY, PolarPosition};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -8,6 +8,7 @@ use strum_macros::{AsRefStr, EnumString};
 const FOUL_DEGREE: f64 = 45.0;
 const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
+pub const CONVERT_FACTOR_KMH_TO_MS: f64 = 0.2778;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum TrajectoryType {
@@ -71,7 +72,7 @@ impl BattedBall {
     }
 
     pub fn launch_speed_ms(&self) -> f64 {
-        self.launch_speed_kmh * 0.278
+        self.launch_speed_kmh * CONVERT_FACTOR_KMH_TO_MS
     }
 
     pub fn azimuth(&self) -> f64 {
@@ -106,7 +107,7 @@ impl BattedBall {
         &self,
         target_distance: f64, // Distance at which to calculate height (m)
     ) -> f64 {
-        let v = self.launch_speed_kmh * 0.278; // Convert to m/s
+        let v = self.launch_speed_kmh * CONVERT_FACTOR_KMH_TO_MS;
         let theta = self.launch_angle.to_radians();
 
         // 1. Apply drag coefficient based on trajectory type
@@ -126,17 +127,23 @@ impl BattedBall {
 
         // 3. Calculate height at that time using the parabolic formula
         let initial_vertical_velocity = v * theta.sin();
-        let height = (initial_vertical_velocity * t) - (0.5 * GRAVIY * t * t);
+        let height = (initial_vertical_velocity * t) - (0.5 * GRAVITY * t * t);
 
         // Clamp to 0m if negative (ball would be below ground)
         height.max(0.0)
     }
 }
 
+pub struct PitchedBall {
+    pub speed: f64,      // NOTE: (e.g., 150.0 km/h)
+    pub spin_rate: f64,  // NOTE: (e.g., 2300.0 rpm)
+    pub spin_angle: f64, // NOTE: (e.g., 0.0 ~ 360.0 deg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::util::GRAVIY;
+    use crate::domain::util::GRAVITY;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -226,10 +233,10 @@ mod tests {
     fn calculate_height_at_distance_uses_liner_drag_coefficient() {
         let liner = ball(TrajectoryType::Liner, 80.0, 0.0, 120.0, 20.0);
         let target_distance = 30.0;
-        let v = 120.0 * 0.278;
+        let v = 120.0 * 0.2778;
         let theta = 20.0_f64.to_radians();
         let t = target_distance / (v * theta.cos() * 0.75);
-        let expected_height = (v * theta.sin() * t) - (0.5 * GRAVIY * t * t);
+        let expected_height = (v * theta.sin() * t) - (0.5 * GRAVITY * t * t);
 
         assert_near(
             liner.calculate_height_at_distance(target_distance),

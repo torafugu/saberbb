@@ -235,11 +235,13 @@ impl FromRow for BatterInfo {
         let batter_info = BatterInfo {
             batting_side: row.get("batting_side")?,
             swing_speed: row.get("swing_speed")?,
+            base_launch_angle: row.get("base_launch_angle")?,
+            consistency_sigma: row.get("consistency_sigma")?,
             weight_pull: row.get("weight_pull")?,
             weight_center: row.get("weight_center")?,
             weight_opposite: row.get("weight_opposite")?,
-            weight_foul_left: row.get("weight_foul_left")?,
-            weight_foul_right: row.get("weight_foul_right")?,
+            weight_foul_pull: row.get("weight_foul_pull")?,
+            weight_foul_opposite: row.get("weight_foul_opposite")?,
         };
 
         batter_info.validate()?;

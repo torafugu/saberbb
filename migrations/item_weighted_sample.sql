@@ -51,12 +51,17 @@ VALUES
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('hitter_tendency', 'Normal', 'FoulLeft', 0.08);
+    ('hitter_tendency', 'Normal', 'FoulPull', 0.08);
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('hitter_tendency', 'Normal', 'FoulRight', 0.07);
+    (
+        'hitter_tendency',
+        'Normal',
+        'FoulOpposite',
+        0.07
+    );
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)
@@ -76,12 +81,12 @@ VALUES
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('hitter_tendency', 'Pull', 'FoulLeft', 0.12);
+    ('hitter_tendency', 'Pull', 'FoulPull', 0.12);
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('hitter_tendency', 'Pull', 'FoulRight', 0.03);
+    ('hitter_tendency', 'Pull', 'FoulOpposite', 0.03);
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)
@@ -101,12 +106,12 @@ VALUES
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('hitter_tendency', 'Spray', 'FoulLeft', 0.02);
+    ('hitter_tendency', 'Spray', 'FoulPull', 0.02);
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('hitter_tendency', 'Spray', 'FoulRight', 0.03);
+    ('hitter_tendency', 'Spray', 'FoulOpposite', 0.03);
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)

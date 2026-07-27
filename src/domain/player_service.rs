@@ -88,11 +88,19 @@ impl<R: PlayerRepository> PlayerService<R> {
         let batting_side = self.repo.item_probs(PLY, "batting_side")?;
         let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
         let hitter_tendency = self.repo.item_probs(PLY, "hitter_tendency")?;
+        let base_launch_angle = self
+            .repo
+            .normal_params(PLY, "batter_info", "base_launch_angle")?;
+        let consistency_sigma = self
+            .repo
+            .normal_params(PLY, "batter_info", "consistency_sigma")?;
 
         Ok(BatterInfoProbs {
             batting_side: batting_side,
             swing_speed: swing_speed,
             hitter_tendency: hitter_tendency,
+            base_launch_angle: base_launch_angle,
+            consistency_sigma: consistency_sigma,
         })
     }
 
