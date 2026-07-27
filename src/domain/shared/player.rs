@@ -421,29 +421,21 @@ impl CatcherInfo {
 #[strum(ascii_case_insensitive)]
 pub enum PitchType {
     FourSeamFastball,
-    TwoSeamFastball,
     Cutter,
     Curveball,
     Slider,
-    Sweeper,
     Changeup,
     Forkball,
-    SplitFingerFastball,
-    Knuckleball,
 }
 impl fmt::Display for PitchType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             PitchType::FourSeamFastball => write!(f, "{}", t!("four_seam_fastball")),
-            PitchType::TwoSeamFastball => write!(f, "{}", t!("two_seam_fastball")),
             PitchType::Cutter => write!(f, "{}", t!("cutter")),
             PitchType::Curveball => write!(f, "{}", t!("curveball")),
             PitchType::Slider => write!(f, "{}", t!("slider")),
-            PitchType::Sweeper => write!(f, "{}", t!("sweeper")),
             PitchType::Changeup => write!(f, "{}", t!("changeup")),
             PitchType::Forkball => write!(f, "{}", t!("forkball")),
-            PitchType::SplitFingerFastball => write!(f, "{}", t!("split_finger_fastball")),
-            PitchType::Knuckleball => write!(f, "{}", t!("knuckleball")),
         }
     }
 }
@@ -457,6 +449,23 @@ pub enum ArmSlot {
     ThreeQuarter, // 2:00 (60 deg)
     Sidearm,      // 3:00 (90 deg)
     Submarine,    // 4:00 (120 deg)
+}
+impl ArmSlot {
+    /// Returns the base spin angle (deg) for each delivery form's fastball
+    pub fn base_spin_dir(&self, throw_side: RL) -> f64 {
+        let base_deg = match self {
+            ArmSlot::Overhand => 25.0,
+            ArmSlot::ThreeQuarter => 55.0,
+            ArmSlot::Sidearm => 85.0,
+            ArmSlot::Submarine => 115.0,
+        };
+
+        if throw_side == RL::Left {
+            (360.0 - base_deg) % 360.0 // Left-handed pitcher mirrors horizontally (11, 10, 9 o'clock directions)
+        } else {
+            base_deg
+        }
+    }
 }
 
 #[derive(
@@ -504,7 +513,7 @@ impl PitcherInfo {
         stamina: f64,
         injury_proneness: f64,
         clutch: f64,
-        hpp: f64,
+        hpp: f64, // Home-Away Splitting
         platoon_splitting: f64,
         delivery_motion_time: f64,
         pitch_skills: Vec<PitchSkill>,
@@ -535,12 +544,9 @@ pub struct PitchSkill {
     pub control: f64,
     pub stamina: f64,
     pub injury_proneness: f64,
-    pub stuff: f64,
-    pub fb: f64, // NOTE: Home Run to Fly Ball Rate
-    pub gp: f64, // NOTE: Grounder Percentage
-    pub horizontal_movement: f64,
-    pub vertical_movement: f64,
     pub spin_rate: f64,
+    pub spin_angle: f64,
+    pub spin_efficiency: f64,
     pub usage: f64, // TODO: Should be over written by strategy
 }
 
@@ -551,12 +557,9 @@ impl PitchSkill {
         control: f64,
         stamina: f64,
         injury_proneness: f64,
-        stuff: f64,
-        fb: f64,
-        gp: f64,
-        horizontal_movement: f64,
-        vertical_movement: f64,
         spin_rate: f64,
+        spin_angle: f64,
+        spin_efficiency: f64,
         usage: f64,
     ) -> Self {
         Self {
@@ -565,12 +568,9 @@ impl PitchSkill {
             control,
             stamina,
             injury_proneness,
-            stuff,
-            fb,
-            gp,
-            horizontal_movement,
-            vertical_movement,
             spin_rate,
+            spin_angle,
+            spin_efficiency,
             usage,
         }
     }

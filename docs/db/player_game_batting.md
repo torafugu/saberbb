@@ -17,6 +17,7 @@ CREATE TABLE player_game_batting (
     polar_angle REAL NOT NULL,
     hang_time REAL NOT NULL,
     trajectory TEXT NOT NULL,
+    fielder_position TEXT,
     result TEXT NOT NULL,
     PRIMARY KEY (game_id, count_seq)
 )
@@ -26,19 +27,20 @@ CREATE TABLE player_game_batting (
 
 ## Columns
 
-| Name           | Type    | Default | Nullable | Children | Parents | Comment |
-| -------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_id        | INTEGER |         | true     |          |         |         |
-| count_seq      | INTEGER |         | true     |          |         |         |
-| pitcher_id     | INTEGER |         | false    |          |         |         |
-| batter_id      | INTEGER |         | false    |          |         |         |
-| launch_speed   | REAL    |         | false    |          |         |         |
-| launch_angle   | REAL    |         | false    |          |         |         |
-| polar_distance | REAL    |         | false    |          |         |         |
-| polar_angle    | REAL    |         | false    |          |         |         |
-| hang_time      | REAL    |         | false    |          |         |         |
-| trajectory     | TEXT    |         | false    |          |         |         |
-| result         | TEXT    |         | false    |          |         |         |
+| Name             | Type    | Default | Nullable | Children | Parents | Comment |
+| ---------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id          | INTEGER |         | true     |          |         |         |
+| count_seq        | INTEGER |         | true     |          |         |         |
+| pitcher_id       | INTEGER |         | false    |          |         |         |
+| batter_id        | INTEGER |         | false    |          |         |         |
+| launch_speed     | REAL    |         | false    |          |         |         |
+| launch_angle     | REAL    |         | false    |          |         |         |
+| polar_distance   | REAL    |         | false    |          |         |         |
+| polar_angle      | REAL    |         | false    |          |         |         |
+| hang_time        | REAL    |         | false    |          |         |         |
+| trajectory       | TEXT    |         | false    |          |         |         |
+| fielder_position | TEXT    |         | true     |          |         |         |
+| result           | TEXT    |         | false    |          |         |         |
 
 ## Constraints
 

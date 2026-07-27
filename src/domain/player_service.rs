@@ -188,18 +188,15 @@ impl<R: PlayerRepository> PlayerService<R> {
         let injury_proneness =
             self.repo
                 .normal_params(PT, pitch_type.as_ref(), "injury_proneness")?;
-        let stuff = self.repo.normal_params(PT, pitch_type.as_ref(), "stuff")?;
-        let fb = self.repo.normal_params(PT, pitch_type.as_ref(), "fb")?;
-        let gp = self.repo.normal_params(PT, pitch_type.as_ref(), "gp")?;
-        let horizontal_movement =
-            self.repo
-                .normal_params(PT, pitch_type.as_ref(), "horizontal_movement")?;
-        let vertical_movement =
-            self.repo
-                .normal_params(PT, pitch_type.as_ref(), "vertical_movement")?;
         let spin_rate = self
             .repo
             .normal_params(PT, pitch_type.as_ref(), "spin_rate")?;
+        let spin_angle = self
+            .repo
+            .normal_params(PT, pitch_type.as_ref(), "spin_angle")?;
+        let spin_efficiency =
+            self.repo
+                .normal_params(PT, pitch_type.as_ref(), "spin_efficiency")?;
         let usage = self.repo.normal_params(PT, pitch_type.as_ref(), "usage")?;
 
         Ok(PitchSkillProbs {
@@ -207,12 +204,9 @@ impl<R: PlayerRepository> PlayerService<R> {
             control: control,
             stamina: stamina,
             injury_proneness: injury_proneness,
-            stuff: stuff,
-            fb: fb,
-            gp: gp,
-            horizontal_movement: horizontal_movement,
-            vertical_movement: vertical_movement,
             spin_rate: spin_rate,
+            spin_angle: spin_angle,
+            spin_efficiency: spin_efficiency,
             usage: usage,
         })
     }
@@ -781,7 +775,7 @@ mod tests {
         assert!(probs.contains_key(&PitchType::Changeup));
         assert_eq!(
             state.pitch_skill_prob_calls.get(),
-            PitchType::iter().count() * 11
+            PitchType::iter().count() * 8
         );
         assert!(state
             .pitch_skill_prob_types

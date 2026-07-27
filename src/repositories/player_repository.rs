@@ -324,15 +324,12 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             control,
                                                             stamina,
                                                             injury_proneness,
-                                                            stuff,
-                                                            fb,
-                                                            gp,
-                                                            horizontal_movement,
-                                                            vertical_movement,
                                                             spin_rate,
+                                                            spin_angle,
+                                                            spin_efficiency,
                                                             usage
                                                         ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
         self.db_client.execute_tx(
             tx,
             insert_pitch_skill_sql,
@@ -343,12 +340,9 @@ impl PlayerRepository for SqlPlayerRepository {
                 pitch_skill.control,
                 pitch_skill.stamina,
                 pitch_skill.injury_proneness,
-                pitch_skill.stuff,
-                pitch_skill.fb,
-                pitch_skill.gp,
-                pitch_skill.horizontal_movement,
-                pitch_skill.vertical_movement,
                 pitch_skill.spin_rate,
+                pitch_skill.spin_angle,
+                pitch_skill.spin_efficiency,
                 pitch_skill.usage,
             ],
         )
@@ -564,12 +558,9 @@ mod tests {
                 control REAL NOT NULL,
                 stamina REAL NOT NULL,
                 injury_proneness REAL NOT NULL,
-                stuff REAL NOT NULL,
-                fb REAL NOT NULL,
-                gp REAL NOT NULL,
-                horizontal_movement REAL NOT NULL,
-                vertical_movement REAL NOT NULL,
                 spin_rate REAL NOT NULL,
+                spin_angle REAL NOT NULL,
+                spin_efficiency REAL NOT NULL,
                 usage REAL NOT NULL,
                 PRIMARY KEY (player_id, pitch_type)
             );
@@ -966,13 +957,10 @@ mod tests {
                 control: 2.2,
                 stamina: 2.3,
                 injury_proneness: 2.4,
-                stuff: 2.5,
-                fb: 2.6,
-                gp: 2.7,
-                horizontal_movement: 2.8,
-                vertical_movement: 2.9,
                 spin_rate: 3.0,
-                usage: 3.1,
+                spin_angle: 3.1,
+                spin_efficiency: 3.2,
+                usage: 3.3,
             }],
             fielder_info: fielder_info(FielderType::Pitcher),
         });
@@ -991,14 +979,10 @@ mod tests {
             f64,
             f64,
             f64,
-            f64,
-            f64,
-            f64,
         ) = conn
             .query_row(
                 "SELECT player_id, pitch_type, velocity, control, stamina,
-                    injury_proneness, stuff, fb, gp,
-                    horizontal_movement, vertical_movement, spin_rate, usage
+                    injury_proneness, spin_rate, spin_angle, spin_efficiency, usage
                  FROM pitch_skill",
                 [],
                 |row| {
@@ -1013,9 +997,6 @@ mod tests {
                         row.get(7)?,
                         row.get(8)?,
                         row.get(9)?,
-                        row.get(10)?,
-                        row.get(11)?,
-                        row.get(12)?,
                     ))
                 },
             )
@@ -1024,8 +1005,8 @@ mod tests {
         assert_eq!(row.0, 1);
         assert_eq!(row.1, "FourSeamFastball");
         assert_eq!(
-            [row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11, row.12,],
-            [2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 3.1]
+            [row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9],
+            [2.1, 2.2, 2.3, 2.4, 3.0, 3.1, 3.2, 3.3]
         );
         std::fs::remove_file(path).ok();
     }

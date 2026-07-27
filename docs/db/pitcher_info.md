@@ -8,6 +8,8 @@
 ```sql
 CREATE TABLE pitcher_info(
     player_id INTEGER PRIMARY KEY,
+    throw_side TEXT NOT NULL,
+    arm_slot TEXT NOT NULL,
     pitcher_style TEXT NOT NULL,
     velocity REAL NOT NULL,
     control REAL NOT NULL,
@@ -27,6 +29,8 @@ CREATE TABLE pitcher_info(
 | Name                 | Type    | Default | Nullable | Children | Parents | Comment |
 | -------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
 | player_id            | INTEGER |         | true     |          |         |         |
+| throw_side           | TEXT    |         | false    |          |         |         |
+| arm_slot             | TEXT    |         | false    |          |         |         |
 | pitcher_style        | TEXT    |         | false    |          |         |         |
 | velocity             | REAL    |         | false    |          |         |         |
 | control              | REAL    |         | false    |          |         |         |

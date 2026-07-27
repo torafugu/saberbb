@@ -316,12 +316,9 @@ impl<R: PlayerRepository> PlayerFactory<R> {
                     control: self.rng.normal(pitch_skill_prob.control),
                     stamina: self.rng.normal(pitch_skill_prob.stamina),
                     injury_proneness: self.rng.normal(pitch_skill_prob.injury_proneness),
-                    stuff: self.rng.normal(pitch_skill_prob.stuff),
-                    fb: self.rng.normal(pitch_skill_prob.fb),
-                    gp: self.rng.normal(pitch_skill_prob.gp),
-                    horizontal_movement: self.rng.normal(pitch_skill_prob.horizontal_movement),
-                    vertical_movement: self.rng.normal(pitch_skill_prob.vertical_movement),
                     spin_rate: self.rng.normal(pitch_skill_prob.spin_rate),
+                    spin_angle: self.rng.normal(pitch_skill_prob.spin_angle),
+                    spin_efficiency: self.rng.normal(pitch_skill_prob.spin_efficiency),
                     usage: self.rng.normal(pitch_skill_prob.usage),
                 };
                 pitch_skills.push(pitch_skill);

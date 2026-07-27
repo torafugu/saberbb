@@ -54,12 +54,8 @@ These fields are intended to control skew when generating pitcher base skills.
 | `mod_control` | `f64` | Pitch-specific control modifier. |
 | `mod_stamina` | `f64` | Pitch-specific stamina modifier. |
 | `mod_injury_proneness` | `f64` | Pitch-specific injury proneness modifier. |
-| `mod_stuff` | `f64` | Pitch quality modifier. |
-| `mod_fb` | `f64` | Home run to fly ball rate modifier. |
-| `mod_gp` | `f64` | Grounder percentage modifier. |
-| `mod_horizontal_movement` | `f64` | Horizontal movement modifier. |
-| `mod_vertical_movement` | `f64` | Vertical movement modifier. |
 | `mod_spin_rate` | `f64` | Spin rate modifier. |
+| `mod_spin_angle` | `f64` | Spin angle modifier. |
 
 ## Pitch Mix
 
@@ -67,4 +63,3 @@ These fields are intended to control skew when generating pitcher base skills.
 | --- | --- | --- |
 | `pitch_type` | `PitchType` | Pitch type used in the mix. |
 | `usage` | `u8` | Usage value for the pitch. |
-

@@ -535,7 +535,7 @@ impl GameRepository for SqlGameRepository {
     fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError> {
         info!("load_pitch_skill() started");
         let query =
-                "SELECT pitch_type, velocity, control, stamina, injury_proneness, stuff, fb, gp, horizontal_movement, vertical_movement, spin_rate, usage 
+                "SELECT pitch_type, velocity, control, stamina, injury_proneness, spin_rate, spin_angle, spin_efficiency, usage 
                 FROM pitch_skill WHERE player_id = ?1";
         self.db_client
             .query_rows::<PitchSkill>(query, params![player_id])
@@ -803,12 +803,9 @@ mod tests {
                 control REAL NOT NULL,
                 stamina REAL NOT NULL,
                 injury_proneness REAL NOT NULL,
-                stuff REAL NOT NULL,
-                fb REAL NOT NULL,
-                gp REAL NOT NULL,
-                horizontal_movement REAL NOT NULL,
-                vertical_movement REAL NOT NULL,
                 spin_rate REAL NOT NULL,
+                spin_angle REAL NOT NULL,
+                spin_efficiency REAL NOT NULL,
                 usage REAL NOT NULL,
                 PRIMARY KEY (player_id, pitch_type)
             );
@@ -1019,9 +1016,8 @@ mod tests {
                 conn.execute(
                     "INSERT INTO pitch_skill (
                         player_id, pitch_type, velocity, control, stamina,
-                        injury_proneness, stuff, fb, gp, horizontal_movement,
-                        vertical_movement, spin_rate, usage
-                    ) VALUES (?1, 'FourSeamFastball', 145.0, 0.7, 90.0, 0.1, 0.8, 0.1, 0.4, 0.0, 12.0, 2200.0, 1.0)",
+                        injury_proneness, spin_rate, spin_angle, spin_efficiency, usage
+                    ) VALUES (?1, 'FourSeamFastball', 145.0, 0.7, 90.0, 0.1, 2200.0, 0.0, 0.9, 1.0)",
                     params![id],
                 )
                 .unwrap();

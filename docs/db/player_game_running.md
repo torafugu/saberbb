@@ -13,6 +13,8 @@ CREATE TABLE player_game_running (
     defense_time REAL NOT NULL,
     runner_time REAL NOT NULL,
     throw_target_base TEXT NOT NULL,
+    target_runner_id INTEGER,
+    event TEXT NOT NULL,
     play_type TEXT NOT NULL,
     ruling TEXT NOT NULL,
     runs_scored INTEGER NOT NULL,
@@ -35,6 +37,8 @@ CREATE TABLE player_game_running (
 | defense_time      | REAL    |         | false    |          |         |         |
 | runner_time       | REAL    |         | false    |          |         |         |
 | throw_target_base | TEXT    |         | false    |          |         |         |
+| target_runner_id  | INTEGER |         | true     |          |         |         |
+| event             | TEXT    |         | false    |          |         |         |
 | play_type         | TEXT    |         | false    |          |         |         |
 | ruling            | TEXT    |         | false    |          |         |         |
 | runs_scored       | INTEGER |         | false    |          |         |         |

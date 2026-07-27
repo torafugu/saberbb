@@ -80,11 +80,8 @@ pub struct PitchSkillProbs {
     pub control: NormalParam,
     pub stamina: NormalParam,
     pub injury_proneness: NormalParam,
-    pub stuff: NormalParam,
-    pub fb: NormalParam,
-    pub gp: NormalParam,
-    pub horizontal_movement: NormalParam,
-    pub vertical_movement: NormalParam,
     pub spin_rate: NormalParam,
+    pub spin_angle: NormalParam,
+    pub spin_efficiency: NormalParam,
     pub usage: NormalParam,
 }

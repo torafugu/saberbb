@@ -217,16 +217,6 @@ VALUES
     (
         'pitcher_style',
         'PowerPitcher',
-        'TwoSeamFastball',
-        0.3
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'PowerPitcher',
         'Cutter',
         0.2
     );
@@ -257,16 +247,6 @@ VALUES
     (
         'pitcher_style',
         'PowerPitcher',
-        'Sweeper',
-        0.3
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'PowerPitcher',
         'Changeup',
         0.3
     );
@@ -286,39 +266,9 @@ INSERT INTO
 VALUES
     (
         'pitcher_style',
-        'PowerPitcher',
-        'SplitFingerFastball',
-        0.4
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'PowerPitcher',
-        'Knuckleball',
-        0.0
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
         'FinessePitcher',
         'FourSeamFastball',
         1.0
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'FinessePitcher',
-        'TwoSeamFastball',
-        0.7
     );
 
 INSERT INTO
@@ -357,16 +307,6 @@ VALUES
     (
         'pitcher_style',
         'FinessePitcher',
-        'Sweeper',
-        0.6
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'FinessePitcher',
         'Changeup',
         0.8
     );
@@ -386,39 +326,9 @@ INSERT INTO
 VALUES
     (
         'pitcher_style',
-        'FinessePitcher',
-        'SplitFingerFastball',
-        0.7
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'FinessePitcher',
-        'Knuckleball',
-        0.02
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
         'BalancedPitcher',
         'FourSeamFastball',
         1.0
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'BalancedPitcher',
-        'TwoSeamFastball',
-        0.5
     );
 
 INSERT INTO
@@ -457,16 +367,6 @@ VALUES
     (
         'pitcher_style',
         'BalancedPitcher',
-        'Sweeper',
-        0.4
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'BalancedPitcher',
         'Changeup',
         0.5
     );
@@ -479,26 +379,6 @@ VALUES
         'BalancedPitcher',
         'Forkball',
         0.4
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'BalancedPitcher',
-        'SplitFingerFastball',
-        0.5
-    );
-
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    (
-        'pitcher_style',
-        'BalancedPitcher',
-        'Knuckleball',
-        0.001
     );
 
 INSERT INTO

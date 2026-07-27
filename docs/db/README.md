@@ -19,17 +19,17 @@
 | [item_weighted](item_weighted.md)               | 4       |         | table |
 | [normal_param](normal_param.md)                 | 8       |         | table |
 | [gamma_param](gamma_param.md)                   | 6       |         | table |
-| [pitcher_info](pitcher_info.md)                 | 10      |         | table |
-| [pitch_skill](pitch_skill.md)                   | 13      |         | table |
 | [defense_skills](defense_skills.md)             | 2       |         | table |
 | [stadium](stadium.md)                           | 6       |         | table |
 | [game](game.md)                                 | 12      |         | table |
-| [batter_info](batter_info.md)                   | 8       |         | table |
-| [player_game_entry](player_game_entry.md)       | 5       |         | table |
-| [player_game_batting](player_game_batting.md)   | 11      |         | table |
-| [player_game_running](player_game_running.md)   | 12      |         | table |
 | [player_game_fielding](player_game_fielding.md) | 11      |         | table |
 | [count](count.md)                               | 8       |         | table |
+| [player_game_batting](player_game_batting.md)   | 12      |         | table |
+| [player_game_running](player_game_running.md)   | 14      |         | table |
+| [player_game_entry](player_game_entry.md)       | 6       |         | table |
+| [batter_info](batter_info.md)                   | 10      |         | table |
+| [pitcher_info](pitcher_info.md)                 | 12      |         | table |
+| [pitch_skill](pitch_skill.md)                   | 10      |         | table |
 
 ## Relations
 

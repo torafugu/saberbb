@@ -13,12 +13,9 @@ CREATE TABLE pitch_skill (
     control REAL NOT NULL,
     stamina REAL NOT NULL,
     injury_proneness REAL NOT NULL,
-    stuff REAL NOT NULL,
-    fb REAL NOT NULL,
-    gp REAL NOT NULL,
-    horizontal_movement REAL NOT NULL,
-    vertical_movement REAL NOT NULL,
     spin_rate REAL NOT NULL,
+    spin_angle REAL NOT NULL,
+    spin_efficiency REAL NOT NULL,
     usage REAL NOT NULL,
     PRIMARY KEY (player_id, pitch_type)
 )
@@ -28,21 +25,18 @@ CREATE TABLE pitch_skill (
 
 ## Columns
 
-| Name                | Type    | Default | Nullable | Children | Parents | Comment |
-| ------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| player_id           | INTEGER |         | true     |          |         |         |
-| pitch_type          | TEXT    |         | true     |          |         |         |
-| velocity            | REAL    |         | false    |          |         |         |
-| control             | REAL    |         | false    |          |         |         |
-| stamina             | REAL    |         | false    |          |         |         |
-| injury_proneness    | REAL    |         | false    |          |         |         |
-| stuff               | REAL    |         | false    |          |         |         |
-| fb                  | REAL    |         | false    |          |         |         |
-| gp                  | REAL    |         | false    |          |         |         |
-| horizontal_movement | REAL    |         | false    |          |         |         |
-| vertical_movement   | REAL    |         | false    |          |         |         |
-| spin_rate           | REAL    |         | false    |          |         |         |
-| usage               | REAL    |         | false    |          |         |         |
+| Name             | Type    | Default | Nullable | Children | Parents | Comment |
+| ---------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| player_id        | INTEGER |         | true     |          |         |         |
+| pitch_type       | TEXT    |         | true     |          |         |         |
+| velocity         | REAL    |         | false    |          |         |         |
+| control          | REAL    |         | false    |          |         |         |
+| stamina          | REAL    |         | false    |          |         |         |
+| injury_proneness | REAL    |         | false    |          |         |         |
+| spin_rate        | REAL    |         | false    |          |         |         |
+| spin_angle       | REAL    |         | false    |          |         |         |
+| spin_efficiency  | REAL    |         | false    |          |         |         |
+| usage            | REAL    |         | false    |          |         |         |
 
 ## Constraints
 

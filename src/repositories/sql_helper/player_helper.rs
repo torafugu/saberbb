@@ -215,12 +215,9 @@ impl FromRow for PitchSkill {
             control: row.get("control")?,
             stamina: row.get("stamina")?,
             injury_proneness: row.get("injury_proneness")?,
-            stuff: row.get("stuff")?,
-            fb: row.get("fb")?,
-            gp: row.get("gp")?,
-            horizontal_movement: row.get("horizontal_movement")?,
-            vertical_movement: row.get("vertical_movement")?,
             spin_rate: row.get("spin_rate")?,
+            spin_angle: row.get("spin_angle")?,
+            spin_efficiency: row.get("spin_efficiency")?,
             usage: row.get("usage")?,
         };
 

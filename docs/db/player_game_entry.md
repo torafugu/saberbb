@@ -11,6 +11,7 @@ CREATE TABLE player_game_entry (
     start_count_seq INTEGER,
     end_count_seq INTEGER,
     position TEXT,
+    batting_order INTEGER,
     player_id INTEGER,
     PRIMARY KEY (
         game_id,
@@ -30,6 +31,7 @@ CREATE TABLE player_game_entry (
 | start_count_seq | INTEGER |         | true     |          |         |         |
 | end_count_seq   | INTEGER |         | true     |          |         |         |
 | position        | TEXT    |         | true     |          |         |         |
+| batting_order   | INTEGER |         | true     |          |         |         |
 | player_id       | INTEGER |         | true     |          |         |         |
 
 ## Constraints
