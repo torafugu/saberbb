@@ -61,6 +61,8 @@ pub struct FielderInfoProbs {
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
 pub struct PitcherInfoProbs {
+    pub height: NormalParam,
+    pub extension: NormalParam,
     pub throw_side: Vec<ItemWeighted<RL>>,
     pub arm_slot: Vec<ItemWeighted<ArmSlot>>,
     pub pitcher_style: Vec<ItemWeighted<PitcherStyle>>,

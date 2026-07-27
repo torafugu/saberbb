@@ -184,6 +184,8 @@ impl FromRow for PitcherInfo {
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let pitcher_info = PitcherInfo {
+            height: row.get("height")?,
+            extension: row.get("extension")?,
             throw_side: row.get("throw_side")?,
             arm_slot: row.get("arm_slot")?,
             pitcher_style: row.get("pitcher_style")?,

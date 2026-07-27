@@ -278,6 +278,8 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let pitch_skills = self.assign_pitch_skill(&pitcher_style)?;
 
         Ok(PitcherInfo {
+            height: self.rng.normal(self.pitcher_info_probs.height),
+            extension: self.rng.normal(self.pitcher_info_probs.extension),
             throw_side: throw_side,
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,

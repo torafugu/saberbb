@@ -36,13 +36,12 @@ impl SwingContactResult {
 }
 
 pub struct PitchDisplacement {
-    /// Horizontal offset (-1.0: shift left ~ +1.0: shift right)
+    // NOTE: Horizontal offset (-1.0: shift left ~ +1.0: shift right)
     pub horizontal: f64,
-    /// Vertical offset (-1.0: shift down ~ +1.0: shift up)
+    // NOTE: Vertical offset (-1.0: shift down ~ +1.0: shift up)
     pub vertical: f64,
 }
 
-// TODO: Return value should be merged into SwingContactResult.
 // NOTE: Calculate sweet_spot_factor (0.0 ~ 1.0) solely from pitch spin characteristics
 pub fn calculate_pitch_displacement(ball: &PitchedBall) -> PitchDisplacement {
     // 1. Simple calculation of Magnus effect magnitude based on spin rate

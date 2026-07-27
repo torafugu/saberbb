@@ -270,6 +270,8 @@ impl PlayerRepository for SqlPlayerRepository {
 
         let insert_pitcher_info_sql = "INSERT INTO pitcher_info (
                                                             player_id,
+                                                            height,
+                                                            extension,
                                                             throw_side,
                                                             arm_slot,
                                                             pitcher_style,
@@ -282,12 +284,14 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             platoon_splitting,
                                                             delivery_motion_time
                                                             ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
         self.db_client.execute_tx(
             tx,
             insert_pitcher_info_sql,
             params![
                 player_id,
+                pitcher_info.height,
+                pitcher_info.extension,
                 pitcher_info.throw_side,
                 pitcher_info.arm_slot,
                 pitcher_info.pitcher_style,
@@ -538,6 +542,8 @@ mod tests {
 
             CREATE TABLE pitcher_info (
                 player_id INTEGER PRIMARY KEY,
+                height REAL NOT NULL,
+                extension REAL NOT NULL,
                 throw_side TEXT NOT NULL,
                 arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
@@ -857,6 +863,8 @@ mod tests {
         let mut player = player();
         player.defense_skills.position = Position::P;
         player.defense_skills.pitcher = Some(PitcherInfo {
+            height: 1.85,
+            extension: 1.8,
             throw_side: RL::Left,
             arm_slot: ArmSlot::Sidearm,
             pitcher_style: PitcherStyle::BalancedPitcher,
@@ -880,18 +888,11 @@ mod tests {
             String,
             String,
             String,
-            f64,
-            f64,
-            f64,
-            f64,
-            f64,
-            f64,
-            f64,
-            f64,
+            [f64; 10],
         ) = conn
             .query_row(
                 "SELECT player_id, throw_side, arm_slot, pitcher_style, velocity, control, stamina,
-                    injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time
+                    height, extension, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time
                  FROM pitcher_info",
                 [],
                 |row| {
@@ -900,14 +901,18 @@ mod tests {
                         row.get(1)?,
                         row.get(2)?,
                         row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                        row.get(7)?,
-                        row.get(8)?,
-                        row.get(9)?,
-                        row.get(10)?,
-                        row.get(11)?,
+                        [
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
+                            row.get(10)?,
+                            row.get(11)?,
+                            row.get(12)?,
+                            row.get(13)?,
+                        ],
                     ))
                 },
             )
@@ -920,14 +925,7 @@ mod tests {
                 "Left".to_string(),
                 "Sidearm".to_string(),
                 "BalancedPitcher".to_string(),
-                1.1,
-                1.2,
-                1.3,
-                1.4,
-                1.5,
-                1.6,
-                1.7,
-                1.8
+                [1.1, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8]
             )
         );
         std::fs::remove_file(path).ok();
@@ -940,6 +938,8 @@ mod tests {
         let mut player = player();
         player.defense_skills.position = Position::P;
         player.defense_skills.pitcher = Some(PitcherInfo {
+            height: 1.85,
+            extension: 1.8,
             throw_side: RL::Right,
             arm_slot: ArmSlot::ThreeQuarter,
             pitcher_style: PitcherStyle::PowerPitcher,

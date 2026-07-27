@@ -128,6 +128,8 @@ impl<R: PlayerRepository> PlayerService<R> {
         let throw_side = self.repo.item_probs(PLY, "throw")?;
         let arm_slot = self.repo.item_probs(PTI, "arm_slot")?;
         let pitcher_style = self.repo.item_probs(PTI, "pitcher_style")?;
+        let height = self.repo.normal_params(PLY, PTI, "height")?;
+        let extension = self.repo.normal_params(PLY, PTI, "extension")?;
         let velocity = self.repo.normal_params(PLY, PTI, "velocity")?;
         let control = self.repo.normal_params(PLY, PTI, "control")?;
         let stamina = self.repo.normal_params(PLY, PTI, "stamina")?;
@@ -138,6 +140,8 @@ impl<R: PlayerRepository> PlayerService<R> {
         let delivery_motion_time = self.repo.normal_params(PLY, PTI, "delivery_motion_time")?;
 
         Ok(PitcherInfoProbs {
+            height: height,
+            extension: extension,
             throw_side: throw_side,
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,
@@ -346,6 +350,8 @@ mod tests {
                     },
                 },
                 pitcher_attribute_prob: PitcherInfoProbs {
+                    height: normal,
+                    extension: normal,
                     throw_side: vec![ItemWeighted {
                         name: RL::Right,
                         weight: 1.0,

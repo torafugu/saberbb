@@ -489,6 +489,8 @@ impl fmt::Display for PitcherStyle {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitcherInfo {
+    pub height: f64,
+    pub extension: f64,
     pub throw_side: RL,
     pub arm_slot: ArmSlot,
     pub pitcher_style: PitcherStyle,
@@ -505,6 +507,8 @@ pub struct PitcherInfo {
 }
 impl PitcherInfo {
     pub fn from_prob(
+        height: f64,
+        extension: f64,
         throw_side: RL,
         arm_slot: ArmSlot,
         pitcher_style: PitcherStyle,
@@ -520,6 +524,8 @@ impl PitcherInfo {
         fielder_info: FielderInfo,
     ) -> Self {
         Self {
+            height: height,
+            extension: extension,
             throw_side: throw_side,
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,

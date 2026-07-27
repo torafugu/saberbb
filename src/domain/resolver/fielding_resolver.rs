@@ -913,6 +913,8 @@ mod tests {
 
     fn pitcher(delivery_motion_time: f64) -> PitcherInfo {
         PitcherInfo {
+            height: 1.85,
+            extension: 1.8,
             throw_side: RL::Right,
             arm_slot: ArmSlot::ThreeQuarter,
             pitcher_style: PitcherStyle::BalancedPitcher,

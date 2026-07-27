@@ -320,6 +320,8 @@ mod tests {
         if position == Position::P {
             player.offense_skills.batter = None;
             player.defense_skills.pitcher = Some(PitcherInfo {
+                height: 1.85,
+                extension: 1.8,
                 throw_side: RL::Right,
                 arm_slot: ArmSlot::ThreeQuarter,
                 pitcher_style: PitcherStyle::BalancedPitcher,
