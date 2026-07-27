@@ -1,14 +1,14 @@
 use super::game::{BattingResult, Count, Inning, TB};
 use super::player::{
-    BatterInfo, CatcherInfo, FielderInfo, PitcherInfo, Position, RL, RunningSkills,
+    BatterInfo, CatcherInfo, FielderInfo, PitcherInfo, Position, RunningSkills, RL,
 };
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{calculate_batted_ball, evaluate_swing};
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
-    DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
-    evaluate_double_play, process_defensive_chain,
+    evaluate_base_stealing, evaluate_defense_play, evaluate_double_play, process_defensive_chain,
+    DefensePlayResult, PlayContext, PlayType,
 };
 use crate::domain::resolver::pitching_resolver::calculate_pitched_ball;
 use crate::domain::resolver::running_resolver::{
@@ -894,7 +894,8 @@ mod tests {
     use crate::domain::random_provider::FixedRng;
     use crate::domain::shared::game::GameType;
     use crate::domain::shared::player::{
-        DefenseSkills, FielderType, PitchSkill, PitchType, PitcherStyle, Player, PlayerInfo, RL,
+        ArmSlot, DefenseSkills, FielderType, PitchSkill, PitchType, PitcherStyle, Player,
+        PlayerInfo, RL,
     };
     use crate::domain::shared::team::Team;
     use chrono::NaiveDate;
@@ -939,6 +940,8 @@ mod tests {
             Position::P => {
                 let info = fielder_info(FielderType::Pitcher);
                 player.defense_skills.pitcher = Some(PitcherInfo {
+                    throw_side: RL::Right,
+                    arm_slot: ArmSlot::ThreeQuarter,
                     pitcher_style: PitcherStyle::BalancedPitcher,
                     velocity: 145.0,
                     control: 0.5,

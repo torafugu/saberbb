@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{Transaction, params};
+use rusqlite::{params, Transaction};
 use tracing::info;
 
 pub trait PlayerRepository {
@@ -270,6 +270,8 @@ impl PlayerRepository for SqlPlayerRepository {
 
         let insert_pitcher_info_sql = "INSERT INTO pitcher_info (
                                                             player_id,
+                                                            throw_side,
+                                                            arm_slot,
                                                             pitcher_style,
                                                             velocity,
                                                             control,
@@ -280,12 +282,14 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             platoon_splitting,
                                                             delivery_motion_time
                                                             ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
         self.db_client.execute_tx(
             tx,
             insert_pitcher_info_sql,
             params![
                 player_id,
+                pitcher_info.throw_side,
+                pitcher_info.arm_slot,
                 pitcher_info.pitcher_style,
                 pitcher_info.velocity,
                 pitcher_info.control,
@@ -456,12 +460,12 @@ impl PlayerRepository for SqlPlayerRepository {
 mod tests {
     use super::*;
     use crate::domain::shared::player::{
-        BatterInfo, DefenseSkills, FielderInfo, FielderType, OffenseSkills, PitchSkill, PitchType,
-        PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, OffenseSkills, PitchSkill,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
     };
     use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -540,6 +544,8 @@ mod tests {
 
             CREATE TABLE pitcher_info (
                 player_id INTEGER PRIMARY KEY,
+                throw_side TEXT NOT NULL,
+                arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
                 velocity REAL NOT NULL,
                 control REAL NOT NULL,
@@ -860,6 +866,8 @@ mod tests {
         let mut player = player();
         player.defense_skills.position = Position::P;
         player.defense_skills.pitcher = Some(PitcherInfo {
+            throw_side: RL::Left,
+            arm_slot: ArmSlot::Sidearm,
             pitcher_style: PitcherStyle::BalancedPitcher,
             velocity: 1.1,
             control: 1.2,
@@ -876,9 +884,22 @@ mod tests {
         repo.insert_player(1, &player).unwrap();
 
         let conn = conn(&repo);
-        let row: (u32, String, f64, f64, f64, f64, f64, f64, f64, f64) = conn
+        let row: (
+            u32,
+            String,
+            String,
+            String,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+        ) = conn
             .query_row(
-                "SELECT player_id, pitcher_style, velocity, control, stamina,
+                "SELECT player_id, throw_side, arm_slot, pitcher_style, velocity, control, stamina,
                     injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time
                  FROM pitcher_info",
                 [],
@@ -894,6 +915,8 @@ mod tests {
                         row.get(7)?,
                         row.get(8)?,
                         row.get(9)?,
+                        row.get(10)?,
+                        row.get(11)?,
                     ))
                 },
             )
@@ -903,6 +926,8 @@ mod tests {
             row,
             (
                 1,
+                "Left".to_string(),
+                "Sidearm".to_string(),
                 "BalancedPitcher".to_string(),
                 1.1,
                 1.2,
@@ -924,6 +949,8 @@ mod tests {
         let mut player = player();
         player.defense_skills.position = Position::P;
         player.defense_skills.pitcher = Some(PitcherInfo {
+            throw_side: RL::Right,
+            arm_slot: ArmSlot::ThreeQuarter,
             pitcher_style: PitcherStyle::PowerPitcher,
             velocity: 1.1,
             control: 1.2,
@@ -997,9 +1024,7 @@ mod tests {
         assert_eq!(row.0, 1);
         assert_eq!(row.1, "FourSeamFastball");
         assert_eq!(
-            [
-                row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11, row.12,
-            ],
+            [row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11, row.12,],
             [2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 3.1]
         );
         std::fs::remove_file(path).ok();
@@ -1165,16 +1190,12 @@ mod tests {
             repo.item_probs("player", "position").unwrap();
 
         assert_eq!(position_probs.len(), 2);
-        assert!(
-            position_probs
-                .iter()
-                .any(|prob| prob.name == Position::P && prob.weight == 0.42)
-        );
-        assert!(
-            position_probs
-                .iter()
-                .any(|prob| prob.name == Position::CF && prob.weight == 0.07)
-        );
+        assert!(position_probs
+            .iter()
+            .any(|prob| prob.name == Position::P && prob.weight == 0.42));
+        assert!(position_probs
+            .iter()
+            .any(|prob| prob.name == Position::CF && prob.weight == 0.07));
         std::fs::remove_file(path).ok();
     }
 
@@ -1243,11 +1264,9 @@ mod tests {
         assert!(pitch_type_probs.iter().any(|prob| {
             matches!(prob.name, PitchType::FourSeamFastball) && prob.weight == 1.0
         }));
-        assert!(
-            pitch_type_probs
-                .iter()
-                .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5)
-        );
+        assert!(pitch_type_probs
+            .iter()
+            .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5));
         std::fs::remove_file(path).ok();
     }
 

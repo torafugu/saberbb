@@ -12,7 +12,7 @@ use crate::domain::shared::player::{
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{Transaction, params};
+use rusqlite::{params, Transaction};
 use tracing::info;
 
 pub trait GameRepository {
@@ -521,7 +521,7 @@ impl GameRepository for SqlGameRepository {
     fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError> {
         info!("load_pitcher_info() started");
         let query =
-                "SELECT pitcher_style, velocity, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time 
+                "SELECT throw_side, arm_slot, pitcher_style, velocity, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time 
                 FROM pitcher_info WHERE player_id = ?1";
         let mut pitcher_info = self
             .db_client
@@ -783,6 +783,8 @@ mod tests {
 
             CREATE TABLE pitcher_info (
                 player_id INTEGER PRIMARY KEY,
+                throw_side TEXT NOT NULL,
+                arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
                 velocity REAL NOT NULL,
                 control REAL NOT NULL,
@@ -1007,10 +1009,10 @@ mod tests {
             if position == Position::P {
                 conn.execute(
                     "INSERT INTO pitcher_info (
-                        player_id, pitcher_style, velocity, control, stamina,
+                        player_id, throw_side, arm_slot, pitcher_style, velocity, control, stamina,
                         injury_proneness, clutch, hpp, platoon_splitting,
                         delivery_motion_time
-                    ) VALUES (?1, 'BalancedPitcher', 145.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4)",
+                    ) VALUES (?1, 'Right', 'ThreeQuarter', 'BalancedPitcher', 145.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4)",
                     params![id],
                 )
                 .unwrap();

@@ -8,7 +8,7 @@ use super::shared::prob::{
     RunningSkillProbs,
 };
 use crate::domain::random_provider::{
-    RandomProvider, RealRng, choose_item_if_exists, choose_item_weighted,
+    choose_item_if_exists, choose_item_weighted, RandomProvider, RealRng,
 };
 use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::player::{BatterInfo, DefenseSkills, PlayerInfo};
@@ -268,12 +268,18 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     }
 
     fn assign_pitcher_info(&mut self, fielder_info: &FielderInfo) -> Result<PitcherInfo> {
+        let throw_side =
+            choose_item_weighted(self.rng.as_mut(), &self.pitcher_info_probs.throw_side)?.clone();
+        let arm_slot =
+            choose_item_weighted(self.rng.as_mut(), &self.pitcher_info_probs.arm_slot)?.clone();
         let pitcher_style =
             choose_item_weighted(self.rng.as_mut(), &self.pitcher_info_probs.pitcher_style)?
                 .clone();
         let pitch_skills = self.assign_pitch_skill(&pitcher_style)?;
 
         Ok(PitcherInfo {
+            throw_side: throw_side,
+            arm_slot: arm_slot,
             pitcher_style: pitcher_style,
             velocity: self.rng.normal(self.pitcher_info_probs.velocity),
             control: self.rng.normal(self.pitcher_info_probs.control),

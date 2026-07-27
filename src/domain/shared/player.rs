@@ -452,6 +452,17 @@ impl fmt::Display for PitchType {
     Clone, Copy, Serialize, Deserialize, EnumString, EnumIter, Debug, PartialEq, Eq, Hash, AsRefStr,
 )]
 #[strum(ascii_case_insensitive)]
+pub enum ArmSlot {
+    Overhand,     // 1:00 (30 deg)
+    ThreeQuarter, // 2:00 (60 deg)
+    Sidearm,      // 3:00 (90 deg)
+    Submarine,    // 4:00 (120 deg)
+}
+
+#[derive(
+    Clone, Copy, Serialize, Deserialize, EnumString, EnumIter, Debug, PartialEq, Eq, Hash, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
 pub enum PitcherStyle {
     PowerPitcher,
     FinessePitcher,
@@ -469,6 +480,8 @@ impl fmt::Display for PitcherStyle {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitcherInfo {
+    pub throw_side: RL,
+    pub arm_slot: ArmSlot,
     pub pitcher_style: PitcherStyle,
     pub velocity: f64,
     pub control: f64,
@@ -483,6 +496,8 @@ pub struct PitcherInfo {
 }
 impl PitcherInfo {
     pub fn from_prob(
+        throw_side: RL,
+        arm_slot: ArmSlot,
         pitcher_style: PitcherStyle,
         velocity: f64,
         control: f64,
@@ -496,6 +511,8 @@ impl PitcherInfo {
         fielder_info: FielderInfo,
     ) -> Self {
         Self {
+            throw_side: throw_side,
+            arm_slot: arm_slot,
             pitcher_style: pitcher_style,
             velocity,
             control,

@@ -382,6 +382,8 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
 #[test]
 fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
     let pitcher = PitcherInfo {
+        throw_side: RL::Right,
+        arm_slot: ArmSlot::ThreeQuarter,
         pitcher_style: PitcherStyle::BalancedPitcher,
         velocity: 0.0,
         control: 0.0,

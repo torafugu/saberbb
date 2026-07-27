@@ -1,12 +1,35 @@
-INSERT INTO
-    item_weighted (category1, category2, name, weight)
-VALUES
-    ('player', 'throw', 'Right', 0.9);
+DELETE FROM
+    item_weighted;
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
-    ('player', 'throw', 'Left', 0.1);
+    ('pitcher_info', 'throw_side', 'Right', 0.9);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('pitcher_info', 'throw_side', 'Left', 0.1);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('pitcher_info', 'arm_slot', 'Overhand', 0.55);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('pitcher_info', 'arm_slot', 'ThreeQuarter', 0.25);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('pitcher_info', 'arm_slot', 'Sidearm', 0.15);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('pitcher_info', 'arm_slot', 'Submarine', 0.05);
 
 INSERT INTO
     item_weighted (category1, category2, name, weight)

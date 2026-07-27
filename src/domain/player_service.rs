@@ -125,6 +125,8 @@ impl<R: PlayerRepository> PlayerService<R> {
     pub fn load_pitcher_info_prob(&self) -> Result<PitcherInfoProbs, AppError> {
         info!("load_pitcher_info_prob() started");
 
+        let throw_side = self.repo.item_probs(PLY, "throw")?;
+        let arm_slot = self.repo.item_probs(PTI, "arm_slot")?;
         let pitcher_style = self.repo.item_probs(PTI, "pitcher_style")?;
         let velocity = self.repo.normal_params(PLY, PTI, "velocity")?;
         let control = self.repo.normal_params(PLY, PTI, "control")?;
@@ -136,6 +138,8 @@ impl<R: PlayerRepository> PlayerService<R> {
         let delivery_motion_time = self.repo.normal_params(PLY, PTI, "delivery_motion_time")?;
 
         Ok(PitcherInfoProbs {
+            throw_side: throw_side,
+            arm_slot: arm_slot,
             pitcher_style: pitcher_style,
             velocity: velocity,
             control: control,
@@ -259,8 +263,8 @@ impl<R: PlayerRepository> PlayerService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::player::{
-        BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill, PitchType,
-        PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills,
+        ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
     };
     use crate::domain::shared::prob::{
         GammaParam, ItemWeighted, NormalParam, PitcherInfoProbs, PlayerInfoProbs,
@@ -348,6 +352,14 @@ mod tests {
                     },
                 },
                 pitcher_attribute_prob: PitcherInfoProbs {
+                    throw_side: vec![ItemWeighted {
+                        name: RL::Right,
+                        weight: 1.0,
+                    }],
+                    arm_slot: vec![ItemWeighted {
+                        name: ArmSlot::ThreeQuarter,
+                        weight: 1.0,
+                    }],
                     pitcher_style: vec![ItemWeighted {
                         name: PitcherStyle::BalancedPitcher,
                         weight: 1.0,
@@ -771,12 +783,10 @@ mod tests {
             state.pitch_skill_prob_calls.get(),
             PitchType::iter().count() * 11
         );
-        assert!(
-            state
-                .pitch_skill_prob_types
-                .borrow()
-                .contains(&PitchType::Changeup)
-        );
+        assert!(state
+            .pitch_skill_prob_types
+            .borrow()
+            .contains(&PitchType::Changeup));
     }
 
     #[test]
