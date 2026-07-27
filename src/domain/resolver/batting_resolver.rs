@@ -399,6 +399,7 @@ mod tests {
     };
     use crate::domain::shared::ball::{PitchedBall, TrajectoryType};
     use crate::domain::shared::player::RL;
+    use crate::domain::util::Vector3D;
 
     fn batter_with_weights(
         batting_side: RL,
@@ -551,6 +552,11 @@ mod tests {
                     speed: 150.0,
                     spin_rate: 2300.0,
                     spin_angle: 0.0,
+                    release_point: Vector3D {
+                        x: 1.6,
+                        y: 16.74,
+                        z: 1.7
+                    },
                 },
                 &centered_contact(),
             );

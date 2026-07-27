@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 
 pub const GRAVITY: f64 = 9.81;
 
+pub struct Vector3D {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }

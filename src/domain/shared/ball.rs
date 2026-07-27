@@ -1,5 +1,5 @@
 use crate::domain::shared::player::Position;
-use crate::domain::util::{GRAVITY, PolarPosition};
+use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -138,6 +138,9 @@ pub struct PitchedBall {
     pub speed: f64,      // NOTE: (e.g., 150.0 km/h)
     pub spin_rate: f64,  // NOTE: (e.g., 2300.0 rpm)
     pub spin_angle: f64, // NOTE: (e.g., 0.0 ~ 360.0 deg)
+    /// Spatial coordinates where the ball was released (m)
+    /// Example: x = -0.5 (right-handed pitcher's arm side), y = 16.5 (Extension 1.9m), z = 1.8 (release height)
+    pub release_point: Vector3D,
 }
 
 #[cfg(test)]

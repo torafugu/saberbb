@@ -1,6 +1,7 @@
 use crate::I18nManager;
 use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::game_state::GameError;
+use crate::domain::util::Vector3D;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -539,6 +540,41 @@ impl PitcherInfo {
             delivery_motion_time: delivery_motion_time,
             pitch_skills: pitch_skills,
             fielder_info: fielder_info,
+        }
+    }
+
+    /// Auto-generate physical release point (x, y, z) from body data and delivery form
+    pub fn calculate_release_point(&self) -> Vector3D {
+        // 1. Z-axis (height): multiply height by form factor
+        let height_factor = match self.arm_slot {
+            ArmSlot::Overhand => 1.05, // Near-upright high release
+            ArmSlot::ThreeQuarter => 0.95,
+            ArmSlot::Sidearm => 0.70,
+            ArmSlot::Submarine => 0.40,
+        };
+        let release_z = self.height * height_factor;
+
+        // 2. X-axis (lateral position): horizontal spread based on arm slot
+        let side_distance = match self.arm_slot {
+            ArmSlot::Overhand => 0.35,
+            ArmSlot::ThreeQuarter => 0.55,
+            ArmSlot::Sidearm => 0.85,
+            ArmSlot::Submarine => 0.60,
+        };
+        // Left-handed pitcher flips the sign (-X)
+        let release_x = if self.throw_side == RL::Left {
+            -side_distance
+        } else {
+            side_distance
+        };
+
+        // 3. Y-axis (distance to batter): pitching rubber (18.44m) - extension
+        let distance_to_home = 18.44 - self.extension.clamp(1.2, 2.3);
+
+        Vector3D {
+            x: release_x,
+            y: distance_to_home,
+            z: release_z,
         }
     }
 }
