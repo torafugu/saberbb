@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{Transaction, params};
+use rusqlite::{params, Transaction};
 use tracing::info;
 
 pub trait PlayerRepository {
@@ -92,6 +92,7 @@ impl SqlPlayerRepository {
 }
 
 impl PlayerRepository for SqlPlayerRepository {
+    #[tracing::instrument(skip(self, player), fields(team_id = %team_id), err)]
     fn insert_player(&mut self, team_id: u16, player: &Player) -> Result<(), AppError> {
         info!("insert_player() started");
 
@@ -119,6 +120,7 @@ impl PlayerRepository for SqlPlayerRepository {
         })
     }
 
+    #[tracing::instrument(skip(self, tx, offense_skills), fields(player_id = %player_id), err)]
     fn insert_offense_skills(
         &self,
         tx: &Transaction,
@@ -136,6 +138,7 @@ impl PlayerRepository for SqlPlayerRepository {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, tx, batter_info), fields(player_id = %player_id), err)]
     fn insert_batter_info(
         &self,
         tx: &Transaction,
@@ -168,6 +171,7 @@ impl PlayerRepository for SqlPlayerRepository {
         )
     }
 
+    #[tracing::instrument(skip(self, tx, running_skills), fields(player_id = %player_id), err)]
     fn insert_running_skills(
         &self,
         tx: &Transaction,
@@ -192,6 +196,7 @@ impl PlayerRepository for SqlPlayerRepository {
         )
     }
 
+    #[tracing::instrument(skip(self, tx, defense_skills), fields(player_id = %player_id), err)]
     fn insert_defense_skills(
         &self,
         tx: &Transaction,
@@ -234,6 +239,7 @@ impl PlayerRepository for SqlPlayerRepository {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, tx, fielder_info), fields(player_id = %player_id, fielder_type = %fielder_info.fielder_type), err)]
     fn insert_fielder_info(
         &self,
         tx: &Transaction,
@@ -260,6 +266,7 @@ impl PlayerRepository for SqlPlayerRepository {
         )
     }
 
+    #[tracing::instrument(skip(self, tx, pitcher_info), fields(player_id = %player_id), err)]
     fn insert_pitcher_info(
         &self,
         tx: &Transaction,
@@ -313,6 +320,7 @@ impl PlayerRepository for SqlPlayerRepository {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, tx, pitch_skill), fields(player_id = %player_id, pitch_type = %pitch_skill.pitch_type), err)]
     fn insert_pitch_skill(
         &self,
         tx: &Transaction,
@@ -352,6 +360,7 @@ impl PlayerRepository for SqlPlayerRepository {
         )
     }
 
+    #[tracing::instrument(skip(self), fields(language = %language), err)]
     fn random_name(&self, language: String) -> Result<FullName, AppError> {
         info!("random_name() started");
 
@@ -379,6 +388,7 @@ impl PlayerRepository for SqlPlayerRepository {
             .query_row::<FullName>(query, params![language])
     }
 
+    #[tracing::instrument(skip(self, position), fields(position = %position), err)]
     fn next_player_dist_team(&self, position: Position) -> Result<Team, AppError> {
         info!("next_player_dist_team() started for {}", position);
 
@@ -396,6 +406,7 @@ impl PlayerRepository for SqlPlayerRepository {
         self.db_client.query_row::<Team>(query, params![position])
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn next_random_team(&self) -> Result<Team, AppError> {
         info!("next_random_team() started");
 
@@ -406,6 +417,7 @@ impl PlayerRepository for SqlPlayerRepository {
         self.db_client.query_row::<Team>(query, params![])
     }
 
+    #[tracing::instrument(skip(self), fields(category1 = %category1, category2 = %category2, name = %name), err)]
     fn normal_params(
         &self,
         category1: &str,
@@ -422,6 +434,7 @@ impl PlayerRepository for SqlPlayerRepository {
             .query_row::<NormalParam>(query, params![category1, category2, name])
     }
 
+    #[tracing::instrument(skip(self), fields(category1 = %category1, category2 = %category2, name = %name), err)]
     fn gamma_params(
         &self,
         category1: &str,
@@ -438,6 +451,7 @@ impl PlayerRepository for SqlPlayerRepository {
             .query_row::<GammaParam>(query, params![category1, category2, name])
     }
 
+    #[tracing::instrument(skip(self), fields(category1 = %category1, category2 = %category2), err)]
     fn item_probs<T>(
         &self,
         category1: &str,
@@ -462,11 +476,11 @@ mod tests {
     use super::*;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, OffenseSkills, PitchSkill,
-        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
     };
     use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1163,16 +1177,12 @@ mod tests {
             repo.item_probs("player", "position").unwrap();
 
         assert_eq!(position_probs.len(), 2);
-        assert!(
-            position_probs
-                .iter()
-                .any(|prob| prob.name == Position::P && prob.weight == 0.42)
-        );
-        assert!(
-            position_probs
-                .iter()
-                .any(|prob| prob.name == Position::CF && prob.weight == 0.07)
-        );
+        assert!(position_probs
+            .iter()
+            .any(|prob| prob.name == Position::P && prob.weight == 0.42));
+        assert!(position_probs
+            .iter()
+            .any(|prob| prob.name == Position::CF && prob.weight == 0.07));
         std::fs::remove_file(path).ok();
     }
 
@@ -1241,11 +1251,9 @@ mod tests {
         assert!(pitch_type_probs.iter().any(|prob| {
             matches!(prob.name, PitchType::FourSeamFastball) && prob.weight == 1.0
         }));
-        assert!(
-            pitch_type_probs
-                .iter()
-                .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5)
-        );
+        assert!(pitch_type_probs
+            .iter()
+            .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5));
         std::fs::remove_file(path).ok();
     }
 

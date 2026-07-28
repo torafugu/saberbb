@@ -21,6 +21,7 @@ impl SqlStatRepository {
 }
 
 impl StatRepository for SqlStatRepository {
+    #[tracing::instrument(skip(self), err)]
     fn load_standings(&self) -> Result<Vec<Standing>, AppError> {
         let query = "SELECT 
                             team_id,
@@ -99,7 +100,7 @@ mod tests {
     use super::*;
     use crate::repositories::db::{DbClient, SqliteManager};
     use deadpool::managed::Pool;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};

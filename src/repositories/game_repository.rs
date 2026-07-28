@@ -12,7 +12,7 @@ use crate::domain::shared::player::{
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{Transaction, params};
+use rusqlite::{params, Transaction};
 use tracing::info;
 
 pub trait GameRepository {
@@ -90,7 +90,7 @@ impl SqlGameRepository {
     }
 }
 impl GameRepository for SqlGameRepository {
-    #[tracing::instrument(skip(self, game), fields(game_id = %game.id))]
+    #[tracing::instrument(skip(self, game), fields(game_id = %game.id), err)]
     fn update_game_result(&mut self, game: &GameResult) -> Result<(), AppError> {
         info!("save_game_result() started");
         self.db_client.transaction(|tx| {
@@ -159,7 +159,7 @@ impl GameRepository for SqlGameRepository {
         })
     }
 
-    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_entry.start_count_seq, player_id = %player_game_entry.player_id))]
+    #[tracing::instrument(skip(self, tx, player_game_entry), fields(game_id = %game_id, count_seq = %player_game_entry.start_count_seq, player_id = %player_game_entry.player_id), err)]
     fn insert_player_entry(
         &self,
         tx: &Transaction,
@@ -195,7 +195,7 @@ impl GameRepository for SqlGameRepository {
         )
     }
 
-    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_batting.count_seq))]
+    #[tracing::instrument(skip(self, tx, player_game_batting), fields(game_id = %game_id, count_seq = %player_game_batting.count_seq), err)]
     fn insert_player_batting(
         &self,
         tx: &Transaction,
@@ -238,7 +238,7 @@ impl GameRepository for SqlGameRepository {
         )
     }
 
-    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_fielding.count_seq, seq = player_game_fielding.seq))]
+    #[tracing::instrument(skip(self, tx, player_game_fielding), fields(game_id = %game_id, count_seq = %player_game_fielding.count_seq, seq = %player_game_fielding.seq), err)]
     fn insert_player_fielding(
         &self,
         tx: &Transaction,
@@ -275,7 +275,7 @@ impl GameRepository for SqlGameRepository {
         )
     }
 
-    #[tracing::instrument(skip(self, tx), fields(count_seq = %player_game_running.count_seq, seq = player_game_running.seq))]
+    #[tracing::instrument(skip(self, tx, player_game_running), fields(game_id = %game_id, count_seq = %player_game_running.count_seq, seq = %player_game_running.seq), err)]
     fn insert_player_running(
         &self,
         tx: &Transaction,
@@ -316,6 +316,7 @@ impl GameRepository for SqlGameRepository {
         )
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn update_current_round_seq(&mut self) -> Result<usize, AppError> {
         info!("update_current_round_seq() started");
         let update_game_season_sql =
@@ -323,6 +324,7 @@ impl GameRepository for SqlGameRepository {
         self.db_client.execute(update_game_season_sql, params![])
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn load_processed_seasons(&self) -> Result<Vec<u16>, AppError> {
         let query = "SELECT season 
                     FROM game
@@ -333,6 +335,7 @@ impl GameRepository for SqlGameRepository {
         self.db_client.query_rows::<u16>(query, params![])
     }
 
+    #[tracing::instrument(skip(self), fields(season = %season), err)]
     fn load_processed_game_headers(&self, season: u16) -> Result<Vec<GameHeader>, AppError> {
         let query = "SELECT 
                             g.id,
@@ -357,6 +360,7 @@ impl GameRepository for SqlGameRepository {
             .query_rows::<GameHeader>(query, params![season])
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError> {
         info!("load_game_schedules_to_process() started");
         let query = "SELECT 
@@ -397,7 +401,7 @@ impl GameRepository for SqlGameRepository {
         Ok(game_schedules)
     }
 
-    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError> {
         info!("load_game_detail() started");
         let query = "SELECT 
@@ -436,7 +440,7 @@ impl GameRepository for SqlGameRepository {
     }
 
     // CONSTRAINT: Player does not use multiple fielder info in a game.
-    #[tracing::instrument(skip(self), fields(team_id = %team_id))]
+    #[tracing::instrument(skip(self), fields(team_id = %team_id), err)]
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError> {
         info!("load_team_players() started");
 
@@ -486,6 +490,7 @@ impl GameRepository for SqlGameRepository {
         Ok(players)
     }
 
+    #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
     fn load_running_skills(&self, player_id: i64) -> Result<RunningSkills, AppError> {
         info!("load_running_skills() started for {}", player_id);
 
@@ -495,6 +500,7 @@ impl GameRepository for SqlGameRepository {
             .query_row::<RunningSkills>(query, params![player_id])
     }
 
+    #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
     fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError> {
         info!("load_batter_info() started for {}", player_id);
 
@@ -505,6 +511,7 @@ impl GameRepository for SqlGameRepository {
             .query_row::<BatterInfo>(query, params![player_id])
     }
 
+    #[tracing::instrument(skip(self, fielder_type), fields(player_id = %player_id, fielder_type = %fielder_type.as_ref()), err)]
     fn load_fielder_info(
         &self,
         player_id: i64,
@@ -518,6 +525,7 @@ impl GameRepository for SqlGameRepository {
             .query_row::<FielderInfo>(query, params![player_id, fielder_type.as_ref()])
     }
 
+    #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
     fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError> {
         info!("load_pitcher_info() started");
         let query =
@@ -532,6 +540,7 @@ impl GameRepository for SqlGameRepository {
         Ok(pitcher_info)
     }
 
+    #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
     fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError> {
         info!("load_pitch_skill() started");
         let query =
@@ -541,7 +550,7 @@ impl GameRepository for SqlGameRepository {
             .query_rows::<PitchSkill>(query, params![player_id])
     }
 
-    #[tracing::instrument(skip(self), fields(player_id = %player_id))]
+    #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
     fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError> {
         info!("load_defense_skills() started");
         let query = "SELECT position FROM defense_skills WHERE player_id = ?1";
@@ -549,7 +558,7 @@ impl GameRepository for SqlGameRepository {
             .query_row::<DefenseSkills>(query, params![player_id])
     }
 
-    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError> {
         info!("load_innings() started");
         let query =
@@ -557,7 +566,7 @@ impl GameRepository for SqlGameRepository {
         self.db_client.query_rows::<Inning>(query, params![game_id])
     }
 
-    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self, inning_tb), fields(game_id = %game_id, inning_seq = %inning_seq, inning_tb = %inning_tb.as_ref()), err)]
     fn load_counts(
         &self,
         game_id: u32,
@@ -572,7 +581,7 @@ impl GameRepository for SqlGameRepository {
             .query_rows::<Count>(query, params![game_id, inning_seq, inning_tb.as_ref()])
     }
 
-    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_player_game_entry_views(
         &self,
         game_id: u32,
@@ -597,7 +606,7 @@ impl GameRepository for SqlGameRepository {
             .query_rows::<PlayerGameEntryView>(query, params![game_id])
     }
 
-    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_player_game_batting_views(
         &self,
         game_id: u32,
@@ -633,7 +642,7 @@ impl GameRepository for SqlGameRepository {
             .query_rows::<PlayerGameBattingView>(query, params![game_id])
     }
 
-    #[tracing::instrument(skip(self), fields(game_id = %game_id))]
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_player_game_running_views(
         &self,
         game_id: u32,

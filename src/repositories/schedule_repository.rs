@@ -24,11 +24,13 @@ impl SqlScheduleRepository {
 }
 
 impl ScheduleRepository for SqlScheduleRepository {
+    #[tracing::instrument(skip(self), err)]
     fn load_game_season(&self) -> Result<GameSeason, AppError> {
         let query = "SELECT season_start_date, scheduled_season FROM game_season";
         self.db_client.query_row::<GameSeason>(query, params![])
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn load_all_leagues(&self) -> Result<Vec<League>, AppError> {
         let leagues_query = "SELECT id, name FROM league ORDER BY id";
         let mut leagues = self
@@ -44,6 +46,7 @@ impl ScheduleRepository for SqlScheduleRepository {
         Ok(leagues)
     }
 
+    #[tracing::instrument(skip(self, game_schedules), fields(game_schedule_count = %game_schedules.len()), err)]
     fn save_game_schedules(&mut self, game_schedules: Vec<GameSchedule>) -> Result<(), AppError> {
         let insert_game_sql = "INSERT INTO game (
             season, round_seq, seq, planned_date, away_team_id, home_team_id, stadium_id, game_type
@@ -67,6 +70,7 @@ impl ScheduleRepository for SqlScheduleRepository {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn update_scheduled_season(&self) -> Result<usize, AppError> {
         let update_game_season_sql =
             "Update game_season SET scheduled_season = scheduled_season + 1";
@@ -82,7 +86,7 @@ mod tests {
     use crate::repositories::db::SqliteManager;
     use chrono::NaiveDate;
     use deadpool::managed::Pool;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
