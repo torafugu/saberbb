@@ -1,7 +1,10 @@
 use crate::I18nManager;
+use crate::domain::random_provider::{RandomProvider, choose_item_weighted};
 use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::game_state::GameError;
-use crate::domain::util::Vector3D;
+use crate::domain::shared::prob::ItemWeighted;
+use crate::domain::util::{Vector3D, softmax};
+use crate::error::AppError;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -580,6 +583,25 @@ impl PitcherInfo {
 
     pub fn base_spin_angle(&self) -> f64 {
         self.arm_slot.base_spin_angle(self.throw_side)
+    }
+
+    pub fn select_pitch_skill(&self, rng: &mut dyn RandomProvider) -> Result<PitchSkill, AppError> {
+        let usages: Vec<f64> = self
+            .pitch_skills
+            .iter()
+            .map(|pitch_skill| pitch_skill.usage)
+            .collect();
+        let weights = softmax(&usages);
+
+        let mut items = Vec::new();
+        for (pitch_skill, weight) in self.pitch_skills.iter().zip(weights) {
+            items.push(ItemWeighted {
+                name: pitch_skill.clone(),
+                weight,
+            });
+        }
+
+        Ok(choose_item_weighted(rng, &items)?.clone())
     }
 }
 

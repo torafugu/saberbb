@@ -18,6 +18,7 @@ use crate::domain::shared::ball::BattedBall;
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::util::PolarPosition;
+use crate::error::AppError;
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -78,6 +79,9 @@ pub enum GameError {
 
     #[error("Path of from base and to base is not supported")]
     UnsupportedPath,
+
+    #[error("Failed to create pitch: {0}")]
+    PitchCreation(#[from] AppError),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, EnumString, AsRefStr)]
@@ -664,7 +668,7 @@ impl GameState {
 
         self.prepare_plate_appearance(batter_runner);
 
-        let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher);
+        let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
 
         // TODO: pitch_speed must be replaced by ActivePitcher
         let contact = evaluate_swing(&batter, &pitched_ball);

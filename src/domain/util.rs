@@ -9,6 +9,20 @@ pub struct Vector3D {
     pub z: f64,
 }
 
+pub fn softmax(values: &[f64]) -> Vec<f64> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+
+    let max_value = values.iter().copied().reduce(f64::max).unwrap();
+
+    let exp_values: Vec<f64> = values.iter().map(|&x| (x - max_value).exp()).collect();
+
+    let sum: f64 = exp_values.iter().sum();
+
+    exp_values.into_iter().map(|x| x / sum).collect()
+}
+
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
