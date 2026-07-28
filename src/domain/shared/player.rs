@@ -453,7 +453,7 @@ pub enum ArmSlot {
 }
 impl ArmSlot {
     /// Returns the base spin angle (deg) for each delivery form's fastball
-    pub fn base_spin_dir(&self, throw_side: RL) -> f64 {
+    pub fn base_spin_angle(&self, throw_side: RL) -> f64 {
         let base_deg = match self {
             ArmSlot::Overhand => 25.0,
             ArmSlot::ThreeQuarter => 55.0,
@@ -576,6 +576,10 @@ impl PitcherInfo {
             y: distance_to_home,
             z: release_z,
         }
+    }
+
+    pub fn base_spin_angle(&self) -> f64 {
+        self.arm_slot.base_spin_angle(self.throw_side)
     }
 }
 

@@ -78,7 +78,7 @@ mod tests {
     };
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType,
-        PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
+        PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::domain::shared::stadium::Stadium;
     use crate::domain::shared::team::Team;
@@ -471,10 +471,12 @@ mod tests {
                 assert!(count.seq >= 1);
                 assert!(count.out <= 3);
             }
-            assert!(inning
-                .counts
-                .windows(2)
-                .all(|counts| counts[0].seq < counts[1].seq));
+            assert!(
+                inning
+                    .counts
+                    .windows(2)
+                    .all(|counts| counts[0].seq < counts[1].seq)
+            );
         }
     }
 

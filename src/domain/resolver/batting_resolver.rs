@@ -1,5 +1,7 @@
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::shared::ball::{BattedBall, PitchedBall, TrajectoryType, CONVERT_FACTOR_KMH_TO_MS};
+use crate::domain::shared::ball::{
+    BattedBall, CONVERT_FACTOR_KMH_TO_MS, PitchedBall, TrajectoryType,
+};
 use crate::domain::shared::player::BatterInfo;
 use crate::domain::util::GRAVITY;
 use serde::{Deserialize, Serialize};
@@ -31,7 +33,8 @@ impl SwingContactResult {
     /// Determine whether the swing results in a miss
     pub fn is_swing_and_miss(&self) -> bool {
         // If either spatial or timing offset exceeds the threshold (or both combined), it's a miss
-        (self.vertical_offset > 0.8 && self.horizontal_offset > 0.8) || self.timing_offset.abs() > 0.7
+        (self.vertical_offset > 0.8 && self.horizontal_offset > 0.8)
+            || self.timing_offset.abs() > 0.7
     }
 }
 
@@ -93,13 +96,17 @@ pub fn evaluate_swing(
 #[strum(ascii_case_insensitive)]
 pub enum FieldSector {
     FoulPull, // NOTE: Foul of Pull-side (right-handed batter → left field, left-handed batter → right field)
-    Pull,      // NOTE: Pull (right-handed batter → left field, left-handed batter → right field)
-    Center,    // NOTE: Center field
+    Pull,     // NOTE: Pull (right-handed batter → left field, left-handed batter → right field)
+    Center,   // NOTE: Center field
     Opposite, // NOTE: Opposite field (right-handed batter → right field, left-handed batter → left field)
     FoulOpposite, // NOTE: Foul of Opposite-side (right-handed batter → right field, left-handed batter → left field)
 }
 
-fn inner_choose_sector(rng: &mut dyn RandomProvider,  offset_factor_percent: f64, batter: &BatterInfo) -> FieldSector {
+fn inner_choose_sector(
+    rng: &mut dyn RandomProvider,
+    offset_factor_percent: f64,
+    batter: &BatterInfo,
+) -> FieldSector {
     let total_weight = batter.weight_pull
         + batter.weight_center
         + batter.weight_opposite
@@ -130,7 +137,13 @@ fn inner_choose_sector(rng: &mut dyn RandomProvider,  offset_factor_percent: f64
     return FieldSector::FoulOpposite;
 }
 
-fn sample_launch_speed(rng: &mut dyn RandomProvider, ball_speed: f64, swing_speed: f64, spacial_offset: f64, timing_offset: f64) -> f64 {
+fn sample_launch_speed(
+    rng: &mut dyn RandomProvider,
+    ball_speed: f64,
+    swing_speed: f64,
+    spacial_offset: f64,
+    timing_offset: f64,
+) -> f64 {
     // Theoretical maximum exit velocity for a squared-up ball (V_max)
     let a = 1.00; // Swing efficiency
     let b = 0.20; // Rebound efficiency
@@ -146,7 +159,11 @@ fn sample_launch_speed(rng: &mut dyn RandomProvider, ball_speed: f64, swing_spee
     final_speed.max(10.0)
 }
 
-fn sample_spray_angle(rng: &mut dyn RandomProvider, timing_offset: f64, tendency: &BatterInfo) -> f64 {
+fn sample_spray_angle(
+    rng: &mut dyn RandomProvider,
+    timing_offset: f64,
+    tendency: &BatterInfo,
+) -> f64 {
     let offset_factor_percent = timing_offset * 25.0; // The range of offset_factor_percent is -25.0 % to 25.0%
 
     // Step 1: Decide the sector
@@ -231,9 +248,9 @@ fn combine_batted_spin(
 
     // 2. Convert residual pitch spin to vector
     // Note: proportion of pitch spin transferred to batted ball at contact (approx. 15%~25%)
-    let retention_rate = 0.20; 
+    let retention_rate = 0.20;
     let pitch_retained_rate = pitch_spin_rate * retention_rate;
-    
+
     // Pitch spin vector
     let pitch_vec = SpinVector::from_polar(pitch_retained_rate, pitch_spin_angle);
 
@@ -249,10 +266,15 @@ fn combine_batted_spin(
     (final_rate, final_angle)
 }
 
-fn calculate_collision_spin(ball: PitchedBall, swing_speed: f64, contact: &SwingContactResult) -> (f64, f64) {
-
+fn calculate_collision_spin(
+    ball: PitchedBall,
+    swing_speed: f64,
+    contact: &SwingContactResult,
+) -> (f64, f64) {
     // 1. Calculate total distance from sweet spot using Pythagorean theorem
-    let distance = (contact.horizontal_offset.powi(2) + contact.vertical_offset.powi(2)).sqrt().min(1.0);
+    let distance = (contact.horizontal_offset.powi(2) + contact.vertical_offset.powi(2))
+        .sqrt()
+        .min(1.0);
 
     // 2. Calculate contact point angle (radians) using atan2(y, x)
     // y = vertical, x = horizontal
@@ -266,7 +288,7 @@ fn calculate_collision_spin(ball: PitchedBall, swing_speed: f64, contact: &Swing
     // baseball spin notation (12 o'clock/North=0°=backspin, 3 o'clock/East=90°=slider spin)
     // Note: hitting the top of the ball (North, Y=+1, X=0) => impact_rad = PI/2 => spin_rad = 3/2 PI => 180°(topspin)
     let mut spin_angle_deg = 90.0 - spin_angle_rad.to_degrees();
-    
+
     // Normalize to 0.0~360.0 degrees
     if spin_angle_deg < 0.0 {
         spin_angle_deg += 360.0;
@@ -278,7 +300,12 @@ fn calculate_collision_spin(ball: PitchedBall, swing_speed: f64, contact: &Swing
     let raw_spin_rate = max_possible_spin * distance;
 
     // 5. Combine with pitch spin
-    let (combined_spin_rate, combined_spin_angle) = combine_batted_spin(ball.spin_rate, ball.spin_angle, raw_spin_rate, spin_angle_deg);
+    let (combined_spin_rate, combined_spin_angle) = combine_batted_spin(
+        ball.spin_rate,
+        ball.spin_angle,
+        raw_spin_rate,
+        spin_angle_deg,
+    );
 
     (combined_spin_rate, combined_spin_angle)
 }
@@ -313,7 +340,7 @@ fn calculate_3d_flight_path(
     vla_deg: f64,        // Vertical launch angle VLA (deg)
     hla_deg: f64,        // Horizontal launch angle HLA (deg) (+: right/opposite, -: left/pull)
     spin_rate: f64,      // Spin rate (rpm)
-    spin_angle_deg: f64,   // Spin angle (deg) (0: backspin, 90: slider spin, 270: screw spin)
+    spin_angle_deg: f64, // Spin angle (deg) (0: backspin, 90: slider spin, 270: screw spin)
 ) -> (f64, f64, f64) {
     let vla_rad = vla_deg.to_radians();
     let hla_rad = hla_deg.to_radians();
@@ -351,7 +378,7 @@ fn calculate_3d_flight_path(
 
     // Final horizontal arrival angle (polar coordinate angle θ)
     let final_spray_angle_deg = hla_deg + spin_curve_angle_deg;
-    
+
     (flight_time, distance, final_spray_angle_deg)
 }
 
@@ -361,10 +388,14 @@ pub fn calculate_batted_ball(
     ball: PitchedBall,
     contact: &SwingContactResult,
 ) -> BattedBall {
-    
-
     // 1. Calculate exit velocity (damped by spatial offset & timing delay)
-    let launch_speed = sample_launch_speed(rng, ball.speed, batter.swing_speed, contact.offset(), contact.timing_offset);
+    let launch_speed = sample_launch_speed(
+        rng,
+        ball.speed,
+        batter.swing_speed,
+        contact.offset(),
+        contact.timing_offset,
+    );
 
     // 2. Calculate vertical launch angle (VLA)
     // Vertical spatial offset (hitting above or below the ball) is the main factor
@@ -372,13 +403,20 @@ pub fn calculate_batted_ball(
 
     // 3. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
-    let (batted_spin_rate, batted_spin_angle)= calculate_collision_spin(ball, batter.swing_speed, contact);
+    let (batted_spin_rate, batted_spin_angle) =
+        calculate_collision_spin(ball, batter.swing_speed, contact);
     let trajectory = classify_trajectory_type(launch_angle, batted_spin_rate, batted_spin_angle);
 
     // 4. Calculate horizontal launch angle (HLA)
-    let  hla_deg = sample_spray_angle(rng, contact.timing_offset, batter);
+    let hla_deg = sample_spray_angle(rng, contact.timing_offset, batter);
 
-    let (hang_time, distance, spray_angle) = calculate_3d_flight_path(launch_speed * CONVERT_FACTOR_KMH_TO_MS, launch_angle, hla_deg, batted_spin_rate, batted_spin_angle);
+    let (hang_time, distance, spray_angle) = calculate_3d_flight_path(
+        launch_speed * CONVERT_FACTOR_KMH_TO_MS,
+        launch_angle,
+        hla_deg,
+        batted_spin_rate,
+        batted_spin_angle,
+    );
 
     BattedBall::new(
         launch_speed,
@@ -534,7 +572,11 @@ mod tests {
         for (batter, min_angle, max_angle) in cases {
             for _ in 0..20 {
                 let mut rng = FixedRng::new(0.5);
-                assert_between(sample_spray_angle(&mut rng, 0.0, &batter), min_angle, max_angle);
+                assert_between(
+                    sample_spray_angle(&mut rng, 0.0, &batter),
+                    min_angle,
+                    max_angle,
+                );
             }
         }
     }
@@ -556,7 +598,7 @@ mod tests {
                     release_point: Vector3D {
                         x: 1.6,
                         y: 16.74,
-                        z: 1.7
+                        z: 1.7,
                     },
                 },
                 &centered_contact(),

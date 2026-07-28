@@ -7,7 +7,7 @@ use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::shared::game_state::{ActiveFielder, GameError};
 use crate::domain::shared::player::{CatcherInfo, PitcherInfo, Position};
 use crate::domain::shared::stadium::Base;
-use crate::domain::util::{calculate_polar_distance, PolarPosition};
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
@@ -829,7 +829,7 @@ mod tests {
     use crate::domain::resolver::fielding_physics::try_catch;
     use crate::domain::shared::game_state::ActiveRunner;
     use crate::domain::shared::player::{
-        ArmSlot, FielderInfo, FielderType, PitcherStyle, RunningSkills, RL,
+        ArmSlot, FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
     };
     use crate::domain::shared::stadium::Stadium;
 

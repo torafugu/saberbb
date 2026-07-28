@@ -86,12 +86,14 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         // NOTE: DH comes here.
         let primary_position = self.assign_position(&fielder_type_1st)?;
 
-        let mut fielder_types = choose_item_if_exists(
-            self.rng.as_mut(),
-            &self
-                .service
-                .load_multiple_fielder_type_prob(&fielder_type_1st)?,
-        )?;
+        let multiple_fielder_type_probs = self
+            .service
+            .load_multiple_fielder_type_prob(&fielder_type_1st)?;
+        let mut fielder_types = if multiple_fielder_type_probs.is_empty() {
+            Vec::new()
+        } else {
+            choose_item_if_exists(self.rng.as_mut(), &multiple_fielder_type_probs)?
+        };
         fielder_types.push(fielder_type_1st);
 
         let mut defense_skills = DefenseSkills::new(primary_position);

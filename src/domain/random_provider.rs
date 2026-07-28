@@ -1,7 +1,7 @@
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::prob::{GammaParam, NormalParam};
 use crate::error::AppError;
-use rand::{RngExt, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, RngExt, SeedableRng};
 use rand_distr::{Distribution, Gamma};
 
 pub trait RandomProvider: std::fmt::Debug {
@@ -146,17 +146,28 @@ impl RandomProvider for FixedRng {
     }
 }
 
+#[track_caller]
 pub fn choose_item_weighted<'a, T>(
     rng: &mut dyn RandomProvider,
     items: &'a [ItemWeighted<T>],
 ) -> Result<&'a T, AppError> {
     if items.is_empty() {
-        return Err(AppError::NotFound("item".to_string()));
+        let caller = std::panic::Location::caller();
+        return Err(AppError::NotFound(format!(
+            "item at {}:{}",
+            caller.file(),
+            caller.line()
+        )));
     }
 
     let total_weight: f64 = items.iter().map(|item| item.weight).sum();
     if total_weight <= 0.0 {
-        return Err(AppError::NotFound("weights".to_string()));
+        let caller = std::panic::Location::caller();
+        return Err(AppError::NotFound(format!(
+            "weights at {}:{}",
+            caller.file(),
+            caller.line()
+        )));
     }
 
     let target = rng.random() * total_weight;
@@ -176,10 +187,6 @@ pub fn choose_item_if_exists<T: Clone>(
     rng: &mut dyn RandomProvider,
     items: &[ItemWeighted<T>],
 ) -> Result<Vec<T>, AppError> {
-    if items.is_empty() {
-        return Err(AppError::NotFound("item".to_string()));
-    }
-
     let mut existing_items = Vec::new();
 
     for item in items {
@@ -757,13 +764,13 @@ mod tests {
     }
 
     #[test]
-    fn real_choose_item_if_exists_returns_error_for_empty_list() {
+    fn real_choose_item_if_exists_returns_empty_for_empty_list() {
         let mut rng = RealRng::from_seed(5);
         let items: [ItemWeighted<i32>; 0] = [];
 
-        let result = choose_item_if_exists(&mut rng, &items);
+        let result = choose_item_if_exists(&mut rng, &items).unwrap();
 
-        assert!(matches!(result, Err(AppError::NotFound(_))));
+        assert!(result.is_empty());
     }
 
     #[test]
@@ -831,12 +838,12 @@ mod tests {
     }
 
     #[test]
-    fn fixed_choose_item_if_exists_returns_error_for_empty_list() {
+    fn fixed_choose_item_if_exists_returns_empty_for_empty_list() {
         let mut rng = FixedRng::new(0.5);
         let items: [ItemWeighted<i32>; 0] = [];
 
-        let result = choose_item_if_exists(&mut rng, &items);
+        let result = choose_item_if_exists(&mut rng, &items).unwrap();
 
-        assert!(matches!(result, Err(AppError::NotFound(_))));
+        assert!(result.is_empty());
     }
 }

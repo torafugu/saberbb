@@ -55,7 +55,10 @@ impl<R: PlayerRepository> PlayerService<R> {
         &self,
         fielder_type: &FielderType,
     ) -> Result<Vec<ItemWeighted<FielderType>>, AppError> {
-        info!("load_multiple_fielder_type_prob() started");
+        info!(
+            "load_multiple_fielder_type_prob() started for {}",
+            fielder_type
+        );
 
         let multiple_fielder_type = self
             .repo
@@ -125,7 +128,7 @@ impl<R: PlayerRepository> PlayerService<R> {
     pub fn load_pitcher_info_prob(&self) -> Result<PitcherInfoProbs, AppError> {
         info!("load_pitcher_info_prob() started");
 
-        let throw_side = self.repo.item_probs(PLY, "throw")?;
+        let throw_side = self.repo.item_probs(PTI, "throw_side")?;
         let arm_slot = self.repo.item_probs(PTI, "arm_slot")?;
         let pitcher_style = self.repo.item_probs(PTI, "pitcher_style")?;
         let height = self.repo.normal_params(PLY, PTI, "height")?;
@@ -307,6 +310,7 @@ mod tests {
         next_team_positions: RefCell<Vec<Position>>,
         pitch_type_prob_styles: RefCell<Vec<PitcherStyle>>,
         pitch_skill_prob_types: RefCell<Vec<PitchType>>,
+        item_prob_categories: RefCell<Vec<(String, String)>>,
         next_team_calls: Cell<usize>,
         next_random_team_calls: Cell<usize>,
         player_attribute_prob_calls: Cell<usize>,
@@ -398,6 +402,7 @@ mod tests {
                 next_team_positions: RefCell::new(Vec::new()),
                 pitch_type_prob_styles: RefCell::new(Vec::new()),
                 pitch_skill_prob_types: RefCell::new(Vec::new()),
+                item_prob_categories: RefCell::new(Vec::new()),
                 next_team_calls: Cell::new(0),
                 next_random_team_calls: Cell::new(0),
                 player_attribute_prob_calls: Cell::new(0),
@@ -440,6 +445,30 @@ mod tests {
 
         unsafe fn cast_pitcher_style_probs<T>(
             items: Vec<ItemWeighted<PitcherStyle>>,
+        ) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
+
+        unsafe fn cast_rl_probs<T>(items: Vec<ItemWeighted<RL>>) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
+
+        unsafe fn cast_arm_slot_probs<T>(
+            items: Vec<ItemWeighted<ArmSlot>>,
         ) -> Vec<ItemWeighted<T>> {
             let mut items = ManuallyDrop::new(items);
             unsafe {
@@ -626,8 +655,18 @@ mod tests {
             self.state
                 .item_probs_calls
                 .set(self.state.item_probs_calls.get() + 1);
+            self.state
+                .item_prob_categories
+                .borrow_mut()
+                .push((category1.to_string(), category2.to_string()));
 
             match (category1, category2) {
+                (PTI, "throw_side") => Ok(unsafe {
+                    Self::cast_rl_probs(self.state.pitcher_attribute_prob.throw_side.clone())
+                }),
+                (PTI, "arm_slot") => Ok(unsafe {
+                    Self::cast_arm_slot_probs(self.state.pitcher_attribute_prob.arm_slot.clone())
+                }),
                 (PTI, "pitcher_style") => {
                     self.state
                         .pitcher_style_probs_calls
@@ -687,6 +726,20 @@ mod tests {
         let service = PlayerService { repo };
 
         assert!(service.load_player_info_probs().is_err());
+    }
+
+    #[test]
+    fn load_pitcher_info_prob_loads_throw_side_from_pitcher_info_category() {
+        let (service, state) = service_with_repo();
+
+        let probs = service.load_pitcher_info_prob().unwrap();
+
+        assert_eq!(probs.throw_side.len(), 1);
+        assert_eq!(probs.throw_side[0].name, RL::Right);
+        assert!(state
+            .item_prob_categories
+            .borrow()
+            .contains(&(PTI.to_string(), "throw_side".to_string())));
     }
 
     #[test]
