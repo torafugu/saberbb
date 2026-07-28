@@ -1,11 +1,4 @@
 flowchart TD
-  subgraph pitcher["Pitcher"]
-    pitch_ball
-  end
-
-  pitch_ball --> batter
-  pitch_ball --> evaluate_base_stealing
-    
   subgraph batter["Batter"]
     direction TB
     swing{Swing?}
@@ -40,7 +33,7 @@ flowchart TD
     height2 --> |higher than fence|homerun
     over_the_fence --> |YES & Grounder|process_bounded_ball
     over_the_fence --> |YES & !Grounder|height2{"Height?"}
-    over_the_fence --> |NO & !Grounder & Catch|out
+    over_the_fence --> |NO & Grounder & Catch|out
   end
 
   fielder1 --> fielder2

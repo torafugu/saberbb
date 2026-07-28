@@ -11,7 +11,7 @@ use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
-use saberbb::domain::util::PolarPosition;
+use saberbb::domain::util::*;
 use saberbb::repositories::db::*;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 
@@ -171,7 +171,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
         println!("\n--- New count ---");
         inning_state.runners.batter_runner = Some(batter_runner);
 
-        let pitched_ball = calculate_pitched_ball(&mut rng, &pitcher);
+        let pitched_ball = create_pitch(&mut rng, &pitcher);
 
         let contact = evaluate_swing(&batter, &pitched_ball);
         let ball = calculate_batted_ball(&mut rng, &batter, pitched_ball, &contact);
@@ -506,6 +506,12 @@ fn test_batted_ball() {
                 speed: 150.0,
                 spin_rate: 2300.0,
                 spin_angle: 30.0,
+                spin_efficiency: 0.95,
+                release_point: Vector3D {
+                    x: 1.6,
+                    y: 16.74,
+                    z: 1.7,
+                },
             },
             &SwingContactResult {
                 vertical_offset: 0.0,

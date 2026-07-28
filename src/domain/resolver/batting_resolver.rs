@@ -552,6 +552,7 @@ mod tests {
                     speed: 150.0,
                     spin_rate: 2300.0,
                     spin_angle: 0.0,
+                    spin_efficiency: 0.95,
                     release_point: Vector3D {
                         x: 1.6,
                         y: 16.74,

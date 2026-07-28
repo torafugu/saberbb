@@ -1,16 +1,16 @@
 use super::game::{BattingResult, Count, Inning, TB};
 use super::player::{
-    BatterInfo, CatcherInfo, FielderInfo, PitcherInfo, Position, RunningSkills, RL,
+    BatterInfo, CatcherInfo, FielderInfo, PitcherInfo, Position, RL, RunningSkills,
 };
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{calculate_batted_ball, evaluate_swing};
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
-    evaluate_base_stealing, evaluate_defense_play, evaluate_double_play, process_defensive_chain,
-    DefensePlayResult, PlayContext, PlayType,
+    DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
+    evaluate_double_play, process_defensive_chain,
 };
-use crate::domain::resolver::pitching_resolver::calculate_pitched_ball;
+use crate::domain::resolver::pitching_resolver::create_pitch;
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
@@ -664,7 +664,7 @@ impl GameState {
 
         self.prepare_plate_appearance(batter_runner);
 
-        let pitched_ball = calculate_pitched_ball(self.rng.as_mut(), &pitcher);
+        let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher);
 
         // TODO: pitch_speed must be replaced by ActivePitcher
         let contact = evaluate_swing(&batter, &pitched_ball);

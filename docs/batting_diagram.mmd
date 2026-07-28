@@ -1,9 +1,7 @@
 flowchart TD
-    calculate_pitched_ball --> calculate_pitch_displacement
-    calculate_pitch_displacement --> evaluate_swing
     evaluate_swing --> calculate_batted_ball
 
-    subgraph calculate_batted_ball
+    subgraph calculate_batted_ball[Calculate batted ball]
         direction TB
         classify_trajectory_type
         calculate_collision_spin --> combine_batted_spin --> calculate_3d_flight_path
