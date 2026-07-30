@@ -1,8 +1,11 @@
 flowchart TD
     subgraph pitcher[Pitcher]
         calculate_release_point
+        select_pitch_skill
+        base_spin_angle
     end
 
-    pitcher --> create_pitch
-    
+    create_pitch --> pitcher
+    calculate_pitch_displacement --> calculate_late_break_displacement
+
     

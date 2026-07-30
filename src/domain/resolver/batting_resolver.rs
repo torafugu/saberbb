@@ -1,4 +1,5 @@
 use crate::domain::random_provider::RandomProvider;
+use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{
     BattedBall, CONVERT_FACTOR_KMH_TO_MS, PitchedBall, TrajectoryType,
 };
@@ -36,13 +37,6 @@ impl SwingContactResult {
         (self.vertical_offset > 0.8 && self.horizontal_offset > 0.8)
             || self.timing_offset.abs() > 0.7
     }
-}
-
-pub struct PitchDisplacement {
-    // NOTE: Horizontal offset (-1.0: shift left ~ +1.0: shift right)
-    pub horizontal: f64,
-    // NOTE: Vertical offset (-1.0: shift down ~ +1.0: shift up)
-    pub vertical: f64,
 }
 
 // NOTE: Calculate sweet_spot_factor (0.0 ~ 1.0) solely from pitch spin characteristics

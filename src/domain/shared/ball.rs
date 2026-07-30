@@ -2,6 +2,7 @@ use crate::domain::shared::player::Position;
 use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
+use std::f64::consts::PI;
 use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 
@@ -9,6 +10,9 @@ const FOUL_DEGREE: f64 = 45.0;
 const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
 pub const CONVERT_FACTOR_KMH_TO_MS: f64 = 0.2778;
+// Scaling coefficient calibrated so that at 2500rpm, 150km/h (41.67m/s), efficiency 1.0, acceleration is approx. 3.5 m/s²
+// Coefficient K ≈ 3.5 / (2500.0 * 41.67) ≈ 0.0000336
+const MAGNUS_COEFF: f64 = 0.0000336;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum TrajectoryType {
@@ -143,6 +147,39 @@ pub struct PitchedBall {
     /// Example: x = -0.5 (right-handed pitcher's arm side), y = 16.5 (Extension 1.9m), z = 1.8 (release height)
     pub release_point: Vector3D,
 }
+impl PitchedBall {
+    /// Returns lateral Magnus acceleration (m/s²)
+    /// (+: acceleration to the right / -: acceleration to the left)
+    pub fn get_side_accel(&self) -> f64 {
+        // 1. Convert speed from km/h to m/s
+        let v_m_per_s = self.speed / 3.6;
+
+        // 2. Effective spin rate (rpm) contributing to Magnus force
+        let effective_spin = self.spin_rate * self.spin_efficiency;
+
+        // 3. Calculate total Magnus acceleration (unit: m/s²)
+        let total_magnus_accel = MAGNUS_COEFF * effective_spin * v_m_per_s;
+
+        // 4. Extract lateral component (sin) from spin angle (deg)
+        let dir_rad = self.spin_angle * PI / 180.0;
+        let side_factor = dir_rad.sin();
+
+        // 5. Lateral acceleration (m/s²)
+        total_magnus_accel * side_factor
+    }
+
+    /// (Reference) Vertical Magnus acceleration (m/s²) follows the same logic
+    pub fn get_vertical_accel(&self) -> f64 {
+        let v_m_per_s = self.speed / 3.6;
+        let effective_spin = self.spin_rate * self.spin_efficiency;
+        let total_magnus_accel = MAGNUS_COEFF * effective_spin * v_m_per_s;
+
+        let dir_rad = self.spin_angle * PI / 180.0;
+        let vertical_factor = dir_rad.cos(); // Vertical component uses cos (positive for backspin)
+
+        total_magnus_accel * vertical_factor
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -173,6 +210,25 @@ mod tests {
         )
     }
 
+    fn pitched_ball(
+        speed: f64,
+        spin_rate: f64,
+        spin_angle: f64,
+        spin_efficiency: f64,
+    ) -> PitchedBall {
+        PitchedBall {
+            speed,
+            spin_rate,
+            spin_angle,
+            spin_efficiency,
+            release_point: Vector3D {
+                x: 0.0,
+                y: 16.0,
+                z: 1.8,
+            },
+        }
+    }
+
     #[test]
     fn new_sets_physical_values_and_polar_position() {
         let ball = BattedBall::new(144.0, 30.0, 30.0, 100.0, 4.2, TrajectoryType::Fly);
@@ -191,7 +247,7 @@ mod tests {
     fn launch_speed_ms_converts_kmh_to_meters_per_second() {
         let ball = ball(TrajectoryType::Liner, 90.0, 0.0, 150.0, 20.0);
 
-        assert_near(ball.launch_speed_ms(), 41.7);
+        assert_near(ball.launch_speed_ms(), 41.67);
     }
 
     #[test]
@@ -264,5 +320,45 @@ mod tests {
         let backward_launch = ball(TrajectoryType::Fly, 80.0, 0.0, 100.0, 100.0);
 
         assert_near(backward_launch.calculate_height_at_distance(20.0), 0.0);
+    }
+
+    #[test]
+    fn get_side_accel_extracts_lateral_spin_component() {
+        let ball = pitched_ball(150.0, 2500.0, 90.0, 1.0);
+        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * (150.0 / 3.6);
+
+        assert_near(ball.get_side_accel(), expected_total_magnus_accel);
+        assert_near(ball.get_vertical_accel(), 0.0);
+    }
+
+    #[test]
+    fn get_side_accel_preserves_lateral_direction() {
+        let ball = pitched_ball(150.0, 2500.0, 270.0, 1.0);
+        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * (150.0 / 3.6);
+
+        assert_near(ball.get_side_accel(), -expected_total_magnus_accel);
+        assert_near(ball.get_vertical_accel(), 0.0);
+    }
+
+    #[test]
+    fn get_vertical_accel_extracts_vertical_spin_component() {
+        let backspin = pitched_ball(150.0, 2500.0, 0.0, 1.0);
+        let topspin = pitched_ball(150.0, 2500.0, 180.0, 1.0);
+        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * (150.0 / 3.6);
+
+        assert_near(backspin.get_side_accel(), 0.0);
+        assert_near(backspin.get_vertical_accel(), expected_total_magnus_accel);
+        assert_near(topspin.get_side_accel(), 0.0);
+        assert_near(topspin.get_vertical_accel(), -expected_total_magnus_accel);
+    }
+
+    #[test]
+    fn pitched_ball_accel_scales_with_spin_efficiency() {
+        let ball = pitched_ball(144.0, 2000.0, 45.0, 0.75);
+        let expected_total_magnus_accel = MAGNUS_COEFF * (2000.0 * 0.75) * (144.0 / 3.6);
+        let expected_component = expected_total_magnus_accel * 45.0_f64.to_radians().sin();
+
+        assert_near(ball.get_side_accel(), expected_component);
+        assert_near(ball.get_vertical_accel(), expected_component);
     }
 }
