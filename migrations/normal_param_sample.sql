@@ -293,8 +293,8 @@ VALUES
         'player',
         'pitcher_info',
         'velocity',
-        0.0,
-        1.0,
+        146.0,
+        3.0,
         0.2,
         1.0,
         0.0
@@ -318,7 +318,7 @@ VALUES
         'control',
         0.0,
         1.0,
-        0.2,
+        0.1,
         1.0,
         0.0
     );
@@ -502,7 +502,7 @@ VALUES
         'control',
         0.0,
         1.0,
-        0.2,
+        0.1,
         1.0,
         0.0
     );
@@ -661,9 +661,9 @@ VALUES
         'pitch_type',
         'Cutter',
         'velocity',
+        0.95,
+        0.019,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -684,9 +684,9 @@ VALUES
         'pitch_type',
         'Cutter',
         'control',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -868,9 +868,9 @@ VALUES
         'pitch_type',
         'Curveball',
         'control',
+        0.8,
+        0.016,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -1029,9 +1029,9 @@ VALUES
         'pitch_type',
         'Slider',
         'velocity',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -1052,9 +1052,9 @@ VALUES
         'pitch_type',
         'Slider',
         'control',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -1213,9 +1213,9 @@ VALUES
         'pitch_type',
         'Changeup',
         'velocity',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -1236,9 +1236,9 @@ VALUES
         'pitch_type',
         'Changeup',
         'control',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -1397,9 +1397,9 @@ VALUES
         'pitch_type',
         'Forkball',
         'velocity',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );
@@ -1420,9 +1420,9 @@ VALUES
         'pitch_type',
         'Forkball',
         'control',
+        0.9,
+        0.018,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );

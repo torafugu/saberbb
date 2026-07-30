@@ -1,7 +1,7 @@
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::prob::{GammaParam, NormalParam};
 use crate::error::AppError;
-use rand::{rngs::StdRng, RngExt, SeedableRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Gamma};
 
 pub trait RandomProvider: std::fmt::Debug {
@@ -9,6 +9,7 @@ pub trait RandomProvider: std::fmt::Debug {
     fn gen_range(&mut self, low: usize, high: usize) -> usize;
     fn range_f64(&mut self, low: f64, high: f64) -> f64;
     fn normal(&mut self, normal: NormalParam) -> f64;
+    fn normal_factor_std_1percent(&mut self) -> f64;
     fn normal_random(
         &mut self,
         mean: f64,
@@ -55,6 +56,10 @@ impl RandomProvider for RealRng {
             normal.coefficient,
             normal.offset,
         )
+    }
+
+    fn normal_factor_std_1percent(&mut self) -> f64 {
+        self.normal_random(1.0, 1.01, 0.0, 1.0, 0.0)
     }
 
     fn normal_random(
@@ -118,6 +123,10 @@ impl RandomProvider for FixedRng {
             normal.coefficient,
             normal.offset,
         )
+    }
+
+    fn normal_factor_std_1percent(&mut self) -> f64 {
+        self.normal_random(1.0, 1.01, 0.0, 1.0, 0.0)
     }
 
     fn normal_random(
