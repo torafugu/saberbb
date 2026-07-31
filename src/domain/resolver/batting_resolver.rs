@@ -1,8 +1,8 @@
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{
     BattedBall, CONVERT_FACTOR_KMH_TO_MS, PitchedBall, TrajectoryType,
 };
+use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::player::BatterInfo;
 use crate::domain::util::GRAVITY;
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,7 @@ use strum_macros::{AsRefStr, EnumIter, EnumString};
 const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
-// Scaling: 2300rpm = 1.0 Magnus force
-const MAGNUS_FORCE_BASE_SPIN_RATE: f64 = 2300.0;
+
 
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug)]
@@ -39,43 +38,12 @@ impl SwingContactResult {
     }
 }
 
-// NOTE: Calculate sweet_spot_factor (0.0 ~ 1.0) solely from pitch spin characteristics
-pub fn calculate_pitch_displacement(ball: &PitchedBall) -> PitchDisplacement {
-    // 1. Simple calculation of Magnus effect magnitude based on spin rate
-    let magnus_strength = ball.spin_rate / MAGNUS_FORCE_BASE_SPIN_RATE;
-
-    // Convert spin angle (degrees) to radians
-    let angle_rad = ball.spin_angle * PI / 180.0;
-
-    // 2. Calculate movement vector
-    // X: horizontal movement (screw/slider)
-    // sin(spin_angle): 90 deg (slider) => +1.0 (right), 270 deg (screw) => -1.0 (left)
-    let delta_x = magnus_strength * angle_rad.sin();
-
-    // Y: vertical movement (backspin/topspin)
-    // Use a standard fastball (spin_angle = 0.0) backspin component (1.0) as the reference point, measuring deviation from it
-    let fastball_ref_y = 1.0;
-    let delta_y = (magnus_strength * angle_rad.cos()) - fastball_ref_y;
-
-    // 3. Scale adjustment based on bat sweet spot size (sensitivity parameter)
-    // Coefficient to map offset to -1.0 ~ +1.0 range (sweet spot ~ bat edge)
-    let sensitivity = 0.5;
-
-    PitchDisplacement {
-        horizontal: (delta_x * sensitivity).clamp(-1.0, 1.0),
-        vertical: (delta_y * sensitivity).clamp(-1.0, 1.0),
-    }
-}
-
 pub fn evaluate_swing(
     _batter: &BatterInfo,
-    ball: &PitchedBall,
+    pitch_displacement: &PitchDisplacement,
     // Pass batter's target pitch and swing timing input as needed
 ) -> SwingContactResult {
-    // TODO: Calculate spatial offset from pitch trajectory change (pitch type + spin) vs batter's coverage ability
     // TODO: Calculate timing offset from velocity/change of pace vs batter's swing timingA
-
-    let pitch_displacement = calculate_pitch_displacement(ball);
 
     SwingContactResult {
         vertical_offset: pitch_displacement.vertical,
@@ -594,6 +562,7 @@ mod tests {
                         y: 16.74,
                         z: 1.7,
                     },
+                    flight_time: 0.42,
                 },
                 &centered_contact(),
             );

@@ -173,7 +173,8 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
         let pitched_ball = create_pitch(&mut rng, &pitcher)?;
 
-        let contact = evaluate_swing(&batter, &pitched_ball);
+        let pitch_displacement = calculate_pitch_displacement(&pitched_ball);
+        let contact = evaluate_swing(&batter, &pitch_displacement);
         let ball = calculate_batted_ball(&mut rng, &batter, pitched_ball, &contact);
 
         println!("{:#?}", ball);
@@ -512,6 +513,7 @@ fn test_batted_ball() {
                     y: 16.74,
                     z: 1.7,
                 },
+                flight_time: 0.42,
             },
             &SwingContactResult {
                 vertical_offset: 0.0,

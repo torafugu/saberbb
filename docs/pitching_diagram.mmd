@@ -1,11 +1,22 @@
 flowchart TD
-    subgraph pitcher[Pitcher]
-        calculate_release_point
-        select_pitch_skill
+    subgraph pitcher[pitcher]
         base_spin_angle
+        select_pitch_skill
+        calculate_release_point
     end
 
-    create_pitch --> pitcher
-    calculate_pitch_displacement --> calculate_flight_time --> calculate_late_break_displacement
-
+    subgraph create_pitch[create_pitch]
+        pitcher
+        calculate_flight_time
+    end
     
+    create_pitch --> calculate_total_pitch_offset
+
+    subgraph calculate_late_break_displacement[calculate_late_break_displacement]
+        get_side_accel
+        get_vertical_accel
+    end
+
+    subgraph calculate_total_pitch_offset[calculate_total_pitch_offset]
+        calculate_pitch_displacement --> calculate_late_break_displacement --> crossfire_perceived_multiplier
+    end

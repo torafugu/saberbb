@@ -10,7 +10,7 @@ use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_defensive_chain,
 };
-use crate::domain::resolver::pitching_resolver::create_pitch;
+use crate::domain::resolver::pitching_resolver::{calculate_pitch_displacement, create_pitch};
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
@@ -671,7 +671,8 @@ impl GameState {
         let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
 
         // TODO: pitch_speed must be replaced by ActivePitcher
-        let contact = evaluate_swing(&batter, &pitched_ball);
+        let pitch_displacement = calculate_pitch_displacement(&pitched_ball);
+        let contact = evaluate_swing(&batter, &pitch_displacement);
         let batted_ball = calculate_batted_ball(self.rng.as_mut(), &batter, pitched_ball, &contact);
         info!("Batted Ball: {:#?}", batted_ball);
 
