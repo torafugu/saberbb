@@ -10,9 +10,14 @@ const FOUL_DEGREE: f64 = 45.0;
 const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
 pub const CONVERT_FACTOR_KMH_TO_MS: f64 = 0.2778;
+
 // Scaling coefficient calibrated so that at 2500rpm, 150km/h (41.67m/s), efficiency 1.0, acceleration is approx. 3.5 m/s²
 // Coefficient K ≈ 3.5 / (2500.0 * 41.67) ≈ 0.0000336
 const MAGNUS_COEFF: f64 = 0.0000336;
+
+// Pitch decelerates by approx. 8–10% from initial velocity due to air resistance by the time it reaches the mitt,
+// so the average speed during flight is approx. 95% (0.95) of initial velocity
+const AIR_DRAG_FACTOR: f64 = 0.95;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum TrajectoryType {
@@ -178,6 +183,24 @@ impl PitchedBall {
         let vertical_factor = dir_rad.cos(); // Vertical component uses cos (positive for backspin)
 
         total_magnus_accel * vertical_factor
+    }
+
+    /// Calculate the flight time (seconds) for the pitch to reach the batter (impact point)
+    pub fn calculate_flight_time(&self) -> f64 {
+        // 1. Convert pitch speed (km/h) to (m/s)
+        let initial_v_ms = self.speed / 3.6;
+
+        // 2. Calculate average pitch speed accounting for air resistance deceleration
+        let avg_v_ms = initial_v_ms * AIR_DRAG_FACTOR;
+
+        // 3. Y-axis distance the ball actually travels (m)
+        // (assumes release_point.y is already calculated as "18.44 - extension")
+        let flight_distance_y = self.release_point.y;
+
+        // 4. Flight time t = distance / average speed
+        let flight_time = flight_distance_y / avg_v_ms;
+
+        flight_time
     }
 }
 

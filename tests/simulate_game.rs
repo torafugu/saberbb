@@ -171,7 +171,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
         println!("\n--- New count ---");
         inning_state.runners.batter_runner = Some(batter_runner);
 
-        let pitched_ball = create_pitch(&mut rng, &pitcher);
+        let pitched_ball = create_pitch(&mut rng, &pitcher)?;
 
         let contact = evaluate_swing(&batter, &pitched_ball);
         let ball = calculate_batted_ball(&mut rng, &batter, pitched_ball, &contact);
