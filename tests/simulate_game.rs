@@ -505,7 +505,7 @@ fn test_batted_ball() {
             &right_average_hitter,
             PitchedBall {
                 pitch_type: PitchType::FourSeamFastball,
-                speed: 150.0,
+                speed_kmh: 150.0,
                 spin_rate: 2300.0,
                 spin_angle: 30.0,
                 spin_efficiency: 0.95,
@@ -528,6 +528,55 @@ fn test_batted_ball() {
             "INSERT INTO test_batted_ball (launch_speed_kmh, launch_angle,  spray_angle, distance, hang_time, trajectory) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![ball.launch_speed_kmh, ball.launch_angle, ball.angle(), ball.distance(),  ball.hang_time, ball.trajectory.as_ref()],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn test_pitched_ball() {
+    let conn = SqlDb::new().unwrap().get_conn().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS test_pitched_ball (
+            pitch_type TEXT NOT NULL,
+            speed_kmh REAL NOT NULL,
+            spin_rate REAL NOT NULL,
+            spin_angle REAL NOT NULL,
+            spin_efficiency REAL NOT NULL,
+            release_point_x REAL NOT NULL,
+            release_point_y REAL NOT NULL,
+            release_point_z REAL NOT NULL,
+            flight_time REAL NOT NULL,
+            norm_x REAL NOT NULL,
+            norm_y REAL NOT NULL
+        )",
+    )
+    .unwrap();
+
+    let mut rng = RealRng::new();
+
+    let pitcher = generate_pitcher();
+
+    for _ in 0..1000 {
+        let ball = create_pitch(&mut rng, &pitcher).unwrap();
+
+        conn.execute(
+            "INSERT INTO test_pitched_ball (pitch_type, speed_kmh,  spin_rate, spin_angle, spin_efficiency, 
+            release_point_x, release_point_y, release_point_z, flight_time, norm_x, norm_y) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                ball.pitch_type.as_ref(),
+                ball.speed_kmh,
+                ball.spin_rate,
+                ball.spin_angle,
+                ball.spin_efficiency,
+                ball.release_point.x,
+                ball.release_point.y,
+                ball.release_point.z,
+                ball.flight_time,
+                ball.norm_x,
+                ball.norm_y,
+            ],
         )
         .unwrap();
     }

@@ -59,7 +59,7 @@ impl RandomProvider for RealRng {
     }
 
     fn normal_factor_std_1percent(&mut self) -> f64 {
-        self.normal_random(1.0, 1.01, 0.0, 1.0, 0.0)
+        self.normal_random(0.0, 0.01, 0.0, 1.0, 1.0)
     }
 
     fn normal_random(

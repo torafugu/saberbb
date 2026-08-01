@@ -353,7 +353,7 @@ pub fn calculate_batted_ball(
     // 1. Calculate exit velocity (damped by spatial offset & timing delay)
     let launch_speed = sample_launch_speed(
         rng,
-        ball.speed,
+        ball.speed_kmh,
         batter.swing_speed,
         contact.offset(),
         contact.timing_offset,
@@ -554,7 +554,7 @@ mod tests {
                 &right_pull_hitter,
                 PitchedBall {
                     pitch_type: PitchType::FourSeamFastball,
-                    speed: 150.0,
+                    speed_kmh: 150.0,
                     spin_rate: 2300.0,
                     spin_angle: 0.0,
                     spin_efficiency: 0.95,

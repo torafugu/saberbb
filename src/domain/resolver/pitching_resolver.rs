@@ -2,7 +2,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::PitchedBall;
 use crate::domain::shared::player::RL;
 use crate::domain::shared::player::{
-    PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN, PitchType, PitcherInfo,
+    PitchType, PitcherInfo, PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN,
 };
 use crate::domain::util::GRAVITY;
 use crate::error::AppError;
@@ -32,7 +32,7 @@ pub fn create_pitch(
         (base_spin_angle + pitch_skill.spin_angle + 360.0) % 360.0
     };
 
-    let speed = pitch_skill.velocity * rng.normal_factor_std_1percent();
+    let speed = pitcher.velocity * pitch_skill.velocity * rng.normal_factor_std_1percent();
 
     // Speed-based correction (slower pitches have lower spin rate)
     let speed_factor = speed / BASE_FOUR_SEAM_SPEED;
@@ -43,7 +43,7 @@ pub fn create_pitch(
 
     Ok(PitchedBall {
         pitch_type: pitch_skill.pitch_type,
-        speed: speed,
+        speed_kmh: speed,
         spin_rate: raw_spin_rate,
         spin_angle: final_spin_angle,
         spin_efficiency: pitch_skill.spin_efficiency,
@@ -218,7 +218,7 @@ pub fn calculate_timing_offset(
     expected_ball: &PitchedBallExpectation,
 ) -> f64 {
     // 1. Actual flight time (calculated from extension and actual pitch speed)
-    let actual_flight_time = calculate_flight_time(ball.speed, ball.release_point.y);
+    let actual_flight_time = calculate_flight_time(ball.speed_kmh, ball.release_point.y);
 
     // 2. Predicted flight time the batter calculates in their mind
     // (calculated from the assumed pitch speed expected_speed and standard extension)
@@ -234,4 +234,253 @@ pub fn calculate_timing_offset(
     let delta_t_sec = raw_delta_t;
 
     delta_t_sec
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::random_provider::FixedRng;
+    use crate::domain::shared::player::{
+        ArmSlot, FielderInfo, FielderType, PitchSkill, PitcherStyle,
+    };
+    use crate::domain::util::Vector3D;
+
+    const EPSILON: f64 = 1e-9;
+
+    fn assert_near(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < EPSILON,
+            "expected {actual} to be near {expected}"
+        );
+    }
+
+    fn pitch_skill(pitch_type: PitchType, spin_angle: f64, spin_rate: f64) -> PitchSkill {
+        PitchSkill::from_prob(
+            pitch_type,
+            spin_type_velocity(pitch_type),
+            0.5,
+            0.5,
+            0.5,
+            spin_rate,
+            spin_angle,
+            1.0,
+            1.0,
+        )
+    }
+
+    fn spin_type_velocity(pitch_type: PitchType) -> f64 {
+        match pitch_type {
+            PitchType::FourSeamFastball => 1.0,
+            PitchType::Slider => 0.88,
+            _ => 0.9,
+        }
+    }
+
+    fn pitcher(throw_side: RL, pitch_skills: Vec<PitchSkill>) -> PitcherInfo {
+        PitcherInfo::from_prob(
+            1.80,
+            1.80,
+            throw_side,
+            ArmSlot::ThreeQuarter,
+            PitcherStyle::BalancedPitcher,
+            150.0,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.0,
+            0.0,
+            1.5,
+            pitch_skills,
+            FielderInfo {
+                fielder_type: FielderType::Pitcher,
+                throw_speed: 40.0,
+                running_speed: 7.0,
+                reaction: 0.5,
+                prep_time: 0.65,
+            },
+        )
+    }
+
+    fn pitched_ball(
+        speed_kmh: f64,
+        spin_rate: f64,
+        spin_angle: f64,
+        spin_efficiency: f64,
+        release_x: f64,
+        release_y: f64,
+        flight_time: f64,
+    ) -> PitchedBall {
+        PitchedBall {
+            pitch_type: PitchType::FourSeamFastball,
+            speed_kmh,
+            spin_rate,
+            spin_angle,
+            spin_efficiency,
+            release_point: Vector3D {
+                x: release_x,
+                y: release_y,
+                z: 1.7,
+            },
+            flight_time,
+            norm_x: 0.0,
+            norm_y: 0.0,
+        }
+    }
+
+    #[test]
+    fn create_pitch_uses_pitcher_pitch_skill_and_release_point() {
+        let mut rng = FixedRng::new(0.0);
+        let pitcher = pitcher(
+            RL::Right,
+            vec![pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0)],
+        );
+
+        let ball = create_pitch(&mut rng, &pitcher).expect("pitch should be created");
+
+        assert_eq!(ball.pitch_type, PitchType::FourSeamFastball);
+        assert_near(ball.speed_kmh, 150.0);
+        assert_near(ball.spin_rate, 2300.0);
+        assert_near(ball.spin_angle, 75.0);
+        assert_near(ball.spin_efficiency, 1.0);
+        assert_near(ball.release_point.x, 0.55);
+        assert_near(ball.release_point.y, 16.64);
+        assert_near(ball.release_point.z, 1.71);
+        assert_near(ball.flight_time, 16.64 / ((150.0 / 3.6) * 0.95));
+        assert_near(ball.norm_x, 0.0);
+        assert_near(ball.norm_y, 0.0);
+    }
+
+    #[test]
+    fn create_pitch_mirrors_spin_angle_and_release_for_left_hander() {
+        let mut rng = FixedRng::new(0.0);
+        let pitcher = pitcher(RL::Left, vec![pitch_skill(PitchType::Slider, 20.0, 2300.0)]);
+
+        let ball = create_pitch(&mut rng, &pitcher).expect("pitch should be created");
+
+        assert_eq!(ball.pitch_type, PitchType::Slider);
+        assert_near(ball.speed_kmh, 132.0);
+        assert_near(ball.spin_rate, 2024.0);
+        assert_near(ball.spin_angle, 285.0);
+        assert_near(ball.release_point.x, -0.55);
+    }
+
+    #[test]
+    fn calculate_pitch_displacement_extracts_horizontal_spin_direction() {
+        let right_break = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let left_break = pitched_ball(150.0, 2300.0, 270.0, 1.0, 0.0, 16.64, 0.42);
+
+        let right_displacement = calculate_pitch_displacement(&right_break);
+        let left_displacement = calculate_pitch_displacement(&left_break);
+
+        assert_near(right_displacement.horizontal, 0.5);
+        assert_near(right_displacement.vertical, -0.5);
+        assert_near(left_displacement.horizontal, -0.5);
+        assert_near(left_displacement.vertical, -0.5);
+    }
+
+    #[test]
+    fn calculate_pitch_displacement_clamps_extreme_spin() {
+        let extreme_side_spin = pitched_ball(150.0, 9200.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let extreme_topspin = pitched_ball(150.0, 9200.0, 180.0, 1.0, 0.0, 16.64, 0.42);
+
+        assert_near(
+            calculate_pitch_displacement(&extreme_side_spin).horizontal,
+            1.0,
+        );
+        assert_near(
+            calculate_pitch_displacement(&extreme_topspin).vertical,
+            -1.0,
+        );
+    }
+
+    #[test]
+    fn calculate_late_break_displacement_uses_remaining_acceleration_after_decision() {
+        let ball = pitched_ball(150.0, 2500.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let side_accel = ball.get_side_accel();
+        let total_vertical_accel = ball.get_vertical_accel() - GRAVITY;
+        let expected_horizontal = (0.08 * side_accel * 0.42_f64.powi(2)) / 0.15;
+        let expected_vertical = (0.08 * total_vertical_accel * 0.42_f64.powi(2)) / 0.15;
+
+        let displacement = calculate_late_break_displacement(&ball);
+
+        assert_near(displacement.horizontal, expected_horizontal);
+        assert_near(displacement.vertical, expected_vertical);
+    }
+
+    #[test]
+    fn matchup_context_weights_unfamiliar_crossfire_most_heavily() {
+        assert_near(
+            MatchupContext {
+                throw_side: RL::Left,
+                batting_side: RL::Right,
+            }
+            .crossfire_perceived_multiplier(),
+            1.30,
+        );
+        assert_near(
+            MatchupContext {
+                throw_side: RL::Right,
+                batting_side: RL::Left,
+            }
+            .crossfire_perceived_multiplier(),
+            1.05,
+        );
+        assert_near(
+            MatchupContext {
+                throw_side: RL::Right,
+                batting_side: RL::Right,
+            }
+            .crossfire_perceived_multiplier(),
+            1.00,
+        );
+    }
+
+    #[test]
+    fn calculate_total_pitch_offset_enhances_horizontal_late_break_by_matchup_and_release_width() {
+        let ball = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.80, 16.64, 0.42);
+        let same_side = calculate_total_pitch_offset(
+            &ball,
+            &MatchupContext {
+                throw_side: RL::Right,
+                batting_side: RL::Right,
+            },
+        );
+        let crossfire = calculate_total_pitch_offset(
+            &ball,
+            &MatchupContext {
+                throw_side: RL::Left,
+                batting_side: RL::Right,
+            },
+        );
+
+        assert!(crossfire.horizontal > same_side.horizontal);
+        assert_near(crossfire.vertical, same_side.vertical);
+    }
+
+    #[test]
+    fn calculate_timing_offset_is_positive_for_slower_than_expected_pitch() {
+        let ball = pitched_ball(135.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
+        let expected_ball = PitchedBallExpectation {
+            pitch_type: PitchType::FourSeamFastball,
+            speed: 150.0,
+            norm_x: 0.0,
+            norm_y: 0.0,
+        };
+
+        assert!(calculate_timing_offset(&ball, &expected_ball) > 0.0);
+    }
+
+    #[test]
+    fn calculate_timing_offset_is_negative_for_faster_than_expected_pitch() {
+        let ball = pitched_ball(160.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
+        let expected_ball = PitchedBallExpectation {
+            pitch_type: PitchType::FourSeamFastball,
+            speed: 150.0,
+            norm_x: 0.0,
+            norm_y: 0.0,
+        };
+
+        assert!(calculate_timing_offset(&ball, &expected_ball) < 0.0);
+    }
 }

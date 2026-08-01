@@ -169,7 +169,7 @@ impl fmt::Display for LocationZone {
 
 pub struct PitchedBall {
     pub pitch_type: PitchType,
-    pub speed: f64,      // NOTE: (e.g., 150.0 km/h)
+    pub speed_kmh: f64,  // NOTE: (e.g., 150.0 km/h)
     pub spin_rate: f64,  // NOTE: (e.g., 2300.0 rpm)
     pub spin_angle: f64, // NOTE: (e.g., 0.0 ~ 360.0 deg)
     pub spin_efficiency: f64,
@@ -188,7 +188,7 @@ impl PitchedBall {
     /// (+: acceleration to the right / -: acceleration to the left)
     pub fn get_side_accel(&self) -> f64 {
         // 1. Convert speed from km/h to m/s
-        let v_m_per_s = self.speed / 3.6;
+        let v_m_per_s = self.speed_kmh / 3.6;
 
         // 2. Effective spin rate (rpm) contributing to Magnus force
         let effective_spin = self.spin_rate * self.spin_efficiency;
@@ -206,7 +206,7 @@ impl PitchedBall {
 
     /// (Reference) Vertical Magnus acceleration (m/s²) follows the same logic
     pub fn get_vertical_accel(&self) -> f64 {
-        let v_m_per_s = self.speed / 3.6;
+        let v_m_per_s = self.speed_kmh / 3.6;
         let effective_spin = self.spin_rate * self.spin_efficiency;
         let total_magnus_accel = MAGNUS_COEFF * effective_spin * v_m_per_s;
 
@@ -254,7 +254,7 @@ mod tests {
     ) -> PitchedBall {
         PitchedBall {
             pitch_type: PitchType::FourSeamFastball,
-            speed,
+            speed_kmh: speed,
             spin_rate,
             spin_angle,
             spin_efficiency,
