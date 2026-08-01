@@ -398,7 +398,7 @@ mod tests {
         sample_spray_angle,
     };
     use crate::domain::shared::ball::{PitchedBall, TrajectoryType};
-    use crate::domain::shared::player::RL;
+    use crate::domain::shared::player::{PitchType, RL};
     use crate::domain::util::Vector3D;
 
     fn batter_with_weights(
@@ -553,6 +553,7 @@ mod tests {
                 &mut rng,
                 &right_pull_hitter,
                 PitchedBall {
+                    pitch_type: PitchType::FourSeamFastball,
                     speed: 150.0,
                     spin_rate: 2300.0,
                     spin_angle: 0.0,
@@ -563,6 +564,8 @@ mod tests {
                         z: 1.7,
                     },
                     flight_time: 0.42,
+                    norm_x: 0.0,
+                    norm_y: 0.0,
                 },
                 &centered_contact(),
             );

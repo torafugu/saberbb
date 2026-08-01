@@ -504,6 +504,7 @@ fn test_batted_ball() {
             &mut rng,
             &right_average_hitter,
             PitchedBall {
+                pitch_type: PitchType::FourSeamFastball,
                 speed: 150.0,
                 spin_rate: 2300.0,
                 spin_angle: 30.0,
@@ -514,6 +515,8 @@ fn test_batted_ball() {
                     z: 1.7,
                 },
                 flight_time: 0.42,
+                norm_x: 0.0,
+                norm_y: 0.0,
             },
             &SwingContactResult {
                 vertical_offset: 0.0,

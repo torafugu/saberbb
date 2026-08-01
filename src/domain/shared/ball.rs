@@ -1,4 +1,4 @@
-use crate::domain::shared::player::Position;
+use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
@@ -139,15 +139,49 @@ impl BattedBall {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocationZone {
+    Heart,
+    UpIn,
+    UpAway,
+    LowIn,
+    LowAway,
+    ChaseHigh,
+    ChaseLow,
+    ChaseInside,
+    ChaseOutside,
+}
+impl fmt::Display for LocationZone {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            LocationZone::Heart => write!(f, "{}", t!("heart")),
+            LocationZone::UpIn => write!(f, "{}", t!("upin")),
+            LocationZone::UpAway => write!(f, "{}", t!("upaway")),
+            LocationZone::LowIn => write!(f, "{}", t!("lowin")),
+            LocationZone::LowAway => write!(f, "{}", t!("lowaway")),
+            LocationZone::ChaseHigh => write!(f, "{}", t!("chasehigh")),
+            LocationZone::ChaseLow => write!(f, "{}", t!("chaselow")),
+            LocationZone::ChaseInside => write!(f, "{}", t!("chaseinside")),
+            LocationZone::ChaseOutside => write!(f, "{}", t!("chaseoutside")),
+        }
+    }
+}
+
 pub struct PitchedBall {
+    pub pitch_type: PitchType,
     pub speed: f64,      // NOTE: (e.g., 150.0 km/h)
     pub spin_rate: f64,  // NOTE: (e.g., 2300.0 rpm)
     pub spin_angle: f64, // NOTE: (e.g., 0.0 ~ 360.0 deg)
     pub spin_efficiency: f64,
-    /// Spatial coordinates where the ball was released (m)
-    /// Example: x = -0.5 (right-handed pitcher's arm side), y = 16.5 (Extension 1.9m), z = 1.8 (release height)
+    // NOTE: Spatial coordinates where the ball was released (m)
+    // Example: x = -0.5 (right-handed pitcher's arm side), y = 16.5 (Extension 1.9m), z = 1.8 (release height)
     pub release_point: Vector3D,
     pub flight_time: f64,
+    // NOTE: Relative position from the center of the strike zone (-1.0 ~ +1.0)
+    // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
+    pub norm_x: f64,
+    // y: -1.0 (low) ~ +1.0 (high)
+    pub norm_y: f64,
 }
 impl PitchedBall {
     /// Returns lateral Magnus acceleration (m/s²)
@@ -219,6 +253,7 @@ mod tests {
         spin_efficiency: f64,
     ) -> PitchedBall {
         PitchedBall {
+            pitch_type: PitchType::FourSeamFastball,
             speed,
             spin_rate,
             spin_angle,
@@ -229,6 +264,8 @@ mod tests {
                 z: 1.8,
             },
             flight_time: 0.4,
+            norm_x: 0.0,
+            norm_y: 0.0,
         }
     }
 

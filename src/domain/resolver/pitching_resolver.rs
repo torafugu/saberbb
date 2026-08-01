@@ -1,7 +1,9 @@
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::PitchedBall;
-use crate::domain::shared::player::PitcherInfo;
 use crate::domain::shared::player::RL;
+use crate::domain::shared::player::{
+    PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN, PitchType, PitcherInfo,
+};
 use crate::domain::util::GRAVITY;
 use crate::error::AppError;
 use std::f64::consts::PI;
@@ -22,7 +24,7 @@ pub fn create_pitch(
     // delivery form
     let base_spin_angle = pitcher.base_spin_angle();
 
-    let pitch_skill = pitcher.select_pitch_skill(rng)?;
+    let pitch_skill = pitcher.select_pitch_type(rng)?;
 
     let final_spin_angle = if pitcher.throw_side == RL::Left {
         (base_spin_angle - pitch_skill.spin_angle + 360.0) % 360.0
@@ -40,12 +42,15 @@ pub fn create_pitch(
     let flight_time = calculate_flight_time(speed, release_point.y);
 
     Ok(PitchedBall {
+        pitch_type: pitch_skill.pitch_type,
         speed: speed,
         spin_rate: raw_spin_rate,
         spin_angle: final_spin_angle,
         spin_efficiency: pitch_skill.spin_efficiency,
         release_point: release_point,
         flight_time: flight_time,
+        norm_x: 0.0,
+        norm_y: 0.0,
     })
 }
 
@@ -197,4 +202,36 @@ pub fn calculate_total_pitch_offset(
         horizontal: (base_disp.horizontal + enhanced_late_break_x).clamp(-1.0, 1.0),
         vertical: (base_disp.vertical + late_break.vertical).clamp(-1.0, 1.0),
     }
+}
+
+pub struct PitchedBallExpectation {
+    pub pitch_type: PitchType,
+    pub speed: f64,
+    pub norm_x: f64,
+    pub norm_y: f64,
+}
+
+/// Calculate the Timing Offset (seconds) from the batter's prediction and the actual pitch
+pub fn calculate_timing_offset(
+    ball: &PitchedBall,
+    // Standard pitch profile the batter assumes in their mind (e.g. 150km/h fastball)
+    expected_ball: &PitchedBallExpectation,
+) -> f64 {
+    // 1. Actual flight time (calculated from extension and actual pitch speed)
+    let actual_flight_time = calculate_flight_time(ball.speed, ball.release_point.y);
+
+    // 2. Predicted flight time the batter calculates in their mind
+    // (calculated from the assumed pitch speed expected_speed and standard extension)
+    const STANDARD_EXTENSION: f64 = (PITCH_EXTENSION_MIN + PITCH_EXTENSION_MAX) / 2.0;
+    let expected_flight_time = calculate_flight_time(expected_ball.speed, STANDARD_EXTENSION);
+
+    // 3. Flight time difference (pure physical timing offset)
+    let raw_delta_t = actual_flight_time - expected_flight_time;
+
+    // Sign convention for why raw_delta_t > 0 means late:
+    // actual_time > expected_time (ball arrives slower) = batter swung too early (Early)
+    // actual_time < expected_time (ball arrives faster) = batter swung late (Late)
+    let delta_t_sec = raw_delta_t;
+
+    delta_t_sec
 }

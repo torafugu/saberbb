@@ -11,6 +11,9 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
 use validator::Validate;
 
+pub const PITCH_EXTENSION_MIN: f64 = 1.2;
+pub const PITCH_EXTENSION_MAX: f64 = 2.3;
+
 #[derive(Clone, Copy, Hash, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum Position {
@@ -512,7 +515,7 @@ pub struct PitcherInfo {
 impl PitcherInfo {
     pub fn from_prob(
         height: f64,
-        extension: f64,
+        extension: f64, // TODO: extension should be correlate with height.
         throw_side: RL,
         arm_slot: ArmSlot,
         pitcher_style: PitcherStyle,
@@ -572,7 +575,10 @@ impl PitcherInfo {
         };
 
         // 3. Y-axis (distance to batter): pitching rubber (18.44m) - extension
-        let distance_to_home = 18.44 - self.extension.clamp(1.2, 2.3);
+        let distance_to_home = 18.44
+            - self
+                .extension
+                .clamp(PITCH_EXTENSION_MIN, PITCH_EXTENSION_MAX);
 
         Vector3D {
             x: release_x,
@@ -585,7 +591,7 @@ impl PitcherInfo {
         self.arm_slot.base_spin_angle(self.throw_side)
     }
 
-    pub fn select_pitch_skill(&self, rng: &mut dyn RandomProvider) -> Result<PitchSkill, AppError> {
+    pub fn select_pitch_type(&self, rng: &mut dyn RandomProvider) -> Result<PitchSkill, AppError> {
         let usages: Vec<f64> = self
             .pitch_skills
             .iter()
