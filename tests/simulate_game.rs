@@ -581,3 +581,54 @@ fn test_pitched_ball() {
         .unwrap();
     }
 }
+
+#[test]
+fn test_pitch_offset() {
+    let conn = SqlDb::new().unwrap().get_conn().unwrap();
+    let mut rng = RealRng::new();
+
+    let pitcher = generate_pitcher();
+    let batter = generate_batter();
+
+    for _ in 0..1000 {
+        let ball = create_pitch(&mut rng, &pitcher).unwrap();
+        let base_disp = calculate_pitch_displacement(&ball);
+        let late_break = calculate_late_break_displacement(&ball);
+
+        let matchup = MatchupContext {
+            throw_side: pitcher.throw_side,
+            batting_side: batter.batting_side,
+        };
+        let crossfire_multiplier = matchup.crossfire_perceived_multiplier();
+        let release_x_factor = 1.0 + (ball.release_point.x.abs() * 0.15);
+        let enhanced_late_break_x = late_break.horizontal * crossfire_multiplier * release_x_factor;
+
+        let final_x = (base_disp.horizontal + enhanced_late_break_x).clamp(-1.0, 1.0);
+        let final_y = (base_disp.vertical + late_break.vertical).clamp(-1.0, 1.0);
+
+        let expected_ball = PitchedBallExpectation {
+            pitch_type: PitchType::FourSeamFastball,
+            speed: 148.0,
+            norm_x: 0.0,
+            norm_y: 0.0,
+        };
+        let timing = calculate_timing_offset(&ball, &expected_ball);
+
+        conn.execute(
+            "INSERT INTO test_pitched_offset (base_disp_x, base_disp_y, late_break_x, late_break_y, 
+            enhanced_late_break_x, final_x, final_y, timing) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                base_disp.horizontal,
+                base_disp.vertical,
+                late_break.horizontal,
+                late_break.vertical,
+                enhanced_late_break_x,
+                final_x,
+                final_y,
+                timing
+            ],
+        )
+        .unwrap();
+    }
+}

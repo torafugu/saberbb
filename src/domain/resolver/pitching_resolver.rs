@@ -2,7 +2,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::PitchedBall;
 use crate::domain::shared::player::RL;
 use crate::domain::shared::player::{
-    PitchType, PitcherInfo, PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN,
+    PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN, PitchType, PitcherInfo,
 };
 use crate::domain::util::GRAVITY;
 use crate::error::AppError;
@@ -108,7 +108,7 @@ pub fn calculate_pitch_displacement(ball: &PitchedBall) -> PitchDisplacement {
 }
 
 /// Timing when the batter initiates the swing (e.g. 12m from the pitcher / approx. 0.15s before impact)
-fn calculate_late_break_displacement(ball: &PitchedBall) -> PitchDisplacement {
+pub fn calculate_late_break_displacement(ball: &PitchedBall) -> PitchDisplacement {
     // Point at which the batter commits to the swing (approx. 60% of total flight time)
     let decision_ratio = 0.6;
     let decision_time = ball.flight_time * decision_ratio;

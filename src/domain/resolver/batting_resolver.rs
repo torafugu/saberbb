@@ -43,7 +43,7 @@ pub fn evaluate_swing(
     pitch_displacement: &PitchDisplacement,
     // Pass batter's target pitch and swing timing input as needed
 ) -> SwingContactResult {
-    // TODO: Calculate timing offset from velocity/change of pace vs batter's swing timingA
+    // TODO: Calculate timing offset from velocity/change of pace vs batter's swing timing
 
     SwingContactResult {
         vertical_offset: pitch_displacement.vertical,
