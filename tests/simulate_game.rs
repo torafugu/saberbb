@@ -1,7 +1,7 @@
 use rusqlite::params;
 use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
-use saberbb::domain::random_provider::{FixedRng, RealRng};
+use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_physics::try_catch;
 use saberbb::domain::resolver::fielding_resolver::*;
@@ -628,6 +628,22 @@ fn test_pitch_offset() {
                 final_y,
                 timing
             ],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn test_normal_random() {
+    let conn = SqlDb::new().unwrap().get_conn().unwrap();
+    let mut rng = RealRng::new();
+
+    for _ in 0..1000 {
+        let value = rng.normal_random(100.0, 2.0, 0.2, 1.0, 0.0);
+
+        conn.execute(
+            "INSERT INTO test_normal_random (value) VALUES (?1)",
+            params![value],
         )
         .unwrap();
     }
