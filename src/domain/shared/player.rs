@@ -3,6 +3,7 @@ use crate::domain::random_provider::{RandomProvider, choose_item_weighted};
 use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::prob::ItemWeighted;
+use crate::domain::strategy::pitch_call::{PitchCall, default_location_distribution};
 use crate::domain::util::{Vector3D, softmax};
 use crate::error::AppError;
 use crate::t;
@@ -591,7 +592,7 @@ impl PitcherInfo {
         self.arm_slot.base_spin_angle(self.throw_side)
     }
 
-    pub fn select_pitch_type(&self, rng: &mut dyn RandomProvider) -> Result<PitchSkill, AppError> {
+    pub fn pitch_type_distribution(&self) -> Vec<ItemWeighted<PitchSkill>> {
         let usages: Vec<f64> = self
             .pitch_skills
             .iter()
@@ -607,7 +608,32 @@ impl PitcherInfo {
             });
         }
 
-        Ok(choose_item_weighted(rng, &items)?.clone())
+        items
+    }
+
+    pub fn pitch_calling_distribution(&self) -> Vec<ItemWeighted<PitchCall>> {
+        let pitch_type_distribution = self.pitch_type_distribution();
+        let location_distribution = default_location_distribution();
+        let mut items = Vec::new();
+
+        for pitch_type_prob in pitch_type_distribution {
+            for location_prob in &location_distribution {
+                let pitch_call = PitchCall {
+                    pitch_type: pitch_type_prob.name.pitch_type,
+                    location: location_prob.name,
+                };
+                items.push(ItemWeighted {
+                    name: pitch_call,
+                    weight: pitch_type_prob.weight * location_prob.weight,
+                });
+            }
+        }
+
+        items
+    }
+
+    pub fn sample_pitch_type(&self, rng: &mut dyn RandomProvider) -> Result<PitchSkill, AppError> {
+        Ok(choose_item_weighted(rng, &self.pitch_type_distribution())?.clone())
     }
 }
 

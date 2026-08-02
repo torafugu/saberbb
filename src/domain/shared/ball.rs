@@ -139,8 +139,8 @@ impl BattedBall {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LocationZone {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocationZone {
     Heart,
     UpIn,
     UpAway,

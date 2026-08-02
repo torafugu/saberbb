@@ -592,8 +592,10 @@ fn test_pitch_offset() {
 
     for _ in 0..1000 {
         let ball = create_pitch(&mut rng, &pitcher).unwrap();
+        let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
+
         let base_disp = calculate_pitch_displacement(&ball);
-        let late_break = calculate_late_break_displacement(&ball);
+        let late_break = calculate_late_break_displacement(&ball, &expected_ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -606,12 +608,6 @@ fn test_pitch_offset() {
         let final_x = (base_disp.horizontal + enhanced_late_break_x).clamp(-1.0, 1.0);
         let final_y = (base_disp.vertical + late_break.vertical).clamp(-1.0, 1.0);
 
-        let expected_ball = PitchedBallExpectation {
-            pitch_type: PitchType::FourSeamFastball,
-            speed: 148.0,
-            norm_x: 0.0,
-            norm_y: 0.0,
-        };
         let timing = calculate_timing_offset(&ball, &expected_ball);
 
         conn.execute(

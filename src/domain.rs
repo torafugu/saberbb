@@ -6,4 +6,5 @@ pub mod resolver;
 pub mod schedule_service;
 pub mod shared;
 pub mod statistics_service;
+pub mod strategy;
 pub mod util;
