@@ -613,6 +613,7 @@ impl PitcherInfo {
 
     pub fn pitch_calling_distribution(&self) -> Vec<ItemWeighted<PitchCall>> {
         let pitch_type_distribution = self.pitch_type_distribution();
+        // TODO: default_location_distribution must be replaced by pitching strategy.
         let location_distribution = default_location_distribution();
         let mut items = Vec::new();
 
