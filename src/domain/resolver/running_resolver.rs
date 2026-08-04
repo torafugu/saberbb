@@ -198,18 +198,6 @@ struct HitAttemptResult {
     ruling: Ruling,
     batting_result: BattingResult,
 }
-impl HitAttemptResult {
-    fn new() -> Self {
-        Self {
-            from_base: None,
-            target_runner: None,
-            runner_time: 0.0,
-            time_difference: 0.0,
-            ruling: Ruling::Out,
-            batting_result: BattingResult::Out,
-        }
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct RunnersOnBase {

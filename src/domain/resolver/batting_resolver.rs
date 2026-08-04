@@ -397,7 +397,7 @@ mod tests {
         BatterInfo, FieldSector, SwingContactResult, calculate_batted_ball, inner_choose_sector,
         sample_spray_angle,
     };
-    use crate::domain::shared::ball::{PitchedBall, TrajectoryType};
+    use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::player::{PitchType, RL};
     use crate::domain::util::Vector3D;
 
@@ -564,8 +564,10 @@ mod tests {
                         z: 1.7,
                     },
                     flight_time: 0.42,
-                    norm_x: 0.0,
-                    norm_y: 0.0,
+                    ball_location: BallLocation {
+                        norm_x: 0.0,
+                        norm_y: 0.0,
+                    },
                 },
                 &centered_contact(),
             );

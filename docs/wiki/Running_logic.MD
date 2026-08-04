@@ -62,10 +62,6 @@ Maps a legal base path to the number of bases advanced. Rejects unsupported path
 
 Computes `time_difference = defense_time - runner_time`. The runner is safe when the difference is zero or positive, and out when the defense arrives first.
 
-### `HitAttemptResult::new()`
-
-Creates a default internal hit-attempt result. This constructor is currently unused by the resolver.
-
 ### `RunnersOnBase::empty()`
 
 Clears the batter-runner and all occupied bases.

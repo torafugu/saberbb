@@ -21,7 +21,8 @@ pub fn create_pitch(
     // delivery form
     let base_spin_angle = pitcher.base_spin_angle();
 
-    let pitch_skill = pitcher.sample_pitch_type(rng)?;
+    let pitch_call = pitcher.sample_pitch_calllling(rng)?;
+    let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
 
     let final_spin_angle = if pitcher.throw_side == RL::Left {
         (base_spin_angle - pitch_skill.spin_angle + 360.0) % 360.0
@@ -29,12 +30,12 @@ pub fn create_pitch(
         (base_spin_angle + pitch_skill.spin_angle + 360.0) % 360.0
     };
 
-    let speed = pitcher.velocity * pitch_skill.velocity * rng.normal_factor_std_1percent();
+    let speed = pitcher.velocity * pitch_skill.velocity * rng.normal_factor_std_1_percent();
 
     // Speed-based correction (slower pitches have lower spin rate)
     let speed_factor = speed / BASE_FOUR_SEAM_SPEED;
 
-    let raw_spin_rate = pitch_skill.spin_rate * rng.normal_factor_std_1percent() * speed_factor;
+    let raw_spin_rate = pitch_skill.spin_rate * rng.normal_factor_std_1_percent() * speed_factor;
     let release_point = pitcher.calculate_release_point();
     let flight_time = calculate_flight_time(speed, release_point.y);
 
@@ -46,8 +47,7 @@ pub fn create_pitch(
         spin_efficiency: pitch_skill.spin_efficiency,
         release_point: release_point,
         flight_time: flight_time,
-        norm_x: 0.0,
-        norm_y: 0.0,
+        ball_location: pitch_call.random_ball_location(rng),
     })
 }
 
@@ -211,6 +211,7 @@ pub fn calculate_timing_offset(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
+    use crate::domain::shared::ball::BallLocation;
     use crate::domain::shared::player::{
         ArmSlot, FielderInfo, FielderType, PitchSkill, PitchType, PitcherStyle,
     };
@@ -294,8 +295,10 @@ mod tests {
                 z: 1.7,
             },
             flight_time,
-            norm_x: 0.0,
-            norm_y: 0.0,
+            ball_location: BallLocation {
+                norm_x: 0.0,
+                norm_y: 0.0,
+            },
         }
     }
 
@@ -318,8 +321,8 @@ mod tests {
         assert_near(ball.release_point.y, 16.64);
         assert_near(ball.release_point.z, 1.71);
         assert_near(ball.flight_time, 16.64 / ((150.0 / 3.6) * 0.95));
-        assert_near(ball.norm_x, 0.0);
-        assert_near(ball.norm_y, 0.0);
+        assert_near(ball.ball_location.norm_x, 1.75);
+        assert_near(ball.ball_location.norm_y, 0.25);
     }
 
     #[test]
