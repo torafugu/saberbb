@@ -10,6 +10,9 @@ CREATE TABLE test_pitched_ball (
     release_point_y REAL NOT NULL,
     release_point_z REAL NOT NULL,
     flight_time REAL NOT NULL,
+    target_location TEXT NOT NULL,
+    aim_x REAL NOT NULL,
+    aim_y REAL NOT NULL,
     norm_x REAL NOT NULL,
     norm_y REAL NOT NULL
 );

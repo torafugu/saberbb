@@ -1,11 +1,11 @@
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::shared::ball::PitchedBall;
+use crate::domain::shared::ball::{BallLocation, PitchedBall, Zone};
 use crate::domain::shared::player::RL;
 use crate::domain::shared::player::{PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN, PitcherInfo};
 use crate::domain::util::GRAVITY;
 use crate::error::AppError;
 
-const BASE_FOUR_SEAM_SPEED: f64 = 150.0;
+pub const BASE_FOUR_SEAM_SPEED: f64 = 150.0;
 
 // Pitch decelerates by approx. 8–10% from initial velocity due to air resistance by the time it reaches the mitt,
 // so the average speed during flight is approx. 95% (0.95) of initial velocity
@@ -36,6 +36,9 @@ pub fn create_pitch(
     let release_point = pitcher.calculate_release_point();
     let flight_time = calculate_flight_time(speed, release_point.y);
 
+    let aim_location = pitch_call.aim_location();
+    let ball_location = sample_ball_location(rng, pitch_call.target_location.zone(), aim_location);
+
     Ok(PitchedBall {
         pitch_type: pitch_skill.pitch_type,
         speed_kmh: speed,
@@ -44,12 +47,26 @@ pub fn create_pitch(
         spin_efficiency: pitch_skill.spin_efficiency,
         release_point: release_point,
         flight_time: flight_time,
-        location: pitch_call.random_ball_location(rng),
+        location: ball_location,
     })
 }
 
-/// Calculate the flight time (seconds) for the pitch to reach the batter (impact point)
-fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
+// TODO: Consider pitcher's control effect.
+pub fn sample_ball_location(
+    rng: &mut dyn RandomProvider,
+    zone: Zone,
+    aim: BallLocation,
+) -> BallLocation {
+    let norm_x = aim.x + zone.width() * rng.normal_std_10_percent();
+    let norm_y = aim.y + zone.height() * rng.normal_std_10_percent();
+
+    BallLocation {
+        x: norm_x,
+        y: norm_y,
+    }
+}
+
+pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
     // 1. Convert pitch speed (km/h) to (m/s)
     let initial_v_ms = speed / 3.6;
 

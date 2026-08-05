@@ -1,11 +1,30 @@
-use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::BallLocation;
 use crate::domain::shared::ball::Zone;
 use crate::domain::shared::player::PitchType;
 use crate::domain::shared::prob::ItemWeighted;
+use strum_macros::AsRefStr;
 
-/// Target Course (狙い目のエリア)
+const WIDE_AIM_FACTOR: f64 = 3.0;
+const EDGE_AIM_FACTOR: f64 = 4.0;
+const OUT_AIM_FACTOR: f64 = -5.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Margin {
+    Wide,
+    Edge,
+    Out,
+}
+impl Margin {
+    pub fn factor(&self) -> f64 {
+        match self {
+            Margin::Wide => WIDE_AIM_FACTOR,
+            Margin::Edge => EDGE_AIM_FACTOR,
+            Margin::Out => OUT_AIM_FACTOR,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
 pub enum TargetLocation {
     Center,
     LowInside,
@@ -54,10 +73,37 @@ impl TargetLocation {
 pub struct PitchCall {
     pub pitch_type: PitchType,
     pub target_location: TargetLocation,
+    pub margin: Margin,
 }
 impl PitchCall {
-    pub fn random_ball_location(&self, rng: &mut dyn RandomProvider) -> BallLocation {
-        self.target_location.zone().random_ball_location(rng)
+    pub fn aim_location(&self) -> BallLocation {
+        match self.target_location {
+            TargetLocation::Center => BallLocation { x: 0.0, y: 0.0 },
+            TargetLocation::LowInside => BallLocation {
+                x: self.target_location.zone().x1
+                    + self.target_location.zone().width() / self.margin.factor(),
+                y: self.target_location.zone().y2
+                    + self.target_location.zone().height() / self.margin.factor(),
+            },
+            TargetLocation::LowOutside => BallLocation {
+                x: self.target_location.zone().x2
+                    - self.target_location.zone().width() / self.margin.factor(),
+                y: self.target_location.zone().y2
+                    + self.target_location.zone().height() / self.margin.factor(),
+            },
+            TargetLocation::HighInside => BallLocation {
+                x: self.target_location.zone().x1
+                    + self.target_location.zone().width() / self.margin.factor(),
+                y: self.target_location.zone().y1
+                    - self.target_location.zone().height() / self.margin.factor(),
+            },
+            TargetLocation::HighOutside => BallLocation {
+                x: self.target_location.zone().x2
+                    - self.target_location.zone().width() / self.margin.factor(),
+                y: self.target_location.zone().y1
+                    - self.target_location.zone().height() / self.margin.factor(),
+            },
+        }
     }
 }
 

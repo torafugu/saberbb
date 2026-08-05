@@ -1,4 +1,3 @@
-use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
@@ -140,36 +139,37 @@ impl BattedBall {
     }
 }
 
-// TODO: Consder LocationZone should be relaced by TargetLocation or not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LocationZone {
-    Heart,
-    UpIn,
-    UpAway,
-    LowIn,
-    LowAway,
-    ChaseHigh,
-    ChaseLow,
-    ChaseInside,
-    ChaseOutside,
-}
-impl fmt::Display for LocationZone {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            LocationZone::Heart => write!(f, "{}", t!("heart")),
-            LocationZone::UpIn => write!(f, "{}", t!("upin")),
-            LocationZone::UpAway => write!(f, "{}", t!("upaway")),
-            LocationZone::LowIn => write!(f, "{}", t!("lowin")),
-            LocationZone::LowAway => write!(f, "{}", t!("lowaway")),
-            LocationZone::ChaseHigh => write!(f, "{}", t!("chasehigh")),
-            LocationZone::ChaseLow => write!(f, "{}", t!("chaselow")),
-            LocationZone::ChaseInside => write!(f, "{}", t!("chaseinside")),
-            LocationZone::ChaseOutside => write!(f, "{}", t!("chaseoutside")),
-        }
-    }
-}
+// // TODO: Consder LocationZone should be relaced by TargetLocation or not.
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pub enum LocationZone {
+//     Heart,
+//     UpIn,
+//     UpAway,
+//     LowIn,
+//     LowAway,
+//     ChaseHigh,
+//     ChaseLow,
+//     ChaseInside,
+//     ChaseOutside,
+// }
+// impl fmt::Display for LocationZone {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match *self {
+//             LocationZone::Heart => write!(f, "{}", t!("heart")),
+//             LocationZone::UpIn => write!(f, "{}", t!("upin")),
+//             LocationZone::UpAway => write!(f, "{}", t!("upaway")),
+//             LocationZone::LowIn => write!(f, "{}", t!("lowin")),
+//             LocationZone::LowAway => write!(f, "{}", t!("lowaway")),
+//             LocationZone::ChaseHigh => write!(f, "{}", t!("chasehigh")),
+//             LocationZone::ChaseLow => write!(f, "{}", t!("chaselow")),
+//             LocationZone::ChaseInside => write!(f, "{}", t!("chaseinside")),
+//             LocationZone::ChaseOutside => write!(f, "{}", t!("chaseoutside")),
+//         }
+//     }
+// }
 
 // NOTE: Relative position from the center of the strike zone (-1.0 ~ +1.0)
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BallLocation {
     // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
     pub x: f64,
@@ -204,30 +204,6 @@ impl Zone {
 
     pub fn height(&self) -> f64 {
         (self.y1 - self.y2).abs()
-    }
-
-    // TODO: aim point should be replaced by pitching strategy.
-    // TODO: norm point should be replaced by cntrol.
-    pub fn random_ball_location(&self, rng: &mut dyn RandomProvider) -> BallLocation {
-        let aim_x = if self.x1 < 0.0 {
-            self.x1 + self.width() / 4.0
-        } else {
-            self.x2 - self.width() / 4.0
-        };
-
-        let aim_y = if self.y1 > 0.0 {
-            self.y1 - self.width() / 4.0
-        } else {
-            self.y2 + self.width() / 4.0
-        };
-
-        let norm_x = aim_x + self.width() * rng.normal_factor_std_10_percent();
-        let norm_y = aim_y + self.height() * rng.normal_factor_std_10_percent();
-
-        BallLocation {
-            x: norm_x,
-            y: norm_y,
-        }
     }
 }
 
