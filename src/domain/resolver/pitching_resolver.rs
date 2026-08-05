@@ -2,17 +2,14 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::PitchedBall;
 use crate::domain::shared::player::RL;
 use crate::domain::shared::player::{PITCH_EXTENSION_MAX, PITCH_EXTENSION_MIN, PitcherInfo};
+use crate::domain::util::GRAVITY;
 use crate::error::AppError;
-use std::f64::consts::PI;
 
 const BASE_FOUR_SEAM_SPEED: f64 = 150.0;
 
 // Pitch decelerates by approx. 8–10% from initial velocity due to air resistance by the time it reaches the mitt,
 // so the average speed during flight is approx. 95% (0.95) of initial velocity
 const AIR_DRAG_FACTOR: f64 = 0.95;
-
-// Scaling: 2300rpm = 1.0 Magnus force
-const MAGNUS_FORCE_BASE_SPIN_RATE: f64 = 2300.0;
 
 pub fn create_pitch(
     rng: &mut dyn RandomProvider,
@@ -47,7 +44,7 @@ pub fn create_pitch(
         spin_efficiency: pitch_skill.spin_efficiency,
         release_point: release_point,
         flight_time: flight_time,
-        ball_location: pitch_call.random_ball_location(rng),
+        location: pitch_call.random_ball_location(rng),
     })
 }
 
@@ -70,41 +67,27 @@ fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
 }
 
 pub struct PitchDisplacement {
-    // NOTE: Horizontal offset (-1.0: shift left ~ +1.0: shift right)
-    pub horizontal: f64,
-    // NOTE: Vertical offset (-1.0: shift down ~ +1.0: shift up)
-    pub vertical: f64,
+    pub horizontal_m: f64,
+    pub vertical_m: f64,
+    pub timing_offset_sec: f64,
 }
 
 // NOTE: Calculate sweet_spot_factor (0.0 ~ 1.0) solely from pitch spin characteristics
 pub fn calculate_pitch_displacement(ball: &PitchedBall) -> PitchDisplacement {
-    // 1. Simple calculation of Magnus effect magnitude based on spin rate
-    let magnus_strength = ball.spin_rate / MAGNUS_FORCE_BASE_SPIN_RATE;
+    let flight_time = calculate_flight_time(ball.speed_kmh, ball.release_point.y);
 
-    // Convert spin angle (degrees) to radians
-    let angle_rad = ball.spin_angle * PI / 180.0;
-
-    // 2. Calculate movement vector
-    // X: horizontal movement (screw/slider)
-    // sin(spin_angle): 90 deg (slider) => +1.0 (right), 270 deg (screw) => -1.0 (left)
-    let delta_x = magnus_strength * angle_rad.sin();
-
-    // Y: vertical movement (backspin/topspin)
-    // Use a standard fastball (spin_angle = 0.0) backspin component (1.0) as the reference point, measuring deviation from it
-    let fastball_ref_y = 1.0;
-    let delta_y = (magnus_strength * angle_rad.cos()) - fastball_ref_y;
-
-    // 3. Scale adjustment based on bat sweet spot size (sensitivity parameter)
-    // Coefficient to map offset to -1.0 ~ +1.0 range (sweet spot ~ bat edge)
-    let sensitivity = 0.5;
+    let displacement_x_m = 0.5 * ball.get_side_accel() * flight_time.powi(2);
+    let net_vertical_accel = ball.get_vertical_accel() - GRAVITY;
+    let displacement_z_m = 0.5 * net_vertical_accel * flight_time.powi(2);
 
     PitchDisplacement {
-        horizontal: (delta_x * sensitivity).clamp(-1.0, 1.0),
-        vertical: (delta_y * sensitivity).clamp(-1.0, 1.0),
+        horizontal_m: displacement_x_m,
+        vertical_m: displacement_z_m,
+        timing_offset_sec: 0.0,
     }
 }
 
-/// Timing when the batter initiates the swing (e.g. 12m from the pitcher / approx. 0.15s before impact)
+// NOTE: Timing when the batter initiates the swing (e.g. 12m from the pitcher / approx. 0.15s before impact)
 pub fn calculate_late_break_displacement(
     ball: &PitchedBall,
     expected_ball: &PitchedBall,
@@ -122,13 +105,10 @@ pub fn calculate_late_break_displacement(
     let delta_a_vertical = ball.get_vertical_accel() - expected_ball.get_vertical_accel();
     let late_break_y = 0.5 * delta_a_vertical * remaining_time.powi(2);
 
-    // 3. Map to -1.0 ~ +1.0 offset scale (scaling)
-    // Example: 15cm (0.15m) of break is defined as full offset (1.0)
-    const DISPLACEMENT_SENSITIVITY: f64 = 1.0 / 0.15;
-
     PitchDisplacement {
-        horizontal: (late_break_x * DISPLACEMENT_SENSITIVITY).clamp(-1.0, 1.0),
-        vertical: (late_break_y * DISPLACEMENT_SENSITIVITY).clamp(-1.0, 1.0),
+        horizontal_m: late_break_x,
+        vertical_m: late_break_y,
+        timing_offset_sec: 0.0,
     }
 }
 
@@ -154,7 +134,7 @@ impl MatchupContext {
 }
 
 /// Combine the pitch-side component of the final ContactOffset from pitch info and batter context
-pub fn calculate_total_pitch_offset(
+pub fn calculate_total_pitch_offset_and_timing(
     ball: &PitchedBall,
     matchup: &MatchupContext,
     expected_ball: &PitchedBall,
@@ -173,12 +153,15 @@ pub fn calculate_total_pitch_offset(
     let release_x_factor = 1.0 + (ball.release_point.x.abs() * 0.15);
 
     // Multiply the late break (late_break.horizontal) by the crossfire illusion multiplier (correction)
-    let enhanced_late_break_x = late_break.horizontal * crossfire_multiplier * release_x_factor;
+    let enhanced_late_break_x = late_break.horizontal_m * crossfire_multiplier * release_x_factor;
+
+    let timing_offset = calculate_timing_offset(ball, expected_ball);
 
     // 4. Combine base displacement and late-break illusion displacement
     PitchDisplacement {
-        horizontal: (base_disp.horizontal + enhanced_late_break_x).clamp(-1.0, 1.0),
-        vertical: (base_disp.vertical + late_break.vertical).clamp(-1.0, 1.0),
+        horizontal_m: (base_disp.horizontal_m + enhanced_late_break_x).clamp(-1.0, 1.0),
+        vertical_m: (base_disp.vertical_m + late_break.vertical_m).clamp(-1.0, 1.0),
+        timing_offset_sec: timing_offset,
     }
 }
 
@@ -295,10 +278,7 @@ mod tests {
                 z: 1.7,
             },
             flight_time,
-            ball_location: BallLocation {
-                norm_x: 0.0,
-                norm_y: 0.0,
-            },
+            location: BallLocation { x: 0.0, y: 0.0 },
         }
     }
 
@@ -321,8 +301,8 @@ mod tests {
         assert_near(ball.release_point.y, 16.64);
         assert_near(ball.release_point.z, 1.71);
         assert_near(ball.flight_time, 16.64 / ((150.0 / 3.6) * 0.95));
-        assert_near(ball.ball_location.norm_x, 1.75);
-        assert_near(ball.ball_location.norm_y, 0.25);
+        assert_near(ball.location.x, 1.75);
+        assert_near(ball.location.y, 0.25);
     }
 
     #[test]
@@ -347,10 +327,10 @@ mod tests {
         let right_displacement = calculate_pitch_displacement(&right_break);
         let left_displacement = calculate_pitch_displacement(&left_break);
 
-        assert_near(right_displacement.horizontal, 0.5);
-        assert_near(right_displacement.vertical, -0.5);
-        assert_near(left_displacement.horizontal, -0.5);
-        assert_near(left_displacement.vertical, -0.5);
+        assert_near(right_displacement.horizontal_m, 0.5);
+        assert_near(right_displacement.vertical_m, -0.5);
+        assert_near(left_displacement.horizontal_m, -0.5);
+        assert_near(left_displacement.vertical_m, -0.5);
     }
 
     #[test]
@@ -359,11 +339,11 @@ mod tests {
         let extreme_topspin = pitched_ball(150.0, 9200.0, 180.0, 1.0, 0.0, 16.64, 0.42);
 
         assert_near(
-            calculate_pitch_displacement(&extreme_side_spin).horizontal,
+            calculate_pitch_displacement(&extreme_side_spin).horizontal_m,
             1.0,
         );
         assert_near(
-            calculate_pitch_displacement(&extreme_topspin).vertical,
+            calculate_pitch_displacement(&extreme_topspin).vertical_m,
             -1.0,
         );
     }
@@ -379,8 +359,8 @@ mod tests {
 
         let displacement = calculate_late_break_displacement(&ball, &expected_ball);
 
-        assert_near(displacement.horizontal, expected_horizontal);
-        assert_near(displacement.vertical, expected_vertical);
+        assert_near(displacement.horizontal_m, expected_horizontal);
+        assert_near(displacement.vertical_m, expected_vertical);
     }
 
     #[test]
@@ -415,7 +395,7 @@ mod tests {
     fn calculate_total_pitch_offset_enhances_horizontal_late_break_by_matchup_and_release_width() {
         let ball = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.80, 16.64, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
-        let same_side = calculate_total_pitch_offset(
+        let same_side = calculate_total_pitch_offset_and_timing(
             &ball,
             &MatchupContext {
                 throw_side: RL::Right,
@@ -423,7 +403,7 @@ mod tests {
             },
             &expected_ball,
         );
-        let crossfire = calculate_total_pitch_offset(
+        let crossfire = calculate_total_pitch_offset_and_timing(
             &ball,
             &MatchupContext {
                 throw_side: RL::Left,
@@ -432,8 +412,8 @@ mod tests {
             &expected_ball,
         );
 
-        assert!(crossfire.horizontal > same_side.horizontal);
-        assert_near(crossfire.vertical, same_side.vertical);
+        assert!(crossfire.horizontal_m > same_side.horizontal_m);
+        assert_near(crossfire.vertical_m, same_side.vertical_m);
     }
 
     #[test]

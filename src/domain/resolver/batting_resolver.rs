@@ -46,8 +46,8 @@ pub fn evaluate_swing(
     // TODO: Calculate timing offset from velocity/change of pace vs batter's swing timing
 
     SwingContactResult {
-        vertical_offset: pitch_displacement.vertical,
-        horizontal_offset: pitch_displacement.horizontal,
+        vertical_offset: pitch_displacement.vertical_m,
+        horizontal_offset: pitch_displacement.horizontal_m,
         timing_offset: 0.0,
     }
 }
@@ -564,9 +564,9 @@ mod tests {
                         z: 1.7,
                     },
                     flight_time: 0.42,
-                    ball_location: BallLocation {
-                        norm_x: 0.0,
-                        norm_y: 0.0,
+                    location: BallLocation {
+                        x: 0.0,
+                        y: 0.0,
                     },
                 },
                 &centered_contact(),

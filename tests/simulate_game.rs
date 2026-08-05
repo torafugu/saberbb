@@ -515,8 +515,7 @@ fn test_batted_ball() {
                     z: 1.7,
                 },
                 flight_time: 0.42,
-                norm_x: 0.0,
-                norm_y: 0.0,
+                location: BallLocation { x: 0.0, y: 0.0 },
             },
             &SwingContactResult {
                 vertical_offset: 0.0,
@@ -574,8 +573,8 @@ fn test_pitched_ball() {
                 ball.release_point.y,
                 ball.release_point.z,
                 ball.flight_time,
-                ball.norm_x,
-                ball.norm_y,
+                ball.location.x,
+                ball.location.y,
             ],
         )
         .unwrap();
@@ -603,10 +602,11 @@ fn test_pitch_offset() {
         };
         let crossfire_multiplier = matchup.crossfire_perceived_multiplier();
         let release_x_factor = 1.0 + (ball.release_point.x.abs() * 0.15);
-        let enhanced_late_break_x = late_break.horizontal * crossfire_multiplier * release_x_factor;
+        let enhanced_late_break_x =
+            late_break.horizontal_m * crossfire_multiplier * release_x_factor;
 
-        let final_x = (base_disp.horizontal + enhanced_late_break_x).clamp(-1.0, 1.0);
-        let final_y = (base_disp.vertical + late_break.vertical).clamp(-1.0, 1.0);
+        let final_x = (base_disp.horizontal_m + enhanced_late_break_x).clamp(-1.0, 1.0);
+        let final_y = (base_disp.vertical_m + late_break.vertical_m).clamp(-1.0, 1.0);
 
         let timing = calculate_timing_offset(&ball, &expected_ball);
 
@@ -615,10 +615,10 @@ fn test_pitch_offset() {
             enhanced_late_break_x, final_x, final_y, timing) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
-                base_disp.horizontal,
-                base_disp.vertical,
-                late_break.horizontal,
-                late_break.vertical,
+                base_disp.horizontal_m,
+                base_disp.vertical_m,
+                late_break.horizontal_m,
+                late_break.vertical_m,
                 enhanced_late_break_x,
                 final_x,
                 final_y,
