@@ -37,7 +37,8 @@ pub fn create_pitch(
     let flight_time = calculate_flight_time(speed, release_point.y);
 
     let aim_location = pitch_call.aim_location();
-    let ball_location = sample_ball_location(rng, pitch_call.target_location.zone(), aim_location);
+    let target_location =
+        sample_ball_location(rng, pitch_call.target_location.zone(), aim_location);
 
     Ok(PitchedBall {
         pitch_type: pitch_skill.pitch_type,
@@ -47,7 +48,7 @@ pub fn create_pitch(
         spin_efficiency: pitch_skill.spin_efficiency,
         release_point: release_point,
         flight_time: flight_time,
-        location: ball_location,
+        target_location,
     })
 }
 
@@ -57,12 +58,12 @@ pub fn sample_ball_location(
     zone: Zone,
     aim: BallLocation,
 ) -> BallLocation {
-    let norm_x = aim.x + zone.width() * rng.normal_std_10_percent();
-    let norm_y = aim.y + zone.height() * rng.normal_std_10_percent();
+    let norm_x = aim.x_m + zone.width() * rng.normal_std_10_percent();
+    let norm_y = aim.y_m + zone.height() * rng.normal_std_10_percent();
 
     BallLocation {
-        x: norm_x,
-        y: norm_y,
+        x_m: norm_x,
+        y_m: norm_y,
     }
 }
 
@@ -211,6 +212,26 @@ pub fn calculate_timing_offset(
     delta_t_sec
 }
 
+// TODO: half_height_m and half_height_m should be related with batter's height
+pub struct StrikeZoneDimensions {
+    pub half_width_m: f64,
+    pub half_height_m: f64,
+    pub center_height_m: f64,
+}
+
+impl Default for StrikeZoneDimensions {
+    fn default() -> Self {
+        Self {
+            // Half width of home plate (m): 17 inches / 2 ≈ 0.216m
+            half_width_m: 0.216,
+            // Half height of the batter's strike zone (m): (Top - Bottom) / 2 (standard: approx. 0.325m)
+            half_height_m: 0.325,
+            // Height of the strike zone center (m): (Top + Bottom) / 2 (standard: approx. 0.825m)
+            center_height_m: 0.825,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,7 +320,7 @@ mod tests {
                 z: 1.7,
             },
             flight_time,
-            location: BallLocation { x: 0.0, y: 0.0 },
+            target_location: BallLocation { x_m: 0.0, y_m: 0.0 },
         }
     }
 
@@ -322,8 +343,8 @@ mod tests {
         assert_near(ball.release_point.y, 16.64);
         assert_near(ball.release_point.z, 1.71);
         assert_near(ball.flight_time, 16.64 / ((150.0 / 3.6) * 0.95));
-        assert_near(ball.location.x, 0.75);
-        assert_near(ball.location.y, -0.75);
+        assert_near(ball.target_location.x_m, 0.75);
+        assert_near(ball.target_location.y_m, -0.75);
     }
 
     #[test]

@@ -78,29 +78,29 @@ pub struct PitchCall {
 impl PitchCall {
     pub fn aim_location(&self) -> BallLocation {
         match self.target_location {
-            TargetLocation::Center => BallLocation { x: 0.0, y: 0.0 },
+            TargetLocation::Center => BallLocation { x_m: 0.0, y_m: 0.0 },
             TargetLocation::LowInside => BallLocation {
-                x: self.target_location.zone().x1
+                x_m: self.target_location.zone().x1
                     + self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y2
+                y_m: self.target_location.zone().y2
                     + self.target_location.zone().height() / self.margin.factor(),
             },
             TargetLocation::LowOutside => BallLocation {
-                x: self.target_location.zone().x2
+                x_m: self.target_location.zone().x2
                     - self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y2
+                y_m: self.target_location.zone().y2
                     + self.target_location.zone().height() / self.margin.factor(),
             },
             TargetLocation::HighInside => BallLocation {
-                x: self.target_location.zone().x1
+                x_m: self.target_location.zone().x1
                     + self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y1
+                y_m: self.target_location.zone().y1
                     - self.target_location.zone().height() / self.margin.factor(),
             },
             TargetLocation::HighOutside => BallLocation {
-                x: self.target_location.zone().x2
+                x_m: self.target_location.zone().x2
                     - self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y1
+                y_m: self.target_location.zone().y1
                     - self.target_location.zone().height() / self.margin.factor(),
             },
         }

@@ -4,6 +4,7 @@ use common::*;
 use rusqlite::params;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::pitching_resolver::*;
+use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::player::*;
 use saberbb::repositories::db::*;
 
@@ -24,8 +25,8 @@ fn test_pitched_ball() {
             target_location TEXT NOT NULL,
             aim_x REAL NOT NULL,
             aim_y REAL NOT NULL,
-            norm_x REAL NOT NULL,
-            norm_y REAL NOT NULL
+            final_x REAL NOT NULL,
+            final_y REAL NOT NULL
         )",
     )
     .unwrap();
@@ -57,12 +58,13 @@ fn test_pitched_ball() {
         let flight_time = calculate_flight_time(speed, release_point.y);
 
         let aim_location = pitch_call.aim_location();
-        let ball_location =
+        let final_location =
             sample_ball_location(&mut rng, pitch_call.target_location.zone(), aim_location);
 
         conn.execute(
             "INSERT INTO test_pitched_ball (pitch_type, speed_kmh,  spin_rate, spin_angle, spin_efficiency, 
-            release_point_x, release_point_y, release_point_z, flight_time, target_location, aim_x, aim_y, norm_x, norm_y) 
+            release_point_x, release_point_y, release_point_z, flight_time, target_location, 
+            aim_x, aim_y, final_x, final_y) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 pitch_call.pitch_type.as_ref(),
@@ -75,10 +77,10 @@ fn test_pitched_ball() {
                 release_point.z,
                 flight_time,
                 pitch_call.target_location.as_ref(),
-                aim_location.x,
-                aim_location.y,
-                ball_location.x,
-                ball_location.y,
+                aim_location.x_m,
+                aim_location.y_m,
+                final_location.x_m,
+                final_location.y_m
             ],
         )
         .unwrap();
@@ -116,10 +118,18 @@ fn test_pitch_offset() {
         // let timing = calculate_timing_offset(&ball, &expected_ball);
         let timing = calculate_timing_offset(&mut rng, &ball, &ball);
 
+        let norm_location = NormBallLocation::from_meters(
+            BallLocation {
+                x_m: final_x,
+                y_m: final_y,
+            },
+            &StrikeZoneDimensions::default(),
+        );
+
         conn.execute(
             "INSERT INTO test_pitched_offset (pitch_type, speed_kmh, base_disp_x, base_disp_y, late_break_x, late_break_y, 
-            enhanced_late_break_x, final_x, final_y, timing) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            enhanced_late_break_x, final_x, final_y, timing, norm_x, norm_y, pitch_result) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 ball.pitch_type.as_ref(),
                 ball.speed_kmh,
@@ -130,7 +140,10 @@ fn test_pitch_offset() {
                 enhanced_late_break_x,
                 final_x,
                 final_y,
-                timing
+                timing,
+                norm_location.norm_x,
+                norm_location.norm_y,
+                norm_location.call().as_ref()
             ],
         )
         .unwrap();

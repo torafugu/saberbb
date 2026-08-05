@@ -1,3 +1,5 @@
+use crate::domain::resolver::pitching_resolver::StrikeZoneDimensions;
+use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
@@ -168,26 +170,35 @@ impl BattedBall {
 //     }
 // }
 
-// NOTE: Relative position from the center of the strike zone (-1.0 ~ +1.0)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BallLocation {
-    // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
-    pub x: f64,
-    // y: -1.0 (low) ~ +1.0 (high)
-    pub y: f64,
+    pub x_m: f64,
+    pub y_m: f64,
 }
 
-impl BallLocation {
-    /// Determine whether this is a ball (outside the strike zone)
-    pub fn is_ball_zone(&self) -> bool {
-        self.x.abs() > 1.0 || self.y.abs() > 1.0
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NormBallLocation {
+    // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
+    pub norm_x: f64,
+    // y: -1.0 (low) ~ +1.0 (high)
+    pub norm_y: f64,
+}
+
+impl NormBallLocation {
+    pub fn from_meters(ball_location: BallLocation, zone: &StrikeZoneDimensions) -> Self {
+        let norm_x = ball_location.x_m / zone.half_width_m;
+        let norm_y = (ball_location.y_m - zone.center_height_m) / zone.half_height_m;
+
+        NormBallLocation { norm_x, norm_y }
     }
 
-    /// Physical ball distance from the center of the strike zone (how far off)
-    pub fn distance_from_zone_edge(&self) -> f64 {
-        let x_out = (self.x.abs() - 1.0).max(0.0);
-        let y_out = (self.y.abs() - 1.0).max(0.0);
-        (x_out.powi(2) + y_out.powi(2)).sqrt()
+    /// Determine whether this is a ball (outside the strike zone)
+    pub fn call(&self) -> PitchResult {
+        if self.norm_x.abs() > 1.0 || self.norm_y.abs() > 1.0 {
+            PitchResult::Ball
+        } else {
+            PitchResult::Strike
+        }
     }
 }
 
@@ -217,7 +228,7 @@ pub struct PitchedBall {
     // Example: x = -0.5 (right-handed pitcher's arm side), y = 16.5 (Extension 1.9m), z = 1.8 (release height)
     pub release_point: Vector3D,
     pub flight_time: f64,
-    pub location: BallLocation,
+    pub target_location: BallLocation,
 }
 impl PitchedBall {
     /// Returns lateral Magnus acceleration (m/s²)
@@ -300,7 +311,7 @@ mod tests {
                 z: 1.8,
             },
             flight_time: 0.4,
-            location: BallLocation { x: 0.0, y: 0.0 },
+            target_location: BallLocation { x_m: 0.0, y_m: 0.0 },
         }
     }
 

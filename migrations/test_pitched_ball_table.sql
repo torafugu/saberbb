@@ -13,6 +13,6 @@ CREATE TABLE test_pitched_ball (
     target_location TEXT NOT NULL,
     aim_x REAL NOT NULL,
     aim_y REAL NOT NULL,
-    norm_x REAL NOT NULL,
-    norm_y REAL NOT NULL
+    final_x REAL NOT NULL,
+    final_y REAL NOT NULL
 );

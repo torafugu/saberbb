@@ -428,3 +428,10 @@ pub enum FieldingResult {
     FieldersChoice,
     Error,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
+#[strum(ascii_case_insensitive)]
+pub enum PitchResult {
+    Strike,
+    Ball,
+}
