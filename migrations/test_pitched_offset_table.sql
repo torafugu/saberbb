@@ -1,6 +1,8 @@
 DROP TABLE test_pitched_offset;
 
 CREATE TABLE test_pitched_offset (
+    pitch_type TEXT NOT NULL,
+    speed_kmh REAL NOT NULL,
     base_disp_x REAL NOT NULL,
     base_disp_y REAL NOT NULL,
     late_break_x REAL NOT NULL,

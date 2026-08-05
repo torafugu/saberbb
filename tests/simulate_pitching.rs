@@ -98,7 +98,8 @@ fn test_pitch_offset() {
         let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
 
         let base_disp = calculate_pitch_displacement(&ball);
-        let late_break = calculate_late_break_displacement(&ball, &expected_ball);
+        // let late_break = calculate_late_break_displacement(&ball, &expected_ball);
+        let late_break = calculate_late_break_displacement(&ball, &ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -109,16 +110,19 @@ fn test_pitch_offset() {
         let enhanced_late_break_x =
             late_break.horizontal_m * crossfire_multiplier * release_x_factor;
 
-        let final_x = (base_disp.horizontal_m + enhanced_late_break_x).clamp(-1.0, 1.0);
-        let final_y = (base_disp.vertical_m + late_break.vertical_m).clamp(-1.0, 1.0);
+        let final_x = base_disp.horizontal_m + enhanced_late_break_x;
+        let final_y = base_disp.vertical_m + late_break.vertical_m;
 
-        let timing = calculate_timing_offset(&ball, &expected_ball);
+        // let timing = calculate_timing_offset(&ball, &expected_ball);
+        let timing = calculate_timing_offset(&mut rng, &ball, &ball);
 
         conn.execute(
-            "INSERT INTO test_pitched_offset (base_disp_x, base_disp_y, late_break_x, late_break_y, 
+            "INSERT INTO test_pitched_offset (pitch_type, speed_kmh, base_disp_x, base_disp_y, late_break_x, late_break_y, 
             enhanced_late_break_x, final_x, final_y, timing) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
+                ball.pitch_type.as_ref(),
+                ball.speed_kmh,
                 base_disp.horizontal_m,
                 base_disp.vertical_m,
                 late_break.horizontal_m,
