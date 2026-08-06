@@ -18,7 +18,7 @@ pub fn create_pitch(
     // delivery form
     let base_spin_angle = pitcher.base_spin_angle();
 
-    let pitch_call = pitcher.sample_pitch_calllling(rng)?;
+    let pitch_call = pitcher.sample_pitch_calling(rng)?;
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
 
     let final_spin_angle = if pitcher.throw_side == RL::Left {
@@ -58,12 +58,12 @@ pub fn sample_ball_location(
     zone: Zone,
     aim: BallLocation,
 ) -> BallLocation {
-    let norm_x = aim.x_m + zone.width() * rng.normal_std_10_percent();
-    let norm_y = aim.y_m + zone.height() * rng.normal_std_10_percent();
+    let norm_x = aim.x + zone.width() * rng.normal_std_10_percent();
+    let norm_y = aim.y + zone.height() * rng.normal_std_10_percent();
 
     BallLocation {
-        x_m: norm_x,
-        y_m: norm_y,
+        x: norm_x,
+        y: norm_y,
     }
 }
 
@@ -95,7 +95,8 @@ pub fn calculate_pitch_displacement(ball: &PitchedBall) -> PitchDisplacement {
     let flight_time = calculate_flight_time(ball.speed_kmh, ball.release_point.y);
 
     let displacement_x_m = 0.5 * ball.get_side_accel() * flight_time.powi(2);
-    let net_vertical_accel = ball.get_vertical_accel() - GRAVITY;
+    // let net_vertical_accel = ball.get_vertical_accel() - GRAVITY;
+    let net_vertical_accel = ball.get_vertical_accel();
     let displacement_z_m = 0.5 * net_vertical_accel * flight_time.powi(2);
 
     PitchDisplacement {
@@ -320,7 +321,7 @@ mod tests {
                 z: 1.7,
             },
             flight_time,
-            target_location: BallLocation { x_m: 0.0, y_m: 0.0 },
+            target_location: BallLocation { x: 0.0, y: 0.0 },
         }
     }
 
@@ -343,8 +344,8 @@ mod tests {
         assert_near(ball.release_point.y, 16.64);
         assert_near(ball.release_point.z, 1.71);
         assert_near(ball.flight_time, 16.64 / ((150.0 / 3.6) * 0.95));
-        assert_near(ball.target_location.x_m, 0.75);
-        assert_near(ball.target_location.y_m, -0.75);
+        assert_near(ball.target_location.x, 0.75);
+        assert_near(ball.target_location.y, -0.75);
     }
 
     #[test]

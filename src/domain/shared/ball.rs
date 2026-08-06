@@ -172,8 +172,18 @@ impl BattedBall {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BallLocation {
-    pub x_m: f64,
-    pub y_m: f64,
+    pub x: f64,
+    pub y: f64,
+}
+impl BallLocation {
+    /// Determine whether this is a ball (outside the strike zone)
+    pub fn call(&self) -> PitchResult {
+        if self.x.abs() > 1.0 || self.y.abs() > 1.0 {
+            PitchResult::Ball
+        } else {
+            PitchResult::Strike
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -186,8 +196,8 @@ pub struct NormBallLocation {
 
 impl NormBallLocation {
     pub fn from_meters(ball_location: BallLocation, zone: &StrikeZoneDimensions) -> Self {
-        let norm_x = ball_location.x_m / zone.half_width_m;
-        let norm_y = (ball_location.y_m - zone.center_height_m) / zone.half_height_m;
+        let norm_x = ball_location.x / zone.half_width_m;
+        let norm_y = (ball_location.y - zone.center_height_m) / zone.half_height_m;
 
         NormBallLocation { norm_x, norm_y }
     }
@@ -311,7 +321,7 @@ mod tests {
                 z: 1.8,
             },
             flight_time: 0.4,
-            target_location: BallLocation { x_m: 0.0, y_m: 0.0 },
+            target_location: BallLocation { x: 0.0, y: 0.0 },
         }
     }
 

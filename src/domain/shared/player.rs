@@ -640,7 +640,7 @@ impl PitcherInfo {
         items
     }
 
-    pub fn sample_pitch_calllling(
+    pub fn sample_pitch_calling(
         &self,
         rng: &mut dyn RandomProvider,
     ) -> Result<PitchCall, AppError> {

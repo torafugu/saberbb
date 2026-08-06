@@ -4,32 +4,13 @@ use common::*;
 use rusqlite::params;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::pitching_resolver::*;
-use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::player::*;
 use saberbb::repositories::db::*;
 
 #[test]
 fn test_pitched_ball() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS test_pitched_ball (
-            pitch_type TEXT NOT NULL,
-            speed_kmh REAL NOT NULL,
-            spin_rate REAL NOT NULL,
-            spin_angle REAL NOT NULL,
-            spin_efficiency REAL NOT NULL,
-            release_point_x REAL NOT NULL,
-            release_point_y REAL NOT NULL,
-            release_point_z REAL NOT NULL,
-            flight_time REAL NOT NULL,
-            target_location TEXT NOT NULL,
-            aim_x REAL NOT NULL,
-            aim_y REAL NOT NULL,
-            final_x REAL NOT NULL,
-            final_y REAL NOT NULL
-        )",
-    )
-    .unwrap();
+    conn.execute("DELETE FROM test_pitched_ball", []).unwrap();
 
     let mut rng = RealRng::new();
 
@@ -39,7 +20,7 @@ fn test_pitched_ball() {
     for _ in 0..1000 {
         // let ball = create_pitch(&mut rng, &pitcher).unwrap();
 
-        let pitch_call = pitcher.sample_pitch_calllling(&mut rng).unwrap();
+        let pitch_call = pitcher.sample_pitch_calling(&mut rng).unwrap();
         let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
 
         let final_spin_angle = if pitcher.throw_side == RL::Left {
@@ -64,8 +45,8 @@ fn test_pitched_ball() {
         conn.execute(
             "INSERT INTO test_pitched_ball (pitch_type, speed_kmh,  spin_rate, spin_angle, spin_efficiency, 
             release_point_x, release_point_y, release_point_z, flight_time, target_location, 
-            aim_x, aim_y, final_x, final_y) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            aim_x, aim_y, final_x, final_y, pitch_result) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 pitch_call.pitch_type.as_ref(),
                 speed,
@@ -77,10 +58,11 @@ fn test_pitched_ball() {
                 release_point.z,
                 flight_time,
                 pitch_call.target_location.as_ref(),
-                aim_location.x_m,
-                aim_location.y_m,
-                final_location.x_m,
-                final_location.y_m
+                aim_location.x,
+                aim_location.y,
+                final_location.x,
+                final_location.y,
+                final_location.call().as_ref()
             ],
         )
         .unwrap();
@@ -90,6 +72,8 @@ fn test_pitched_ball() {
 #[test]
 fn test_pitch_offset() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
+    conn.execute("DELETE FROM test_pitched_offset", []).unwrap();
+
     let mut rng = RealRng::new();
 
     let pitcher = generate_pitcher();
@@ -100,8 +84,8 @@ fn test_pitch_offset() {
         let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
 
         let base_disp = calculate_pitch_displacement(&ball);
-        // let late_break = calculate_late_break_displacement(&ball, &expected_ball);
-        let late_break = calculate_late_break_displacement(&ball, &ball);
+        let late_break = calculate_late_break_displacement(&ball, &expected_ball);
+        // let late_break = calculate_late_break_displacement(&ball, &ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -118,18 +102,10 @@ fn test_pitch_offset() {
         // let timing = calculate_timing_offset(&ball, &expected_ball);
         let timing = calculate_timing_offset(&mut rng, &ball, &ball);
 
-        let norm_location = NormBallLocation::from_meters(
-            BallLocation {
-                x_m: final_x,
-                y_m: final_y,
-            },
-            &StrikeZoneDimensions::default(),
-        );
-
         conn.execute(
             "INSERT INTO test_pitched_offset (pitch_type, speed_kmh, base_disp_x, base_disp_y, late_break_x, late_break_y, 
-            enhanced_late_break_x, final_x, final_y, timing, norm_x, norm_y, pitch_result) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            enhanced_late_break_x, final_x, final_y, timing) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 ball.pitch_type.as_ref(),
                 ball.speed_kmh,
@@ -141,9 +117,6 @@ fn test_pitch_offset() {
                 final_x,
                 final_y,
                 timing,
-                norm_location.norm_x,
-                norm_location.norm_y,
-                norm_location.call().as_ref()
             ],
         )
         .unwrap();

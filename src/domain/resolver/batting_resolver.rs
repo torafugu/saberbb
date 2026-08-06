@@ -565,8 +565,8 @@ mod tests {
                     },
                     flight_time: 0.42,
                     target_location: BallLocation {
-                        x_m: 0.0,
-                        y_m: 0.0,
+                        x: 0.0,
+                        y: 0.0,
                     },
                 },
                 &centered_contact(),

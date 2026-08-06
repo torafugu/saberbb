@@ -10,8 +10,5 @@ CREATE TABLE test_pitched_offset (
     enhanced_late_break_x REAL NOT NULL,
     final_x REAL NOT NULL,
     final_y REAL NOT NULL,
-    timing REAL NOT NULL,
-    norm_x REAL NOT NULL,
-    norm_y REAL NOT NULL,
-    pitch_result TEXT NOT NULL
+    timing REAL NOT NULL
 );

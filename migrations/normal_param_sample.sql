@@ -845,9 +845,9 @@ VALUES
         'pitch_type',
         'Curveball',
         'velocity',
+        0.85,
+        0.04,
         0.0,
-        1.0,
-        0.2,
         1.0,
         0.0
     );

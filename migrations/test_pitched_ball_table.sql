@@ -14,5 +14,6 @@ CREATE TABLE test_pitched_ball (
     aim_x REAL NOT NULL,
     aim_y REAL NOT NULL,
     final_x REAL NOT NULL,
-    final_y REAL NOT NULL
+    final_y REAL NOT NULL,
+    pitch_result TEXT NOT NULL
 );
