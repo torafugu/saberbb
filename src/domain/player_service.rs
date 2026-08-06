@@ -265,7 +265,7 @@ mod tests {
     use super::*;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill,
-        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::domain::shared::prob::{
         GammaParam, ItemWeighted, NormalParam, PitcherInfoProbs, PlayerInfoProbs,
@@ -736,10 +736,12 @@ mod tests {
 
         assert_eq!(probs.throw_side.len(), 1);
         assert_eq!(probs.throw_side[0].name, RL::Right);
-        assert!(state
-            .item_prob_categories
-            .borrow()
-            .contains(&(PTI.to_string(), "throw_side".to_string())));
+        assert!(
+            state
+                .item_prob_categories
+                .borrow()
+                .contains(&(PTI.to_string(), "throw_side".to_string()))
+        );
     }
 
     #[test]
@@ -836,10 +838,12 @@ mod tests {
             state.pitch_skill_prob_calls.get(),
             PitchType::iter().count() * 8
         );
-        assert!(state
-            .pitch_skill_prob_types
-            .borrow()
-            .contains(&PitchType::Changeup));
+        assert!(
+            state
+                .pitch_skill_prob_types
+                .borrow()
+                .contains(&PitchType::Changeup)
+        );
     }
 
     #[test]

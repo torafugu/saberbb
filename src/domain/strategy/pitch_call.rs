@@ -25,41 +25,41 @@ impl Margin {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
-pub enum TargetLocation {
+pub enum TargetZone {
     Center,
     LowInside,
     LowOutside,
     HighInside,
     HighOutside,
 }
-impl TargetLocation {
+impl TargetZone {
     pub fn zone(self) -> Zone {
         match self {
-            TargetLocation::Center => Zone {
+            TargetZone::Center => Zone {
                 x1: -0.25,
                 y1: 0.25,
                 x2: 0.25,
                 y2: -0.25,
             },
-            TargetLocation::LowInside => Zone {
+            TargetZone::LowInside => Zone {
                 x1: -1.0,
                 y1: 0.0,
                 x2: 0.0,
                 y2: -1.0,
             },
-            TargetLocation::LowOutside => Zone {
+            TargetZone::LowOutside => Zone {
                 x1: 0.0,
                 y1: 0.0,
                 x2: 1.0,
                 y2: -1.0,
             },
-            TargetLocation::HighInside => Zone {
+            TargetZone::HighInside => Zone {
                 x1: -1.0,
                 y1: 1.0,
                 x2: 0.0,
                 y2: 0.0,
             },
-            TargetLocation::HighOutside => Zone {
+            TargetZone::HighOutside => Zone {
                 x1: 0.0,
                 y1: 1.0,
                 x2: 1.0,
@@ -72,51 +72,51 @@ impl TargetLocation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PitchCall {
     pub pitch_type: PitchType,
-    pub target_location: TargetLocation,
+    pub target_zone: TargetZone,
     pub margin: Margin,
 }
 impl PitchCall {
     pub fn aim_location(&self) -> BallLocation {
-        match self.target_location {
-            TargetLocation::Center => BallLocation { x: 0.0, y: 0.0 },
-            TargetLocation::LowInside => BallLocation {
-                x: self.target_location.zone().x1
-                    + self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y2
-                    + self.target_location.zone().height() / self.margin.factor(),
+        match self.target_zone {
+            TargetZone::Center => BallLocation { x: 0.0, y: 0.0 },
+            TargetZone::LowInside => BallLocation {
+                x: self.target_zone.zone().x1
+                    + self.target_zone.zone().width() / self.margin.factor(),
+                y: self.target_zone.zone().y2
+                    + self.target_zone.zone().height() / self.margin.factor(),
             },
-            TargetLocation::LowOutside => BallLocation {
-                x: self.target_location.zone().x2
-                    - self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y2
-                    + self.target_location.zone().height() / self.margin.factor(),
+            TargetZone::LowOutside => BallLocation {
+                x: self.target_zone.zone().x2
+                    - self.target_zone.zone().width() / self.margin.factor(),
+                y: self.target_zone.zone().y2
+                    + self.target_zone.zone().height() / self.margin.factor(),
             },
-            TargetLocation::HighInside => BallLocation {
-                x: self.target_location.zone().x1
-                    + self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y1
-                    - self.target_location.zone().height() / self.margin.factor(),
+            TargetZone::HighInside => BallLocation {
+                x: self.target_zone.zone().x1
+                    + self.target_zone.zone().width() / self.margin.factor(),
+                y: self.target_zone.zone().y1
+                    - self.target_zone.zone().height() / self.margin.factor(),
             },
-            TargetLocation::HighOutside => BallLocation {
-                x: self.target_location.zone().x2
-                    - self.target_location.zone().width() / self.margin.factor(),
-                y: self.target_location.zone().y1
-                    - self.target_location.zone().height() / self.margin.factor(),
+            TargetZone::HighOutside => BallLocation {
+                x: self.target_zone.zone().x2
+                    - self.target_zone.zone().width() / self.margin.factor(),
+                y: self.target_zone.zone().y1
+                    - self.target_zone.zone().height() / self.margin.factor(),
             },
         }
     }
 }
 
-pub fn default_location_distribution() -> Vec<ItemWeighted<TargetLocation>> {
+pub fn default_location_distribution() -> Vec<ItemWeighted<TargetZone>> {
     let mut locations = Vec::new();
 
     locations.push(ItemWeighted {
-        name: TargetLocation::LowOutside,
+        name: TargetZone::LowOutside,
         weight: 0.8,
     });
 
     locations.push(ItemWeighted {
-        name: TargetLocation::HighInside,
+        name: TargetZone::HighInside,
         weight: 0.2,
     });
 

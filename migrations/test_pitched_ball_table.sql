@@ -10,10 +10,15 @@ CREATE TABLE test_pitched_ball (
     release_point_y REAL NOT NULL,
     release_point_z REAL NOT NULL,
     flight_time REAL NOT NULL,
-    target_location TEXT NOT NULL,
+    aim_zone TEXT NOT NULL,
     aim_x REAL NOT NULL,
     aim_y REAL NOT NULL,
-    final_x REAL NOT NULL,
-    final_y REAL NOT NULL,
-    pitch_result TEXT NOT NULL
+    actual_x REAL NOT NULL,
+    actual_y REAL NOT NULL,
+    pitch_result TEXT NOT NULL,
+    movement_x REAL NOT NULL,
+    movement_z REAL NOT NULL,
+    disp_x REAL NOT NULL,
+    disp_y REAL NOT NULL,
+    timing REAL NOT NULL
 );

@@ -7,6 +7,7 @@ use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::player::*;
+use saberbb::domain::strategy::pitch_call::TargetZone;
 use saberbb::domain::util::*;
 use saberbb::repositories::db::*;
 
@@ -68,7 +69,9 @@ fn test_batted_ball() {
                     z: 1.7,
                 },
                 flight_time: 0.42,
-                target_location: BallLocation { x: 0.0, y: 0.0 },
+                aim_zone: TargetZone::Center,
+                aim_location: BallLocation { x: 0.0, y: 0.0 },
+                actual_location: BallLocation { x: 0.0, y: 0.0 },
             },
             &SwingContactResult {
                 vertical_offset: 0.0,

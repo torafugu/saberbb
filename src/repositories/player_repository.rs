@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{params, Transaction};
+use rusqlite::{Transaction, params};
 use tracing::info;
 
 pub trait PlayerRepository {
@@ -476,11 +476,11 @@ mod tests {
     use super::*;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, OffenseSkills, PitchSkill,
-        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
-    use rusqlite::{params, Connection};
+    use rusqlite::{Connection, params};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1177,12 +1177,16 @@ mod tests {
             repo.item_probs("player", "position").unwrap();
 
         assert_eq!(position_probs.len(), 2);
-        assert!(position_probs
-            .iter()
-            .any(|prob| prob.name == Position::P && prob.weight == 0.42));
-        assert!(position_probs
-            .iter()
-            .any(|prob| prob.name == Position::CF && prob.weight == 0.07));
+        assert!(
+            position_probs
+                .iter()
+                .any(|prob| prob.name == Position::P && prob.weight == 0.42)
+        );
+        assert!(
+            position_probs
+                .iter()
+                .any(|prob| prob.name == Position::CF && prob.weight == 0.07)
+        );
         std::fs::remove_file(path).ok();
     }
 
@@ -1251,9 +1255,11 @@ mod tests {
         assert!(pitch_type_probs.iter().any(|prob| {
             matches!(prob.name, PitchType::FourSeamFastball) && prob.weight == 1.0
         }));
-        assert!(pitch_type_probs
-            .iter()
-            .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5));
+        assert!(
+            pitch_type_probs
+                .iter()
+                .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5)
+        );
         std::fs::remove_file(path).ok();
     }
 

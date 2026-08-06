@@ -33,7 +33,12 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
         let pitched_ball = create_pitch(&mut rng, &pitcher)?;
 
-        let pitch_displacement = calculate_pitch_displacement(&pitched_ball);
+        let absolute_location = calculate_ball_movement(&pitched_ball);
+        let pitch_displacement = PitchDisplacement {
+            horizontal_offset_m: absolute_location.x_m,
+            vertical_offset_m: absolute_location.z_m,
+            timing_offset_sec: 0.0,
+        };
         let contact = evaluate_swing(&batter, &pitch_displacement);
         let ball = calculate_batted_ball(&mut rng, &batter, pitched_ball, &contact);
 

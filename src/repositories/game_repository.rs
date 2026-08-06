@@ -12,7 +12,7 @@ use crate::domain::shared::player::{
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{params, Transaction};
+use rusqlite::{Transaction, params};
 use tracing::info;
 
 pub trait GameRepository {

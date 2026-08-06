@@ -1,6 +1,7 @@
 use crate::domain::resolver::pitching_resolver::StrikeZoneDimensions;
 use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::{PitchType, Position};
+use crate::domain::strategy::pitch_call::TargetZone;
 use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
@@ -141,38 +142,11 @@ impl BattedBall {
     }
 }
 
-// // TODO: Consder LocationZone should be relaced by TargetLocation or not.
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pub enum LocationZone {
-//     Heart,
-//     UpIn,
-//     UpAway,
-//     LowIn,
-//     LowAway,
-//     ChaseHigh,
-//     ChaseLow,
-//     ChaseInside,
-//     ChaseOutside,
-// }
-// impl fmt::Display for LocationZone {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match *self {
-//             LocationZone::Heart => write!(f, "{}", t!("heart")),
-//             LocationZone::UpIn => write!(f, "{}", t!("upin")),
-//             LocationZone::UpAway => write!(f, "{}", t!("upaway")),
-//             LocationZone::LowIn => write!(f, "{}", t!("lowin")),
-//             LocationZone::LowAway => write!(f, "{}", t!("lowaway")),
-//             LocationZone::ChaseHigh => write!(f, "{}", t!("chasehigh")),
-//             LocationZone::ChaseLow => write!(f, "{}", t!("chaselow")),
-//             LocationZone::ChaseInside => write!(f, "{}", t!("chaseinside")),
-//             LocationZone::ChaseOutside => write!(f, "{}", t!("chaseoutside")),
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BallLocation {
+    // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
     pub x: f64,
+    // y: -1.0 (low) ~ +1.0 (high)
     pub y: f64,
 }
 impl BallLocation {
@@ -187,29 +161,9 @@ impl BallLocation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct NormBallLocation {
-    // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
-    pub norm_x: f64,
-    // y: -1.0 (low) ~ +1.0 (high)
-    pub norm_y: f64,
-}
-
-impl NormBallLocation {
-    pub fn from_meters(ball_location: BallLocation, zone: &StrikeZoneDimensions) -> Self {
-        let norm_x = ball_location.x / zone.half_width_m;
-        let norm_y = (ball_location.y - zone.center_height_m) / zone.half_height_m;
-
-        NormBallLocation { norm_x, norm_y }
-    }
-
-    /// Determine whether this is a ball (outside the strike zone)
-    pub fn call(&self) -> PitchResult {
-        if self.norm_x.abs() > 1.0 || self.norm_y.abs() > 1.0 {
-            PitchResult::Ball
-        } else {
-            PitchResult::Strike
-        }
-    }
+pub struct BallMovement {
+    pub x_m: f64,
+    pub z_m: f64,
 }
 
 pub struct Zone {
@@ -238,7 +192,9 @@ pub struct PitchedBall {
     // Example: x = -0.5 (right-handed pitcher's arm side), y = 16.5 (Extension 1.9m), z = 1.8 (release height)
     pub release_point: Vector3D,
     pub flight_time: f64,
-    pub target_location: BallLocation,
+    pub aim_zone: TargetZone,
+    pub aim_location: BallLocation,
+    pub actual_location: BallLocation,
 }
 impl PitchedBall {
     /// Returns lateral Magnus acceleration (m/s²)
@@ -321,7 +277,9 @@ mod tests {
                 z: 1.8,
             },
             flight_time: 0.4,
-            target_location: BallLocation { x: 0.0, y: 0.0 },
+            aim_zone: TargetZone::Center,
+            aim_location: BallLocation { x: 0.0, y: 0.0 },
+            actual_location: BallLocation { x: 0.0, y: 0.0 },
         }
     }
 

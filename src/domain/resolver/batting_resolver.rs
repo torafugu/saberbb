@@ -1,8 +1,8 @@
 use crate::domain::random_provider::RandomProvider;
+use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{
     BattedBall, CONVERT_FACTOR_KMH_TO_MS, PitchedBall, TrajectoryType,
 };
-use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::player::BatterInfo;
 use crate::domain::util::GRAVITY;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,6 @@ use strum_macros::{AsRefStr, EnumIter, EnumString};
 const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
-
 
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug)]
@@ -46,9 +45,9 @@ pub fn evaluate_swing(
     // TODO: Calculate timing offset from velocity/change of pace vs batter's swing timing
 
     SwingContactResult {
-        vertical_offset: pitch_displacement.vertical_m,
-        horizontal_offset: pitch_displacement.horizontal_m,
-        timing_offset: 0.0,
+        vertical_offset: pitch_displacement.vertical_offset_m,
+        horizontal_offset: pitch_displacement.horizontal_offset_m,
+        timing_offset: pitch_displacement.timing_offset_sec,
     }
 }
 
@@ -111,7 +110,7 @@ fn sample_launch_speed(
     let b = 0.20; // Rebound efficiency
     let v_max = (a * swing_speed) + (b * ball_speed);
 
-    let launch_speed = v_max 
+    let launch_speed = v_max
         * (1.0 - spacial_offset * 0.3)  // Off-center contact causes up to 30% reduction
         * (1.0 - timing_offset.abs() * 0.2); // Timing delay causes up to 20% reduction
 
@@ -399,6 +398,7 @@ mod tests {
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::player::{PitchType, RL};
+    use crate::domain::strategy::pitch_call::TargetZone;
     use crate::domain::util::Vector3D;
 
     fn batter_with_weights(
@@ -564,10 +564,9 @@ mod tests {
                         z: 1.7,
                     },
                     flight_time: 0.42,
-                    target_location: BallLocation {
-                        x: 0.0,
-                        y: 0.0,
-                    },
+                    aim_zone: TargetZone::Center,
+                    aim_location: BallLocation { x: 0.0, y: 0.0 },
+                    actual_location: BallLocation { x: 0.0, y: 0.0 },
                 },
                 &centered_contact(),
             );
