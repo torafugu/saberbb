@@ -4,14 +4,15 @@ use super::player::{
 };
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::resolver::batting_resolver::{calculate_batted_ball, evaluate_swing};
+use crate::domain::resolver::batting_resolver::{calculate_batted_ball, evaluate_swing_contact};
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_defensive_chain,
 };
 use crate::domain::resolver::pitching_resolver::{
-    PitchDisplacement, calculate_ball_movement, create_pitch,
+    MatchupContext, calculate_ball_movement, calculate_pitch_offset, calculate_timing_offset,
+    create_pitch,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -671,14 +672,26 @@ impl GameState {
         self.prepare_plate_appearance(batter_runner);
 
         let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
+        // TODO: expected_pitched_ball should be created by better logic.
+        let expected_pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
 
         let absolute_location = calculate_ball_movement(&pitched_ball);
-        let pitch_displacement = PitchDisplacement {
-            horizontal_offset_m: absolute_location.x_m,
-            vertical_offset_m: absolute_location.z_m,
-            timing_offset_sec: 0.0,
+
+        let matchup = MatchupContext {
+            throw_side: pitcher.throw_side,
+            batting_side: batter.batting_side,
         };
-        let contact = evaluate_swing(&batter, &pitch_displacement);
+
+        let pitch_displacement =
+            calculate_pitch_offset(&pitched_ball, &matchup, &expected_pitched_ball);
+        let timing_offset =
+            calculate_timing_offset(self.rng.as_mut(), &pitched_ball, &expected_pitched_ball);
+
+        // TODO: bat_angle_deg must be added to BatterInfo
+        let bat_angle_deg = 45.0;
+
+        let contact =
+            evaluate_swing_contact(&batter, &pitch_displacement, timing_offset, bat_angle_deg);
         let batted_ball = calculate_batted_ball(self.rng.as_mut(), &batter, pitched_ball, &contact);
         info!("Batted Ball: {:#?}", batted_ball);
 
@@ -936,7 +949,7 @@ mod tests {
         };
         player.offense_skills.batter = batting_order.map(|order| BatterInfo {
             batting_side: RL::Right,
-            swing_speed: 100.0 - order as f64,
+            swing_speed_kmh: 100.0 - order as f64,
             base_launch_angle: 28.0,
             consistency_sigma: 0.03,
             weight_pull: 0.2,

@@ -1,10 +1,8 @@
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
-use crate::domain::shared::ball::{
-    BattedBall, CONVERT_FACTOR_KMH_TO_MS, PitchedBall, TrajectoryType,
-};
+use crate::domain::shared::ball::{BattedBall, PitchedBall, TrajectoryType};
 use crate::domain::shared::player::BatterInfo;
-use crate::domain::util::GRAVITY;
+use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, GRAVITY};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
@@ -18,36 +16,81 @@ const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
 #[derive(Clone, Debug)]
 pub struct SwingContactResult {
     // NOTE: Spatial sweet-spot offset (0.0: perfectly centered ~ 1.0: completely missing the zone)
-    pub vertical_offset: f64,
-    pub horizontal_offset: f64,
-
-    // NOTE: Timing offset (-1.0: way early ~ 0.0: just right ~ +1.0: way late)
+    pub thickness_offset_m: f64,
+    pub length_offset_m: f64,
+    // TODO: timing_offset must be removed.
     pub timing_offset: f64,
+    pub contact_type: SwingContactType,
 }
 impl SwingContactResult {
     pub fn offset(&self) -> f64 {
-        (self.vertical_offset.powi(2) + self.horizontal_offset.powi(2)).sqrt()
+        (self.thickness_offset_m.powi(2) + self.length_offset_m.powi(2)).sqrt()
     }
 
-    /// Determine whether the swing results in a miss
-    pub fn is_swing_and_miss(&self) -> bool {
-        // If either spatial or timing offset exceeds the threshold (or both combined), it's a miss
-        (self.vertical_offset > 0.8 && self.horizontal_offset > 0.8)
-            || self.timing_offset.abs() > 0.7
-    }
+    // /// Determine whether the swing results in a miss
+    // pub fn is_swing_and_miss(&self) -> bool {
+    //     // If either spatial or timing offset exceeds the threshold (or both combined), it's a miss
+    //     (self.vertical_offset > 0.8 && self.horizontal_offset > 0.8)
+    //         || self.timing_offset.abs() > 0.7
+    // }
 }
 
-pub fn evaluate_swing(
-    _batter: &BatterInfo,
-    pitch_displacement: &PitchDisplacement,
-    // Pass batter's target pitch and swing timing input as needed
+#[derive(Clone, Debug, PartialEq)]
+pub enum SwingContactType {
+    /// 芯で捉えた (フェア / 長打になりやすい)
+    SolidContact,
+    /// 芯を外した (ゴロ・フライ・ファールになりやすい)
+    WeakContact,
+    /// ギリギリかすった (チップファール)
+    FoulTip,
+    /// バットが完全に空を切った (空振り)
+    SwungAndMiss,
+}
+
+// TODO: bat_angle_deg must be added to BatterInfo
+// TODO: bat_angle_deg must be added to BatterInfo
+pub fn evaluate_swing_contact(
+    batter: &BatterInfo,
+    spacial_offset: &PitchDisplacement,
+    timing_offset_sec: f64,
+    bat_angle_deg: f64, // Pass batter's target pitch and swing timing input as needed
 ) -> SwingContactResult {
-    // TODO: Calculate timing offset from velocity/change of pace vs batter's swing timing
+    // 時間遅れ(秒) × バット周速(m/s) = タイミング遅れによるインパクト位置の X 軸移動(m)
+    let timing_impact_x_m = batter.swing_speed_kmh * CONVERT_FACTOR_KMH_TO_MS * timing_offset_sec;
+    let offset_x_m = spacial_offset.horizontal_offset_m + timing_impact_x_m;
+
+    let rad = bat_angle_deg.to_radians();
+
+    // バットの傾き角 (bat_angle_deg) を適用した「バット太さ方向(実効)のズレ (m)」
+    // X/Z 空間のズレをバットの「太さ方向」へ投影
+    let thickness_offset_m =
+        (-offset_x_m * rad.sin() + spacial_offset.vertical_offset_m * rad.cos()).abs();
+
+    // バットの傾き角 (bat_angle_deg) を適用した「バット長さ方向のズレ (m)」
+    // X/Z 空間のズレをバットの「長さ方向」へ投影
+    let length_offset_m =
+        (offset_x_m * rad.cos() + spacial_offset.vertical_offset_m * rad.sin()).abs();
+
+    // 1. バットの長さ限界 (例: 芯から端まで 35cm 以上離れたら空振り)
+    let contact_type = if length_offset_m > 0.350 {
+        SwingContactType::SwungAndMiss
+
+    // 2. バットの太さ方向 (バット半径 3.3cm + 球半径 3.7cm = 7.0cm 限界)
+    } else if thickness_offset_m > 0.070 {
+        SwingContactType::SwungAndMiss
+    } else if thickness_offset_m > 0.055 {
+        SwingContactType::FoulTip
+    } else if thickness_offset_m > 0.025 {
+        SwingContactType::WeakContact
+    } else {
+        SwingContactType::SolidContact
+    };
 
     SwingContactResult {
-        vertical_offset: pitch_displacement.vertical_offset_m,
-        horizontal_offset: pitch_displacement.horizontal_offset_m,
-        timing_offset: pitch_displacement.timing_offset_sec,
+        thickness_offset_m: thickness_offset_m,
+        length_offset_m: length_offset_m,
+        timing_offset: timing_offset_sec,
+        contact_type: contact_type,
     }
 }
 
@@ -156,7 +199,7 @@ pub fn sample_launch_angle(
     let vertical_noise = rng.normal_random(0.0, batter.consistency_sigma, 0.0, 1.0, 0.0);
 
     // 2. Add small noise to the sweet spot offset (vertical)
-    let noisy_vertical = (contact.vertical_offset + vertical_noise).clamp(-1.0, 1.0);
+    let noisy_vertical = (contact.thickness_offset_m + vertical_noise).clamp(-1.0, 1.0);
 
     // 3. Calculate VLA (base launch angle - offset amount × 30°)
     let max_angle_deviation = 30.0;
@@ -233,13 +276,13 @@ fn calculate_collision_spin(
     contact: &SwingContactResult,
 ) -> (f64, f64) {
     // 1. Calculate total distance from sweet spot using Pythagorean theorem
-    let distance = (contact.horizontal_offset.powi(2) + contact.vertical_offset.powi(2))
+    let distance = (contact.length_offset_m.powi(2) + contact.thickness_offset_m.powi(2))
         .sqrt()
         .min(1.0);
 
     // 2. Calculate contact point angle (radians) using atan2(y, x)
     // y = vertical, x = horizontal
-    let impact_angle_rad = contact.vertical_offset.atan2(contact.horizontal_offset);
+    let impact_angle_rad = contact.thickness_offset_m.atan2(contact.length_offset_m);
 
     // 3. Convert contact angle to spin angle
     // The ball spins in the opposite direction from the contact point (+ PI)
@@ -353,7 +396,7 @@ pub fn calculate_batted_ball(
     let launch_speed = sample_launch_speed(
         rng,
         ball.speed_kmh,
-        batter.swing_speed,
+        batter.swing_speed_kmh,
         contact.offset(),
         contact.timing_offset,
     );
@@ -365,7 +408,7 @@ pub fn calculate_batted_ball(
     // 3. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
     let (batted_spin_rate, batted_spin_angle) =
-        calculate_collision_spin(ball, batter.swing_speed, contact);
+        calculate_collision_spin(ball, batter.swing_speed_kmh, contact);
     let trajectory = classify_trajectory_type(launch_angle, batted_spin_rate, batted_spin_angle);
 
     // 4. Calculate horizontal launch angle (HLA)
@@ -393,8 +436,8 @@ pub fn calculate_batted_ball(
 mod tests {
     use crate::domain::random_provider::FixedRng;
     use crate::domain::resolver::batting_resolver::{
-        BatterInfo, FieldSector, SwingContactResult, calculate_batted_ball, inner_choose_sector,
-        sample_spray_angle,
+        BatterInfo, FieldSector, SwingContactResult, SwingContactType, calculate_batted_ball,
+        inner_choose_sector, sample_spray_angle,
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::player::{PitchType, RL};
@@ -411,7 +454,7 @@ mod tests {
     ) -> BatterInfo {
         BatterInfo {
             batting_side,
-            swing_speed: 150.0,
+            swing_speed_kmh: 150.0,
             base_launch_angle: 28.0,
             consistency_sigma: 0.03,
             weight_pull,
@@ -434,9 +477,10 @@ mod tests {
 
     fn centered_contact() -> SwingContactResult {
         SwingContactResult {
-            vertical_offset: 0.0,
-            horizontal_offset: 0.0,
+            thickness_offset_m: 0.0,
+            length_offset_m: 0.0,
             timing_offset: 0.0,
+            contact_type: SwingContactType::SolidContact,
         }
     }
 

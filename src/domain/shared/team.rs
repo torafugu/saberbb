@@ -111,7 +111,7 @@ impl Team {
         // TODO: The batting order should be considered by team starategy.
         let mut batter_ids: Vec<(i64, f64)> = players
             .iter()
-            .filter_map(|player| Some((player.id, player.batter.as_ref()?.swing_speed)))
+            .filter_map(|player| Some((player.id, player.batter.as_ref()?.swing_speed_kmh)))
             .collect();
         batter_ids.sort_by(|a, b| b.1.total_cmp(&a.1));
         for (order, (player_id, _)) in batter_ids.iter().enumerate() {

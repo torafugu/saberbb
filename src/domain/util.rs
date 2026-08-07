@@ -1,6 +1,7 @@
 use crate::domain::shared::game::BaseCode;
 use serde::{Deserialize, Serialize};
 
+pub const CONVERT_FACTOR_KMH_TO_MS: f64 = 0.2778;
 pub const GRAVITY: f64 = 9.81;
 
 pub struct Vector3D {

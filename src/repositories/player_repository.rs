@@ -159,7 +159,7 @@ impl PlayerRepository for SqlPlayerRepository {
             params![
                 player_id,
                 batter_info.batting_side,
-                batter_info.swing_speed,
+                batter_info.swing_speed_kmh,
                 batter_info.base_launch_angle,
                 batter_info.consistency_sigma,
                 batter_info.weight_pull,
@@ -793,7 +793,7 @@ mod tests {
             offense_skills: OffenseSkills {
                 batter: Some(BatterInfo {
                     batting_side: RL::Right,
-                    swing_speed: 1.0,
+                    swing_speed_kmh: 1.0,
                     base_launch_angle: 28.0,
                     consistency_sigma: 0.03,
                     weight_pull: 0.2,

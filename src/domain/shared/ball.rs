@@ -1,8 +1,7 @@
-use crate::domain::resolver::pitching_resolver::StrikeZoneDimensions;
 use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::strategy::pitch_call::TargetZone;
-use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
+use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -12,7 +11,6 @@ use strum_macros::{AsRefStr, EnumString};
 const FOUL_DEGREE: f64 = 45.0;
 const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
-pub const CONVERT_FACTOR_KMH_TO_MS: f64 = 0.2778;
 
 // Scaling coefficient calibrated so that at 2500rpm, 150km/h (41.67m/s), efficiency 1.0, acceleration is approx. 3.5 m/s²
 // Coefficient K ≈ 3.5 / (2500.0 * 41.67) ≈ 0.0000336

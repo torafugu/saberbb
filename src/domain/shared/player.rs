@@ -351,7 +351,7 @@ impl fmt::Display for HitterTendency {
 #[derive(Clone, Copy, Default, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterInfo {
     pub batting_side: RL,
-    pub swing_speed: f64,
+    pub swing_speed_kmh: f64,
     pub base_launch_angle: f64, // Ex. 28.0 deg
     pub consistency_sigma: f64, // Ex. 0.03
 

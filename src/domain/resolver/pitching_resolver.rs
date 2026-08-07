@@ -89,7 +89,6 @@ pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
 pub struct PitchDisplacement {
     pub horizontal_offset_m: f64,
     pub vertical_offset_m: f64,
-    pub timing_offset_sec: f64,
 }
 
 pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
@@ -134,7 +133,6 @@ pub fn calculate_pitch_offset(
     PitchDisplacement {
         horizontal_offset_m: enhanced_offset_x,
         vertical_offset_m: offset_y,
-        timing_offset_sec: 0.0,
     }
 }
 

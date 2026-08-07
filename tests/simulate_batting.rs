@@ -41,7 +41,7 @@ fn test_batted_ball() {
 
     let right_average_hitter = BatterInfo {
         batting_side: RL::Right,
-        swing_speed: 125.0,
+        swing_speed_kmh: 125.0,
         base_launch_angle: 28.0,
         consistency_sigma: 0.03,
         weight_pull: 0.35,
@@ -74,9 +74,10 @@ fn test_batted_ball() {
                 actual_location: BallLocation { x: 0.0, y: 0.0 },
             },
             &SwingContactResult {
-                vertical_offset: 0.0,
-                horizontal_offset: -0.1,
+                thickness_offset_m: 0.0,
+                length_offset_m: -0.1,
                 timing_offset: 0.0,
+                contact_type: SwingContactType::SolidContact,
             },
         );
         conn.execute(

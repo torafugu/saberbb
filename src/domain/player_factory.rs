@@ -190,7 +190,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
 
         // TODO: Consider correlation　of hitter_tendency.
-        batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
+        batter_info.swing_speed_kmh = self.rng.normal(self.batter_info_probs.swing_speed);
         // TODO: Consider correlation　of hitter_tendency.
         batter_info.base_launch_angle = self.rng.normal(self.batter_info_probs.base_launch_angle);
         batter_info.consistency_sigma = self.rng.normal(self.batter_info_probs.consistency_sigma);
