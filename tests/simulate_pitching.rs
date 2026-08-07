@@ -17,18 +17,18 @@ fn test_pitched_ball() {
     let batter = generate_batter();
 
     for _ in 0..1000 {
-        let ball = create_pitch(&mut rng, &pitcher).unwrap();
+        let pitched_ball = create_pitch(&mut rng, &pitcher).unwrap();
         let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
 
-        let ball_movement = calculate_ball_movement(&ball);
+        let ball_movement = calculate_ball_movement(&pitched_ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
             batting_side: batter.batting_side,
         };
 
-        let pitch_displacement = calculate_pitch_offset(&ball, &matchup, &expected_ball);
-        let timing_offset = calculate_timing_offset(&mut rng, &ball, &expected_ball);
+        let pitch_displacement = calculate_pitch_offset(&pitched_ball, &matchup, &expected_ball);
+        let timing_offset = calculate_timing_offset(&mut rng, &pitched_ball, &expected_ball);
 
         conn.execute(
             "INSERT INTO test_pitched_ball (pitch_type, speed_kmh,  spin_rate, spin_angle, spin_efficiency, 
@@ -36,21 +36,21 @@ fn test_pitched_ball() {
             aim_x, aim_y, actual_x, actual_y, pitch_result, movement_x, movement_z, disp_x, disp_y, timing) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
-                ball.pitch_type.as_ref(),
-                ball.speed_kmh,
-                ball.spin_rate,
-                ball.spin_angle,
-                ball.spin_efficiency,
-                ball.release_point.x,
-                ball.release_point.y,
-                ball.release_point.z,
-                ball.flight_time,
-                ball.aim_zone.as_ref(),
-                ball.aim_location.x,
-                ball.aim_location.y,
-                ball.actual_location.x,
-                ball.actual_location.y,
-                ball.actual_location.call().as_ref(),
+                pitched_ball.pitch_type.as_ref(),
+                pitched_ball.speed_kmh,
+                pitched_ball.spin_rate,
+                pitched_ball.spin_angle,
+                pitched_ball.spin_efficiency,
+                pitched_ball.release_point.x,
+                pitched_ball.release_point.y,
+                pitched_ball.release_point.z,
+                pitched_ball.flight_time,
+                pitched_ball.aim_zone.as_ref(),
+                pitched_ball.aim_location.x,
+                pitched_ball.aim_location.y,
+                pitched_ball.actual_location.x,
+                pitched_ball.actual_location.y,
+                pitched_ball.actual_location.call().as_ref(),
                 ball_movement.x_m,
                 ball_movement.z_m,
                 pitch_displacement.horizontal_offset_m,

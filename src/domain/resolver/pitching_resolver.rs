@@ -106,28 +106,28 @@ pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
 
 // NOTE: Timing when the batter initiates the swing (e.g. 12m from the pitcher / approx. 0.15s before impact)
 pub fn calculate_pitch_offset(
-    ball: &PitchedBall,
+    pitched_ball: &PitchedBall,
     matchup: &MatchupContext,
     expected_ball: &PitchedBall,
 ) -> PitchDisplacement {
     // 1. Point at which the batter commits to the swing (approx. 60% of total flight time)
-    let remaining_time = ball.flight_time * (1.0 - PITCH_OFFSET_DECISION_RATIO);
+    let remaining_time = pitched_ball.flight_time * (1.0 - PITCH_OFFSET_DECISION_RATIO);
 
     // 2. Horizontal calculation
-    let delta_horizontal = ball.get_side_accel() - expected_ball.get_side_accel();
+    let delta_horizontal = pitched_ball.get_side_accel() - expected_ball.get_side_accel();
     let offset_x = 0.5 * delta_horizontal * remaining_time.powi(2);
 
     // 3. Get the approach angle strength from lefty vs righty crossfire or wide release position (X)
     let crossfire_multiplier = matchup.crossfire_perceived_multiplier();
 
     // 4. Angle emphasis base proportional to release position magnitude (release_point.x)
-    let release_x_factor = 1.0 + (ball.release_point.x.abs() * 0.15);
+    let release_x_factor = 1.0 + (pitched_ball.release_point.x.abs() * 0.15);
 
     // 5. Multiply the offset x by the crossfire illusion multiplier (correction)
     let enhanced_offset_x = offset_x * crossfire_multiplier * release_x_factor;
 
     // 6. Vertical calculation
-    let delta_vertical = ball.get_vertical_accel() - expected_ball.get_vertical_accel();
+    let delta_vertical = pitched_ball.get_vertical_accel() - expected_ball.get_vertical_accel();
     let offset_y = 0.5 * delta_vertical * remaining_time.powi(2);
 
     PitchDisplacement {
@@ -160,17 +160,18 @@ impl MatchupContext {
 /// Calculate the Timing Offset (seconds) from the batter's prediction and the actual pitch
 pub fn calculate_timing_offset(
     rng: &mut dyn RandomProvider,
-    ball: &PitchedBall,
+    pitched_ball: &PitchedBall,
     // Standard pitch profile the batter assumes in their mind (e.g. 150km/h fastball)
     expected_ball: &PitchedBall,
 ) -> f64 {
     // 1. Actual flight time (calculated from extension and actual pitch speed)
-    let actual_release_point = ball.release_point.y * rng.normal_factor_std_1_percent();
-    let actual_flight_time = calculate_flight_time(ball.speed_kmh, actual_release_point);
+    let actual_release_point = pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
+    let actual_flight_time = calculate_flight_time(pitched_ball.speed_kmh, actual_release_point);
 
     // 2. Predicted flight time the batter calculates in their mind
     // TODO: Consider batter;s Eye
-    let release_point_seen_from_batter = ball.release_point.y * rng.normal_factor_std_1_percent();
+    let release_point_seen_from_batter =
+        pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
     let expected_flight_time =
         calculate_flight_time(expected_ball.speed_kmh, release_point_seen_from_batter);
 

@@ -74,6 +74,8 @@ fn test_batted_ball() {
                 actual_location: BallLocation { x: 0.0, y: 0.0 },
             },
             &SwingContactResult {
+                offset_x_m: 0.01,
+                offset_z_m: -0.01,
                 thickness_offset_m: 0.0,
                 length_offset_m: -0.1,
                 timing_offset: 0.0,
