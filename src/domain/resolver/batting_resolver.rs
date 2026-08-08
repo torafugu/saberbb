@@ -1,6 +1,5 @@
-use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
-use crate::domain::shared::ball::{BattedBall, PitchedBall, TrajectoryType};
+use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall, TrajectoryType};
 use crate::domain::shared::player::{BatterInfo, RL};
 use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, CONVERT_FACTOR_MS_TO_KMH, GRAVITY};
 use serde::{Deserialize, Serialize};
@@ -11,6 +10,54 @@ use strum_macros::{AsRefStr, EnumIter, EnumString};
 const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
+
+fn calculate_bat_angle(location: &BallLocation) -> f64 {
+    const CENTER_ANGLE_DEG: f64 = 30.0; // Standard tilt angle at zone center
+    const HIGH_LOW_RANGE_DEG: f64 = 15.0; // Angle variation range based on height
+
+    // Map norm_y (+1.0 high ~ -1.0 low) to 15° ~ 45°
+    let base_angle = CENTER_ANGLE_DEG - (location.y * HIGH_LOW_RANGE_DEG);
+
+    // Clamp to human range of motion limits (10° ~ 60°)
+    base_angle.clamp(10.0, 60.0)
+}
+
+pub struct SwingExecutionError {
+    pub additional_x_m: f64,
+    pub additional_z_m: f64,
+    pub actual_bat_angle_deg: f64,
+}
+
+// Calculate the actual bat_angle_deg the batter swings through based on the real trajectory and their prediction
+pub fn calculate_swing_execution_error(
+    bat_contact: f64,
+    intended_location: &BallLocation,
+    actual_location: &BallLocation,
+) -> SwingExecutionError {
+    // 1. Calculate the difference between intended and ideal angle (angle error)
+    let intended_angle = calculate_bat_angle(intended_location);
+    let ideal_angle = calculate_bat_angle(actual_location);
+
+    // Lower contact skill leaves a larger Δθ because the swing can't correct toward the ideal angle
+    let unadjusted_ratio = (1.0 - bat_contact).clamp(0.1, 1.0);
+    let delta_angle_deg = (intended_angle - ideal_angle) * unadjusted_ratio;
+
+    // 2. Convert angle error (deg) to spatial meter error (Δx, Δz)
+    let delta_rad = delta_angle_deg.to_radians();
+    const BAT_BARREL_LENGTH_M: f64 = 0.70; // Distance from grip to sweet spot
+
+    let additional_z_m = BAT_BARREL_LENGTH_M * delta_rad.sin();
+    let additional_x_m = BAT_BARREL_LENGTH_M * (1.0 - delta_rad.cos());
+
+    // Actual bat angle the batter swung
+    let actual_bat_angle_deg = intended_angle - (intended_angle - ideal_angle) * bat_contact;
+
+    SwingExecutionError {
+        additional_x_m,
+        additional_z_m,
+        actual_bat_angle_deg,
+    }
+}
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
 #[strum(ascii_case_insensitive)]
@@ -34,11 +81,6 @@ pub struct SwingContactResult {
     pub timing_offset: f64,
     pub contact_type: SwingContactType,
 }
-// impl SwingContactResult {
-//     // pub fn offset(&self) -> f64 {
-//     //     (self.thickness_offset_m.powi(2) + self.length_offset_m.powi(2)).sqrt()
-//     // }
-// }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
 #[strum(ascii_case_insensitive)]
@@ -59,23 +101,24 @@ pub fn evaluate_swing_contact(
     batter: &BatterInfo,
     spacial_offset: &PitchDisplacement,
     timing_offset_sec: f64,
-    bat_angle_deg: f64, // Pass batter's target pitch and swing timing input as needed
+    swing_execution_error: &SwingExecutionError,
 ) -> SwingContactResult {
     // Timing delay (seconds) × bat swing speed (m/s) = X-axis impact position shift due to timing delay (m)
     let timing_impact_x_m = batter.swing_speed_kmh * CONVERT_FACTOR_KMH_TO_MS * timing_offset_sec;
-    let offset_x_m = spacial_offset.horizontal_offset_m + timing_impact_x_m;
+    let offset_x_m = spacial_offset.horizontal_offset_m
+        + swing_execution_error.additional_x_m
+        + timing_impact_x_m;
+    let offset_z_m = spacial_offset.vertical_offset_m + swing_execution_error.additional_z_m;
 
-    let rad = bat_angle_deg.to_radians();
+    let rad = swing_execution_error.actual_bat_angle_deg.to_radians();
 
     // Offset projected onto the bat's thickness direction (effective) using bat angle (bat_angle_deg)
     // Project X/Z spatial offsets onto the bat's thickness direction
-    let thickness_offset_m =
-        (-offset_x_m * rad.sin() + spacial_offset.vertical_offset_m * rad.cos()).abs();
+    let thickness_offset_m = (-offset_x_m * rad.sin() + offset_z_m * rad.cos()).abs();
 
     // Offset projected onto the bat's length direction (m) using bat angle (bat_angle_deg)
     // Project X/Z spatial offsets onto the bat's length direction
-    let length_offset_m =
-        (offset_x_m * rad.cos() + spacial_offset.vertical_offset_m * rad.sin()).abs();
+    let length_offset_m = (offset_x_m * rad.cos() + offset_z_m * rad.sin()).abs();
 
     // 1. Bat length limit (e.g. miss if more than 35cm from the sweet spot toward the end)
     let contact_type = if length_offset_m > 0.350 {
@@ -94,7 +137,7 @@ pub fn evaluate_swing_contact(
 
     SwingContactResult {
         offset_x_m: offset_x_m,
-        offset_z_m: spacial_offset.vertical_offset_m,
+        offset_z_m: offset_z_m,
         thickness_offset_m: thickness_offset_m,
         length_offset_m: length_offset_m,
         timing_offset: timing_offset_sec,
@@ -207,111 +250,6 @@ pub enum FieldSector {
     Opposite, // NOTE: Opposite field (right-handed batter → right field, left-handed batter → left field)
     FoulOpposite, // NOTE: Foul of Opposite-side (right-handed batter → right field, left-handed batter → left field)
 }
-
-fn inner_choose_sector(
-    rng: &mut dyn RandomProvider,
-    offset_factor_percent: f64,
-    batter: &BatterInfo,
-) -> FieldSector {
-    let total_weight = batter.weight_pull
-        + batter.weight_center
-        + batter.weight_opposite
-        + batter.weight_foul_pull
-        + batter.weight_foul_opposite;
-    let roll = rng.range_f64(0.0, total_weight);
-    let mut modified_roll = roll + offset_factor_percent;
-
-    if modified_roll < batter.weight_foul_pull {
-        return FieldSector::FoulPull;
-    }
-    modified_roll -= batter.weight_foul_pull;
-
-    if modified_roll < batter.weight_pull {
-        return FieldSector::Pull;
-    }
-    modified_roll -= batter.weight_pull;
-
-    if modified_roll < batter.weight_center {
-        return FieldSector::Center;
-    }
-    modified_roll -= batter.weight_center;
-
-    if modified_roll < batter.weight_opposite {
-        return FieldSector::Opposite;
-    }
-
-    return FieldSector::FoulOpposite;
-}
-
-// fn sample_launch_speed(
-//     rng: &mut dyn RandomProvider,
-//     ball_speed: f64,
-//     swing_speed: f64,
-//     spacial_offset: f64,
-//     timing_offset: f64,
-// ) -> f64 {
-//     // Theoretical maximum exit velocity for a squared-up ball (V_max)
-//     let a = 1.00; // Swing efficiency
-//     let b = 0.20; // Rebound efficiency
-//     let v_max = (a * swing_speed) + (b * ball_speed);
-
-//     let launch_speed = v_max
-//         * (1.0 - spacial_offset * 0.3)  // Off-center contact causes up to 30% reduction
-//         * (1.0 - timing_offset.abs() * 0.2); // Timing delay causes up to 20% reduction
-
-//     // Add the final variation with normally distributed noise (mean 0, standard deviation 5 km/h)
-//     // Cap the minimum value to prevent negative or excessively slow speeds (10 km/h)
-//     let final_speed = launch_speed + rng.normal_random(0.0, 5.0, 0.0, 1.0, 0.0);
-//     final_speed.max(10.0)
-// }
-
-// fn sample_spray_angle(
-//     rng: &mut dyn RandomProvider,
-//     timing_offset: f64,
-//     tendency: &BatterInfo,
-// ) -> f64 {
-//     let offset_factor_percent = timing_offset * 25.0; // The range of offset_factor_percent is -25.0 % to 25.0%
-
-//     // Step 1: Decide the sector
-//     let chosen_sector = inner_choose_sector(rng, offset_factor_percent, tendency);
-
-//     // Step 2: Get the angle range for that sector
-//     let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
-//     let min_angle = min_angle as f64;
-//     let max_angle = max_angle as f64;
-
-//     // Step 3: Randomly sample within the range
-//     let mean = (min_angle + max_angle) * 0.5;
-//     let std_dev = (max_angle - min_angle) / 6.0;
-//     // 10% of Timing offset effects to random skew.
-//     let final_angle = rng
-//         .normal_random(mean, std_dev, timing_offset * 0.1, 1.0, 0.0)
-//         .clamp(min_angle, max_angle);
-
-//     final_angle
-// }
-
-// pub fn sample_launch_angle(
-//     rng: &mut dyn RandomProvider,
-//     batter: &BatterInfo,
-//     contact: &SwingContactResult,
-// ) -> f64 {
-//     // 1. Create normal distribution noise based on batter's contact accuracy (meet skill)
-//     // Mean 0.0, standard deviation consistency_sigma
-//     let vertical_noise = rng.normal_random(0.0, batter.consistency_sigma, 0.0, 1.0, 0.0);
-
-//     // 2. Add small noise to the sweet spot offset (vertical)
-//     let noisy_vertical = (contact.thickness_offset_m + vertical_noise).clamp(-1.0, 1.0);
-
-//     // 3. Calculate VLA (base launch angle - offset amount × 30°)
-//     let max_angle_deviation = 30.0;
-//     let base_vla = batter.base_launch_angle - (noisy_vertical * max_angle_deviation);
-
-//     // 4. Add slight air resistance/seam-induced variation to launch angle (e.g. Gaussian noise with std dev 1.5°)
-//     let final_vla = base_vla + rng.normal_random(0.0, 1.5, 0.0, 1.0, 0.0);
-
-//     final_vla.clamp(-15.0, 85.0)
-// }
 
 #[derive(Clone, Debug)]
 pub struct SpinVector {
@@ -456,26 +394,34 @@ fn calculate_3d_flight_path(
     // Total Magnus force (approx. 3.5 m/s² at 2500rpm, 40m/s)
     let total_magnus_accel = (spin_rate / 2500.0) * (launch_speed_ms / 40.0) * 3.5;
 
-    // Decompose into vertical lift (cos) and horizontal break (sin)
+    // 2. Decompose into vertical lift (cos) and horizontal break (sin)
     let vertical_magnus = total_magnus_accel * spin_angle_rad.cos();
     let side_magnus = total_magnus_accel * spin_angle_rad.sin();
 
-    // 2. Calculate hang time and depth distance (Y-axis)
-    let g_eff = (GRAVITY - vertical_magnus).max(3.0); // Effective gravity
-    let flight_time = (2.0 * launch_speed_ms * vla_rad.sin()) / g_eff;
-
     // Horizontal initial velocity component
-    let v_horizontal = launch_speed_ms * vla_rad.cos();
+    let v_vertical = launch_speed_ms * vla_rad.sin();
+    let v_horizontal = launch_speed_ms * vla_rad.cos().max(0.0);
 
-    // Air resistance correction (simplified model)
+    // 3. Calculate effective gravity (gravity 9.81 - Magnus lift)
+    let g_eff = (GRAVITY - vertical_magnus).max(2.0);
+
+    // 4. Contact height (impact position above ground: e.g. 0.9m)
+    const IMPACT_HEIGHT_M: f64 = 0.90;
+
+    // 5. Hang time (solution of quadratic: z0 + vz*t - 0.5*g*t^2 = 0)
+    // Even with negative VLA (grounder), sqrt(vz² + 2*g*z0) is larger than vz, so the positive solution is always valid
+    let discriminant = v_vertical.powi(2) + (2.0 * g_eff * IMPACT_HEIGHT_M);
+    let flight_time_sec = (v_vertical + discriminant.sqrt()) / g_eff;
+
+    // 6. Air resistance correction (simplified model)
     let drag_factor = (1.0 - (0.005 * launch_speed_ms) - (0.0001 * spin_rate)).clamp(0.5, 0.95);
 
-    // Y-axis flight distance (linear distance × cos(HLA) × air resistance)
-    let distance = (v_horizontal * hla_rad.cos() * flight_time) * drag_factor;
+    // 7. Y-axis flight distance (linear distance × cos(HLA) × air resistance)
+    let distance = (v_horizontal * hla_rad.cos().max(0.0) * flight_time_sec) * drag_factor;
 
     // 3. Calculate horizontal arrival angle
     // A. Horizontal break from side spin during flight (1/2 * a * t²)
-    let x_from_side_spin = 0.5 * side_magnus * flight_time.powi(2);
+    let x_from_side_spin = 0.5 * side_magnus * flight_time_sec.powi(2);
 
     // B. Add side-spin deflection angle to initial launch angle (hla_deg)
     // atan2(lateral deviation, depth distance) gives additional deflection angle (rad)
@@ -485,7 +431,7 @@ fn calculate_3d_flight_path(
     // Final horizontal arrival angle (polar coordinate angle θ)
     let final_spray_angle_deg = hla_deg + spin_curve_angle_deg;
 
-    (flight_time, distance, final_spray_angle_deg)
+    (flight_time_sec, distance, final_spray_angle_deg)
 }
 
 pub fn calculate_batted_ball(
@@ -526,10 +472,9 @@ pub fn calculate_batted_ball(
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::random_provider::FixedRng;
     use crate::domain::resolver::batting_resolver::{
         BatterInfo, FieldSector, SwingContactResult, SwingContactType, calculate_batted_ball,
-        calculate_launch_angles, inner_choose_sector,
+        calculate_launch_angles,
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::player::{PitchType, RL};
@@ -596,37 +541,6 @@ mod tests {
             left_hitter.get_angle_range(FieldSector::Opposite),
             (-45.0, -15.0)
         );
-    }
-
-    #[test]
-    fn inner_choose_sector_returns_the_only_weighted_sector() {
-        let cases = [
-            (
-                batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0),
-                FieldSector::Pull,
-            ),
-            (
-                batter_with_weights(RL::Right, 0.0, 1.0, 0.0, 0.0, 0.0),
-                FieldSector::Center,
-            ),
-            (
-                batter_with_weights(RL::Right, 0.0, 0.0, 1.0, 0.0, 0.0),
-                FieldSector::Opposite,
-            ),
-            (
-                batter_with_weights(RL::Right, 0.0, 0.0, 0.0, 1.0, 0.0),
-                FieldSector::FoulPull,
-            ),
-            (
-                batter_with_weights(RL::Right, 0.0, 0.0, 0.0, 0.0, 1.0),
-                FieldSector::FoulOpposite,
-            ),
-        ];
-
-        for (batter, expected_sector) in cases {
-            let mut rng = FixedRng::new(0.5);
-            assert_eq!(inner_choose_sector(&mut rng, 0.0, &batter), expected_sector);
-        }
     }
 
     #[test]

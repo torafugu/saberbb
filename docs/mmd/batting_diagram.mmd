@@ -1,0 +1,11 @@
+flowchart TD
+    calculate_bat_angle --> calculate_swing_execution_error
+    calculate_swing_execution_error --> evaluate_swing --> calculate_batted_ball
+
+    subgraph calculate_batted_ball
+        direction TB
+        classify_trajectory_type
+        calculate_collision_spin --> combine_batted_spin --> calculate_3d_flight_path
+        calculate_launch_speed --> calculate_3d_flight_path
+        calculate_launch_angles --> calculate_3d_flight_path
+    end

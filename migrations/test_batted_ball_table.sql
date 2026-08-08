@@ -1,6 +1,9 @@
 DROP TABLE test_batted_ball;
 
 CREATE TABLE test_batted_ball (
+    additional_x_m REAL NOT NULL,
+    additional_z_m REAL NOT NULL,
+    actual_bat_angle_deg REAL NOT NULL,
     offset_x_m REAL NOT NULL,
     offset_z_m REAL NOT NULL,
     thickness_offset_m REAL NOT NULL,

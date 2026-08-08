@@ -4,7 +4,9 @@ use super::player::{
 };
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::resolver::batting_resolver::{calculate_batted_ball, evaluate_swing_contact};
+use crate::domain::resolver::batting_resolver::{
+    calculate_batted_ball, calculate_swing_execution_error, evaluate_swing_contact,
+};
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
@@ -17,7 +19,7 @@ use crate::domain::resolver::pitching_resolver::{
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
-use crate::domain::shared::ball::BattedBall;
+use crate::domain::shared::ball::{BallLocation, BattedBall};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::util::PolarPosition;
@@ -693,8 +695,26 @@ impl GameState {
         // TODO: bat_angle_deg must be added to BatterInfo
         let attack_angle_deg = 5.0;
 
-        let contact =
-            evaluate_swing_contact(&batter, &pitch_displacement, timing_offset, bat_angle_deg);
+        // TODO: bat_contact must be added to BatterInfo
+        let bat_contact = 0.8;
+
+        let intended_location = BallLocation {
+            x: pitched_ball.actual_location.x * self.rng.normal_factor_std_1_percent(),
+            y: pitched_ball.actual_location.y * self.rng.normal_factor_std_1_percent(),
+        };
+
+        let swing_execution_error = calculate_swing_execution_error(
+            bat_contact,
+            &intended_location,
+            &pitched_ball.actual_location,
+        );
+
+        let contact = evaluate_swing_contact(
+            &batter,
+            &pitch_displacement,
+            timing_offset,
+            &swing_execution_error,
+        );
         let batted_ball = calculate_batted_ball(&batter, attack_angle_deg, pitched_ball, &contact);
         info!("Batted Ball: {:#?}", batted_ball);
 
