@@ -4,6 +4,7 @@ use common::*;
 use rusqlite::params;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::batting_resolver::*;
+use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::player::*;
@@ -38,54 +39,43 @@ fn test_ball_height() {
 #[test]
 fn test_batted_ball() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
+    conn.execute("DELETE FROM test_batted_ball", []).unwrap();
 
-    let right_average_hitter = BatterInfo {
-        batting_side: RL::Right,
-        swing_speed_kmh: 125.0,
-        base_launch_angle: 28.0,
-        consistency_sigma: 0.03,
-        weight_pull: 0.35,
-        weight_center: 0.35,
-        weight_opposite: 0.15,
-        weight_foul_pull: 0.08,
-        weight_foul_opposite: 0.07,
-    };
+    let pitcher = generate_pitcher();
+    let batter = generate_batter();
 
     let mut rng = RealRng::new();
 
     for _ in 0..1000 {
-        let ball = calculate_batted_ball(
-            &mut rng,
-            &right_average_hitter,
-            PitchedBall {
-                pitch_type: PitchType::FourSeamFastball,
-                speed_kmh: 150.0,
-                spin_rate: 2300.0,
-                spin_angle: 30.0,
-                spin_efficiency: 0.95,
-                release_point: Vector3D {
-                    x: 1.6,
-                    y: 16.74,
-                    z: 1.7,
-                },
-                flight_time: 0.42,
-                aim_zone: TargetZone::Center,
-                aim_location: BallLocation { x: 0.0, y: 0.0 },
-                actual_location: BallLocation { x: 0.0, y: 0.0 },
-            },
-            &SwingContactResult {
-                offset_x_m: 0.01,
-                offset_z_m: -0.01,
-                thickness_offset_m: 0.0,
-                length_offset_m: -0.1,
-                timing_offset: 0.0,
-                contact_type: SwingContactType::SolidContact,
-            },
-        );
+        let pitched_ball = create_pitch(&mut rng, &pitcher).unwrap();
+        let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
+
+        let matchup = MatchupContext {
+            throw_side: pitcher.throw_side,
+            batting_side: batter.batting_side,
+        };
+
+        let pitch_displacement = calculate_pitch_offset(&pitched_ball, &matchup, &expected_ball);
+        let timing_offset = calculate_timing_offset(&mut rng, &pitched_ball, &pitched_ball);
+
+        // TODO: bat_angle_deg must be added to BatterInfo
+        let bat_angle_deg = 45.0;
+
+        // TODO: bat_angle_deg must be added to BatterInfo
+        let attack_angle_deg = 5.0;
+
+        let contact =
+            evaluate_swing_contact(&batter, &pitch_displacement, timing_offset, bat_angle_deg);
+
+        let batted_ball = calculate_batted_ball(&batter, attack_angle_deg, pitched_ball, &contact);
+
         conn.execute(
-            "INSERT INTO test_batted_ball (launch_speed_kmh, launch_angle,  spray_angle, distance, hang_time, trajectory) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![ball.launch_speed_kmh, ball.launch_angle, ball.angle(), ball.distance(),  ball.hang_time, ball.trajectory.as_ref()],
+            "INSERT INTO test_batted_ball (
+            offset_x_m, offset_z_m, thickness_offset_m, length_offset_m, timing_offset_sec, contact_type,
+            launch_speed_kmh, launch_angle,  spray_angle, distance_m, hang_time_sec, trajectory) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![contact.offset_x_m, contact.offset_z_m, contact.thickness_offset_m, contact.length_offset_m, contact.timing_offset, contact.contact_type.as_ref(),
+            batted_ball.launch_speed_kmh, batted_ball.launch_angle, batted_ball.angle(), batted_ball.distance(),  batted_ball.hang_time, batted_ball.trajectory.as_ref()],
         )
         .unwrap();
     }

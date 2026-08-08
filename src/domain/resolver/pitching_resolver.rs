@@ -169,9 +169,9 @@ pub fn calculate_timing_offset(
     let actual_flight_time = calculate_flight_time(pitched_ball.speed_kmh, actual_release_point);
 
     // 2. Predicted flight time the batter calculates in their mind
-    // TODO: Consider batter;s Eye
-    let release_point_seen_from_batter =
-        pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
+    // TODO: Consider batter's Eye
+    // TODO: Consider calculate logic of release_point_seen_from_batter
+    let release_point_seen_from_batter = actual_release_point;
     let expected_flight_time =
         calculate_flight_time(expected_ball.speed_kmh, release_point_seen_from_batter);
 

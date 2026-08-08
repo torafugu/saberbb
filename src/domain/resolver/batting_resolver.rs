@@ -2,7 +2,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{BattedBall, PitchedBall, TrajectoryType};
 use crate::domain::shared::player::{BatterInfo, RL};
-use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, GRAVITY};
+use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, CONVERT_FACTOR_MS_TO_KMH, GRAVITY};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
@@ -12,7 +12,7 @@ const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum PitchOutcome {
     InPlay,
@@ -23,7 +23,7 @@ pub enum PitchOutcome {
 }
 
 // Mismatch between the batter's swing prediction and the actual pitch
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SwingContactResult {
     pub offset_x_m: f64,
     pub offset_z_m: f64,
@@ -34,13 +34,14 @@ pub struct SwingContactResult {
     pub timing_offset: f64,
     pub contact_type: SwingContactType,
 }
-impl SwingContactResult {
-    pub fn offset(&self) -> f64 {
-        (self.thickness_offset_m.powi(2) + self.length_offset_m.powi(2)).sqrt()
-    }
-}
+// impl SwingContactResult {
+//     // pub fn offset(&self) -> f64 {
+//     //     (self.thickness_offset_m.powi(2) + self.length_offset_m.powi(2)).sqrt()
+//     // }
+// }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
+#[strum(ascii_case_insensitive)]
 pub enum SwingContactType {
     // NOTE: Caught it on the sweet spot (likely fair / extra-base hit)
     SolidContact,
@@ -108,7 +109,7 @@ pub struct BattedBallAngles {
 }
 
 pub fn calculate_launch_angles(
-    contact_result: SwingContactResult,
+    contact_result: &SwingContactResult,
     attack_angle_deg: f64,
     batting_side: RL,
 ) -> BattedBallAngles {
@@ -156,7 +157,7 @@ pub fn calculate_launch_angles(
 }
 
 pub fn calculate_launch_speed(
-    contact_result: SwingContactResult,
+    contact_result: &SwingContactResult,
     ball_speed_kmh: f64,
     swing_speed_kmh: f64,
 ) -> f64 {
@@ -190,9 +191,9 @@ pub fn calculate_launch_speed(
         (1.0 - (contact_result.length_offset_m / MAX_LENGTH_OFFSET_M).powi(2)).clamp(0.0, 1.0);
 
     // 5. Calculate final batted ball exit velocity
-    let launch_speed_m_per_s = max_launch_speed * e_thick * e_len;
+    let launch_speed_ms = max_launch_speed * e_thick * e_len;
 
-    launch_speed_m_per_s
+    launch_speed_ms
 }
 
 #[derive(
@@ -242,75 +243,75 @@ fn inner_choose_sector(
     return FieldSector::FoulOpposite;
 }
 
-fn sample_launch_speed(
-    rng: &mut dyn RandomProvider,
-    ball_speed: f64,
-    swing_speed: f64,
-    spacial_offset: f64,
-    timing_offset: f64,
-) -> f64 {
-    // Theoretical maximum exit velocity for a squared-up ball (V_max)
-    let a = 1.00; // Swing efficiency
-    let b = 0.20; // Rebound efficiency
-    let v_max = (a * swing_speed) + (b * ball_speed);
+// fn sample_launch_speed(
+//     rng: &mut dyn RandomProvider,
+//     ball_speed: f64,
+//     swing_speed: f64,
+//     spacial_offset: f64,
+//     timing_offset: f64,
+// ) -> f64 {
+//     // Theoretical maximum exit velocity for a squared-up ball (V_max)
+//     let a = 1.00; // Swing efficiency
+//     let b = 0.20; // Rebound efficiency
+//     let v_max = (a * swing_speed) + (b * ball_speed);
 
-    let launch_speed = v_max
-        * (1.0 - spacial_offset * 0.3)  // Off-center contact causes up to 30% reduction
-        * (1.0 - timing_offset.abs() * 0.2); // Timing delay causes up to 20% reduction
+//     let launch_speed = v_max
+//         * (1.0 - spacial_offset * 0.3)  // Off-center contact causes up to 30% reduction
+//         * (1.0 - timing_offset.abs() * 0.2); // Timing delay causes up to 20% reduction
 
-    // Add the final variation with normally distributed noise (mean 0, standard deviation 5 km/h)
-    // Cap the minimum value to prevent negative or excessively slow speeds (10 km/h)
-    let final_speed = launch_speed + rng.normal_random(0.0, 5.0, 0.0, 1.0, 0.0);
-    final_speed.max(10.0)
-}
+//     // Add the final variation with normally distributed noise (mean 0, standard deviation 5 km/h)
+//     // Cap the minimum value to prevent negative or excessively slow speeds (10 km/h)
+//     let final_speed = launch_speed + rng.normal_random(0.0, 5.0, 0.0, 1.0, 0.0);
+//     final_speed.max(10.0)
+// }
 
-fn sample_spray_angle(
-    rng: &mut dyn RandomProvider,
-    timing_offset: f64,
-    tendency: &BatterInfo,
-) -> f64 {
-    let offset_factor_percent = timing_offset * 25.0; // The range of offset_factor_percent is -25.0 % to 25.0%
+// fn sample_spray_angle(
+//     rng: &mut dyn RandomProvider,
+//     timing_offset: f64,
+//     tendency: &BatterInfo,
+// ) -> f64 {
+//     let offset_factor_percent = timing_offset * 25.0; // The range of offset_factor_percent is -25.0 % to 25.0%
 
-    // Step 1: Decide the sector
-    let chosen_sector = inner_choose_sector(rng, offset_factor_percent, tendency);
+//     // Step 1: Decide the sector
+//     let chosen_sector = inner_choose_sector(rng, offset_factor_percent, tendency);
 
-    // Step 2: Get the angle range for that sector
-    let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
-    let min_angle = min_angle as f64;
-    let max_angle = max_angle as f64;
+//     // Step 2: Get the angle range for that sector
+//     let (min_angle, max_angle) = tendency.get_angle_range(chosen_sector);
+//     let min_angle = min_angle as f64;
+//     let max_angle = max_angle as f64;
 
-    // Step 3: Randomly sample within the range
-    let mean = (min_angle + max_angle) * 0.5;
-    let std_dev = (max_angle - min_angle) / 6.0;
-    // 10% of Timing offset effects to random skew.
-    let final_angle = rng
-        .normal_random(mean, std_dev, timing_offset * 0.1, 1.0, 0.0)
-        .clamp(min_angle, max_angle);
+//     // Step 3: Randomly sample within the range
+//     let mean = (min_angle + max_angle) * 0.5;
+//     let std_dev = (max_angle - min_angle) / 6.0;
+//     // 10% of Timing offset effects to random skew.
+//     let final_angle = rng
+//         .normal_random(mean, std_dev, timing_offset * 0.1, 1.0, 0.0)
+//         .clamp(min_angle, max_angle);
 
-    final_angle
-}
+//     final_angle
+// }
 
-pub fn sample_launch_angle(
-    rng: &mut dyn RandomProvider,
-    batter: &BatterInfo,
-    contact: &SwingContactResult,
-) -> f64 {
-    // 1. Create normal distribution noise based on batter's contact accuracy (meet skill)
-    // Mean 0.0, standard deviation consistency_sigma
-    let vertical_noise = rng.normal_random(0.0, batter.consistency_sigma, 0.0, 1.0, 0.0);
+// pub fn sample_launch_angle(
+//     rng: &mut dyn RandomProvider,
+//     batter: &BatterInfo,
+//     contact: &SwingContactResult,
+// ) -> f64 {
+//     // 1. Create normal distribution noise based on batter's contact accuracy (meet skill)
+//     // Mean 0.0, standard deviation consistency_sigma
+//     let vertical_noise = rng.normal_random(0.0, batter.consistency_sigma, 0.0, 1.0, 0.0);
 
-    // 2. Add small noise to the sweet spot offset (vertical)
-    let noisy_vertical = (contact.thickness_offset_m + vertical_noise).clamp(-1.0, 1.0);
+//     // 2. Add small noise to the sweet spot offset (vertical)
+//     let noisy_vertical = (contact.thickness_offset_m + vertical_noise).clamp(-1.0, 1.0);
 
-    // 3. Calculate VLA (base launch angle - offset amount × 30°)
-    let max_angle_deviation = 30.0;
-    let base_vla = batter.base_launch_angle - (noisy_vertical * max_angle_deviation);
+//     // 3. Calculate VLA (base launch angle - offset amount × 30°)
+//     let max_angle_deviation = 30.0;
+//     let base_vla = batter.base_launch_angle - (noisy_vertical * max_angle_deviation);
 
-    // 4. Add slight air resistance/seam-induced variation to launch angle (e.g. Gaussian noise with std dev 1.5°)
-    let final_vla = base_vla + rng.normal_random(0.0, 1.5, 0.0, 1.0, 0.0);
+//     // 4. Add slight air resistance/seam-induced variation to launch angle (e.g. Gaussian noise with std dev 1.5°)
+//     let final_vla = base_vla + rng.normal_random(0.0, 1.5, 0.0, 1.0, 0.0);
 
-    final_vla.clamp(-15.0, 85.0)
-}
+//     final_vla.clamp(-15.0, 85.0)
+// }
 
 #[derive(Clone, Debug)]
 pub struct SpinVector {
@@ -441,11 +442,11 @@ fn classify_trajectory_type(launch_angle: f64, spin_rate: f64, spin_angle: f64) 
 }
 
 fn calculate_3d_flight_path(
-    v: f64,              // Batted ball exit velocity (m/s)
-    vla_deg: f64,        // Vertical launch angle VLA (deg)
-    hla_deg: f64,        // Horizontal launch angle HLA (deg) (+: right/opposite, -: left/pull)
-    spin_rate: f64,      // Spin rate (rpm)
-    spin_angle_deg: f64, // Spin angle (deg) (0: backspin, 90: slider spin, 270: screw spin)
+    launch_speed_ms: f64, // Batted ball exit velocity (m/s)
+    vla_deg: f64,         // Vertical launch angle VLA (deg)
+    hla_deg: f64,         // Horizontal launch angle HLA (deg) (+: right/opposite, -: left/pull)
+    spin_rate: f64,       // Spin rate (rpm)
+    spin_angle_deg: f64,  // Spin angle (deg) (0: backspin, 90: slider spin, 270: screw spin)
 ) -> (f64, f64, f64) {
     let vla_rad = vla_deg.to_radians();
     let hla_rad = hla_deg.to_radians();
@@ -453,7 +454,7 @@ fn calculate_3d_flight_path(
 
     // 1. Decompose Magnus acceleration (vertical vs horizontal)
     // Total Magnus force (approx. 3.5 m/s² at 2500rpm, 40m/s)
-    let total_magnus_accel = (spin_rate / 2500.0) * (v / 40.0) * 3.5;
+    let total_magnus_accel = (spin_rate / 2500.0) * (launch_speed_ms / 40.0) * 3.5;
 
     // Decompose into vertical lift (cos) and horizontal break (sin)
     let vertical_magnus = total_magnus_accel * spin_angle_rad.cos();
@@ -461,13 +462,13 @@ fn calculate_3d_flight_path(
 
     // 2. Calculate hang time and depth distance (Y-axis)
     let g_eff = (GRAVITY - vertical_magnus).max(3.0); // Effective gravity
-    let flight_time = (2.0 * v * vla_rad.sin()) / g_eff;
+    let flight_time = (2.0 * launch_speed_ms * vla_rad.sin()) / g_eff;
 
     // Horizontal initial velocity component
-    let v_horizontal = v * vla_rad.cos();
+    let v_horizontal = launch_speed_ms * vla_rad.cos();
 
     // Air resistance correction (simplified model)
-    let drag_factor = (1.0 - (0.005 * v) - (0.0001 * spin_rate)).clamp(0.5, 0.95);
+    let drag_factor = (1.0 - (0.005 * launch_speed_ms) - (0.0001 * spin_rate)).clamp(0.5, 0.95);
 
     // Y-axis flight distance (linear distance × cos(HLA) × air resistance)
     let distance = (v_horizontal * hla_rad.cos() * flight_time) * drag_factor;
@@ -488,44 +489,34 @@ fn calculate_3d_flight_path(
 }
 
 pub fn calculate_batted_ball(
-    rng: &mut dyn RandomProvider,
     batter: &BatterInfo,
+    attack_angle_deg: f64,
     ball: PitchedBall,
     contact: &SwingContactResult,
 ) -> BattedBall {
     // 1. Calculate exit velocity (damped by spatial offset & timing delay)
-    let launch_speed = sample_launch_speed(
-        rng,
-        ball.speed_kmh,
-        batter.swing_speed_kmh,
-        contact.offset(),
-        contact.timing_offset,
-    );
+    let launch_speed_ms = calculate_launch_speed(contact, ball.speed_kmh, batter.swing_speed_kmh);
 
-    // 2. Calculate vertical launch angle (VLA)
-    // Vertical spatial offset (hitting above or below the ball) is the main factor
-    let launch_angle = sample_launch_angle(rng, &batter, contact);
+    // 2. Calculate vertical launch angle (VLA) and horizontal launch angle (HLA)
+    let angles = calculate_launch_angles(&contact, attack_angle_deg, batter.batting_side);
 
     // 3. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
     let (batted_spin_rate, batted_spin_angle) =
         calculate_collision_spin(ball, batter.swing_speed_kmh, contact);
-    let trajectory = classify_trajectory_type(launch_angle, batted_spin_rate, batted_spin_angle);
-
-    // 4. Calculate horizontal launch angle (HLA)
-    let hla_deg = sample_spray_angle(rng, contact.timing_offset, batter);
+    let trajectory = classify_trajectory_type(angles.vla_deg, batted_spin_rate, batted_spin_angle);
 
     let (hang_time, distance, spray_angle) = calculate_3d_flight_path(
-        launch_speed * CONVERT_FACTOR_KMH_TO_MS,
-        launch_angle,
-        hla_deg,
+        launch_speed_ms,
+        angles.vla_deg,
+        angles.hla_deg,
         batted_spin_rate,
         batted_spin_angle,
     );
 
     BattedBall::new(
-        launch_speed,
-        launch_angle,
+        launch_speed_ms * CONVERT_FACTOR_MS_TO_KMH,
+        angles.vla_deg,
         spray_angle,
         distance,
         hang_time,
@@ -538,7 +529,7 @@ mod tests {
     use crate::domain::random_provider::FixedRng;
     use crate::domain::resolver::batting_resolver::{
         BatterInfo, FieldSector, SwingContactResult, SwingContactType, calculate_batted_ball,
-        inner_choose_sector, sample_spray_angle,
+        calculate_launch_angles, inner_choose_sector,
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::player::{PitchType, RL};
@@ -639,54 +630,41 @@ mod tests {
     }
 
     #[test]
-    fn sample_spray_angle_stays_inside_forced_sector_range() {
+    fn calculate_launch_angles_uses_contact_offsets_and_batting_side() {
         let cases = [
             (
-                batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0),
-                -45.0,
-                -15.0,
+                SwingContactResult {
+                    offset_x_m: 0.07,
+                    offset_z_m: 0.07,
+                    thickness_offset_m: 0.0,
+                    length_offset_m: 0.0,
+                    timing_offset: 0.0,
+                    contact_type: SwingContactType::SolidContact,
+                },
+                RL::Right,
+                59.0,
+                25.6,
             ),
             (
-                batter_with_weights(RL::Right, 0.0, 1.0, 0.0, 0.0, 0.0),
-                -15.0,
-                15.0,
+                SwingContactResult {
+                    offset_x_m: 0.07,
+                    offset_z_m: -0.07,
+                    thickness_offset_m: 0.0,
+                    length_offset_m: 0.0,
+                    timing_offset: 0.0,
+                    contact_type: SwingContactType::SolidContact,
+                },
+                RL::Left,
+                -49.0,
+                -25.6,
             ),
-            (
-                batter_with_weights(RL::Right, 0.0, 0.0, 1.0, 0.0, 0.0),
-                15.0,
-                45.0,
-            ),
-            (
-                batter_with_weights(RL::Left, 1.0, 0.0, 0.0, 0.0, 0.0),
-                15.0,
-                45.0,
-            ),
-            (
-                batter_with_weights(RL::Left, 0.0, 0.0, 1.0, 0.0, 0.0),
-                -45.0,
-                -15.0,
-            ),
-            (
-                batter_with_weights(RL::Left, 0.0, 0.0, 0.0, 1.0, 0.0),
-                45.0,
-                90.0,
-            ),
-            (
-                batter_with_weights(RL::Left, 0.0, 0.0, 0.0, 0.0, 1.0),
-                -90.0,
-                -45.0,
-            ),
+            (centered_contact(), RL::Right, 5.0, 0.0),
         ];
 
-        for (batter, min_angle, max_angle) in cases {
-            for _ in 0..20 {
-                let mut rng = FixedRng::new(0.5);
-                assert_between(
-                    sample_spray_angle(&mut rng, 0.0, &batter),
-                    min_angle,
-                    max_angle,
-                );
-            }
+        for (contact, batting_side, expected_vla, expected_hla) in cases {
+            let angles = calculate_launch_angles(&contact, 5.0, batting_side);
+            assert!((angles.vla_deg - expected_vla).abs() < 0.1);
+            assert!((angles.hla_deg - expected_hla).abs() < 0.1);
         }
     }
 
@@ -695,10 +673,9 @@ mod tests {
         let right_pull_hitter = batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0);
 
         for _ in 0..50 {
-            let mut rng = FixedRng::new(0.5);
             let ball = calculate_batted_ball(
-                &mut rng,
                 &right_pull_hitter,
+                28.0,
                 PitchedBall {
                     pitch_type: PitchType::FourSeamFastball,
                     speed_kmh: 150.0,
@@ -721,7 +698,7 @@ mod tests {
             assert!(ball.launch_speed_kmh >= 30.0);
             assert!(ball.distance().is_finite());
             assert!(ball.hang_time.is_finite());
-            assert_between(ball.angle(), -45.0, -15.0);
+            assert_between(ball.angle(), -1.0, 1.0);
 
             match ball.trajectory {
                 TrajectoryType::Grounder => assert_between(ball.launch_angle, 0.0, 10.0),

@@ -690,9 +690,12 @@ impl GameState {
         // TODO: bat_angle_deg must be added to BatterInfo
         let bat_angle_deg = 45.0;
 
+        // TODO: bat_angle_deg must be added to BatterInfo
+        let attack_angle_deg = 5.0;
+
         let contact =
             evaluate_swing_contact(&batter, &pitch_displacement, timing_offset, bat_angle_deg);
-        let batted_ball = calculate_batted_ball(self.rng.as_mut(), &batter, pitched_ball, &contact);
+        let batted_ball = calculate_batted_ball(&batter, attack_angle_deg, pitched_ball, &contact);
         info!("Batted Ball: {:#?}", batted_ball);
 
         if self.stadium.is_stand_in(&batted_ball) {
