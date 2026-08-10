@@ -588,6 +588,7 @@ mod tests {
                 TrajectoryType::Liner => assert_between(ball.launch_angle, 10.0, 25.0),
                 TrajectoryType::Fly => assert_between(ball.launch_angle, 25.0, 50.0),
                 TrajectoryType::PopUp => assert_between(ball.launch_angle, 50.0, 80.0),
+                TrajectoryType::NA => panic!("calculated batted ball should have a trajectory"),
             }
         }
     }

@@ -64,6 +64,7 @@ liner = ライナー
 losses = 敗戦
 main_menu = メインメニュー
 middle_infielder = 二遊間
+na = N/A
 next_count = 次のカウント
 normal = 通常
 not_initialized = {$struct} は初期化されていません。

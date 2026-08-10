@@ -22,6 +22,7 @@ pub enum TrajectoryType {
     Liner,
     Fly,
     PopUp,
+    NA,
 }
 impl fmt::Display for TrajectoryType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -30,6 +31,7 @@ impl fmt::Display for TrajectoryType {
             TrajectoryType::Liner => write!(f, "{}", t!("liner")),
             TrajectoryType::Fly => write!(f, "{}", t!("fly")),
             TrajectoryType::PopUp => write!(f, "{}", t!("popup")),
+            TrajectoryType::NA => write!(f, "{}", t!("na")),
         }
     }
 }
@@ -66,6 +68,16 @@ impl BattedBall {
             polar_position: PolarPosition::new(distance, spray_angle),
             hang_time: hang_time,
             trajectory: trajectory,
+        }
+    }
+
+    pub fn default() -> Self {
+        Self {
+            launch_speed: 0.0,
+            launch_angle: 0.0,
+            polar_position: PolarPosition::new(0.0, 0.0),
+            hang_time: 0.0,
+            trajectory: TrajectoryType::NA,
         }
     }
 
@@ -116,6 +128,7 @@ impl BattedBall {
             TrajectoryType::Liner => 0.75,
             TrajectoryType::Fly | TrajectoryType::PopUp => 0.55,
             TrajectoryType::Grounder => return 0.0, // Grounder height is always 0
+            TrajectoryType::NA => 0.0,
         };
 
         // 2. Back-calculate time (t) to reach the target distance

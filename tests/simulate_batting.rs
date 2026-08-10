@@ -76,7 +76,11 @@ fn test_batted_ball() {
             &swing_execution_error,
         );
 
-        let batted_ball = calculate_batted_ball(&batter, pitched_ball, &contact);
+        let batted_ball = if contact.contact_type == SwingContactType::SwungAndMiss {
+            BattedBall::default()
+        } else {
+            calculate_batted_ball(&batter, pitched_ball, &contact)
+        };
 
         conn.execute(
             "INSERT INTO test_batted_ball (

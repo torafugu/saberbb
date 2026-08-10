@@ -5,7 +5,8 @@ use super::player::{
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
-    calculate_batted_ball, calculate_swing_execution_error, evaluate_swing_contact,
+    SwingContactType, calculate_batted_ball, calculate_swing_execution_error,
+    evaluate_swing_contact,
 };
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
@@ -706,7 +707,13 @@ impl GameState {
             timing_offset,
             &swing_execution_error,
         );
-        let batted_ball = calculate_batted_ball(&batter, pitched_ball, &contact);
+
+        let batted_ball = if contact.contact_type == SwingContactType::SwungAndMiss {
+            BattedBall::default()
+        } else {
+            calculate_batted_ball(&batter, pitched_ball, &contact)
+        };
+
         info!("Batted Ball: {:#?}", batted_ball);
 
         if self.stadium.is_stand_in(&batted_ball) {

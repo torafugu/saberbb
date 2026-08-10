@@ -64,6 +64,7 @@ liner = Liner
 losses = Losses
 main_menu = Main Menu
 middle_infielder = Middle Infielder
+na = N/A
 next_count = Next Count
 normal = Normal
 not_initialized = {$struct} is not initialized.

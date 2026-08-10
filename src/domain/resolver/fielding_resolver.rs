@@ -800,7 +800,7 @@ pub fn process_defensive_chain<'a>(
                     }
                 }
                 // Grounders always have height 0 and never go over the head (proceed to catch)
-                TrajectoryType::Grounder => {}
+                TrajectoryType::Grounder | TrajectoryType::NA => {}
             }
 
             let mut ball_fielded_by_another = ball.clone();
