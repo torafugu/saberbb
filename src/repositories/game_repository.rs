@@ -226,7 +226,7 @@ impl GameRepository for SqlGameRepository {
                 player_game_batting.count_seq,
                 player_game_batting.pitcher_id,
                 player_game_batting.batter_id,
-                player_game_batting.ball.launch_speed_kmh,
+                player_game_batting.ball.launch_speed,
                 player_game_batting.ball.launch_angle,
                 player_game_batting.ball.polar_position.distance,
                 player_game_batting.ball.polar_position.angle,

@@ -42,7 +42,7 @@ pub fn create_pitch(
 
     Ok(PitchedBall {
         pitch_type: pitch_skill.pitch_type,
-        speed_kmh: speed,
+        speed,
         spin_rate: raw_spin_rate,
         spin_angle: final_spin_angle,
         spin_efficiency: pitch_skill.spin_efficiency,
@@ -92,7 +92,7 @@ pub struct PitchDisplacement {
 }
 
 pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
-    let flight_time = calculate_flight_time(ball.speed_kmh, ball.release_point.y);
+    let flight_time = calculate_flight_time(ball.speed, ball.release_point.y);
 
     let movement_x_m = 0.5 * ball.get_side_accel() * flight_time.powi(2);
     let net_vertical_accel = ball.get_vertical_accel() - GRAVITY;
@@ -166,14 +166,14 @@ pub fn calculate_timing_offset(
 ) -> f64 {
     // 1. Actual flight time (calculated from extension and actual pitch speed)
     let actual_release_point = pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
-    let actual_flight_time = calculate_flight_time(pitched_ball.speed_kmh, actual_release_point);
+    let actual_flight_time = calculate_flight_time(pitched_ball.speed, actual_release_point);
 
     // 2. Predicted flight time the batter calculates in their mind
     // TODO: Consider batter's Eye
     // TODO: Consider calculate logic of release_point_seen_from_batter
     let release_point_seen_from_batter = actual_release_point;
     let expected_flight_time =
-        calculate_flight_time(expected_ball.speed_kmh, release_point_seen_from_batter);
+        calculate_flight_time(expected_ball.speed, release_point_seen_from_batter);
 
     // 3. Flight time difference (pure physical timing offset)
     let raw_delta_t = actual_flight_time - expected_flight_time;
@@ -285,7 +285,7 @@ mod tests {
     ) -> PitchedBall {
         PitchedBall {
             pitch_type: PitchType::FourSeamFastball,
-            speed_kmh,
+            speed: speed_kmh,
             spin_rate,
             spin_angle,
             spin_efficiency,
@@ -312,7 +312,7 @@ mod tests {
         let ball = create_pitch(&mut rng, &pitcher).expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::FourSeamFastball);
-        assert_near(ball.speed_kmh, 150.0);
+        assert_near(ball.speed, 150.0);
         assert_near(ball.spin_rate, 2300.0);
         assert_near(ball.spin_angle, 75.0);
         assert_near(ball.spin_efficiency, 1.0);
@@ -332,7 +332,7 @@ mod tests {
         let ball = create_pitch(&mut rng, &pitcher).expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::Slider);
-        assert_near(ball.speed_kmh, 132.0);
+        assert_near(ball.speed, 132.0);
         assert_near(ball.spin_rate, 2024.0);
         assert_near(ball.spin_angle, 285.0);
         assert_near(ball.release_point.x, -0.55);

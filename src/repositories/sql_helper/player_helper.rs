@@ -252,7 +252,7 @@ impl FromRow for BatterInfo {
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
         let batter_info = BatterInfo {
             batting_side: row.get("batting_side")?,
-            swing_speed_kmh: row.get("swing_speed")?,
+            swing_speed: row.get("swing_speed")?,
             base_launch_angle: row.get("base_launch_angle")?,
             consistency_sigma: row.get("consistency_sigma")?,
             weight_pull: row.get("weight_pull")?,

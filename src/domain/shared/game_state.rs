@@ -972,7 +972,7 @@ mod tests {
         };
         player.offense_skills.batter = batting_order.map(|order| BatterInfo {
             batting_side: RL::Right,
-            swing_speed_kmh: 100.0 - order as f64,
+            swing_speed: 100.0 - order as f64,
             base_launch_angle: 28.0,
             consistency_sigma: 0.03,
             weight_pull: 0.2,

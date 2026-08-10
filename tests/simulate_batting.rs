@@ -88,12 +88,12 @@ fn test_batted_ball() {
             "INSERT INTO test_batted_ball (
             additional_x_m, additional_z_m, actual_bat_angle_deg,
             offset_x_m, offset_z_m, thickness_offset_m, length_offset_m, timing_offset_sec, contact_type,
-            launch_speed_kmh, launch_angle,  spray_angle, distance_m, hang_time_sec, trajectory) 
+            launch_speed_ms, launch_angle,  spray_angle, distance_m, hang_time_sec, trajectory) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 swing_execution_error.additional_x_m, swing_execution_error.additional_z_m, swing_execution_error.actual_bat_angle_deg,
                 contact.offset_x_m, contact.offset_z_m, contact.thickness_offset_m, contact.length_offset_m, contact.timing_offset, contact.contact_type.as_ref(),
-                batted_ball.launch_speed_kmh, batted_ball.launch_angle, batted_ball.angle(), batted_ball.distance(),  batted_ball.hang_time, batted_ball.trajectory.as_ref()
+                batted_ball.launch_speed, batted_ball.launch_angle, batted_ball.angle(), batted_ball.distance(),  batted_ball.hang_time, batted_ball.trajectory.as_ref()
                 ],
         )
         .unwrap();

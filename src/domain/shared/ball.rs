@@ -1,7 +1,7 @@
 use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::strategy::pitch_call::TargetZone;
-use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, GRAVITY, PolarPosition, Vector3D};
+use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -44,8 +44,8 @@ pub struct FieldedBall {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct BattedBall {
-    pub launch_speed_kmh: f64,
-    pub launch_angle: f64, // Z arc degree
+    pub launch_speed: f64,
+    pub launch_angle: f64,
     pub polar_position: PolarPosition,
     pub hang_time: f64, // second
     pub trajectory: TrajectoryType,
@@ -53,7 +53,7 @@ pub struct BattedBall {
 
 impl BattedBall {
     pub fn new(
-        launch_speed_kmh: f64,
+        launch_speed: f64,
         launch_angle: f64,
         spray_angle: f64,
         distance: f64,
@@ -61,7 +61,7 @@ impl BattedBall {
         trajectory: TrajectoryType,
     ) -> Self {
         Self {
-            launch_speed_kmh,
+            launch_speed,
             launch_angle: launch_angle,
             polar_position: PolarPosition::new(distance, spray_angle),
             hang_time: hang_time,
@@ -75,10 +75,6 @@ impl BattedBall {
 
     pub fn angle(&self) -> f64 {
         self.polar_position.angle
-    }
-
-    pub fn launch_speed_ms(&self) -> f64 {
-        self.launch_speed_kmh * CONVERT_FACTOR_KMH_TO_MS
     }
 
     pub fn azimuth(&self) -> f64 {
@@ -113,7 +109,6 @@ impl BattedBall {
         &self,
         target_distance: f64, // Distance at which to calculate height (m)
     ) -> f64 {
-        let v = self.launch_speed_kmh * CONVERT_FACTOR_KMH_TO_MS;
         let theta = self.launch_angle.to_radians();
 
         // 1. Apply drag coefficient based on trajectory type
@@ -124,7 +119,7 @@ impl BattedBall {
         };
 
         // 2. Back-calculate time (t) to reach the target distance
-        let horizontal_velocity = v * theta.cos() * kd;
+        let horizontal_velocity = self.launch_speed * theta.cos() * kd;
         if horizontal_velocity <= 0.0 {
             return 0.0;
         } // Error guard
@@ -132,7 +127,7 @@ impl BattedBall {
         let t = target_distance / horizontal_velocity;
 
         // 3. Calculate height at that time using the parabolic formula
-        let initial_vertical_velocity = v * theta.sin();
+        let initial_vertical_velocity = self.launch_speed * theta.sin();
         let height = (initial_vertical_velocity * t) - (0.5 * GRAVITY * t * t);
 
         // Clamp to 0m if negative (ball would be below ground)
@@ -182,7 +177,7 @@ impl Zone {
 
 pub struct PitchedBall {
     pub pitch_type: PitchType,
-    pub speed_kmh: f64,  // NOTE: (e.g., 150.0 km/h)
+    pub speed: f64,      // NOTE: (e.g., 41.67 m/s = 150.0 km/h)
     pub spin_rate: f64,  // NOTE: (e.g., 2300.0 rpm)
     pub spin_angle: f64, // NOTE: (e.g., 0.0 ~ 360.0 deg)
     pub spin_efficiency: f64,
@@ -198,32 +193,33 @@ impl PitchedBall {
     /// Returns lateral Magnus acceleration (m/s²)
     /// (+: acceleration to the right / -: acceleration to the left)
     pub fn get_side_accel(&self) -> f64 {
-        // 1. Convert speed from km/h to m/s
-        let v_m_per_s = self.speed_kmh / 3.6;
-
-        // 2. Effective spin rate (rpm) contributing to Magnus force
+        // 1. Effective spin rate (rpm) contributing to Magnus force
         let effective_spin = self.spin_rate * self.spin_efficiency;
 
-        // 3. Calculate total Magnus acceleration (unit: m/s²)
-        let total_magnus_accel = MAGNUS_COEFF * effective_spin * v_m_per_s;
+        // 2. Calculate total Magnus acceleration (unit: m/s²)
+        let total_magnus_accel = MAGNUS_COEFF * effective_spin * self.speed;
 
-        // 4. Extract lateral component (sin) from spin angle (deg)
+        // 3. Extract lateral component (sin) from spin angle (deg)
         let dir_rad = self.spin_angle * PI / 180.0;
         let side_factor = dir_rad.sin();
 
-        // 5. Lateral acceleration (m/s²)
+        // 4. Lateral acceleration (m/s²)
         total_magnus_accel * side_factor
     }
 
     /// (Reference) Vertical Magnus acceleration (m/s²) follows the same logic
     pub fn get_vertical_accel(&self) -> f64 {
-        let v_m_per_s = self.speed_kmh / 3.6;
+        // 1. Effective spin rate (rpm) contributing to Magnus force
         let effective_spin = self.spin_rate * self.spin_efficiency;
-        let total_magnus_accel = MAGNUS_COEFF * effective_spin * v_m_per_s;
 
+        // 2. Calculate total Magnus acceleration (unit: m/s²)
+        let total_magnus_accel = MAGNUS_COEFF * effective_spin * self.speed;
+
+        // 3. Extract lateral component (sin) from spin angle (deg)
         let dir_rad = self.spin_angle * PI / 180.0;
         let vertical_factor = dir_rad.cos(); // Vertical component uses cos (positive for backspin)
 
+        // 4. Lateral acceleration (m/s²)
         total_magnus_accel * vertical_factor
     }
 }
@@ -265,7 +261,7 @@ mod tests {
     ) -> PitchedBall {
         PitchedBall {
             pitch_type: PitchType::FourSeamFastball,
-            speed_kmh: speed,
+            speed,
             spin_rate,
             spin_angle,
             spin_efficiency,
@@ -285,7 +281,7 @@ mod tests {
     fn new_sets_physical_values_and_polar_position() {
         let ball = BattedBall::new(144.0, 30.0, 30.0, 100.0, 4.2, TrajectoryType::Fly);
 
-        assert_near(ball.launch_speed_kmh, 144.0);
+        assert_near(ball.launch_speed, 144.0);
         assert_near(ball.launch_angle, 30.0);
         assert_near(ball.distance(), 100.0);
         assert_near(ball.angle(), 30.0);
@@ -293,13 +289,6 @@ mod tests {
         assert_eq!(ball.trajectory, TrajectoryType::Fly);
         assert_near(ball.x(), 50.0);
         assert_near(ball.y(), 100.0 * 30.0_f64.to_radians().cos());
-    }
-
-    #[test]
-    fn launch_speed_ms_converts_kmh_to_meters_per_second() {
-        let ball = ball(TrajectoryType::Liner, 90.0, 0.0, 150.0, 20.0);
-
-        assert_near(ball.launch_speed_ms(), 41.67);
     }
 
     #[test]

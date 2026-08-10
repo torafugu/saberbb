@@ -298,7 +298,7 @@ mod tests {
         };
         player.offense_skills.batter = Some(BatterInfo {
             batting_side: RL::Right,
-            swing_speed_kmh: 30.0,
+            swing_speed: 30.0,
             base_launch_angle: 28.0,
             consistency_sigma: 0.03,
             weight_pull: 0.3,

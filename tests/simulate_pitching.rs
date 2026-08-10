@@ -31,13 +31,13 @@ fn test_pitched_ball() {
         let timing_offset = calculate_timing_offset(&mut rng, &pitched_ball, &expected_ball);
 
         conn.execute(
-            "INSERT INTO test_pitched_ball (pitch_type, speed_kmh,  spin_rate, spin_angle, spin_efficiency, 
+            "INSERT INTO test_pitched_ball (pitch_type, speed_ms,  spin_rate, spin_angle, spin_efficiency, 
             release_point_x, release_point_y, release_point_z, flight_time, aim_zone, 
             aim_x, aim_y, actual_x, actual_y, pitch_result, movement_x, movement_z, disp_x, disp_y, timing) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 pitched_ball.pitch_type.as_ref(),
-                pitched_ball.speed_kmh,
+                pitched_ball.speed,
                 pitched_ball.spin_rate,
                 pitched_ball.spin_angle,
                 pitched_ball.spin_efficiency,

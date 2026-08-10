@@ -777,7 +777,7 @@ impl GameResultsWidget {
             formatted_batter_and_pitcher.push_str(&format!(
                 "\n{}: {:.0}km/h\n",
                 t!("launch_speed"),
-                ball.launch_speed_kmh
+                ball.launch_speed
             ));
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {:.0}m\n",

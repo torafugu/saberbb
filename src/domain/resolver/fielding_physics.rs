@@ -68,7 +68,7 @@ fn process_bounded_ball(
     };
 
     // 2. Initial speed as a grounder right after the bounce
-    let v_horizontal = ball.launch_speed_ms() * ball.azimuth().cos() * 0.7; // Velocity including in-flight air resistance
+    let v_horizontal = ball.launch_speed * ball.azimuth().cos() * 0.7; // Velocity including in-flight air resistance
     let v_bounce = v_horizontal * k_impact;
 
     // 3. Additional rolling distance and time until stop

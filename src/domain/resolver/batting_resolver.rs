@@ -1,7 +1,7 @@
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall, TrajectoryType};
 use crate::domain::shared::player::{BatterInfo, RL};
-use crate::domain::util::{CONVERT_FACTOR_KMH_TO_MS, CONVERT_FACTOR_MS_TO_KMH, GRAVITY};
+use crate::domain::util::{CONVERT_FACTOR_MS_TO_KMH, GRAVITY};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
@@ -104,7 +104,7 @@ pub fn evaluate_swing_contact(
     swing_execution_error: &SwingExecutionError,
 ) -> SwingContactResult {
     // Timing delay (seconds) × bat swing speed (m/s) = X-axis impact position shift due to timing delay (m)
-    let timing_impact_x_m = batter.swing_speed_kmh * CONVERT_FACTOR_KMH_TO_MS * timing_offset_sec;
+    let timing_impact_x_m = batter.swing_speed * timing_offset_sec;
     let offset_x_m = spacial_offset.horizontal_offset_m
         + swing_execution_error.additional_x_m
         + timing_impact_x_m;
@@ -201,14 +201,13 @@ pub fn calculate_launch_angles(
 
 pub fn calculate_launch_speed(
     contact_result: &SwingContactResult,
-    ball_speed_kmh: f64,
-    swing_speed_kmh: f64,
+    ball_speed: f64,
+    swing_speed: f64,
 ) -> f64 {
     // 1. Theoretical maximum exit velocity on perfect sweet-spot contact (m/s)
     const C_PITCH: f64 = 0.18; // Pitch speed contribution (18%)
     const C_SWING: f64 = 1.20; // Swing speed contribution (120%)
-    let max_launch_speed = (C_PITCH * ball_speed_kmh * CONVERT_FACTOR_KMH_TO_MS)
-        + (C_SWING * swing_speed_kmh * CONVERT_FACTOR_KMH_TO_MS);
+    let max_launch_speed = (C_PITCH * ball_speed) + (C_SWING * swing_speed);
 
     // 2. Thickness-direction energy decay rate (E_thick: 0.0 ~ 1.0)
     const SWEET_SPOT_RADIUS_M: f64 = 0.020; // Sweet spot radius (2.0cm)
@@ -441,7 +440,7 @@ pub fn calculate_batted_ball(
     contact: &SwingContactResult,
 ) -> BattedBall {
     // 1. Calculate exit velocity (damped by spatial offset & timing delay)
-    let launch_speed_ms = calculate_launch_speed(contact, ball.speed_kmh, batter.swing_speed_kmh);
+    let launch_speed_ms = calculate_launch_speed(contact, ball.speed, batter.swing_speed);
 
     // 2. Calculate vertical launch angle (VLA) and horizontal launch angle (HLA)
     let angles = calculate_launch_angles(&contact, attack_angle_deg, batter.batting_side);
@@ -449,7 +448,7 @@ pub fn calculate_batted_ball(
     // 3. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
     let (batted_spin_rate, batted_spin_angle) =
-        calculate_collision_spin(ball, batter.swing_speed_kmh, contact);
+        calculate_collision_spin(ball, batter.swing_speed, contact);
     let trajectory = classify_trajectory_type(angles.vla_deg, batted_spin_rate, batted_spin_angle);
 
     let (hang_time, distance, spray_angle) = calculate_3d_flight_path(
@@ -491,7 +490,7 @@ mod tests {
     ) -> BatterInfo {
         BatterInfo {
             batting_side,
-            swing_speed_kmh: 150.0,
+            swing_speed: 150.0,
             base_launch_angle: 28.0,
             consistency_sigma: 0.03,
             weight_pull,
@@ -592,7 +591,7 @@ mod tests {
                 28.0,
                 PitchedBall {
                     pitch_type: PitchType::FourSeamFastball,
-                    speed_kmh: 150.0,
+                    speed: 150.0,
                     spin_rate: 2300.0,
                     spin_angle: 0.0,
                     spin_efficiency: 0.95,
@@ -609,7 +608,7 @@ mod tests {
                 &centered_contact(),
             );
 
-            assert!(ball.launch_speed_kmh >= 30.0);
+            assert!(ball.launch_speed >= 30.0);
             assert!(ball.distance().is_finite());
             assert!(ball.hang_time.is_finite());
             assert_between(ball.angle(), -1.0, 1.0);

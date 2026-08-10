@@ -2,7 +2,7 @@ DROP TABLE test_pitched_ball;
 
 CREATE TABLE test_pitched_ball (
     pitch_type TEXT NOT NULL,
-    speed_kmh REAL NOT NULL,
+    speed_ms REAL NOT NULL,
     spin_rate REAL NOT NULL,
     spin_angle REAL NOT NULL,
     spin_efficiency REAL NOT NULL,

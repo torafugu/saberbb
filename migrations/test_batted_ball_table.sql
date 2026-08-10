@@ -10,7 +10,7 @@ CREATE TABLE test_batted_ball (
     length_offset_m REAL NOT NULL,
     timing_offset_sec REAL NOT NULL,
     contact_type TEXT NOT NULL,
-    launch_speed_kmh REAL NOT NULL,
+    launch_speed_ms REAL NOT NULL,
     launch_angle REAL NOT NULL,
     spray_angle REAL NOT NULL,
     distance_m REAL NOT NULL,
