@@ -85,6 +85,29 @@ VALUES
     (
         'player',
         'batter_info',
+        'batting_eye',
+        0.0,
+        1.0,
+        0.05,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
         'swing_speed',
         31.947,
         1.17,
@@ -108,12 +131,81 @@ VALUES
     (
         'player',
         'batter_info',
-        'base_launch_angle',
-        15.0,
-        3.5,
-        0.08,
+        'swing_power',
+        0.0,
         1.0,
-        8.0
+        0.04,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
+        'attack_angle',
+        3.5,
+        2.0,
+        0.3,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
+        'bat_contact',
+        0.0,
+        1.0,
+        0.05,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
+        'timing_bias',
+        0.0,
+        0.005,
+        -0.1,
+        1.0,
+        0.0
     );
 
 INSERT INTO

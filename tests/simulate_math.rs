@@ -9,7 +9,7 @@ fn test_normal_random() {
     let mut rng = RealRng::new();
 
     for _ in 0..1000 {
-        let value = rng.normal_random(100.0, 2.0, 0.2, 1.0, 0.0);
+        let value = rng.normal_random(3.5, 0.1, 0.1, 1.0, 0.0);
 
         conn.execute(
             "INSERT INTO test_normal_random (value) VALUES (?1)",

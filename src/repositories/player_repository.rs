@@ -148,25 +148,23 @@ impl PlayerRepository for SqlPlayerRepository {
         info!("insert_batter_info() started");
 
         let insert_batter_info_sql = "INSERT INTO batter_info (
-                                                player_id, batting_side, swing_speed, base_launch_angle,
-                                                consistency_sigma, weight_pull, weight_center, weight_opposite,
-                                                weight_foul_pull, weight_foul_opposite
+                                                player_id, batting_side, batting_eye, swing_speed, swing_power,
+                                                attack_angle, bat_contact, timing_bias, consistency_sigma
                                                 ) VALUES (
-                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
         self.db_client.execute_tx(
             tx,
             insert_batter_info_sql,
             params![
                 player_id,
                 batter_info.batting_side,
+                batter_info.batting_eye,
                 batter_info.swing_speed,
-                batter_info.base_launch_angle,
+                batter_info.swing_power,
+                batter_info.attack_angle,
+                batter_info.bat_contact,
+                batter_info.timing_bias,
                 batter_info.consistency_sigma,
-                batter_info.weight_pull,
-                batter_info.weight_center,
-                batter_info.weight_opposite,
-                batter_info.weight_foul_pull,
-                batter_info.weight_foul_opposite,
             ],
         )
     }
@@ -525,14 +523,13 @@ mod tests {
             CREATE TABLE batter_info (
                 player_id INTEGER PRIMARY KEY,
                 batting_side TEXT NOT NULL,
+                batting_eye REAL NOT NULL,
                 swing_speed REAL NOT NULL,
-                base_launch_angle REAL NOT NULL,
-                consistency_sigma REAL NOT NULL,
-                weight_pull REAL NOT NULL,
-                weight_center REAL NOT NULL,
-                weight_opposite REAL NOT NULL,
-                weight_foul_pull REAL NOT NULL,
-                weight_foul_opposite REAL NOT NULL
+                swing_power REAL NOT NULL,
+                attack_angle REAL NOT NULL,
+                bat_contact REAL NOT NULL,
+                timing_bias REAL NOT NULL,
+                consistency_sigma REAL NOT NULL
             );
 
             CREATE TABLE running_skills (
@@ -793,14 +790,13 @@ mod tests {
             offense_skills: OffenseSkills {
                 batter: Some(BatterInfo {
                     batting_side: RL::Right,
+                    batting_eye: 0.5,
                     swing_speed: 1.0,
-                    base_launch_angle: 28.0,
+                    swing_power: 1.1,
+                    attack_angle: 28.0,
+                    bat_contact: 0.8,
+                    timing_bias: 0.0,
                     consistency_sigma: 0.03,
-                    weight_pull: 0.2,
-                    weight_center: 0.3,
-                    weight_opposite: 0.2,
-                    weight_foul_pull: 0.15,
-                    weight_foul_opposite: 0.15,
                 }),
                 running: RunningSkills {
                     speed: 7.1,

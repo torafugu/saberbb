@@ -44,9 +44,12 @@ pub struct RunningSkillProbs {
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterInfoProbs {
     pub batting_side: Vec<ItemWeighted<RL>>,
+    pub batting_eye: NormalParam,
     pub swing_speed: NormalParam,
-    pub hitter_tendency: Vec<ItemWeighted<HitterTendency>>,
-    pub base_launch_angle: NormalParam,
+    pub swing_power: NormalParam,
+    pub attack_angle: NormalParam,
+    pub bat_contact: NormalParam,
+    pub timing_bias: NormalParam,
     pub consistency_sigma: NormalParam,
 }
 

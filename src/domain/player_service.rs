@@ -89,40 +89,28 @@ impl<R: PlayerRepository> PlayerService<R> {
         info!("load_batter_info_probs() started");
 
         let batting_side = self.repo.item_probs(PLY, "batting_side")?;
+        let batting_eye = self.repo.normal_params(PLY, "batter_info", "batting_eye")?;
         let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
-        let hitter_tendency = self.repo.item_probs(PLY, "hitter_tendency")?;
-        let base_launch_angle = self
+        let swing_power = self.repo.normal_params(PLY, "batter_info", "swing_power")?;
+        let attack_angle = self
             .repo
-            .normal_params(PLY, "batter_info", "base_launch_angle")?;
+            .normal_params(PLY, "batter_info", "attack_angle")?;
+        let bat_contact = self.repo.normal_params(PLY, "batter_info", "bat_contact")?;
+        let timing_bias = self.repo.normal_params(PLY, "batter_info", "timing_bias")?;
         let consistency_sigma = self
             .repo
             .normal_params(PLY, "batter_info", "consistency_sigma")?;
 
         Ok(BatterInfoProbs {
             batting_side: batting_side,
+            batting_eye: batting_eye,
             swing_speed: swing_speed,
-            hitter_tendency: hitter_tendency,
-            base_launch_angle: base_launch_angle,
+            swing_power: swing_power,
+            attack_angle: attack_angle,
+            bat_contact: bat_contact,
+            timing_bias: timing_bias,
             consistency_sigma: consistency_sigma,
         })
-    }
-
-    pub fn load_field_sector_weights_prob(
-        &self,
-    ) -> Result<HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>>, AppError> {
-        info!("load_field_sector_weights_prob() started");
-
-        let mut field_sector_weights_map: HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>> =
-            HashMap::new();
-
-        for hitter_tendency in HitterTendency::iter() {
-            field_sector_weights_map.entry(hitter_tendency).or_insert(
-                self.repo
-                    .item_probs("hitter_tendency", hitter_tendency.as_ref())?,
-            );
-        }
-
-        Ok(field_sector_weights_map)
     }
 
     pub fn load_pitcher_info_prob(&self) -> Result<PitcherInfoProbs, AppError> {

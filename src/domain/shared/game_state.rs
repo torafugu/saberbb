@@ -690,9 +690,6 @@ impl GameState {
             calculate_timing_offset(self.rng.as_mut(), &pitched_ball, &expected_pitched_ball);
 
         // TODO: bat_angle_deg must be added to BatterInfo
-        let bat_angle_deg = 45.0;
-
-        // TODO: bat_angle_deg must be added to BatterInfo
         let attack_angle_deg = 5.0;
 
         // TODO: bat_contact must be added to BatterInfo
@@ -972,14 +969,13 @@ mod tests {
         };
         player.offense_skills.batter = batting_order.map(|order| BatterInfo {
             batting_side: RL::Right,
+            batting_eye: 0.5,
             swing_speed: 100.0 - order as f64,
-            base_launch_angle: 28.0,
+            swing_power: 1.0,
+            attack_angle: 28.0,
+            bat_contact: 0.8,
+            timing_bias: 0.0,
             consistency_sigma: 0.03,
-            weight_pull: 0.2,
-            weight_center: 0.2,
-            weight_opposite: 0.2,
-            weight_foul_pull: 0.2,
-            weight_foul_opposite: 0.2,
         });
 
         player.defense_skills = DefenseSkills::new(position);

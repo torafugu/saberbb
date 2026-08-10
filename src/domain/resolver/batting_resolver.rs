@@ -480,24 +480,16 @@ mod tests {
     use crate::domain::strategy::pitch_call::TargetZone;
     use crate::domain::util::Vector3D;
 
-    fn batter_with_weights(
-        batting_side: RL,
-        weight_pull: f64,
-        weight_center: f64,
-        weight_opposite: f64,
-        weight_foul_left: f64,
-        weight_foul_right: f64,
-    ) -> BatterInfo {
+    fn batter(batting_side: RL) -> BatterInfo {
         BatterInfo {
             batting_side,
+            batting_eye: 0.5,
             swing_speed: 150.0,
-            base_launch_angle: 28.0,
+            swing_power: 1.0,
+            attack_angle: 28.0,
+            bat_contact: 0.8,
+            timing_bias: 0.0,
             consistency_sigma: 0.03,
-            weight_pull,
-            weight_center,
-            weight_opposite,
-            weight_foul_pull: weight_foul_left,
-            weight_foul_opposite: weight_foul_right,
         }
     }
 
@@ -520,26 +512,6 @@ mod tests {
             timing_offset: 0.0,
             contact_type: SwingContactType::SolidContact,
         }
-    }
-
-    #[test]
-    fn batter_get_angle_range_maps_pull_and_opposite_by_batting_side() {
-        let right_hitter = batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0);
-        let left_hitter = batter_with_weights(RL::Left, 1.0, 0.0, 0.0, 0.0, 0.0);
-
-        assert_eq!(
-            right_hitter.get_angle_range(FieldSector::Pull),
-            (-45.0, -15.0)
-        );
-        assert_eq!(
-            right_hitter.get_angle_range(FieldSector::Opposite),
-            (15.0, 45.0)
-        );
-        assert_eq!(left_hitter.get_angle_range(FieldSector::Pull), (15.0, 45.0));
-        assert_eq!(
-            left_hitter.get_angle_range(FieldSector::Opposite),
-            (-45.0, -15.0)
-        );
     }
 
     #[test]
@@ -583,7 +555,7 @@ mod tests {
 
     #[test]
     fn calculate_batted_ball_sets_physical_values_and_trajectory_specific_launch_angle() {
-        let right_pull_hitter = batter_with_weights(RL::Right, 1.0, 0.0, 0.0, 0.0, 0.0);
+        let right_pull_hitter = batter(RL::Right);
 
         for _ in 0..50 {
             let ball = calculate_batted_ball(

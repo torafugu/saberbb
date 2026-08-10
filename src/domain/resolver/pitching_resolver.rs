@@ -275,7 +275,7 @@ mod tests {
     }
 
     fn pitched_ball(
-        speed_kmh: f64,
+        speed: f64,
         spin_rate: f64,
         spin_angle: f64,
         spin_efficiency: f64,
@@ -285,7 +285,7 @@ mod tests {
     ) -> PitchedBall {
         PitchedBall {
             pitch_type: PitchType::FourSeamFastball,
-            speed: speed_kmh,
+            speed,
             spin_rate,
             spin_angle,
             spin_efficiency,

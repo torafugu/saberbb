@@ -240,11 +240,11 @@ mod tests {
         trajectory: TrajectoryType,
         distance: f64,
         spray_angle: f64,
-        launch_speed_kmh: f64,
+        launch_speed: f64,
         launch_angle: f64,
     ) -> BattedBall {
         BattedBall::new(
-            launch_speed_kmh,
+            launch_speed,
             launch_angle,
             spray_angle,
             distance,

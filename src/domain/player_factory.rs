@@ -26,7 +26,6 @@ pub struct PlayerFactory<R: PlayerRepository> {
     player_info_probs: PlayerInfoProbs,
     running_skill_probs: RunningSkillProbs,
     batter_info_probs: BatterInfoProbs,
-    field_sector_weights_map: HashMap<HitterTendency, Vec<ItemWeighted<FieldSector>>>,
     fielder_info_probs: FielderInfoProbs,
     pitcher_info_probs: PitcherInfoProbs,
     pitch_type_map: HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>>,
@@ -40,7 +39,6 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             player_info_probs: PlayerInfoProbs::default(),
             running_skill_probs: RunningSkillProbs::default(),
             batter_info_probs: BatterInfoProbs::default(),
-            field_sector_weights_map: HashMap::new(),
             fielder_info_probs: FielderInfoProbs::default(),
             pitcher_info_probs: PitcherInfoProbs::default(),
             pitch_type_map: HashMap::new(),
@@ -54,7 +52,6 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         self.player_info_probs = self.service.load_player_info_probs()?;
         self.running_skill_probs = self.service.load_running_skill_probs()?;
         self.batter_info_probs = self.service.load_batter_info_probs()?;
-        self.field_sector_weights_map = self.service.load_field_sector_weights_prob()?;
         self.fielder_info_probs = self.service.load_fielder_info_probs()?;
         self.pitcher_info_probs = self.service.load_pitcher_info_prob()?;
         self.player_info_probs = self.service.load_player_info_probs()?;
@@ -162,40 +159,27 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     }
 
     pub fn assign_batter_info(&mut self) -> Result<BatterInfo, AppError> {
-        let mut batter_info = BatterInfo::default();
-        let hitter_tendency =
-            choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.hitter_tendency)?;
-
-        if let Some(field_sector_weights) = self.field_sector_weights_map.get(&hitter_tendency) {
-            for field_sector_weight in field_sector_weights {
-                match field_sector_weight.name {
-                    FieldSector::Pull => batter_info.weight_pull = field_sector_weight.weight,
-                    FieldSector::Center => batter_info.weight_center = field_sector_weight.weight,
-                    FieldSector::Opposite => {
-                        batter_info.weight_opposite = field_sector_weight.weight
-                    }
-                    FieldSector::FoulOpposite => {
-                        batter_info.weight_foul_pull = field_sector_weight.weight
-                    }
-                    FieldSector::FoulPull => {
-                        batter_info.weight_foul_opposite = field_sector_weight.weight
-                    }
-                }
-            }
-        } else {
-            return Err(AppError::NotFound("field_sector_weights".to_string()));
-        };
-
-        batter_info.batting_side =
+        let batting_side =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
 
-        // TODO: Consider correlation　of hitter_tendency.
-        batter_info.swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
-        // TODO: Consider correlation　of hitter_tendency.
-        batter_info.base_launch_angle = self.rng.normal(self.batter_info_probs.base_launch_angle);
-        batter_info.consistency_sigma = self.rng.normal(self.batter_info_probs.consistency_sigma);
+        let batting_eye = self.rng.normal(self.batter_info_probs.batting_eye);
+        let swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
+        let swing_power = self.rng.normal(self.batter_info_probs.swing_power);
+        let attack_angle = self.rng.normal(self.batter_info_probs.attack_angle);
+        let bat_contact = self.rng.normal(self.batter_info_probs.bat_contact);
+        let timing_bias = self.rng.normal(self.batter_info_probs.timing_bias);
+        let consistency_sigma = self.rng.normal(self.batter_info_probs.consistency_sigma);
 
-        Ok(batter_info)
+        Ok(BatterInfo {
+            batting_side: batting_side,
+            batting_eye: batting_eye,
+            swing_speed: swing_speed,
+            swing_power: swing_power,
+            attack_angle: attack_angle,
+            bat_contact: bat_contact,
+            timing_bias: timing_bias,
+            consistency_sigma: consistency_sigma,
+        })
     }
 
     fn assign_running_skills(&mut self) -> Result<RunningSkills, AppError> {
