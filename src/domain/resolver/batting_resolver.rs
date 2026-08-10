@@ -1,7 +1,7 @@
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall, TrajectoryType};
 use crate::domain::shared::player::{BatterInfo, RL};
-use crate::domain::util::{CONVERT_FACTOR_MS_TO_KMH, GRAVITY};
+use crate::domain::util::{CONVERT_FACTOR_MS_TO_KMH, GRAVITY, sigmoid};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
@@ -10,6 +10,21 @@ use strum_macros::{AsRefStr, EnumIter, EnumString};
 const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
+
+pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisplacement {
+    // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
+    let adapted_x = offset.horizontal_offset_m * (1.0 - sigmoid(bat_contact));
+    let adapted_z = offset.vertical_offset_m * (1.0 - sigmoid(bat_contact));
+
+    // 2. Adjust timing offset with bat lag/steering (e.g. shrink 0.012s delay to 0.006s)
+    let adapted_timing = offset.timing_offset_sec * (1.0 - sigmoid(bat_contact));
+
+    PitchDisplacement {
+        horizontal_offset_m: adapted_x,
+        vertical_offset_m: adapted_z,
+        timing_offset_sec: adapted_timing,
+    }
+}
 
 fn calculate_bat_angle(location: &BallLocation) -> f64 {
     const CENTER_ANGLE_DEG: f64 = 30.0; // Standard tilt angle at zone center
@@ -77,8 +92,6 @@ pub struct SwingContactResult {
     // NOTE: Spatial sweet-spot offset (0.0: perfectly centered ~ 1.0: completely missing the zone)
     pub thickness_offset_m: f64,
     pub length_offset_m: f64,
-    // TODO: timing_offset must be removed.
-    pub timing_offset: f64,
     pub contact_type: SwingContactType,
 }
 
@@ -95,20 +108,16 @@ pub enum SwingContactType {
     SwungAndMiss,
 }
 
-// TODO: bat_angle_deg must be added to BatterInfo
-// TODO: bat_angle_deg must be added to BatterInfo
 pub fn evaluate_swing_contact(
     batter: &BatterInfo,
-    spacial_offset: &PitchDisplacement,
-    timing_offset_sec: f64,
+    offset: &PitchDisplacement,
     swing_execution_error: &SwingExecutionError,
 ) -> SwingContactResult {
     // Timing delay (seconds) × bat swing speed (m/s) = X-axis impact position shift due to timing delay (m)
-    let timing_impact_x_m = batter.swing_speed * timing_offset_sec;
-    let offset_x_m = spacial_offset.horizontal_offset_m
-        + swing_execution_error.additional_x_m
-        + timing_impact_x_m;
-    let offset_z_m = spacial_offset.vertical_offset_m + swing_execution_error.additional_z_m;
+    let timing_impact_x_m = batter.swing_speed * offset.timing_offset_sec;
+    let offset_x_m =
+        offset.horizontal_offset_m + swing_execution_error.additional_x_m + timing_impact_x_m;
+    let offset_z_m = offset.vertical_offset_m + swing_execution_error.additional_z_m;
 
     let rad = swing_execution_error.actual_bat_angle_deg.to_radians();
 
@@ -140,7 +149,6 @@ pub fn evaluate_swing_contact(
         offset_z_m: offset_z_m,
         thickness_offset_m: thickness_offset_m,
         length_offset_m: length_offset_m,
-        timing_offset: timing_offset_sec,
         contact_type: contact_type,
     }
 }
@@ -508,7 +516,6 @@ mod tests {
             offset_z_m: 0.0,
             thickness_offset_m: 0.0,
             length_offset_m: 0.0,
-            timing_offset: 0.0,
             contact_type: SwingContactType::SolidContact,
         }
     }
@@ -522,7 +529,6 @@ mod tests {
                     offset_z_m: 0.07,
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
-                    timing_offset: 0.0,
                     contact_type: SwingContactType::SolidContact,
                 },
                 RL::Right,
@@ -535,7 +541,6 @@ mod tests {
                     offset_z_m: -0.07,
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
-                    timing_offset: 0.0,
                     contact_type: SwingContactType::SolidContact,
                 },
                 RL::Left,

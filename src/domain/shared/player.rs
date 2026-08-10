@@ -528,7 +528,7 @@ impl PitcherInfo {
     }
 
     /// Auto-generate physical release point (x, y, z) from body data and delivery form
-    pub fn calculate_release_point(&self) -> Vector3D {
+    pub fn calculate_release_point(&self, rng: &mut dyn RandomProvider) -> Vector3D {
         // 1. Z-axis (height): multiply height by form factor
         let height_factor = match self.arm_slot {
             ArmSlot::Overhand => 1.05, // Near-upright high release
@@ -554,8 +554,7 @@ impl PitcherInfo {
 
         // 3. Y-axis (distance to batter): pitching rubber (18.44m) - extension
         let distance_to_home = 18.44
-            - self
-                .extension
+            - (self.extension * rng.normal_factor_std_1_percent())
                 .clamp(PITCH_EXTENSION_MIN, PITCH_EXTENSION_MAX);
 
         Vector3D {

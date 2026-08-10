@@ -3,6 +3,7 @@ use crate::domain::shared::ball::{BallLocation, BallMovement, PitchedBall, Zone}
 use crate::domain::shared::player::PitcherInfo;
 use crate::domain::shared::player::RL;
 use crate::domain::util::GRAVITY;
+use crate::domain::util::sigmoid;
 use crate::error::AppError;
 
 const BASE_FOUR_SEAM_SPEED: f64 = 150.0;
@@ -34,7 +35,7 @@ pub fn create_pitch(
     let speed_factor = speed / BASE_FOUR_SEAM_SPEED;
 
     let raw_spin_rate = pitch_skill.spin_rate * rng.normal_factor_std_1_percent() * speed_factor;
-    let release_point = pitcher.calculate_release_point();
+    let release_point = pitcher.calculate_release_point(rng);
     let flight_time = calculate_flight_time(speed, release_point.y);
 
     let aim_location = pitch_call.aim_location();
@@ -70,17 +71,14 @@ fn sample_ball_location(
 }
 
 pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
-    // 1. Convert pitch speed (km/h) to (m/s)
-    let initial_v_ms = speed / 3.6;
+    // 1. Calculate average pitch speed accounting for air resistance deceleration
+    let avg_v_ms = speed * AIR_DRAG_FACTOR;
 
-    // 2. Calculate average pitch speed accounting for air resistance deceleration
-    let avg_v_ms = initial_v_ms * AIR_DRAG_FACTOR;
-
-    // 3. Y-axis distance the ball actually travels (m)
+    // 2. Y-axis distance the ball actually travels (m)
     // (assumes release_point.y is already calculated as "18.44 - extension")
     let flight_distance_y = release_point_y;
 
-    // 4. Flight time t = distance / average speed
+    // 3. Flight time t = distance / average speed
     let flight_time = flight_distance_y / avg_v_ms;
 
     flight_time
@@ -89,6 +87,7 @@ pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
 pub struct PitchDisplacement {
     pub horizontal_offset_m: f64,
     pub vertical_offset_m: f64,
+    pub timing_offset_sec: f64,
 }
 
 pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
@@ -104,11 +103,12 @@ pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
     }
 }
 
-// NOTE: Timing when the batter initiates the swing (e.g. 12m from the pitcher / approx. 0.15s before impact)
 pub fn calculate_pitch_offset(
+    rng: &mut dyn RandomProvider,
     pitched_ball: &PitchedBall,
     matchup: &MatchupContext,
     expected_ball: &PitchedBall,
+    batting_eye: f64,
 ) -> PitchDisplacement {
     // 1. Point at which the batter commits to the swing (approx. 60% of total flight time)
     let remaining_time = pitched_ball.flight_time * (1.0 - PITCH_OFFSET_DECISION_RATIO);
@@ -130,9 +130,13 @@ pub fn calculate_pitch_offset(
     let delta_vertical = pitched_ball.get_vertical_accel() - expected_ball.get_vertical_accel();
     let offset_y = 0.5 * delta_vertical * remaining_time.powi(2);
 
+    // 6. Timing calculation
+    let timing_offset_sec = calculate_timing_offset(rng, pitched_ball, expected_ball, batting_eye);
+
     PitchDisplacement {
         horizontal_offset_m: enhanced_offset_x,
         vertical_offset_m: offset_y,
+        timing_offset_sec: timing_offset_sec,
     }
 }
 
@@ -157,26 +161,26 @@ impl MatchupContext {
     }
 }
 
-/// Calculate the Timing Offset (seconds) from the batter's prediction and the actual pitch
-pub fn calculate_timing_offset(
+// Calculate the Timing Offset (seconds) from the batter's prediction and the actual pitch
+// NOTE: Timing when the batter initiates the swing (e.g. 12m from the pitcher / approx. 0.15s before impact)
+fn calculate_timing_offset(
     rng: &mut dyn RandomProvider,
     pitched_ball: &PitchedBall,
-    // Standard pitch profile the batter assumes in their mind (e.g. 150km/h fastball)
     expected_ball: &PitchedBall,
+    batting_eye: f64,
 ) -> f64 {
     // 1. Actual flight time (calculated from extension and actual pitch speed)
     let actual_release_point = pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
     let actual_flight_time = calculate_flight_time(pitched_ball.speed, actual_release_point);
 
     // 2. Predicted flight time the batter calculates in their mind
-    // TODO: Consider batter's Eye
-    // TODO: Consider calculate logic of release_point_seen_from_batter
-    let release_point_seen_from_batter = actual_release_point;
+    let release_point_seen_from_batter = actual_release_point
+        * (1.0 + rng.normal_random(0.0, 0.01, 0.0, 1.0, 0.0) * sigmoid(batting_eye));
     let expected_flight_time =
         calculate_flight_time(expected_ball.speed, release_point_seen_from_batter);
 
     // 3. Flight time difference (pure physical timing offset)
-    let raw_delta_t = actual_flight_time - expected_flight_time;
+    let raw_delta_t = (actual_flight_time - expected_flight_time) * sigmoid(batting_eye);
 
     // Sign convention for why raw_delta_t > 0 means late:
     // actual_time > expected_time (ball arrives slower) = batter swung too early (Early)
@@ -218,6 +222,7 @@ mod tests {
     use crate::domain::util::Vector3D;
 
     const EPSILON: f64 = 1e-9;
+    const TEST_BATTING_EYE: f64 = 0.0;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -319,7 +324,7 @@ mod tests {
         assert_near(ball.release_point.x, 0.55);
         assert_near(ball.release_point.y, 16.64);
         assert_near(ball.release_point.z, 1.71);
-        assert_near(ball.flight_time, 16.64 / ((150.0 / 3.6) * 0.95));
+        assert_near(ball.flight_time, 16.64 / (150.0 * 0.95));
         assert_near(ball.aim_location.x, 0.75);
         assert_near(ball.aim_location.y, -0.75);
     }
@@ -354,14 +359,12 @@ mod tests {
         assert_near(right_displacement.x_m, expected_right_horizontal);
         assert_near(
             right_displacement.z_m,
-            right_break.release_point.z + expected_right_vertical
-                - 0.5 * GRAVITY * flight_time.powi(2),
+            expected_right_vertical - 0.5 * GRAVITY * flight_time.powi(2),
         );
         assert_near(left_displacement.x_m, expected_left_horizontal);
         assert_near(
             left_displacement.z_m,
-            left_break.release_point.z + expected_left_vertical
-                - 0.5 * GRAVITY * flight_time.powi(2),
+            expected_left_vertical - 0.5 * GRAVITY * flight_time.powi(2),
         );
     }
 
@@ -379,28 +382,30 @@ mod tests {
         );
         assert_near(
             calculate_ball_movement(&extreme_topspin).z_m,
-            extreme_topspin.release_point.z + expected_vertical
-                - 0.5 * GRAVITY * flight_time.powi(2),
+            expected_vertical - 0.5 * GRAVITY * flight_time.powi(2),
         );
     }
 
     #[test]
     fn calculate_late_break_displacement_uses_remaining_acceleration_after_decision() {
+        let mut rng = FixedRng::new(0.0);
         let ball = pitched_ball(150.0, 2500.0, 90.0, 1.0, 0.0, 16.64, 0.42);
         let expected_ball = pitched_ball(150.0, 2500.0, 0.0, 1.0, 0.0, 16.64, 0.42);
         let side_accel = ball.get_side_accel();
         let vertical_accel = ball.get_vertical_accel() - expected_ball.get_vertical_accel();
         let remaining_time = 0.42_f64 * 0.4;
-        let expected_horizontal = 0.5 * side_accel * remaining_time.powi(2) * (1.0 / 0.15);
-        let expected_vertical = 0.5 * vertical_accel * remaining_time.powi(2) * (1.0 / 0.15);
+        let expected_horizontal = 0.5 * side_accel * remaining_time.powi(2);
+        let expected_vertical = 0.5 * vertical_accel * remaining_time.powi(2);
 
         let displacement = calculate_pitch_offset(
+            &mut rng,
             &ball,
             &MatchupContext {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
             &expected_ball,
+            TEST_BATTING_EYE,
         );
 
         assert_near(displacement.horizontal_offset_m, expected_horizontal);
@@ -437,24 +442,29 @@ mod tests {
 
     #[test]
     fn calculate_pitch_offset_enhances_horizontal_late_break_by_matchup_and_release_width() {
+        let mut rng = FixedRng::new(0.0);
         let ball = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.80, 16.64, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
 
         let same_side = calculate_pitch_offset(
+            &mut rng,
             &ball,
             &MatchupContext {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
             &expected_ball,
+            TEST_BATTING_EYE,
         );
         let crossfire = calculate_pitch_offset(
+            &mut rng,
             &ball,
             &MatchupContext {
                 throw_side: RL::Left,
                 batting_side: RL::Right,
             },
             &expected_ball,
+            TEST_BATTING_EYE,
         );
 
         assert!(crossfire.horizontal_offset_m > same_side.horizontal_offset_m);
@@ -467,7 +477,7 @@ mod tests {
         let ball = pitched_ball(135.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
-        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball) > 0.0);
+        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE) > 0.0);
     }
 
     #[test]
@@ -476,6 +486,6 @@ mod tests {
         let ball = pitched_ball(160.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
-        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball) < 0.0);
+        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE) < 0.0);
     }
 }

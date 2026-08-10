@@ -55,8 +55,13 @@ fn test_batted_ball() {
             batting_side: batter.batting_side,
         };
 
-        let pitch_displacement = calculate_pitch_offset(&pitched_ball, &matchup, &expected_ball);
-        let timing_offset = calculate_timing_offset(&mut rng, &pitched_ball, &pitched_ball);
+        let pitch_displacement = calculate_pitch_offset(
+            &mut rng,
+            &pitched_ball,
+            &matchup,
+            &pitched_ball,
+            batter.batting_eye,
+        );
 
         let intended_location = BallLocation {
             x: pitched_ball.actual_location.x * rng.normal_factor_std_1_percent(),
@@ -69,12 +74,7 @@ fn test_batted_ball() {
             &pitched_ball.actual_location,
         );
 
-        let contact = evaluate_swing_contact(
-            &batter,
-            &pitch_displacement,
-            timing_offset,
-            &swing_execution_error,
-        );
+        let contact = evaluate_swing_contact(&batter, &pitch_displacement, &swing_execution_error);
 
         let batted_ball = if contact.contact_type == SwingContactType::SwungAndMiss {
             BattedBall::default()
@@ -90,7 +90,7 @@ fn test_batted_ball() {
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 swing_execution_error.additional_x_m, swing_execution_error.additional_z_m, swing_execution_error.actual_bat_angle_deg,
-                contact.offset_x_m, contact.offset_z_m, contact.thickness_offset_m, contact.length_offset_m, contact.timing_offset, contact.contact_type.as_ref(),
+                contact.offset_x_m, contact.offset_z_m, contact.thickness_offset_m, contact.length_offset_m, pitch_displacement.timing_offset_sec, contact.contact_type.as_ref(),
                 batted_ball.launch_speed, batted_ball.launch_angle, batted_ball.angle(), batted_ball.distance(),  batted_ball.hang_time, batted_ball.trajectory.as_ref()
                 ],
         )

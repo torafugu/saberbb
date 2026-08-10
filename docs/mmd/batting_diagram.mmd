@@ -1,6 +1,11 @@
 flowchart TD
-    calculate_bat_angle --> calculate_swing_execution_error
-    calculate_swing_execution_error --> evaluate_swing --> calculate_batted_ball
+    adapt_to_pitch --> evaluate_swing_contact
+    calculate_swing_execution_error --> evaluate_swing_contact --> calculate_batted_ball
+
+    subgraph calculate_swing_execution_error
+        direction TB
+        calculate_bat_angle
+    end
 
     subgraph calculate_batted_ball
         direction TB

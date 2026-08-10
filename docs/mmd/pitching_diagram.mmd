@@ -19,9 +19,9 @@ flowchart TD
     
     create_pitch --> calculate_ball_movement
     create_pitch --> MatchupContext --> calculate_pitch_offset
-    create_pitch --> calculate_timing_offset
 
     subgraph calculate_pitch_offset
         get_side_accel
         get_vertical_accel
+        calculate_timing_offset
     end

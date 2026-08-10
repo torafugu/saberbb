@@ -14,8 +14,7 @@ use crate::domain::resolver::fielding_resolver::{
     evaluate_double_play, process_defensive_chain,
 };
 use crate::domain::resolver::pitching_resolver::{
-    MatchupContext, calculate_ball_movement, calculate_pitch_offset, calculate_timing_offset,
-    create_pitch,
+    MatchupContext, calculate_ball_movement, calculate_pitch_offset, create_pitch,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -685,10 +684,13 @@ impl GameState {
             batting_side: batter.batting_side,
         };
 
-        let pitch_displacement =
-            calculate_pitch_offset(&pitched_ball, &matchup, &expected_pitched_ball);
-        let timing_offset =
-            calculate_timing_offset(self.rng.as_mut(), &pitched_ball, &expected_pitched_ball);
+        let pitch_displacement = calculate_pitch_offset(
+            self.rng.as_mut(),
+            &pitched_ball,
+            &matchup,
+            &expected_pitched_ball,
+            batter.batting_eye,
+        );
 
         let intended_location = BallLocation {
             x: pitched_ball.actual_location.x * self.rng.normal_factor_std_1_percent(),
@@ -701,12 +703,7 @@ impl GameState {
             &pitched_ball.actual_location,
         );
 
-        let contact = evaluate_swing_contact(
-            &batter,
-            &pitch_displacement,
-            timing_offset,
-            &swing_execution_error,
-        );
+        let contact = evaluate_swing_contact(&batter, &pitch_displacement, &swing_execution_error);
 
         let batted_ball = if contact.contact_type == SwingContactType::SwungAndMiss {
             BattedBall::default()

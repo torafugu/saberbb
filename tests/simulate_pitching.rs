@@ -27,8 +27,13 @@ fn test_pitched_ball() {
             batting_side: batter.batting_side,
         };
 
-        let pitch_displacement = calculate_pitch_offset(&pitched_ball, &matchup, &expected_ball);
-        let timing_offset = calculate_timing_offset(&mut rng, &pitched_ball, &expected_ball);
+        let pitch_displacement = calculate_pitch_offset(
+            &mut rng,
+            &pitched_ball,
+            &matchup,
+            &pitched_ball,
+            batter.batting_eye,
+        );
 
         conn.execute(
             "INSERT INTO test_pitched_ball (pitch_type, speed_ms,  spin_rate, spin_angle, spin_efficiency, 
@@ -55,7 +60,7 @@ fn test_pitched_ball() {
                 ball_movement.z_m,
                 pitch_displacement.horizontal_offset_m,
                 pitch_displacement.vertical_offset_m,
-                timing_offset,
+                pitch_displacement.timing_offset_sec,
             ],
         )
         .unwrap();
