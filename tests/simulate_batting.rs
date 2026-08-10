@@ -58,19 +58,13 @@ fn test_batted_ball() {
         let pitch_displacement = calculate_pitch_offset(&pitched_ball, &matchup, &expected_ball);
         let timing_offset = calculate_timing_offset(&mut rng, &pitched_ball, &pitched_ball);
 
-        // TODO: bat_angle_deg must be added to BatterInfo
-        let attack_angle_deg = 13.0;
-
-        // TODO: bat_contact must be added to BatterInfo
-        let bat_contact = 0.8;
-
         let intended_location = BallLocation {
             x: pitched_ball.actual_location.x * rng.normal_factor_std_1_percent(),
             y: pitched_ball.actual_location.y * rng.normal_factor_std_1_percent(),
         };
 
         let swing_execution_error = calculate_swing_execution_error(
-            bat_contact,
+            batter.bat_contact,
             &intended_location,
             &pitched_ball.actual_location,
         );
@@ -82,7 +76,7 @@ fn test_batted_ball() {
             &swing_execution_error,
         );
 
-        let batted_ball = calculate_batted_ball(&batter, attack_angle_deg, pitched_ball, &contact);
+        let batted_ball = calculate_batted_ball(&batter, pitched_ball, &contact);
 
         conn.execute(
             "INSERT INTO test_batted_ball (

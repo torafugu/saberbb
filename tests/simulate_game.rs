@@ -56,7 +56,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
             timing_offset,
             &swing_execution_error,
         );
-        let ball = calculate_batted_ball(&batter, 5.0, pitched_ball, &contact);
+        let ball = calculate_batted_ball(&batter, pitched_ball, &contact);
 
         println!("{:#?}", ball);
 

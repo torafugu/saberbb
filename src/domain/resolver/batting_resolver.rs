@@ -435,7 +435,6 @@ fn calculate_3d_flight_path(
 
 pub fn calculate_batted_ball(
     batter: &BatterInfo,
-    attack_angle_deg: f64,
     ball: PitchedBall,
     contact: &SwingContactResult,
 ) -> BattedBall {
@@ -443,7 +442,7 @@ pub fn calculate_batted_ball(
     let launch_speed_ms = calculate_launch_speed(contact, ball.speed, batter.swing_speed);
 
     // 2. Calculate vertical launch angle (VLA) and horizontal launch angle (HLA)
-    let angles = calculate_launch_angles(&contact, attack_angle_deg, batter.batting_side);
+    let angles = calculate_launch_angles(&contact, batter.attack_angle, batter.batting_side);
 
     // 3. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
@@ -472,7 +471,7 @@ pub fn calculate_batted_ball(
 #[cfg(test)]
 mod tests {
     use crate::domain::resolver::batting_resolver::{
-        BatterInfo, FieldSector, SwingContactResult, SwingContactType, calculate_batted_ball,
+        BatterInfo, SwingContactResult, SwingContactType, calculate_batted_ball,
         calculate_launch_angles,
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
@@ -560,7 +559,6 @@ mod tests {
         for _ in 0..50 {
             let ball = calculate_batted_ball(
                 &right_pull_hitter,
-                28.0,
                 PitchedBall {
                     pitch_type: PitchType::FourSeamFastball,
                     speed: 150.0,

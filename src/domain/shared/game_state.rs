@@ -689,19 +689,13 @@ impl GameState {
         let timing_offset =
             calculate_timing_offset(self.rng.as_mut(), &pitched_ball, &expected_pitched_ball);
 
-        // TODO: bat_angle_deg must be added to BatterInfo
-        let attack_angle_deg = 5.0;
-
-        // TODO: bat_contact must be added to BatterInfo
-        let bat_contact = 0.8;
-
         let intended_location = BallLocation {
             x: pitched_ball.actual_location.x * self.rng.normal_factor_std_1_percent(),
             y: pitched_ball.actual_location.y * self.rng.normal_factor_std_1_percent(),
         };
 
         let swing_execution_error = calculate_swing_execution_error(
-            bat_contact,
+            batter.bat_contact,
             &intended_location,
             &pitched_ball.actual_location,
         );
@@ -712,7 +706,7 @@ impl GameState {
             timing_offset,
             &swing_execution_error,
         );
-        let batted_ball = calculate_batted_ball(&batter, attack_angle_deg, pitched_ball, &contact);
+        let batted_ball = calculate_batted_ball(&batter, pitched_ball, &contact);
         info!("Batted Ball: {:#?}", batted_ball);
 
         if self.stadium.is_stand_in(&batted_ball) {
