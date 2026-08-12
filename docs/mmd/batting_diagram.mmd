@@ -11,6 +11,6 @@ flowchart TD
         direction TB
         classify_trajectory_type
         calculate_collision_spin --> combine_batted_spin --> calculate_3d_flight_path
-        calculate_launch_speed --> calculate_3d_flight_path
+        calculate_effective_c_swing --> calculate_launch_speed_with_power --> calculate_3d_flight_path
         calculate_launch_angles --> calculate_3d_flight_path
     end

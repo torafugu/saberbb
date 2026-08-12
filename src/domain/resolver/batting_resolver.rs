@@ -106,6 +106,7 @@ pub enum PitchOutcome {
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SwingContactResult {
+    pub timing_impact_x_m: f64,
     pub offset_x_m: f64,
     pub offset_z_m: f64,
     // NOTE: Spatial sweet-spot offset (0.0: perfectly centered ~ 1.0: completely missing the zone)
@@ -165,6 +166,7 @@ pub fn evaluate_swing_contact(
     };
 
     SwingContactResult {
+        timing_impact_x_m: timing_impact_x_m,
         offset_x_m: offset_x_m,
         offset_z_m: offset_z_m,
         thickness_offset_m: thickness_offset_m,
@@ -224,15 +226,35 @@ pub fn calculate_launch_angles(contact: &SwingContactResult, batting_side: RL) -
     BattedBallAngles { vla_deg, hla_deg }
 }
 
-pub fn calculate_launch_speed(
+fn calculate_effective_c_swing(
+    base_c_swing: f64,      // 打者本来の C_SWING (例: 1.20)
+    timing_impact_x_m: f64, // ポイントの前後 (m) : <0 前(プル) / >0 後ろ(流し)
+) -> f64 {
+    // 前で捉えた場合 (x_m < 0): 最大 +5% 程度パワーが乗る
+    // 後ろで捉えた場合 (x_m > 0): 最大 -15% 程度エネルギーが落ちる
+    if timing_impact_x_m < 0.0 {
+        // 前にポイントがある場合（限界 -0.20m まで伝達率アップ）
+        let boost = (timing_impact_x_m.abs() / 0.20).clamp(0.0, 1.0) * 0.05;
+        base_c_swing * (1.0 + boost)
+    } else {
+        // ポイントが後ろに差し込まれた場合（0.20m 遅れで大幅に減少）
+        let penalty = (timing_impact_x_m / 0.20).clamp(0.0, 1.0) * 0.15;
+        base_c_swing * (1.0 - penalty)
+    }
+}
+
+pub fn calculate_launch_speed_with_power(
     contact_result: &SwingContactResult,
     ball_speed: f64,
     swing_speed: f64,
+    swing_power: f64,
 ) -> f64 {
     // 1. Theoretical maximum exit velocity on perfect sweet-spot contact (m/s)
     const C_PITCH: f64 = 0.18; // Pitch speed contribution (18%)
-    const C_SWING: f64 = 1.20; // Swing speed contribution (120%)
-    let max_launch_speed = (C_PITCH * ball_speed) + (C_SWING * swing_speed);
+    // swing_powerによる C_SWING の動的変化 (1.12 ~ 1.28)
+    let power = calculate_effective_c_swing(sigmoid(swing_power), contact_result.timing_impact_x_m);
+    let c_swing: f64 = 1.12 + (0.16 * power);
+    let max_launch_speed = (C_PITCH * ball_speed) + (c_swing * swing_speed);
 
     // 2. Thickness-direction energy decay rate (E_thick: 0.0 ~ 1.0)
     const SWEET_SPOT_RADIUS_M: f64 = 0.020; // Sweet spot radius (2.0cm)
@@ -464,7 +486,12 @@ pub fn calculate_batted_ball(
     contact: &SwingContactResult,
 ) -> BattedBall {
     // 1. Calculate exit velocity (damped by spatial offset & timing delay)
-    let launch_speed_ms = calculate_launch_speed(contact, ball.speed, batter.swing_speed);
+    let launch_speed_ms = calculate_launch_speed_with_power(
+        contact,
+        ball.speed,
+        batter.swing_speed,
+        batter.swing_power,
+    );
 
     // 2. Calculate vertical launch angle (VLA) and horizontal launch angle (HLA)
     let angles = calculate_launch_angles(&contact, batter.batting_side);
@@ -529,6 +556,7 @@ mod tests {
 
     fn centered_contact(attack_angle_deg: f64) -> SwingContactResult {
         SwingContactResult {
+            timing_impact_x_m: 0.0,
             offset_x_m: 0.0,
             offset_z_m: 0.0,
             thickness_offset_m: 0.0,
@@ -543,6 +571,7 @@ mod tests {
         let cases = [
             (
                 SwingContactResult {
+                    timing_impact_x_m: 0.0,
                     offset_x_m: 0.07,
                     offset_z_m: 0.07,
                     thickness_offset_m: 0.0,
@@ -556,6 +585,7 @@ mod tests {
             ),
             (
                 SwingContactResult {
+                    timing_impact_x_m: 0.0,
                     offset_x_m: 0.07,
                     offset_z_m: -0.07,
                     thickness_offset_m: 0.0,
