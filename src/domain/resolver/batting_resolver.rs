@@ -54,7 +54,9 @@ fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64) -> 
 pub struct SwingExecutionError {
     pub additional_x_m: f64,
     pub additional_z_m: f64,
+    pub ideal_bat_angle_deg: f64,
     pub actual_bat_angle_deg: f64,
+    pub ideal_attack_angle_deg: f64,
     pub actual_attack_angle_deg: f64,
 }
 
@@ -88,7 +90,9 @@ pub fn calculate_swing_execution_error(
     SwingExecutionError {
         additional_x_m,
         additional_z_m,
+        ideal_bat_angle_deg: ideal_angle,
         actual_bat_angle_deg,
+        ideal_attack_angle_deg: attack_angle,
         actual_attack_angle_deg,
     }
 }
@@ -227,17 +231,17 @@ pub fn calculate_launch_angles(contact: &SwingContactResult, batting_side: RL) -
 }
 
 fn calculate_effective_c_swing(
-    base_c_swing: f64,      // 打者本来の C_SWING (例: 1.20)
-    timing_impact_x_m: f64, // ポイントの前後 (m) : <0 前(プル) / >0 後ろ(流し)
+    base_c_swing: f64,      // Batter's inherent C_SWING (e.g. 1.20)
+    timing_impact_x_m: f64, // Contact point depth (m): <0 front (pull) / >0 back (opposite)
 ) -> f64 {
-    // 前で捉えた場合 (x_m < 0): 最大 +5% 程度パワーが乗る
-    // 後ろで捉えた場合 (x_m > 0): 最大 -15% 程度エネルギーが落ちる
+    // Contacting in front (x_m < 0): gains up to +5% power
+    // Contacting deep (x_m > 0): loses up to -15% energy
     if timing_impact_x_m < 0.0 {
-        // 前にポイントがある場合（限界 -0.20m まで伝達率アップ）
+        // Contact point in front (transfer rate increases up to -0.20m limit)
         let boost = (timing_impact_x_m.abs() / 0.20).clamp(0.0, 1.0) * 0.05;
         base_c_swing * (1.0 + boost)
     } else {
-        // ポイントが後ろに差し込まれた場合（0.20m 遅れで大幅に減少）
+        // Contact point driven deep (significant reduction at 0.20m delay)
         let penalty = (timing_impact_x_m / 0.20).clamp(0.0, 1.0) * 0.15;
         base_c_swing * (1.0 - penalty)
     }
@@ -251,7 +255,7 @@ pub fn calculate_launch_speed_with_power(
 ) -> f64 {
     // 1. Theoretical maximum exit velocity on perfect sweet-spot contact (m/s)
     const C_PITCH: f64 = 0.18; // Pitch speed contribution (18%)
-    // swing_powerによる C_SWING の動的変化 (1.12 ~ 1.28)
+    // Dynamic C_SWING variation based on swing_power (1.12 ~ 1.28)
     let power = calculate_effective_c_swing(sigmoid(swing_power), contact_result.timing_impact_x_m);
     let c_swing: f64 = 1.12 + (0.16 * power);
     let max_launch_speed = (C_PITCH * ball_speed) + (c_swing * swing_speed);
