@@ -699,6 +699,7 @@ impl GameState {
 
         let swing_execution_error = calculate_swing_execution_error(
             batter.bat_contact,
+            batter.attack_angle,
             &intended_location,
             &pitched_ball.actual_location,
         );

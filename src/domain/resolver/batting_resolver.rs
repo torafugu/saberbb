@@ -37,15 +37,31 @@ fn calculate_bat_angle(location: &BallLocation) -> f64 {
     base_angle.clamp(10.0, 60.0)
 }
 
+/// Automatically calculate the effective Attack Angle linked to bat_angle_deg (head drop amount for pitch location)
+fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64) -> f64 {
+    // Baseline bat_angle_deg (e.g. 30° as the standard tilt)
+    const BASE_BAT_ANGLE_DEG: f64 = 30.0;
+
+    // Attack angle rises approx. 3.5° for every 10° deeper bat_angle
+    const COUPLING_FACTOR: f64 = 0.35;
+
+    let angle_delta = bat_angle_deg - BASE_BAT_ANGLE_DEG;
+
+    // Determine the dynamic attack angle
+    attack_angle_deg + (angle_delta * COUPLING_FACTOR)
+}
+
 pub struct SwingExecutionError {
     pub additional_x_m: f64,
     pub additional_z_m: f64,
     pub actual_bat_angle_deg: f64,
+    pub actual_attack_angle_deg: f64,
 }
 
 // Calculate the actual bat_angle_deg the batter swings through based on the real trajectory and their prediction
 pub fn calculate_swing_execution_error(
     bat_contact: f64,
+    attack_angle: f64,
     intended_location: &BallLocation,
     actual_location: &BallLocation,
 ) -> SwingExecutionError {
@@ -64,13 +80,16 @@ pub fn calculate_swing_execution_error(
     let additional_z_m = BAT_BARREL_LENGTH_M * delta_rad.sin();
     let additional_x_m = BAT_BARREL_LENGTH_M * (1.0 - delta_rad.cos());
 
-    // Actual bat angle the batter swung
+    // 3. Calculate actual bat angle and attack angle the batter swung
     let actual_bat_angle_deg = intended_angle - (intended_angle - ideal_angle) * bat_contact;
+    let actual_attack_angle_deg =
+        calculate_dynamic_attack_angle(attack_angle, actual_bat_angle_deg);
 
     SwingExecutionError {
         additional_x_m,
         additional_z_m,
         actual_bat_angle_deg,
+        actual_attack_angle_deg,
     }
 }
 
@@ -93,6 +112,7 @@ pub struct SwingContactResult {
     pub thickness_offset_m: f64,
     pub length_offset_m: f64,
     pub contact_type: SwingContactType,
+    pub attack_angle_deg: f64,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
@@ -150,6 +170,7 @@ pub fn evaluate_swing_contact(
         thickness_offset_m: thickness_offset_m,
         length_offset_m: length_offset_m,
         contact_type: contact_type,
+        attack_angle_deg: swing_execution_error.actual_attack_angle_deg,
     }
 }
 
@@ -159,34 +180,30 @@ pub struct BattedBallAngles {
     pub hla_deg: f64, // Horizontal launch angle (deg): - pull / + opposite (right-handed batter reference)
 }
 
-pub fn calculate_launch_angles(
-    contact_result: &SwingContactResult,
-    attack_angle_deg: f64,
-    batting_side: RL,
-) -> BattedBallAngles {
+pub fn calculate_launch_angles(contact: &SwingContactResult, batting_side: RL) -> BattedBallAngles {
     // Constant definitions
     const EFFECTIVE_RADIUS_M: f64 = 0.070; // Bat radius (3.3cm) + ball radius (3.7cm)
     const SWING_ARM_RADIUS_M: f64 = 1.10; // Swing rotation radius (1.1m)
 
     // 1. Calculate VLA (vertical launch angle)
     // Clamp z_m to the effective radius and compute arcsin
-    let clamped_z = contact_result
+    let clamped_z = contact
         .offset_z_m
         .clamp(-EFFECTIVE_RADIUS_M, EFFECTIVE_RADIUS_M);
     let normal_angle_z_rad = (clamped_z / EFFECTIVE_RADIUS_M).asin();
 
     const VLA_REBOUND_FACTOR: f64 = 0.60; // Contact surface deflection influence
-    let vla_deg = attack_angle_deg + (normal_angle_z_rad.to_degrees() * VLA_REBOUND_FACTOR);
+    let vla_deg = contact.attack_angle_deg + (normal_angle_z_rad.to_degrees() * VLA_REBOUND_FACTOR);
 
     // 2. Calculate HLA (horizontal launch angle)
     // (A) Bat face tilt from swing rotation (Face Angle)
-    let clamped_x_arm = contact_result
+    let clamped_x_arm = contact
         .offset_x_m
         .clamp(-SWING_ARM_RADIUS_M, SWING_ARM_RADIUS_M);
     let face_angle_rad = (clamped_x_arm / SWING_ARM_RADIUS_M).asin();
 
     // (B) Rebound deflection from the bat's cross-section curvature
-    let clamped_x_rad = contact_result
+    let clamped_x_rad = contact
         .offset_x_m
         .clamp(-EFFECTIVE_RADIUS_M, EFFECTIVE_RADIUS_M);
     let rebound_angle_x_rad = (clamped_x_rad / EFFECTIVE_RADIUS_M).asin();
@@ -450,7 +467,7 @@ pub fn calculate_batted_ball(
     let launch_speed_ms = calculate_launch_speed(contact, ball.speed, batter.swing_speed);
 
     // 2. Calculate vertical launch angle (VLA) and horizontal launch angle (HLA)
-    let angles = calculate_launch_angles(&contact, batter.attack_angle, batter.batting_side);
+    let angles = calculate_launch_angles(&contact, batter.batting_side);
 
     // 3. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
@@ -510,13 +527,14 @@ mod tests {
         );
     }
 
-    fn centered_contact() -> SwingContactResult {
+    fn centered_contact(attack_angle_deg: f64) -> SwingContactResult {
         SwingContactResult {
             offset_x_m: 0.0,
             offset_z_m: 0.0,
             thickness_offset_m: 0.0,
             length_offset_m: 0.0,
             contact_type: SwingContactType::SolidContact,
+            attack_angle_deg,
         }
     }
 
@@ -530,6 +548,7 @@ mod tests {
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
                     contact_type: SwingContactType::SolidContact,
+                    attack_angle_deg: 5.0,
                 },
                 RL::Right,
                 59.0,
@@ -542,16 +561,17 @@ mod tests {
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
                     contact_type: SwingContactType::SolidContact,
+                    attack_angle_deg: 5.0,
                 },
                 RL::Left,
                 -49.0,
                 -25.6,
             ),
-            (centered_contact(), RL::Right, 5.0, 0.0),
+            (centered_contact(5.0), RL::Right, 5.0, 0.0),
         ];
 
         for (contact, batting_side, expected_vla, expected_hla) in cases {
-            let angles = calculate_launch_angles(&contact, 5.0, batting_side);
+            let angles = calculate_launch_angles(&contact, batting_side);
             assert!((angles.vla_deg - expected_vla).abs() < 0.1);
             assert!((angles.hla_deg - expected_hla).abs() < 0.1);
         }
@@ -580,7 +600,7 @@ mod tests {
                     aim_location: BallLocation { x: 0.0, y: 0.0 },
                     actual_location: BallLocation { x: 0.0, y: 0.0 },
                 },
-                &centered_contact(),
+                &centered_contact(right_pull_hitter.attack_angle),
             );
 
             assert!(ball.launch_speed >= 30.0);
