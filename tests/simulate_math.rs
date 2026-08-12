@@ -32,8 +32,15 @@ fn test_optimal_angle() {
 }
 
 #[test]
+fn test_softmax() {
+    let value = softmax(&vec![0.1069, 0.1222]);
+
+    println!("softmax:{:?}", value);
+}
+
+#[test]
 fn test_sigmoid() {
-    let value = sigmoid(-0.17);
+    let value = sigmoid(-0.018);
 
     println!("sigmoid:{}", value);
 }

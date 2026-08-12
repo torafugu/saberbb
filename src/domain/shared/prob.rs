@@ -70,6 +70,7 @@ pub struct PitcherInfoProbs {
     pub arm_slot: Vec<ItemWeighted<ArmSlot>>,
     pub pitcher_style: Vec<ItemWeighted<PitcherStyle>>,
     pub velocity: NormalParam,
+    pub spin_rate: NormalParam,
     pub control: NormalParam,
     pub stamina: NormalParam,
     pub injury_proneness: NormalParam,

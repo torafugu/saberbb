@@ -1,7 +1,8 @@
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall, TrajectoryType};
-use crate::domain::shared::player::{BatterInfo, RL};
-use crate::domain::util::{CONVERT_FACTOR_MS_TO_KMH, GRAVITY, sigmoid};
+use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
+use crate::domain::util::{GRAVITY, sigmoid};
+
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
@@ -10,6 +11,29 @@ use strum_macros::{AsRefStr, EnumIter, EnumString};
 const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
+
+pub struct PitchSimilarity {
+    pub speed: f64,
+    pub spin: f64,
+}
+
+// pub fn calculate_pitch_similarity(
+//     pitcher: &PitcherInfo,
+//     actual_pitch_type: PitchType,
+//     expected_pitch_type: PitchType,
+// ) -> PitchSimilarity {
+//     let actual_pitch_skill = pitcher.select_pitch_skill(actual_pitch_type);
+//     let expected_pitch_skill = pitcher.select_pitch_skill(expected_pitch_type);
+
+//     let actual_pitch_speed = Vec::from(vec![actual_pitch_skill.velocity]);
+//     let expected_pitch_speed = Vec::from(vec![expected_pitch_skill.velocity]);
+//     let speed_similarity = cosine_similarity(actual_pitch_speed, expected_pitch_speed);
+
+//     let actual_pitch_speed = Vec::from(vec![actual_pitch_skill.velocity]);
+//     let expected_pitch_speed = Vec::from(vec![expected_pitch_skill.velocity]);
+//     let speed_similarity = cosine_similarity(actual_pitch_speed, expected_pitch_speed);
+
+// }
 
 pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisplacement {
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
@@ -515,7 +539,7 @@ pub fn calculate_batted_ball(
     );
 
     BattedBall::new(
-        launch_speed_ms * CONVERT_FACTOR_MS_TO_KMH,
+        launch_speed_ms,
         angles.vla_deg,
         spray_angle,
         distance,

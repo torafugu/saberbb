@@ -407,6 +407,29 @@ VALUES
     (
         'player',
         'pitcher_info',
+        'spin_rate',
+        2300.0,
+        92.0,
+        0.005,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'pitcher_info',
         'control',
         0.0,
         1.0,
@@ -661,8 +684,8 @@ VALUES
         'pitch_type',
         'FourSeamFastball',
         'spin_rate',
-        2400.0,
-        90.0,
+        1.0,
+        0.04,
         0.05,
         1.0,
         0.0
@@ -845,8 +868,8 @@ VALUES
         'pitch_type',
         'Cutter',
         'spin_rate',
-        2400.0,
-        90.0,
+        0.98,
+        0.0392,
         0.05,
         1.0,
         0.0
@@ -1029,8 +1052,8 @@ VALUES
         'pitch_type',
         'Curveball',
         'spin_rate',
-        2700.0,
-        100.0,
+        1.15,
+        0.046,
         0.05,
         1.0,
         0.0
@@ -1213,8 +1236,8 @@ VALUES
         'pitch_type',
         'Slider',
         'spin_rate',
-        2700.0,
-        100.0,
+        1.10,
+        0.044,
         0.05,
         1.0,
         0.0
@@ -1397,9 +1420,9 @@ VALUES
         'pitch_type',
         'Changeup',
         'spin_rate',
-        1600.0,
-        70.0,
-        0.05,
+        0.7,
+        0.028,
+        0.0,
         1.0,
         0.0
     );
@@ -1487,7 +1510,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'velocity',
         0.9,
         0.018,
@@ -1510,7 +1533,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'control',
         0.9,
         0.018,
@@ -1533,7 +1556,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'stamina',
         0.0,
         1.0,
@@ -1556,7 +1579,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'injury_proneness',
         0.0,
         1.0,
@@ -1579,11 +1602,11 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'spin_rate',
-        650.0,
-        30.0,
-        0.05,
+        0.45,
+        0.018,
+        0.0,
         1.0,
         0.0
     );
@@ -1602,7 +1625,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'spin_angle',
         0.0,
         5.0,
@@ -1625,7 +1648,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'spin_efficiency',
         0.20,
         0.02,
@@ -1648,7 +1671,7 @@ INSERT INTO
 VALUES
     (
         'pitch_type',
-        'Forkball',
+        'Splitter',
         'usage',
         0.0,
         1.0,

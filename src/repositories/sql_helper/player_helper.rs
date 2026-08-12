@@ -190,6 +190,7 @@ impl FromRow for PitcherInfo {
             arm_slot: row.get("arm_slot")?,
             pitcher_style: row.get("pitcher_style")?,
             velocity: row.get("velocity")?,
+            spin_rate: row.get("spin_rate")?,
             control: row.get("control")?,
             stamina: row.get("stamina")?,
             injury_proneness: row.get("injury_proneness")?,

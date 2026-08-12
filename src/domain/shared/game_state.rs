@@ -988,6 +988,7 @@ mod tests {
                     arm_slot: ArmSlot::ThreeQuarter,
                     pitcher_style: PitcherStyle::BalancedPitcher,
                     velocity: 145.0,
+                    spin_rate: 2200.0,
                     control: 0.5,
                     stamina: 0.5,
                     injury_proneness: 0.5,

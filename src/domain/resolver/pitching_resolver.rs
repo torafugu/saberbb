@@ -31,10 +31,13 @@ pub fn create_pitch(
 
     let speed = pitcher.velocity * pitch_skill.velocity * rng.normal_factor_std_1_percent();
 
-    // Speed-based correction (slower pitches have lower spin rate)
+    // NOTE: Speed-based correction (slower pitches have lower spin rate)
     let speed_factor = speed / BASE_FOUR_SEAM_SPEED;
 
-    let raw_spin_rate = pitch_skill.spin_rate * rng.normal_factor_std_1_percent() * speed_factor;
+    let raw_spin_rate = pitcher.spin_rate
+        * pitch_skill.spin_rate
+        * rng.normal_factor_std_1_percent()
+        * speed_factor;
     let release_point = pitcher.calculate_release_point(rng);
     let flight_time = calculate_flight_time(speed, release_point.y);
 
@@ -261,6 +264,7 @@ mod tests {
             ArmSlot::ThreeQuarter,
             PitcherStyle::BalancedPitcher,
             150.0,
+            2200.0,
             0.5,
             0.5,
             0.5,

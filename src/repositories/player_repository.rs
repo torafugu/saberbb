@@ -281,6 +281,7 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             arm_slot,
                                                             pitcher_style,
                                                             velocity,
+                                                            spin_rate,
                                                             control,
                                                             stamina,
                                                             injury_proneness,
@@ -289,7 +290,7 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             platoon_splitting,
                                                             delivery_motion_time
                                                             ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)";
         self.db_client.execute_tx(
             tx,
             insert_pitcher_info_sql,
@@ -301,6 +302,7 @@ impl PlayerRepository for SqlPlayerRepository {
                 pitcher_info.arm_slot,
                 pitcher_info.pitcher_style,
                 pitcher_info.velocity,
+                pitcher_info.spin_rate,
                 pitcher_info.control,
                 pitcher_info.stamina,
                 pitcher_info.injury_proneness,
@@ -562,6 +564,7 @@ mod tests {
                 arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
                 velocity REAL NOT NULL,
+                spin_rate REAL NOT NULL,
                 control REAL NOT NULL,
                 stamina REAL NOT NULL,
                 injury_proneness REAL NOT NULL,
@@ -882,6 +885,7 @@ mod tests {
             arm_slot: ArmSlot::Sidearm,
             pitcher_style: PitcherStyle::BalancedPitcher,
             velocity: 1.1,
+            spin_rate: 1.15,
             control: 1.2,
             stamina: 1.3,
             injury_proneness: 1.4,
@@ -901,10 +905,10 @@ mod tests {
             String,
             String,
             String,
-            [f64; 10],
+            [f64; 11],
         ) = conn
             .query_row(
-                "SELECT player_id, throw_side, arm_slot, pitcher_style, velocity, control, stamina,
+                "SELECT player_id, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina,
                     height, extension, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time
                  FROM pitcher_info",
                 [],
@@ -925,6 +929,7 @@ mod tests {
                             row.get(11)?,
                             row.get(12)?,
                             row.get(13)?,
+                            row.get(14)?,
                         ],
                     ))
                 },
@@ -938,7 +943,7 @@ mod tests {
                 "Left".to_string(),
                 "Sidearm".to_string(),
                 "BalancedPitcher".to_string(),
-                [1.1, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8]
+                [1.1, 1.15, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8]
             )
         );
         std::fs::remove_file(path).ok();
@@ -957,6 +962,7 @@ mod tests {
             arm_slot: ArmSlot::ThreeQuarter,
             pitcher_style: PitcherStyle::PowerPitcher,
             velocity: 1.1,
+            spin_rate: 1.15,
             control: 1.2,
             stamina: 1.3,
             injury_proneness: 1.4,

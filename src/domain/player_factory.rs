@@ -270,6 +270,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,
             velocity: self.rng.normal(self.pitcher_info_probs.velocity),
+            spin_rate: self.rng.normal(self.pitcher_info_probs.spin_rate),
             control: self.rng.normal(self.pitcher_info_probs.control),
             stamina: self.rng.normal(self.pitcher_info_probs.stamina),
             injury_proneness: self.rng.normal(self.pitcher_info_probs.injury_proneness),

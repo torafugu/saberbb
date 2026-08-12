@@ -122,6 +122,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let height = self.repo.normal_params(PLY, PTI, "height")?;
         let extension = self.repo.normal_params(PLY, PTI, "extension")?;
         let velocity = self.repo.normal_params(PLY, PTI, "velocity")?;
+        let spin_rate = self.repo.normal_params(PLY, PTI, "spin_rate")?;
         let control = self.repo.normal_params(PLY, PTI, "control")?;
         let stamina = self.repo.normal_params(PLY, PTI, "stamina")?;
         let injury_proneness = self.repo.normal_params(PLY, PTI, "injury_proneness")?;
@@ -137,6 +138,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,
             velocity: velocity,
+            spin_rate: spin_rate,
             control: control,
             stamina: stamina,
             injury_proneness: injury_proneness,
@@ -357,6 +359,7 @@ mod tests {
                         weight: 1.0,
                     }],
                     velocity: normal,
+                    spin_rate: normal,
                     control: normal,
                     stamina: normal,
                     injury_proneness: normal,

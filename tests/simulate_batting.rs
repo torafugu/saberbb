@@ -59,7 +59,7 @@ fn test_batted_ball() {
             &mut rng,
             &pitched_ball,
             &matchup,
-            &pitched_ball,
+            &expected_ball,
             batter.batting_eye,
         );
 

@@ -8,6 +8,7 @@ CREATE TABLE pitcher_info(
     arm_slot TEXT NOT NULL,
     pitcher_style TEXT NOT NULL,
     velocity REAL NOT NULL,
+    spin_rate REAL NOT NULL,
     control REAL NOT NULL,
     stamina REAL NOT NULL,
     injury_proneness REAL NOT NULL,

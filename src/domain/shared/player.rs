@@ -410,7 +410,7 @@ pub enum PitchType {
     Curveball,
     Slider,
     Changeup,
-    Forkball,
+    Splitter,
 }
 impl fmt::Display for PitchType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -420,7 +420,7 @@ impl fmt::Display for PitchType {
             PitchType::Curveball => write!(f, "{}", t!("curveball")),
             PitchType::Slider => write!(f, "{}", t!("slider")),
             PitchType::Changeup => write!(f, "{}", t!("changeup")),
-            PitchType::Forkball => write!(f, "{}", t!("forkball")),
+            PitchType::Splitter => write!(f, "{}", t!("splitter")),
         }
     }
 }
@@ -480,6 +480,7 @@ pub struct PitcherInfo {
     pub arm_slot: ArmSlot,
     pub pitcher_style: PitcherStyle,
     pub velocity: f64,
+    pub spin_rate: f64,
     pub control: f64,
     pub stamina: f64,
     pub injury_proneness: f64,
@@ -498,6 +499,7 @@ impl PitcherInfo {
         arm_slot: ArmSlot,
         pitcher_style: PitcherStyle,
         velocity: f64,
+        spin_rate: f64,
         control: f64,
         stamina: f64,
         injury_proneness: f64,
@@ -510,20 +512,21 @@ impl PitcherInfo {
     ) -> Self {
         Self {
             height: height,
-            extension: extension,
-            throw_side: throw_side,
-            arm_slot: arm_slot,
-            pitcher_style: pitcher_style,
+            extension,
+            throw_side,
+            arm_slot,
+            pitcher_style,
             velocity,
+            spin_rate,
             control,
             stamina,
             injury_proneness,
             clutch,
             hpp,
             platoon_splitting,
-            delivery_motion_time: delivery_motion_time,
-            pitch_skills: pitch_skills,
-            fielder_info: fielder_info,
+            delivery_motion_time,
+            pitch_skills,
+            fielder_info,
         }
     }
 
