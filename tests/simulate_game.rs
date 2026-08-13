@@ -30,13 +30,26 @@ fn test_through_half_inning() -> Result<(), GameError> {
         inning_state.runners.batter_runner = Some(batter_runner);
 
         let pitched_ball = create_pitch(&mut rng, &pitcher)?;
+        let expected_ball = create_pitch(&mut rng, &pitcher)?;
 
         let absolute_location = calculate_ball_movement(&pitched_ball);
-        let pitch_displacement = PitchDisplacement {
-            horizontal_offset_m: absolute_location.x_m,
-            vertical_offset_m: absolute_location.z_m,
-            timing_offset_sec: 0.0,
+
+        let matchup = MatchupContext {
+            throw_side: pitcher.throw_side,
+            batting_side: batter.batting_side,
         };
+
+        let pitch_similarity =
+            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
+
+        let pitch_displacement = calculate_pitch_offset(
+            &mut rng,
+            &pitched_ball,
+            &expected_ball,
+            &pitch_similarity,
+            &matchup,
+            batter.batting_eye,
+        );
 
         let swing_execution_error = calculate_swing_execution_error(
             batter.bat_contact,

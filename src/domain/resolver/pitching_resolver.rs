@@ -1,4 +1,5 @@
 use crate::domain::random_provider::RandomProvider;
+use crate::domain::resolver::batting_resolver::PitchSimilarity;
 use crate::domain::shared::ball::{BallLocation, BallMovement, PitchedBall, Zone};
 use crate::domain::shared::player::PitcherInfo;
 use crate::domain::shared::player::RL;
@@ -88,6 +89,8 @@ pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
 }
 
 pub struct PitchDisplacement {
+    pub crossfire_multiplier: f64,
+    pub release_x_factor: f64,
     pub horizontal_offset_m: f64,
     pub vertical_offset_m: f64,
     pub timing_offset_sec: f64,
@@ -109,8 +112,9 @@ pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
 pub fn calculate_pitch_offset(
     rng: &mut dyn RandomProvider,
     pitched_ball: &PitchedBall,
-    matchup: &MatchupContext,
     expected_ball: &PitchedBall,
+    pitch_similarity: &PitchSimilarity,
+    matchup: &MatchupContext,
     batting_eye: f64,
 ) -> PitchDisplacement {
     // 1. Point at which the batter commits to the swing (approx. 60% of total flight time)
@@ -126,19 +130,31 @@ pub fn calculate_pitch_offset(
     // 4. Angle emphasis base proportional to release position magnitude (release_point.x)
     let release_x_factor = 1.0 + (pitched_ball.release_point.x.abs() * 0.15);
 
-    // 5. Multiply the offset x by the crossfire illusion multiplier (correction)
-    let enhanced_offset_x = offset_x * crossfire_multiplier * release_x_factor;
+    // 5. Multiply the offset x by the crossfire illusion multiplier (correction) and pitch_similarity
+    let enhanced_offset_x =
+        offset_x * crossfire_multiplier * release_x_factor * pitch_similarity.spin;
 
     // 6. Vertical calculation
     let delta_vertical = pitched_ball.get_vertical_accel() - expected_ball.get_vertical_accel();
     let offset_y = 0.5 * delta_vertical * remaining_time.powi(2);
 
-    // 6. Timing calculation
-    let timing_offset_sec = calculate_timing_offset(rng, pitched_ball, expected_ball, batting_eye);
+    // 7. Multiply the offset  by the pitch_similarity
+    let enhanced_offset_y = offset_y * pitch_similarity.spin;
+
+    // 8. Timing calculation
+    let timing_offset_sec = calculate_timing_offset(
+        rng,
+        pitched_ball,
+        expected_ball,
+        batting_eye,
+        pitch_similarity.speed,
+    );
 
     PitchDisplacement {
+        crossfire_multiplier: crossfire_multiplier,
+        release_x_factor: release_x_factor,
         horizontal_offset_m: enhanced_offset_x,
-        vertical_offset_m: offset_y,
+        vertical_offset_m: enhanced_offset_y,
         timing_offset_sec: timing_offset_sec,
     }
 }
@@ -171,6 +187,7 @@ fn calculate_timing_offset(
     pitched_ball: &PitchedBall,
     expected_ball: &PitchedBall,
     batting_eye: f64,
+    expected_speed_similarity: f64,
 ) -> f64 {
     // 1. Actual flight time (calculated from extension and actual pitch speed)
     let actual_release_point = pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
@@ -183,12 +200,12 @@ fn calculate_timing_offset(
         calculate_flight_time(expected_ball.speed, release_point_seen_from_batter);
 
     // 3. Flight time difference (pure physical timing offset)
-    let raw_delta_t = (actual_flight_time - expected_flight_time) * sigmoid(batting_eye);
-
     // Sign convention for why raw_delta_t > 0 means late:
     // actual_time > expected_time (ball arrives slower) = batter swung too early (Early)
     // actual_time < expected_time (ball arrives faster) = batter swung late (Late)
-    let delta_t_sec = raw_delta_t;
+    let delta_t_sec = (actual_flight_time - expected_flight_time)
+        * sigmoid(batting_eye)
+        * expected_speed_similarity;
 
     delta_t_sec
 }
@@ -234,14 +251,16 @@ mod tests {
         );
     }
 
-    fn pitch_skill(pitch_type: PitchType, spin_angle: f64, spin_rate: f64) -> PitchSkill {
+    fn pitch_skill(pitch_type: PitchType, spin_angle: f64, spin_rate_rpm: f64) -> PitchSkill {
+        let base_pitcher_spin_rate = 2200.0;
+
         PitchSkill::from_prob(
             pitch_type,
             spin_type_velocity(pitch_type),
             0.5,
             0.5,
             0.5,
-            spin_rate,
+            spin_rate_rpm / base_pitcher_spin_rate,
             spin_angle,
             1.0,
             1.0,
@@ -308,6 +327,14 @@ mod tests {
             aim_location: BallLocation { x: 0.0, y: 0.0 },
             actual_location: BallLocation { x: 0.0, y: 0.0 },
         }
+    }
+
+    fn pitch_similarity() -> PitchSimilarity {
+        pitch_similarity_with(1.0, 1.0)
+    }
+
+    fn pitch_similarity_with(speed: f64, spin: f64) -> PitchSimilarity {
+        PitchSimilarity { speed, spin }
     }
 
     #[test]
@@ -404,16 +431,19 @@ mod tests {
         let displacement = calculate_pitch_offset(
             &mut rng,
             &ball,
+            &expected_ball,
+            &pitch_similarity(),
             &MatchupContext {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
-            &expected_ball,
             TEST_BATTING_EYE,
         );
 
         assert_near(displacement.horizontal_offset_m, expected_horizontal);
         assert_near(displacement.vertical_offset_m, expected_vertical);
+        assert_near(displacement.crossfire_multiplier, 1.0);
+        assert_near(displacement.release_x_factor, 1.0);
     }
 
     #[test]
@@ -453,26 +483,75 @@ mod tests {
         let same_side = calculate_pitch_offset(
             &mut rng,
             &ball,
+            &expected_ball,
+            &pitch_similarity(),
             &MatchupContext {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
-            &expected_ball,
             TEST_BATTING_EYE,
         );
         let crossfire = calculate_pitch_offset(
             &mut rng,
             &ball,
+            &expected_ball,
+            &pitch_similarity(),
             &MatchupContext {
                 throw_side: RL::Left,
                 batting_side: RL::Right,
             },
-            &expected_ball,
             TEST_BATTING_EYE,
         );
 
         assert!(crossfire.horizontal_offset_m > same_side.horizontal_offset_m);
         assert_near(crossfire.vertical_offset_m, same_side.vertical_offset_m);
+        assert_near(same_side.crossfire_multiplier, 1.0);
+        assert_near(crossfire.crossfire_multiplier, 1.30);
+        assert_near(same_side.release_x_factor, 1.0 + 0.80 * 0.15);
+        assert_near(crossfire.release_x_factor, same_side.release_x_factor);
+    }
+
+    #[test]
+    fn calculate_pitch_offset_scales_offsets_by_pitch_similarity() {
+        let mut rng = FixedRng::new(0.0);
+        let ball = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let expected_ball = pitched_ball(145.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+
+        let full_similarity = calculate_pitch_offset(
+            &mut rng,
+            &ball,
+            &expected_ball,
+            &pitch_similarity(),
+            &MatchupContext {
+                throw_side: RL::Right,
+                batting_side: RL::Right,
+            },
+            TEST_BATTING_EYE,
+        );
+        let reduced_similarity = calculate_pitch_offset(
+            &mut rng,
+            &ball,
+            &expected_ball,
+            &pitch_similarity_with(0.5, 0.25),
+            &MatchupContext {
+                throw_side: RL::Right,
+                batting_side: RL::Right,
+            },
+            TEST_BATTING_EYE,
+        );
+
+        assert_near(
+            reduced_similarity.horizontal_offset_m,
+            full_similarity.horizontal_offset_m * 0.25,
+        );
+        assert_near(
+            reduced_similarity.vertical_offset_m,
+            full_similarity.vertical_offset_m * 0.25,
+        );
+        assert_near(
+            reduced_similarity.timing_offset_sec,
+            full_similarity.timing_offset_sec * 0.5,
+        );
     }
 
     #[test]
@@ -481,7 +560,9 @@ mod tests {
         let ball = pitched_ball(135.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
-        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE) > 0.0);
+        assert!(
+            calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE, 1.0) > 0.0
+        );
     }
 
     #[test]
@@ -490,6 +571,8 @@ mod tests {
         let ball = pitched_ball(160.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
-        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE) < 0.0);
+        assert!(
+            calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE, 1.0) < 0.0
+        );
     }
 }

@@ -16,4 +16,7 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }

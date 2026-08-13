@@ -162,7 +162,7 @@ VALUES
     (
         'pitcher_style',
         'PowerPitcher',
-        'Forkball',
+        'Splitter',
         0.2
     );
 
@@ -222,7 +222,7 @@ VALUES
     (
         'pitcher_style',
         'FinessePitcher',
-        'Forkball',
+        'Splitter',
         0.6
     );
 
@@ -282,7 +282,7 @@ VALUES
     (
         'pitcher_style',
         'BalancedPitcher',
-        'Forkball',
+        'Splitter',
         0.4
     );
 

@@ -2,6 +2,7 @@ DROP TABLE test_pitched_ball;
 
 CREATE TABLE test_pitched_ball (
     pitch_type TEXT NOT NULL,
+    expected_pitch_type TEXT NOT NULL,
     speed_ms REAL NOT NULL,
     spin_rate REAL NOT NULL,
     spin_angle REAL NOT NULL,
@@ -18,6 +19,10 @@ CREATE TABLE test_pitched_ball (
     pitch_result TEXT NOT NULL,
     movement_x REAL NOT NULL,
     movement_z REAL NOT NULL,
+    similarity_speed REAL NOT NULL,
+    similarity_spin REAL NOT NULL,
+    crossfire_multiplier REAL NOT NULL,
+    release_x_factor REAL NOT NULL,
     disp_x REAL NOT NULL,
     disp_y REAL NOT NULL,
     timing REAL NOT NULL

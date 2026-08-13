@@ -1,4 +1,5 @@
 use crate::domain::shared::game::BaseCode;
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 
 pub const GRAVITY: f64 = 9.81;
@@ -7,6 +8,25 @@ pub struct Vector3D {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+pub fn euclidean_distance(a: &[f64], b: &[f64]) -> Result<f64, AppError> {
+    if a.len() != b.len() {
+        return Err(AppError::InvalidInput(
+            "Mismatched vector dimensions".to_string(),
+        ));
+    }
+
+    let sum_sq: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| {
+            let diff = x - y;
+            diff * diff
+        })
+        .sum();
+
+    Ok(sum_sq.sqrt())
 }
 
 pub fn softmax(values: &[f64]) -> Vec<f64> {

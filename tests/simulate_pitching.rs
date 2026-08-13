@@ -3,6 +3,7 @@ mod common;
 use common::*;
 use rusqlite::params;
 use saberbb::domain::random_provider::*;
+use saberbb::domain::resolver::batting_resolver::calculate_pitch_similarity;
 use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::repositories::db::*;
 
@@ -27,21 +28,32 @@ fn test_pitched_ball() {
             batting_side: batter.batting_side,
         };
 
+        let pitch_similarity =
+            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
+
         let pitch_displacement = calculate_pitch_offset(
             &mut rng,
             &pitched_ball,
+            &expected_ball,
+            &pitch_similarity,
             &matchup,
-            &pitched_ball,
             batter.batting_eye,
         );
 
         conn.execute(
-            "INSERT INTO test_pitched_ball (pitch_type, speed_ms,  spin_rate, spin_angle, spin_efficiency, 
-            release_point_x, release_point_y, release_point_z, flight_time, aim_zone, 
-            aim_x, aim_y, actual_x, actual_y, pitch_result, movement_x, movement_z, disp_x, disp_y, timing) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            "INSERT INTO test_pitched_ball (
+                pitch_type, expected_pitch_type, speed_ms,  spin_rate, spin_angle, spin_efficiency, 
+                release_point_x, release_point_y, release_point_z, flight_time, aim_zone, 
+                aim_x, aim_y, actual_x, actual_y, pitch_result, movement_x, movement_z,
+                similarity_speed, similarity_spin, crossfire_multiplier, release_x_factor, disp_x, disp_y, timing) 
+            VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6,
+                ?7, ?8, ?9, ?10, ?11,
+                ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 pitched_ball.pitch_type.as_ref(),
+                expected_ball.pitch_type.as_ref(),
                 pitched_ball.speed,
                 pitched_ball.spin_rate,
                 pitched_ball.spin_angle,
@@ -58,6 +70,10 @@ fn test_pitched_ball() {
                 pitched_ball.actual_location.call().as_ref(),
                 ball_movement.x_m,
                 ball_movement.z_m,
+                pitch_similarity.speed,
+                pitch_similarity.spin,
+                pitch_displacement.crossfire_multiplier,
+                pitch_displacement.release_x_factor,
                 pitch_displacement.horizontal_offset_m,
                 pitch_displacement.vertical_offset_m,
                 pitch_displacement.timing_offset_sec,

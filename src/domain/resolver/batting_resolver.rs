@@ -17,23 +17,29 @@ pub struct PitchSimilarity {
     pub spin: f64,
 }
 
-// pub fn calculate_pitch_similarity(
-//     pitcher: &PitcherInfo,
-//     actual_pitch_type: PitchType,
-//     expected_pitch_type: PitchType,
-// ) -> PitchSimilarity {
-//     let actual_pitch_skill = pitcher.select_pitch_skill(actual_pitch_type);
-//     let expected_pitch_skill = pitcher.select_pitch_skill(expected_pitch_type);
+pub fn calculate_pitch_similarity(
+    pitcher: &PitcherInfo,
+    actual_pitch_type: PitchType,
+    expected_pitch_type: PitchType,
+) -> PitchSimilarity {
+    let actual_pitch_skill = pitcher.select_pitch_skill(actual_pitch_type);
+    let expected_pitch_skill = pitcher.select_pitch_skill(expected_pitch_type);
 
-//     let actual_pitch_speed = Vec::from(vec![actual_pitch_skill.velocity]);
-//     let expected_pitch_speed = Vec::from(vec![expected_pitch_skill.velocity]);
-//     let speed_similarity = cosine_similarity(actual_pitch_speed, expected_pitch_speed);
+    let speed_similarity =
+        1.0 - (actual_pitch_skill.velocity - expected_pitch_skill.velocity).abs();
 
-//     let actual_pitch_speed = Vec::from(vec![actual_pitch_skill.velocity]);
-//     let expected_pitch_speed = Vec::from(vec![expected_pitch_skill.velocity]);
-//     let speed_similarity = cosine_similarity(actual_pitch_speed, expected_pitch_speed);
+    let spin_rate_similarity =
+        1.0 - (actual_pitch_skill.spin_rate - expected_pitch_skill.spin_rate).abs();
+    let spin_angle_similarity = 1.0
+        - ((actual_pitch_skill.spin_angle - expected_pitch_skill.spin_angle) / 360.0 * 2.0).abs();
+    let spin_similarity =
+        ((spin_rate_similarity.powi(2) + spin_angle_similarity.powi(2)) / 2.0).sqrt();
 
-// }
+    PitchSimilarity {
+        speed: speed_similarity,
+        spin: spin_similarity,
+    }
+}
 
 pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisplacement {
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
@@ -44,6 +50,8 @@ pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisp
     let adapted_timing = offset.timing_offset_sec * (1.0 - sigmoid(bat_contact));
 
     PitchDisplacement {
+        crossfire_multiplier: offset.crossfire_multiplier,
+        release_x_factor: offset.release_x_factor,
         horizontal_offset_m: adapted_x,
         vertical_offset_m: adapted_z,
         timing_offset_sec: adapted_timing,

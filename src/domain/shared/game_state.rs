@@ -5,8 +5,8 @@ use super::player::{
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
-    SwingContactType, calculate_batted_ball, calculate_swing_execution_error,
-    evaluate_swing_contact,
+    SwingContactType, calculate_batted_ball, calculate_pitch_similarity,
+    calculate_swing_execution_error, evaluate_swing_contact,
 };
 use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
@@ -675,9 +675,12 @@ impl GameState {
 
         let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
         // TODO: expected_pitched_ball should be created by better logic.
-        let expected_pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
+        let expected_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
 
         let absolute_location = calculate_ball_movement(&pitched_ball);
+
+        let pitch_similarity =
+            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -687,8 +690,9 @@ impl GameState {
         let pitch_displacement = calculate_pitch_offset(
             self.rng.as_mut(),
             &pitched_ball,
+            &expected_ball,
+            &pitch_similarity,
             &matchup,
-            &expected_pitched_ball,
             batter.batting_eye,
         );
 

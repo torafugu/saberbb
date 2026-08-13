@@ -50,6 +50,9 @@ fn test_batted_ball() {
         let pitched_ball = create_pitch(&mut rng, &pitcher).unwrap();
         let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
 
+        let pitch_similarity =
+            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
+
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
             batting_side: batter.batting_side,
@@ -58,8 +61,9 @@ fn test_batted_ball() {
         let pitch_displacement = calculate_pitch_offset(
             &mut rng,
             &pitched_ball,
-            &matchup,
             &expected_ball,
+            &pitch_similarity,
+            &matchup,
             batter.batting_eye,
         );
 
