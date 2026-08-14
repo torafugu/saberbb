@@ -4,6 +4,8 @@ CREATE TABLE test_batted_ball (
     horizontal_offset_m REAL NOT NULL,
     vertical_offset_m REAL NOT NULL,
     timing_offset_sec REAL NOT NULL,
+    swing_factor REAL NOT NULL,
+    swing_execution TEXT NOT NULL,
     adapted_x_m REAL NOT NULL,
     adapted_z_m REAL NOT NULL,
     adapted_timing REAL NOT NULL,

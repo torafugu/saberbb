@@ -1,6 +1,6 @@
 use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::{PitchType, Position};
-use crate::domain::strategy::pitch_call::TargetZone;
+use crate::domain::strategy::pitching_strategy::TargetZone;
 use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};

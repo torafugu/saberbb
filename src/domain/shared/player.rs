@@ -1,9 +1,8 @@
 use crate::I18nManager;
 use crate::domain::random_provider::{RandomProvider, choose_item_weighted};
-use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::prob::ItemWeighted;
-use crate::domain::strategy::pitch_call::{
+use crate::domain::strategy::pitching_strategy::{
     Margin, PitchCall, TargetZone, default_location_distribution,
 };
 use crate::domain::util::{Vector3D, softmax};

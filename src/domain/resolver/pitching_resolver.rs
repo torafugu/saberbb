@@ -89,6 +89,7 @@ pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
     flight_time
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct PitchDisplacement {
     pub crossfire_multiplier: f64,
     pub release_x_factor: f64,
@@ -116,16 +117,16 @@ pub struct LocationBias {
     pub spatial_bias_y: f64,
 }
 
-// TODO: バッター別のlocationの得意と不得意を反映する
+// TODO: Reflect each batter's strengths and weaknesses with pitch location
 pub fn calculate_location_bias(location: BallLocation) -> LocationBias {
-    // 1. Inside (x < 0) ほど振り遅れ(+), Outside (x > 0) ほど泳ぎ(-)
-    // 内角は最大 +0.012秒 (12ms) 差し込まれやすく、外角は -0.010秒 呼び込める
+    // 1. Inside (x < 0) tends to make batter late (+), Outside (x > 0) tends to make batter early (-)
+    // Inside pitches jam the batter up to +0.012s (12ms), outside pitches can be waited on -0.010s
     let timing_bias = -location.x * 0.010 + location.y * 0.005;
 
-    // 2. 横ズレバイアス: Inside は詰まり(-), Outside は先端(+) に寄りやすい
+    // 2. Lateral offset bias: Inside tends to jam (-), Outside tends to hit the end of the bat (+)
     let spatial_x = location.x * 0.20;
 
-    // 3. 縦ズレバイアス: High(norm_y > 0) は上叩き(+), Low(norm_y < 0) は下叩き(-) に寄りやすい
+    // 3. Vertical offset bias: High (norm_y > 0) tends to hit above the ball (+), Low (norm_y < 0) tends to hit below (-)
     let spatial_y = location.y * 0.15;
 
     LocationBias {
@@ -266,7 +267,7 @@ mod tests {
     use crate::domain::shared::player::{
         ArmSlot, FielderInfo, FielderType, PitchSkill, PitchType, PitcherStyle,
     };
-    use crate::domain::strategy::pitch_call::TargetZone;
+    use crate::domain::strategy::pitching_strategy::TargetZone;
     use crate::domain::util::Vector3D;
 
     const EPSILON: f64 = 1e-9;

@@ -1,6 +1,8 @@
 flowchart TD
-    adapt_to_pitch --> evaluate_swing_contact
-    calculate_swing_execution_error --> evaluate_swing_contact --> calculate_batted_ball
+    calculate_swing_factor --> select_swing_execution
+    select_swing_execution --> |Swing|adapt_to_pitch --> evaluate_swing_contact
+    select_swing_execution --> |Swing|calculate_swing_execution_error --> evaluate_swing_contact
+    evaluate_swing_contact --> calculate_batted_ball
 
     subgraph calculate_swing_execution_error
         direction TB

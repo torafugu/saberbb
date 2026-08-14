@@ -1,6 +1,8 @@
+use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall, TrajectoryType};
 use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
+use crate::domain::strategy::batting_strategy::SwingExecution;
 use crate::domain::util::{GRAVITY, sigmoid};
 
 use serde::{Deserialize, Serialize};
@@ -41,7 +43,7 @@ pub fn calculate_pitch_similarity(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
 pub enum CountStatus {
     C00,
     C10,
@@ -75,7 +77,33 @@ impl CountStatus {
     }
 }
 
-fn calc_swing_prob() {}
+// TODO: Reflect catter's characteristics
+pub fn calculate_swing_factor(
+    count_status: CountStatus,
+    actual_pitch_type: PitchType,
+    expected_pitch_type: PitchType,
+) -> f64 {
+    let count_status_factor = count_status.prob();
+
+    let pitch_type_factor = if actual_pitch_type == expected_pitch_type {
+        0.15
+    } else {
+        -0.15
+    };
+
+    (count_status_factor + pitch_type_factor)
+}
+
+pub fn select_swing_execution(
+    rng: &mut dyn RandomProvider,
+    swing_execution_factor: f64,
+) -> SwingExecution {
+    if rng.random() < sigmoid(swing_execution_factor) {
+        SwingExecution::Swing
+    } else {
+        SwingExecution::Take
+    }
+}
 
 pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisplacement {
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
@@ -119,6 +147,7 @@ fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64) -> 
     attack_angle_deg + (angle_delta * COUPLING_FACTOR)
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct SwingExecutionError {
     pub additional_x_m: f64,
     pub additional_z_m: f64,
@@ -176,7 +205,7 @@ pub enum PitchOutcome {
 }
 
 // Mismatch between the batter's swing prediction and the actual pitch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
     pub timing_impact_x_m: f64,
     pub offset_x_m: f64,
@@ -188,7 +217,9 @@ pub struct SwingContactResult {
     pub attack_angle_deg: f64,
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
+#[derive(
+    Clone, Debug, Default, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr,
+)]
 #[strum(ascii_case_insensitive)]
 pub enum SwingContactType {
     // NOTE: Caught it on the sweet spot (likely fair / extra-base hit)
@@ -199,6 +230,8 @@ pub enum SwingContactType {
     FoulTip,
     // NOTE: Bat swung through air completely (swing and miss)
     SwungAndMiss,
+    #[default]
+    Take,
 }
 
 pub fn evaluate_swing_contact(
@@ -600,7 +633,7 @@ mod tests {
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::player::{PitchType, RL};
-    use crate::domain::strategy::pitch_call::TargetZone;
+    use crate::domain::strategy::pitching_strategy::TargetZone;
     use crate::domain::util::Vector3D;
 
     fn batter(batting_side: RL) -> BatterInfo {

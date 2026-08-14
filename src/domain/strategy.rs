@@ -1,2 +1,2 @@
-pub mod pitch_call;
-pub mod pitch_expectation;
+pub mod batting_strategy;
+pub mod pitching_strategy;
