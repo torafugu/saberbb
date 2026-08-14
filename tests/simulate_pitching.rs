@@ -31,12 +31,15 @@ fn test_pitched_ball() {
         let pitch_similarity =
             calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
 
+        let location_bias = calculate_location_bias(pitched_ball.actual_location);
+
         let pitch_displacement = calculate_pitch_offset(
             &mut rng,
             &pitched_ball,
             &expected_ball,
             &pitch_similarity,
             &matchup,
+            &location_bias,
             batter.batting_eye,
         );
 
@@ -45,12 +48,15 @@ fn test_pitched_ball() {
                 pitch_type, expected_pitch_type, speed_ms,  spin_rate, spin_angle, spin_efficiency, 
                 release_point_x, release_point_y, release_point_z, flight_time, aim_zone, 
                 aim_x, aim_y, actual_x, actual_y, pitch_result, movement_x, movement_z,
-                similarity_speed, similarity_spin, crossfire_multiplier, release_x_factor, disp_x, disp_y, timing) 
+                similarity_speed, similarity_spin, location_bias_x, location_bias_y, location_bias_timing,
+                crossfire_multiplier, release_x_factor, disp_x, disp_y, timing) 
             VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11,
                 ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                ?19, ?20, ?21, ?22, ?23,
+                ?24, ?25, ?26, ?27, ?28
+            )",
             params![
                 pitched_ball.pitch_type.as_ref(),
                 expected_ball.pitch_type.as_ref(),
@@ -72,6 +78,9 @@ fn test_pitched_ball() {
                 ball_movement.z_m,
                 pitch_similarity.speed,
                 pitch_similarity.spin,
+                location_bias.spatial_bias_x,
+                location_bias.spatial_bias_y,
+                location_bias.timing_bias_sec,
                 pitch_displacement.crossfire_multiplier,
                 pitch_displacement.release_x_factor,
                 pitch_displacement.horizontal_offset_m,

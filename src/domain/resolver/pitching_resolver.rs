@@ -60,6 +60,7 @@ pub fn create_pitch(
 }
 
 // TODO: Consider pitcher's control effect.
+// TODO: Consider ball location expetation.
 fn sample_ball_location(
     rng: &mut dyn RandomProvider,
     zone: Zone,
@@ -109,12 +110,38 @@ pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
     }
 }
 
+pub struct LocationBias {
+    pub timing_bias_sec: f64,
+    pub spatial_bias_x: f64,
+    pub spatial_bias_y: f64,
+}
+
+// TODO: バッター別のlocationの得意と不得意を反映する
+pub fn calculate_location_bias(location: BallLocation) -> LocationBias {
+    // 1. Inside (x < 0) ほど振り遅れ(+), Outside (x > 0) ほど泳ぎ(-)
+    // 内角は最大 +0.012秒 (12ms) 差し込まれやすく、外角は -0.010秒 呼び込める
+    let timing_bias = -location.x * 0.010 + location.y * 0.005;
+
+    // 2. 横ズレバイアス: Inside は詰まり(-), Outside は先端(+) に寄りやすい
+    let spatial_x = location.x * 0.20;
+
+    // 3. 縦ズレバイアス: High(norm_y > 0) は上叩き(+), Low(norm_y < 0) は下叩き(-) に寄りやすい
+    let spatial_y = location.y * 0.15;
+
+    LocationBias {
+        timing_bias_sec: timing_bias,
+        spatial_bias_x: spatial_x,
+        spatial_bias_y: spatial_y,
+    }
+}
+
 pub fn calculate_pitch_offset(
     rng: &mut dyn RandomProvider,
     pitched_ball: &PitchedBall,
     expected_ball: &PitchedBall,
     pitch_similarity: &PitchSimilarity,
     matchup: &MatchupContext,
+    location_bias: &LocationBias,
     batting_eye: f64,
 ) -> PitchDisplacement {
     // 1. Point at which the batter commits to the swing (approx. 60% of total flight time)
@@ -132,14 +159,15 @@ pub fn calculate_pitch_offset(
 
     // 5. Multiply the offset x by the crossfire illusion multiplier (correction) and pitch_similarity
     let enhanced_offset_x =
-        offset_x * crossfire_multiplier * release_x_factor * pitch_similarity.spin;
+        offset_x * crossfire_multiplier * release_x_factor * pitch_similarity.spin
+            + location_bias.spatial_bias_x;
 
     // 6. Vertical calculation
     let delta_vertical = pitched_ball.get_vertical_accel() - expected_ball.get_vertical_accel();
     let offset_y = 0.5 * delta_vertical * remaining_time.powi(2);
 
     // 7. Multiply the offset  by the pitch_similarity
-    let enhanced_offset_y = offset_y * pitch_similarity.spin;
+    let enhanced_offset_y = offset_y * pitch_similarity.spin + location_bias.spatial_bias_y;
 
     // 8. Timing calculation
     let timing_offset_sec = calculate_timing_offset(
@@ -148,7 +176,7 @@ pub fn calculate_pitch_offset(
         expected_ball,
         batting_eye,
         pitch_similarity.speed,
-    );
+    ) + location_bias.timing_bias_sec;
 
     PitchDisplacement {
         crossfire_multiplier: crossfire_multiplier,
@@ -337,6 +365,14 @@ mod tests {
         PitchSimilarity { speed, spin }
     }
 
+    fn zero_location_bias() -> LocationBias {
+        LocationBias {
+            timing_bias_sec: 0.0,
+            spatial_bias_x: 0.0,
+            spatial_bias_y: 0.0,
+        }
+    }
+
     #[test]
     fn create_pitch_uses_pitcher_pitch_skill_and_release_point() {
         let mut rng = FixedRng::new(0.0);
@@ -437,6 +473,7 @@ mod tests {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
+            &zero_location_bias(),
             TEST_BATTING_EYE,
         );
 
@@ -489,6 +526,7 @@ mod tests {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
+            &zero_location_bias(),
             TEST_BATTING_EYE,
         );
         let crossfire = calculate_pitch_offset(
@@ -500,6 +538,7 @@ mod tests {
                 throw_side: RL::Left,
                 batting_side: RL::Right,
             },
+            &zero_location_bias(),
             TEST_BATTING_EYE,
         );
 
@@ -526,6 +565,7 @@ mod tests {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
+            &zero_location_bias(),
             TEST_BATTING_EYE,
         );
         let reduced_similarity = calculate_pitch_offset(
@@ -537,6 +577,7 @@ mod tests {
                 throw_side: RL::Right,
                 batting_side: RL::Right,
             },
+            &zero_location_bias(),
             TEST_BATTING_EYE,
         );
 
@@ -551,6 +592,46 @@ mod tests {
         assert_near(
             reduced_similarity.timing_offset_sec,
             full_similarity.timing_offset_sec * 0.5,
+        );
+    }
+
+    #[test]
+    fn calculate_location_bias_converts_pitch_location_to_timing_and_spatial_biases() {
+        let bias = calculate_location_bias(BallLocation { x: -0.5, y: 0.4 });
+
+        assert_near(bias.timing_bias_sec, 0.007);
+        assert_near(bias.spatial_bias_x, -0.1);
+        assert_near(bias.spatial_bias_y, 0.06);
+    }
+
+    #[test]
+    fn calculate_pitch_offset_adds_location_bias_to_displacement() {
+        let mut rng = FixedRng::new(0.0);
+        let ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+        let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+        let location_bias = calculate_location_bias(BallLocation { x: 0.5, y: -0.4 });
+
+        let displacement = calculate_pitch_offset(
+            &mut rng,
+            &ball,
+            &expected_ball,
+            &pitch_similarity(),
+            &MatchupContext {
+                throw_side: RL::Right,
+                batting_side: RL::Right,
+            },
+            &location_bias,
+            TEST_BATTING_EYE,
+        );
+
+        assert_near(
+            displacement.horizontal_offset_m,
+            location_bias.spatial_bias_x,
+        );
+        assert_near(displacement.vertical_offset_m, location_bias.spatial_bias_y);
+        assert_near(
+            displacement.timing_offset_sec,
+            location_bias.timing_bias_sec,
         );
     }
 

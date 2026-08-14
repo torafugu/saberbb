@@ -17,8 +17,10 @@ flowchart TD
         crossfire_perceived_multiplier
     end
     
-    create_pitch --> calculate_ball_movement
     create_pitch --> MatchupContext --> calculate_pitch_offset
+    create_pitch --> calculate_pitch_similarity --> calculate_pitch_offset
+    create_pitch --> calculate_location_bias --> calculate_pitch_offset
+    create_pitch --> calculate_ball_movement
 
     subgraph calculate_pitch_offset
         get_side_accel

@@ -41,6 +41,42 @@ pub fn calculate_pitch_similarity(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CountStatus {
+    C00,
+    C10,
+    C20,
+    C30,
+    C01,
+    C11,
+    C21,
+    C31,
+    C02,
+    C12,
+    C22,
+    C32,
+}
+impl CountStatus {
+    pub fn prob(&self) -> f64 {
+        match self {
+            CountStatus::C00 => 0.0,
+            CountStatus::C10 => -0.10,
+            CountStatus::C20 => -0.25,
+            CountStatus::C30 => -0.6,
+            CountStatus::C01 => 0.1,
+            CountStatus::C11 => 0.0,
+            CountStatus::C21 => -0.1,
+            CountStatus::C31 => -0.25,
+            CountStatus::C02 => 0.2,
+            CountStatus::C12 => 0.1,
+            CountStatus::C22 => 0.05,
+            CountStatus::C32 => 0.15,
+        }
+    }
+}
+
+fn calc_swing_prob() {}
+
 pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisplacement {
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
     let adapted_x = offset.horizontal_offset_m * (1.0 - sigmoid(bat_contact));

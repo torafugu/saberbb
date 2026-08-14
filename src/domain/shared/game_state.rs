@@ -14,7 +14,8 @@ use crate::domain::resolver::fielding_resolver::{
     evaluate_double_play, process_defensive_chain,
 };
 use crate::domain::resolver::pitching_resolver::{
-    MatchupContext, calculate_ball_movement, calculate_pitch_offset, create_pitch,
+    MatchupContext, calculate_ball_movement, calculate_location_bias, calculate_pitch_offset,
+    create_pitch,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -687,12 +688,15 @@ impl GameState {
             batting_side: batter.batting_side,
         };
 
+        let location_bias = calculate_location_bias(pitched_ball.actual_location);
+
         let pitch_displacement = calculate_pitch_offset(
             self.rng.as_mut(),
             &pitched_ball,
             &expected_ball,
             &pitch_similarity,
             &matchup,
+            &location_bias,
             batter.batting_eye,
         );
 
