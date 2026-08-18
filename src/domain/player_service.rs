@@ -1,11 +1,8 @@
-use super::shared::player::{
-    FielderType, HitterTendency, PitchType, PitcherStyle, Player, Position,
-};
+use super::shared::player::{FielderType, PitchType, PitcherStyle, Player, Position};
 use super::shared::prob::{
     BatterInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs, PlayerInfoProbs,
     RunningSkillProbs,
 };
-use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::player::FullName;
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::team::Team;

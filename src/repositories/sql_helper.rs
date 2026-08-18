@@ -1,5 +1,4 @@
 pub mod ball_helper;
-pub mod batting_resolver_helper;
 pub mod game_helper;
 pub mod game_stat_helper;
 pub mod player_helper;

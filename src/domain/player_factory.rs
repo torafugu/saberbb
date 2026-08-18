@@ -1,7 +1,7 @@
 use super::player_service::PlayerService;
 use super::shared::player::{
-    CatcherInfo, FielderInfo, FielderType, HitterTendency, OffenseSkills, PitchSkill, PitchType,
-    PitcherInfo, PitcherStyle, Player, Position, RunningSkills,
+    CatcherInfo, FielderInfo, FielderType, OffenseSkills, PitchSkill, PitchType, PitcherInfo,
+    PitcherStyle, Player, Position, RunningSkills,
 };
 use super::shared::prob::{
     BatterInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs, PlayerInfoProbs,
@@ -10,7 +10,6 @@ use super::shared::prob::{
 use crate::domain::random_provider::{
     RandomProvider, RealRng, choose_item_if_exists, choose_item_weighted,
 };
-use crate::domain::resolver::batting_resolver::FieldSector;
 use crate::domain::shared::player::{BatterInfo, DefenseSkills, PlayerInfo};
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::team::Team;

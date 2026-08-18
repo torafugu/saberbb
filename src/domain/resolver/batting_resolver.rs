@@ -394,19 +394,6 @@ pub fn calculate_launch_speed_with_power(
     launch_speed_ms
 }
 
-// TODO: Remove FieldSector
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, EnumIter, AsRefStr,
-)]
-#[strum(ascii_case_insensitive)]
-pub enum FieldSector {
-    FoulPull, // NOTE: Foul of Pull-side (right-handed batter → left field, left-handed batter → right field)
-    Pull,     // NOTE: Pull (right-handed batter → left field, left-handed batter → right field)
-    Center,   // NOTE: Center field
-    Opposite, // NOTE: Opposite field (right-handed batter → right field, left-handed batter → left field)
-    FoulOpposite, // NOTE: Foul of Opposite-side (right-handed batter → right field, left-handed batter → left field)
-}
-
 #[derive(Clone, Debug)]
 pub struct SpinVector {
     pub x: f64, // Horizontal spin component (+: slider spin, -: screw spin)

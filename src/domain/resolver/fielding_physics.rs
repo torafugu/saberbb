@@ -34,7 +34,7 @@ pub struct FielderInterception<'a> {
     pub catch_distance_m: f64,          // Polar r: catch/pickup distance (m)
     pub catch_spray_angle_deg: f64,     // Polar θ: catch/pickup azimuth angle (deg)
     pub catch_z_m: f64,                 // Ball height Z at the moment of catch
-    pub waiting_time_sec: f64,          // Time the fielder waited at the landing point (s) (>=0 means comfortable)
+    pub waiting_time_sec: f64, // Time the fielder waited at the landing point (s) (>=0 means comfortable)
     pub ball: &'a BattedBall,
 }
 impl<'a> FielderInterception<'a> {
@@ -68,6 +68,13 @@ pub enum CatchType {
     Fumble,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FielderRiskTolerance {
+    Aggressive,   // Go for the no-bounce catch even when it's right at the limit (high risk, high reward)
+    Balanced,     // Normal fielding judgment
+    Conservative, // Prioritize avoiding errors/misses; safely field it on one bounce (low risk)
+}
+
 pub fn evaluate_fielder_interception<'a>(
     rng: &mut dyn RandomProvider,
     ball: &'a BattedBall,
@@ -81,75 +88,113 @@ pub fn evaluate_fielder_interception<'a>(
     let dt = 0.05;
     let mut t = 0.10;
 
+    // Scan chronologically for future points where the ball is at a catchable height (Z <= 2.2m)
     while t <= ball.total_time {
         // Get the ball's polar coordinates (b_r, b_theta), height, and Cartesian coordinates
         let (b_r, b_theta, b_x, b_y, b_z, is_direct) = estimate_ball_state_at_time(t, ball);
 
-        // Calculate the fielder's movement distance to the ball's straight-line trajectory and required time (only movement uses Cartesian distance temporarily)
-        let move_dist = ((b_x - f_x0).powi(2) + (b_y - f_y0).powi(2)).sqrt();
-        let fielder_needed_time = fielder.info.prep_time + (move_dist / fielder.info.running_speed);
-
         // TODO: fielding_stat should be included to FielderInfo
         let fielding_stat: f64 = 0.99;
 
-        if fielder_needed_time <= t && b_z <= MAX_REACH_HEIGHT {
-            let waiting_time = t - fielder_needed_time;
-            let difficulty = if waiting_time < 0.2 { 3.0 } else { 1.0 };
-            let base_error_rate = (1.0 - fielding_stat).clamp(0.01, 0.50);
-            let error_probability = base_error_rate * difficulty * 0.10;
-            let rng_value = rng.random();
+        // Only points where the ball is at a catchable height (Z <= MAX_REACH_HEIGHT) become the movement target
+        if b_z <= MAX_REACH_HEIGHT {
+            // Calculate the fielder's movement distance to the ball's straight-line trajectory and required time (only movement uses Cartesian distance temporarily)
+            let move_dist = ((b_x - f_x0).powi(2) + (b_y - f_y0).powi(2)).sqrt();
+            let fielder_needed_time =
+                fielder.info.prep_time + (move_dist / fielder.info.running_speed);
 
-            if rng_value < error_probability {
-                if waiting_time >= 0.25 {
-                    // [Fumble]: stopped it in front of the body but fumbled at the hands (time delay)
-                    let fumble_penalty_sec = 1.2 + (rng_value * 10.0) % 0.8;
-                    return Some(FielderInterception {
-                        fielder: fielder,
-                        catch_type: CatchType::Fumble,
-                        error_type: Some(FieldError::Fumble),
-                        catch_time_sec: t + fumble_penalty_sec,
-                        catch_distance_m: b_r,
-                        catch_spray_angle_deg: b_theta,
-                        catch_z_m: 0.0,
-                        waiting_time_sec: 0.0,
-                        ball: ball,
-                    });
-                } else {
-                    // [Passed]: caught up but touched/deflected it behind (error confirmed)
-                    return Some(FielderInterception {
-                        fielder: fielder,
-                        catch_type: if is_direct {
-                            CatchType::DirectFly
-                        } else {
-                            CatchType::BounceCatch
-                        },
-                        error_type: Some(FieldError::Passed),
-                        catch_time_sec: t, // Time the ball got by
-                        catch_distance_m: b_r,
-                        catch_spray_angle_deg: b_theta,
-                        catch_z_m: b_z,
-                        waiting_time_sec: waiting_time,
-                        ball: ball,
-                    });
+            // TODO: risk_tolerance should be included to ActiveFielder
+            let risk_tolerance = FielderRiskTolerance::Balanced;
+
+            // Can the fielder reach the target point by the ball's arrival time t?
+            if fielder_needed_time <= t {
+                let waiting_time = t - fielder_needed_time;
+
+                // ---------------------------------------------------------
+                // 1. No-bounce catch avoidance judgment based on FielderRiskTolerance
+                // ---------------------------------------------------------
+                if is_direct {
+                    let is_acceptable_risk = match risk_tolerance {
+                        FielderRiskTolerance::Aggressive => {
+                            // Go for it no matter how tight, as long as waiting time is >= 0
+                            waiting_time >= 0.0
+                        }
+                        FielderRiskTolerance::Balanced => {
+                            // Give up the no-bounce catch unless there's 0.15s of margin, and play it on the first bounce
+                            waiting_time >= 0.15
+                        }
+                        FielderRiskTolerance::Conservative => {
+                            // Avoid the no-bounce catch unless there's a solid 0.35s of margin
+                            waiting_time >= 0.35
+                        }
+                    };
+
+                    // If the risk is deemed too high, skip the catch at this (no-bounce) point
+                    // and continue the loop to find a safe point after the first bounce
+                    if !is_acceptable_risk {
+                        t += dt;
+                        continue;
+                    }
                 }
-            }
 
-            // Normal catch
-            return Some(FielderInterception {
-                fielder: fielder,
-                catch_type: if is_direct {
-                    CatchType::DirectFly
-                } else {
-                    CatchType::BounceCatch
-                },
-                error_type: None,
-                catch_time_sec: t,
-                catch_distance_m: b_r,
-                catch_spray_angle_deg: b_theta,
-                catch_z_m: b_z,
-                waiting_time_sec: t - fielder_needed_time,
-                ball: ball,
-            });
+                // Fielding error judgment (varies with how little waiting time there is)
+                let difficulty = if waiting_time < 0.2 { 3.0 } else { 1.0 };
+                let base_error_rate = (1.0 - fielding_stat).clamp(0.01, 0.50);
+                let error_probability = base_error_rate * difficulty * 0.10;
+                let rng_value = rng.random();
+
+                if rng_value < error_probability {
+                    if waiting_time >= 0.25 {
+                        // [Fumble]: stopped it in front of the body but fumbled at the hands (time delay)
+                        let fumble_penalty_sec = 1.2 + (rng_value * 10.0) % 0.8;
+                        return Some(FielderInterception {
+                            fielder: fielder,
+                            catch_type: CatchType::Fumble,
+                            error_type: Some(FieldError::Fumble),
+                            catch_time_sec: t + fumble_penalty_sec,
+                            catch_distance_m: b_r,
+                            catch_spray_angle_deg: b_theta,
+                            catch_z_m: 0.0,
+                            waiting_time_sec: 0.0,
+                            ball: ball,
+                        });
+                    } else {
+                        // [Passed]: caught up but touched/deflected it behind (error confirmed)
+                        return Some(FielderInterception {
+                            fielder: fielder,
+                            catch_type: if is_direct {
+                                CatchType::DirectFly
+                            } else {
+                                CatchType::BounceCatch
+                            },
+                            error_type: Some(FieldError::Passed),
+                            catch_time_sec: t, // Time the ball got by
+                            catch_distance_m: b_r,
+                            catch_spray_angle_deg: b_theta,
+                            catch_z_m: b_z,
+                            waiting_time_sec: waiting_time,
+                            ball: ball,
+                        });
+                    }
+                }
+
+                // Normal catch
+                return Some(FielderInterception {
+                    fielder: fielder,
+                    catch_type: if is_direct {
+                        CatchType::DirectFly
+                    } else {
+                        CatchType::BounceCatch
+                    },
+                    error_type: None,
+                    catch_time_sec: t,
+                    catch_distance_m: b_r,
+                    catch_spray_angle_deg: b_theta,
+                    catch_z_m: b_z,
+                    waiting_time_sec: t - fielder_needed_time,
+                    ball: ball,
+                });
+            }
         }
 
         t += dt;
@@ -283,7 +328,7 @@ pub fn evaluate_final_pickup<'a>(
                 catch_type: CatchType::FinalPickup,
                 error_type,
                 catch_time_sec: t + final_delay,
-                catch_distance_m: b_r,          // Exact polar r at the interception point
+                catch_distance_m: b_r, // Exact polar r at the interception point
                 catch_spray_angle_deg: b_theta, // Exact polar θ at the interception point
                 catch_z_m: 0.0,
                 waiting_time_sec: (t - fielder_needed_time).max(0.0),
@@ -309,63 +354,3 @@ pub fn evaluate_final_pickup<'a>(
         ball: ball,
     }
 }
-
-// pub fn try_catch(fielder: &ActiveFielder, ball: &BattedBall) -> FieldedBall {
-//     let mut final_ball = ball.clone();
-//     final_ball.final_position.distance = bounded_ball.final_distance;
-
-//     FieldedBall {
-//         ball: final_ball,
-//         fielded_by: fielder.position,
-//         time_to_field: bounded_ball.time_to_fumble,
-//         is_fly_catch: false,
-//     }
-// }
-
-// Processing when a fly/liner wasn't caught (became a hit)
-// fn process_bounded_ball(
-//     fielder: &ActiveFielder,
-//     ball: &BattedBall,
-//     stadium: &Stadium,
-// ) -> BoundedBallResult {
-//     // 1. Damping coefficient at the moment of the first bounce (liner bounces sharply, fly dies)
-//     let k_impact = match ball.trajectory {
-//         TrajectoryType::Liner => 0.60,
-//         TrajectoryType::Fly => 0.35,
-//         _ => 0.0,
-//     };
-
-//     // 2. Initial speed as a grounder right after the bounce
-//     let v_horizontal = ball.launch_speed * ball.azimuth().cos() * 0.7; // Velocity including in-flight air resistance
-//     let v_bounce = v_horizontal * k_impact;
-
-//     // 3. Additional rolling distance and time until stop
-//     let roll_distance = v_bounce * 1.8;
-
-//     // 4. Provisional final resting position (landing point + roll distance)
-//     let mut final_distance = ball.distance() + roll_distance;
-
-//     // The fence bounce (cushion) logic
-//     if let Some(fence_distance) = stadium.fence_distance_at_angle(ball.angle()) {
-//         if final_distance > fence_distance {
-//             let overflow = final_distance - fence_distance;
-//             final_distance = fence_distance - (overflow * FENCE_BOUNCE_COEFF);
-//         }
-//     }
-
-//     // 5. Defense: time for the fielder to chase down and pick up the rolling ball
-//     // The fielder was initially running toward the landing point but didn't make it.
-//     // Simple calculation of time to loop around toward the direction the ball rolled (final_distance)
-//     let fielder_distance_to_ball = (final_distance - fielder.distance()).abs();
-
-//     // Time for the fielder to reach the final resting point (or cushion treatment position)
-//     let fielder_arrival_time =
-//         fielder.info.reaction + (fielder_distance_to_ball / fielder.info.running_speed);
-
-//     // Time the fielder picks up the ball (either waiting for it to stop or cutting it off mid-roll)
-//     let time_to_pick_up = fielder_arrival_time.max(ball.total_time + FIRST_BOUNCE_TIME);
-//     BoundedBallResult {
-//         final_distance,
-//         time_to_fumble: time_to_pick_up, // NOTE: This becomes the time_to_field for the next throw play!
-//     }
-// }
