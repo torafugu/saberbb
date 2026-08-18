@@ -1,5 +1,5 @@
-use crate::domain::shared::ball::{BattedBall, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
+use crate::domain::shared::game_state::{GameError, WindCondition};
 use crate::domain::util::PolarPosition;
 use crate::proj_dirs;
 use crate::t;
@@ -157,30 +157,15 @@ impl Stadium {
         draw(fence_svg);
     }
 
-    pub fn is_stand_in(&self, ball: &BattedBall) -> bool {
-        if ball.trajectory == TrajectoryType::Grounder {
-            return false;
-        };
-
-        if let Some(distance) = self.fence_distance_at_angle(ball.angle()) {
-            if ball.distance() < distance {
-                return false;
-            }
-
-            let ball_height = ball.calculate_height_at_distance(distance);
-            if ball_height > self.fence_height {
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    pub fn fence_distance_at_angle(&self, angle: f64) -> Option<f64> {
-        self.fence_intersection_at_angle(angle)
+    pub fn fence_distance_at_angle(&self, angle: f64) -> Result<f64, GameError> {
+        if let Some(distance) = self
+            .fence_intersection_at_angle(angle)
             .map(|intersect_pt| intersect_pt.distance(Point::ORIGIN))
+        {
+            Ok(distance)
+        } else {
+            return Err(GameError::StadiumHasNoFenceIntersection);
+        }
     }
 
     fn fence_intersection_at_angle(&self, angle: f64) -> Option<Point> {
@@ -195,6 +180,14 @@ impl Stadium {
         );
 
         find_intersections(&self.fence_line, ray)
+    }
+
+    // TODO: Add more wind conditions.
+    pub fn default_wind(&self) -> WindCondition {
+        WindCondition {
+            speed_m_per_s: 2.0,
+            dir_deg: 315.0,
+        }
     }
 }
 

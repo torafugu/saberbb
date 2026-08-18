@@ -12,30 +12,6 @@ use saberbb::domain::strategy::batting_strategy::*;
 use saberbb::repositories::db::*;
 
 #[test]
-fn test_stand_in() {
-    let stadium = generate_stadium();
-    let ball = BattedBall::new(170.0, 35.0, 30.0, 130.0, 5.0, TrajectoryType::Fly);
-    println!("x:{}, y:{}", ball.x(), ball.y());
-
-    if stadium.is_stand_in(&ball) {
-        if ball.is_foul() {
-            println!("{}", BattingResult::Foul);
-        } else {
-            println!("{}", BattingResult::HomeRun);
-        }
-    } else {
-        println!("In ground !"); // Hit, Direct hit on the fence
-    }
-}
-
-#[test]
-fn test_ball_height() {
-    let ball = BattedBall::new(160.0, 35.0, 30.0, 300.0, 5.0, TrajectoryType::Fly);
-    let heigt = ball.calculate_height_at_distance(100.0);
-    println!("height:{}", heigt);
-}
-
-#[test]
 fn test_calculate_swing_factor() {
     let count_status = CountStatus::C01;
     let actual_pitch_type = PitchType::FourSeamFastball;
@@ -50,6 +26,7 @@ fn test_batted_ball() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
     conn.execute("DELETE FROM test_batted_ball", []).unwrap();
 
+    let stadium = generate_stadium();
     let pitcher = generate_pitcher();
     let batter = generate_batter();
 
@@ -121,7 +98,7 @@ fn test_batted_ball() {
         {
             BattedBall::default()
         } else {
-            calculate_batted_ball(&batter, pitched_ball, &swing_contact)
+            calculate_batted_ball(&batter, pitched_ball, &swing_contact, &stadium).unwrap()
         };
 
         conn.execute(
@@ -142,7 +119,7 @@ fn test_batted_ball() {
                 swing_factor, swing_execution.as_ref(), adapted_displacement.horizontal_offset_m, adapted_displacement.vertical_offset_m, adapted_displacement.timing_offset_sec,
                 swing_execution_error.additional_x_m, swing_execution_error.additional_z_m, swing_execution_error.ideal_bat_angle_deg, swing_execution_error.actual_bat_angle_deg, swing_execution_error.ideal_attack_angle_deg, swing_execution_error.actual_attack_angle_deg,
                 swing_contact.timing_impact_x_m, swing_contact.offset_x_m, swing_contact.offset_z_m, swing_contact.thickness_offset_m, swing_contact.length_offset_m, swing_contact.contact_type.as_ref(), swing_contact.attack_angle_deg,
-                batted_ball.launch_speed, batted_ball.launch_angle, batted_ball.angle(), batted_ball.distance(),  batted_ball.hang_time, batted_ball.trajectory.as_ref()
+                batted_ball.launch_speed, batted_ball.launch_angle, batted_ball.angle(), batted_ball.distance(),  batted_ball.total_time, batted_ball.trajectory().as_ref()
                 ],
         )
         .unwrap();

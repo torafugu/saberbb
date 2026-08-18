@@ -1,20 +1,28 @@
 use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::strategy::pitching_strategy::TargetZone;
-use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
+use crate::domain::util::{PolarPosition, Vector3D};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 
-const FOUL_DEGREE: f64 = 45.0;
+pub const FOUL_DEGREE: f64 = 45.0;
 const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
 
 // Scaling coefficient calibrated so that at 2500rpm, 150km/h (41.67m/s), efficiency 1.0, acceleration is approx. 3.5 m/s²
 // Coefficient K ≈ 3.5 / (2500.0 * 41.67) ≈ 0.0000336
-const MAGNUS_COEFF: f64 = 0.0000336;
+pub const MAGNUS_COEFF: f64 = 0.0000336;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr, Serialize, Deserialize)]
+pub enum OutboundResult {
+    InField,
+    HomeRun,
+    GroundRuleDouble,
+    Foul,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum TrajectoryType {
@@ -40,6 +48,7 @@ impl fmt::Display for TrajectoryType {
 pub struct FieldedBall {
     pub ball: BattedBall,
     pub fielded_by: Position,
+    pub catch_position: PolarPosition,
     pub time_to_field: f64,
     pub is_fly_catch: bool,
 }
@@ -48,26 +57,44 @@ pub struct FieldedBall {
 pub struct BattedBall {
     pub launch_speed: f64,
     pub launch_angle: f64,
-    pub polar_position: PolarPosition,
-    pub hang_time: f64, // second
-    pub trajectory: TrajectoryType,
+    pub spin_rate: f64,
+    pub spin_angle: f64,
+    pub final_position: PolarPosition,
+    pub total_time: f64,
+    // NOTE: Polar coordinates (r) and time (t) of the first bounce
+    // Note: None if it hits the fence directly or is a no-bounce home run
+    pub first_bounce_position: Option<PolarPosition>,
+    pub first_bounce_time: Option<f64>,
+    pub fence_impact_position: Option<PolarPosition>,
+    pub fence_impact_time: Option<f64>,
+    pub outbound_result: OutboundResult,
 }
 
 impl BattedBall {
     pub fn new(
         launch_speed: f64,
         launch_angle: f64,
-        spray_angle: f64,
-        distance: f64,
-        hang_time: f64,
-        trajectory: TrajectoryType,
+        polar_distance: f64,
+        polar_angle: f64,
+        total_time: f64,
+        first_bounce_position: Option<PolarPosition>,
+        first_bounce_time: Option<f64>,
+        fence_impact_position: Option<PolarPosition>,
+        fence_impact_time: Option<f64>,
+        outbound_result: OutboundResult,
     ) -> Self {
         Self {
             launch_speed,
-            launch_angle: launch_angle,
-            polar_position: PolarPosition::new(distance, spray_angle),
-            hang_time: hang_time,
-            trajectory: trajectory,
+            launch_angle,
+            spin_rate: 0.0,
+            spin_angle: 0.0,
+            final_position: PolarPosition::new(polar_distance, polar_angle),
+            total_time,
+            first_bounce_position,
+            first_bounce_time,
+            fence_impact_position,
+            fence_impact_time,
+            outbound_result,
         }
     }
 
@@ -75,18 +102,24 @@ impl BattedBall {
         Self {
             launch_speed: 0.0,
             launch_angle: 0.0,
-            polar_position: PolarPosition::new(0.0, 0.0),
-            hang_time: 0.0,
-            trajectory: TrajectoryType::NA,
+            spin_rate: 0.0,
+            spin_angle: 0.0,
+            final_position: PolarPosition::new(0.0, 0.0),
+            total_time: 0.0,
+            first_bounce_position: None,
+            first_bounce_time: None,
+            fence_impact_position: None,
+            fence_impact_time: None,
+            outbound_result: OutboundResult::InField,
         }
     }
 
     pub fn distance(&self) -> f64 {
-        self.polar_position.distance
+        self.final_position.distance
     }
 
     pub fn angle(&self) -> f64 {
-        self.polar_position.angle
+        self.final_position.angle
     }
 
     pub fn azimuth(&self) -> f64 {
@@ -94,15 +127,15 @@ impl BattedBall {
     }
 
     pub fn x(&self) -> f64 {
-        self.polar_position.x
+        self.final_position.x
     }
 
     pub fn y(&self) -> f64 {
-        self.polar_position.y
+        self.final_position.y
     }
 
     pub fn is_foul(&self) -> bool {
-        if self.polar_position.angle.abs() >= FOUL_DEGREE {
+        if self.final_position.angle.abs() >= FOUL_DEGREE {
             true
         } else {
             false
@@ -117,34 +150,29 @@ impl BattedBall {
         self.distance() < SHALLOW_DISTANCE
     }
 
-    pub fn calculate_height_at_distance(
-        &self,
-        target_distance: f64, // Distance at which to calculate height (m)
-    ) -> f64 {
-        let theta = self.launch_angle.to_radians();
+    /// Determine final batted ball category by combining launch angle and spin
+    pub fn trajectory(&self) -> TrajectoryType {
+        // 1. Calculate trajectory correction from spin (lift/sink)
+        // Backspin (0°) gives positive correction, topspin (180°) gives negative correction
+        let spin_angle_rad = self.spin_angle.to_radians();
+        let backspin_factor = spin_angle_rad.cos(); // 0 deg => 1.0, 180 deg => -1.0
 
-        // 1. Apply drag coefficient based on trajectory type
-        let kd = match self.trajectory {
-            TrajectoryType::Liner => 0.75,
-            TrajectoryType::Fly | TrajectoryType::PopUp => 0.55,
-            TrajectoryType::Grounder => return 0.0, // Grounder height is always 0
-            TrajectoryType::NA => 0.0,
-        };
+        // Lift/sink correction proportional to spin rate (approximately ±a few degrees)
+        let spin_lift_effect = (self.spin_rate / 2000.0) * backspin_factor * 3.5;
 
-        // 2. Back-calculate time (t) to reach the target distance
-        let horizontal_velocity = self.launch_speed * theta.cos() * kd;
-        if horizontal_velocity <= 0.0 {
-            return 0.0;
-        } // Error guard
+        // Effective angle incorporating spin effect
+        let effective_angle = self.launch_angle + spin_lift_effect;
 
-        let t = target_distance / horizontal_velocity;
-
-        // 3. Calculate height at that time using the parabolic formula
-        let initial_vertical_velocity = self.launch_speed * theta.sin();
-        let height = (initial_vertical_velocity * t) - (0.5 * GRAVITY * t * t);
-
-        // Clamp to 0m if negative (ball would be below ground)
-        height.max(0.0)
+        // 2. Category classification (applying spin correction to MLB Statcast standard thresholds)
+        if effective_angle < 10.0 {
+            TrajectoryType::Grounder
+        } else if effective_angle < 25.0 {
+            TrajectoryType::Liner
+        } else if effective_angle < 50.0 {
+            TrajectoryType::Fly
+        } else {
+            TrajectoryType::PopUp
+        }
     }
 }
 
@@ -172,13 +200,13 @@ pub struct BallMovement {
     pub z_m: f64,
 }
 
-pub struct Zone {
+pub struct BallZone {
     pub x1: f64,
     pub y1: f64,
     pub x2: f64,
     pub y2: f64,
 }
-impl Zone {
+impl BallZone {
     pub fn width(&self) -> f64 {
         (self.x1 - self.x2).abs()
     }
@@ -240,7 +268,6 @@ impl PitchedBall {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::util::GRAVITY;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -249,21 +276,20 @@ mod tests {
         );
     }
 
-    fn ball(
-        trajectory: TrajectoryType,
-        distance: f64,
-        spray_angle: f64,
-        launch_speed: f64,
-        launch_angle: f64,
-    ) -> BattedBall {
-        BattedBall::new(
+    fn ball(distance: f64, spray_angle: f64, launch_speed: f64, launch_angle: f64) -> BattedBall {
+        BattedBall {
             launch_speed,
             launch_angle,
-            spray_angle,
-            distance,
-            2.5,
-            trajectory,
-        )
+            spin_rate: 0.0,
+            spin_angle: 0.0,
+            final_position: PolarPosition::new(distance, spray_angle),
+            total_time: 2.5,
+            first_bounce_position: None,
+            first_bounce_time: None,
+            fence_impact_position: None,
+            fence_impact_time: None,
+            outbound_result: OutboundResult::InField,
+        }
     }
 
     fn pitched_ball(
@@ -291,95 +317,105 @@ mod tests {
     }
 
     #[test]
-    fn new_sets_physical_values_and_polar_position() {
-        let ball = BattedBall::new(144.0, 30.0, 30.0, 100.0, 4.2, TrajectoryType::Fly);
+    fn default_sets_zeroed_physical_values_and_empty_event_metadata() {
+        let ball = BattedBall::default();
 
-        assert_near(ball.launch_speed, 144.0);
-        assert_near(ball.launch_angle, 30.0);
+        assert_near(ball.launch_speed, 0.0);
+        assert_near(ball.launch_angle, 0.0);
+        assert_near(ball.spin_rate, 0.0);
+        assert_near(ball.spin_angle, 0.0);
+        assert_near(ball.distance(), 0.0);
+        assert_near(ball.angle(), 0.0);
+        assert_near(ball.total_time, 0.0);
+        assert_eq!(ball.first_bounce_position, None);
+        assert_eq!(ball.first_bounce_time, None);
+        assert_eq!(ball.outbound_result, OutboundResult::InField);
+    }
+
+    #[test]
+    fn accessors_read_final_polar_position() {
+        let ball = ball(100.0, 30.0, 144.0, 30.0);
+
         assert_near(ball.distance(), 100.0);
         assert_near(ball.angle(), 30.0);
-        assert_near(ball.hang_time, 4.2);
-        assert_eq!(ball.trajectory, TrajectoryType::Fly);
         assert_near(ball.x(), 50.0);
         assert_near(ball.y(), 100.0 * 30.0_f64.to_radians().cos());
     }
 
     #[test]
     fn azimuth_converts_launch_angle_to_radians() {
-        let ball = ball(TrajectoryType::Fly, 90.0, 0.0, 100.0, 45.0);
+        let ball = ball(90.0, 0.0, 100.0, 45.0);
 
         assert_near(ball.azimuth(), std::f64::consts::FRAC_PI_4);
     }
 
     #[test]
     fn is_foul_includes_angles_inside_foul_degree_boundary() {
-        assert!(ball(TrajectoryType::Grounder, 30.0, -45.0, 80.0, 5.0).is_foul());
-        assert!(!ball(TrajectoryType::Grounder, 30.0, 0.0, 80.0, 5.0).is_foul());
-        assert!(ball(TrajectoryType::Grounder, 30.0, 45.0, 80.0, 5.0).is_foul());
+        assert!(ball(30.0, -45.0, 80.0, 5.0).is_foul());
+        assert!(!ball(30.0, 0.0, 80.0, 5.0).is_foul());
+        assert!(ball(30.0, 45.0, 80.0, 5.0).is_foul());
     }
 
     #[test]
     fn is_foul_excludes_angles_outside_foul_degree_boundary() {
-        assert!(ball(TrajectoryType::Fly, 80.0, -45.1, 100.0, 30.0).is_foul());
-        assert!(ball(TrajectoryType::Fly, 80.0, 45.1, 100.0, 30.0).is_foul());
+        assert!(ball(80.0, -45.1, 100.0, 30.0).is_foul());
+        assert!(ball(80.0, 45.1, 100.0, 30.0).is_foul());
     }
 
     #[test]
     fn is_infield_uses_strict_distance_boundary() {
-        assert!(ball(TrajectoryType::Grounder, 49.9, 0.0, 80.0, 5.0).is_infield());
-        assert!(!ball(TrajectoryType::Grounder, 50.0, 0.0, 80.0, 5.0).is_infield());
+        assert!(ball(49.9, 0.0, 80.0, 5.0).is_infield());
+        assert!(!ball(50.0, 0.0, 80.0, 5.0).is_infield());
     }
 
     #[test]
     fn is_shallow_uses_strict_distance_boundary() {
-        assert!(ball(TrajectoryType::Liner, 44.9, 0.0, 90.0, 12.0).is_shallow());
-        assert!(!ball(TrajectoryType::Liner, 45.0, 0.0, 90.0, 12.0).is_shallow());
+        assert!(ball(44.9, 0.0, 90.0, 12.0).is_shallow());
+        assert!(!ball(45.0, 0.0, 90.0, 12.0).is_shallow());
     }
 
     #[test]
-    fn calculate_height_at_distance_returns_zero_for_grounder() {
-        let grounder = ball(TrajectoryType::Grounder, 50.0, 0.0, 100.0, 5.0);
-
-        assert_near(grounder.calculate_height_at_distance(20.0), 0.0);
-    }
-
-    #[test]
-    fn calculate_height_at_distance_uses_liner_drag_coefficient() {
-        let liner = ball(TrajectoryType::Liner, 80.0, 0.0, 120.0, 20.0);
-        let target_distance = 30.0;
-        let v = 120.0 * 0.2778;
-        let theta = 20.0_f64.to_radians();
-        let t = target_distance / (v * theta.cos() * 0.75);
-        let expected_height = (v * theta.sin() * t) - (0.5 * GRAVITY * t * t);
-
-        assert_near(
-            liner.calculate_height_at_distance(target_distance),
-            expected_height,
+    fn trajectory_classifies_by_launch_angle_without_spin() {
+        assert_eq!(
+            ball(30.0, 0.0, 80.0, 9.9).trajectory(),
+            TrajectoryType::Grounder
+        );
+        assert_eq!(
+            ball(80.0, 0.0, 100.0, 10.0).trajectory(),
+            TrajectoryType::Liner
+        );
+        assert_eq!(
+            ball(100.0, 0.0, 120.0, 25.0).trajectory(),
+            TrajectoryType::Fly
+        );
+        assert_eq!(
+            ball(70.0, 0.0, 90.0, 50.0).trajectory(),
+            TrajectoryType::PopUp
         );
     }
 
     #[test]
-    fn calculate_height_at_distance_uses_airborne_drag_coefficient() {
-        let fly = ball(TrajectoryType::Fly, 100.0, 0.0, 140.0, 35.0);
-        let popup = ball(TrajectoryType::PopUp, 35.0, 0.0, 140.0, 35.0);
+    fn trajectory_applies_backspin_and_topspin_lift_correction() {
+        let backspin_liner = BattedBall {
+            spin_rate: 2000.0,
+            spin_angle: 0.0,
+            ..ball(80.0, 0.0, 100.0, 7.0)
+        };
+        let topspin_grounder = BattedBall {
+            spin_rate: 2000.0,
+            spin_angle: 180.0,
+            ..ball(80.0, 0.0, 100.0, 12.0)
+        };
 
-        assert_near(
-            fly.calculate_height_at_distance(25.0),
-            popup.calculate_height_at_distance(25.0),
-        );
-    }
-
-    #[test]
-    fn calculate_height_at_distance_returns_zero_when_horizontal_velocity_is_invalid() {
-        let backward_launch = ball(TrajectoryType::Fly, 80.0, 0.0, 100.0, 100.0);
-
-        assert_near(backward_launch.calculate_height_at_distance(20.0), 0.0);
+        assert_eq!(backspin_liner.trajectory(), TrajectoryType::Liner);
+        assert_eq!(topspin_grounder.trajectory(), TrajectoryType::Grounder);
     }
 
     #[test]
     fn get_side_accel_extracts_lateral_spin_component() {
-        let ball = pitched_ball(150.0, 2500.0, 90.0, 1.0);
-        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * (150.0 / 3.6);
+        let speed = 150.0 / 3.6;
+        let ball = pitched_ball(speed, 2500.0, 90.0, 1.0);
+        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * speed;
 
         assert_near(ball.get_side_accel(), expected_total_magnus_accel);
         assert_near(ball.get_vertical_accel(), 0.0);
@@ -387,8 +423,9 @@ mod tests {
 
     #[test]
     fn get_side_accel_preserves_lateral_direction() {
-        let ball = pitched_ball(150.0, 2500.0, 270.0, 1.0);
-        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * (150.0 / 3.6);
+        let speed = 150.0 / 3.6;
+        let ball = pitched_ball(speed, 2500.0, 270.0, 1.0);
+        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * speed;
 
         assert_near(ball.get_side_accel(), -expected_total_magnus_accel);
         assert_near(ball.get_vertical_accel(), 0.0);
@@ -396,9 +433,10 @@ mod tests {
 
     #[test]
     fn get_vertical_accel_extracts_vertical_spin_component() {
-        let backspin = pitched_ball(150.0, 2500.0, 0.0, 1.0);
-        let topspin = pitched_ball(150.0, 2500.0, 180.0, 1.0);
-        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * (150.0 / 3.6);
+        let speed = 150.0 / 3.6;
+        let backspin = pitched_ball(speed, 2500.0, 0.0, 1.0);
+        let topspin = pitched_ball(speed, 2500.0, 180.0, 1.0);
+        let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * speed;
 
         assert_near(backspin.get_side_accel(), 0.0);
         assert_near(backspin.get_vertical_accel(), expected_total_magnus_accel);
@@ -408,8 +446,9 @@ mod tests {
 
     #[test]
     fn pitched_ball_accel_scales_with_spin_efficiency() {
-        let ball = pitched_ball(144.0, 2000.0, 45.0, 0.75);
-        let expected_total_magnus_accel = MAGNUS_COEFF * (2000.0 * 0.75) * (144.0 / 3.6);
+        let speed = 144.0 / 3.6;
+        let ball = pitched_ball(speed, 2000.0, 45.0, 0.75);
+        let expected_total_magnus_accel = MAGNUS_COEFF * (2000.0 * 0.75) * speed;
         let expected_component = expected_total_magnus_accel * 45.0_f64.to_radians().sin();
 
         assert_near(ball.get_side_accel(), expected_component);

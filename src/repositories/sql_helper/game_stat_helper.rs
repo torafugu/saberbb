@@ -8,6 +8,7 @@ use crate::domain::shared::game_stats::{
 };
 use crate::domain::shared::player::PlayerInfo;
 use crate::domain::shared::stadium::Base;
+use crate::domain::util::PolarPosition;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -145,6 +146,18 @@ impl FromRow for PlayerGameBattingView {
             uniform_number: row.get("batter_uniform_number")?,
         };
 
+        let first_bounce_distance = row.get::<_, Option<f64>>("first_bounce_distance")?;
+        let first_bounce_angle = row.get::<_, Option<f64>>("first_bounce_angle")?;
+        let first_bounce_position = first_bounce_distance
+            .zip(first_bounce_angle)
+            .map(|(distance, angle)| PolarPosition::new(distance, angle));
+
+        let fence_impact_distance = row.get::<_, Option<f64>>("fence_impact_distance")?;
+        let fence_impact_angle = row.get::<_, Option<f64>>("fence_impact_angle")?;
+        let fence_impact_position = fence_impact_distance
+            .zip(fence_impact_angle)
+            .map(|(distance, angle)| PolarPosition::new(distance, angle));
+
         let batting_result_view = PlayerGameBattingView {
             count_seq: row.get("count_seq")?,
             pitcher: pitcher_info,
@@ -152,10 +165,14 @@ impl FromRow for PlayerGameBattingView {
             ball: BattedBall::new(
                 row.get("launch_speed")?,
                 row.get("launch_angle")?,
-                row.get("polar_angle")?,
                 row.get("polar_distance")?,
-                row.get("hang_time")?,
-                row.get("trajectory")?,
+                row.get("polar_angle")?,
+                row.get("total_time")?,
+                first_bounce_position,
+                row.get("first_bounce_time")?,
+                fence_impact_position,
+                row.get("fence_impact_time")?,
+                row.get("outbound_result")?,
             ),
             fielder_position: row.get("fielder_position")?,
             result: row.get::<_, BattingResult>("result")?,

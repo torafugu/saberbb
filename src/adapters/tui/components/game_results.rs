@@ -782,17 +782,17 @@ impl GameResultsWidget {
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {:.0}m\n",
                 t!("distance"),
-                ball.polar_position.distance
+                ball.final_position.distance
             ));
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {:.1}s\n",
                 t!("hang_time"),
-                ball.hang_time
+                ball.total_time
             ));
             let point_trajectory = if let Some(fielder_pos) = batting_view.fielder_position {
-                format!("{} {}", fielder_pos.short(), ball.trajectory)
+                format!("{} {}", fielder_pos.short(), ball.trajectory())
             } else {
-                ball.trajectory.to_string()
+                ball.trajectory().to_string()
             };
             formatted_batter_and_pitcher.push_str(&format!("{}\n", point_trajectory));
         } else if let Some(running_view) = game_cursor.current_running_view() {

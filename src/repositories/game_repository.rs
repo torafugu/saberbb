@@ -215,9 +215,11 @@ impl GameRepository for SqlGameRepository {
         let insert_player_game_batting_sql =
                 "INSERT INTO player_game_batting (
                     game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle, polar_distance, polar_angle, 
-                    hang_time, trajectory, fielder_position, result
+                    total_time, first_bounce_distance, first_bounce_angle, first_bounce_time,
+                    fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
+                    fielder_position, result
                     ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)";
         self.db_client.execute_tx(
             tx,
             insert_player_game_batting_sql,
@@ -228,10 +230,28 @@ impl GameRepository for SqlGameRepository {
                 player_game_batting.batter_id,
                 player_game_batting.ball.launch_speed,
                 player_game_batting.ball.launch_angle,
-                player_game_batting.ball.polar_position.distance,
-                player_game_batting.ball.polar_position.angle,
-                player_game_batting.ball.hang_time,
-                player_game_batting.ball.trajectory,
+                player_game_batting.ball.final_position.distance,
+                player_game_batting.ball.final_position.angle,
+                player_game_batting.ball.total_time,
+                player_game_batting
+                    .ball
+                    .first_bounce_position
+                    .map(|position| position.distance),
+                player_game_batting
+                    .ball
+                    .first_bounce_position
+                    .map(|position| position.angle),
+                player_game_batting.ball.first_bounce_time,
+                player_game_batting
+                    .ball
+                    .fence_impact_position
+                    .map(|position| position.distance),
+                player_game_batting
+                    .ball
+                    .fence_impact_position
+                    .map(|position| position.angle),
+                player_game_batting.ball.fence_impact_time,
+                player_game_batting.ball.outbound_result,
                 fielder_position_str,
                 player_game_batting.result
             ],
@@ -628,8 +648,14 @@ impl GameRepository for SqlGameRepository {
                 pgb.launch_angle,
                 pgb.polar_distance,
                 pgb.polar_angle,
-                pgb.hang_time,
-                pgb.trajectory,
+                pgb.total_time,
+                pgb.first_bounce_distance,
+                pgb.first_bounce_angle,
+                pgb.first_bounce_time,
+                pgb.fence_impact_distance,
+                pgb.fence_impact_angle,
+                pgb.fence_impact_time,
+                pgb.outbound_result,
                 pgb.fielder_position,
                 pgb.result
             FROM player_game_batting pgb
@@ -888,8 +914,14 @@ mod tests {
                 launch_angle REAL NOT NULL DEFAULT 0.0,
                 polar_distance REAL NOT NULL DEFAULT 0.0,
                 polar_angle REAL NOT NULL DEFAULT 0.0,
-                hang_time REAL NOT NULL DEFAULT 0.0,
-                trajectory TEXT NOT NULL DEFAULT 'Grounder',
+                total_time REAL NOT NULL DEFAULT 0.0,
+                first_bounce_distance REAL,
+                first_bounce_angle REAL,
+                first_bounce_time REAL,
+                fence_impact_distance REAL,
+                fence_impact_angle REAL,
+                fence_impact_time REAL,
+                outbound_result TEXT NOT NULL DEFAULT 'InField',
                 fielder_position TEXT,
                 result TEXT NOT NULL,
                 PRIMARY KEY (
@@ -1143,8 +1175,10 @@ mod tests {
                 "INSERT INTO player_game_batting (
                     game_id, count_seq, team_id, pitcher_id, batter_id,
                     launch_speed, launch_angle, polar_distance, polar_angle,
-                    hang_time, trajectory, fielder_position, result
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    total_time, first_bounce_distance, first_bounce_angle, first_bounce_time,
+                    fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
+                    fielder_position, result
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 params![
                     game_id,
                     count_seq,
@@ -1155,8 +1189,14 @@ mod tests {
                     0.0,                  // launch_angle
                     0.0,                  // polar_distance
                     0.0,                  // polar_angle
-                    0.0,                  // hang_time
-                    "Grounder",           // trajectory
+                    0.0,                  // total_time
+                    Option::<f64>::None,  // first_bounce_distance
+                    Option::<f64>::None,  // first_bounce_angle
+                    Option::<f64>::None,  // first_bounce_time
+                    Option::<f64>::None,  // fence_impact_distance
+                    Option::<f64>::None,  // fence_impact_angle
+                    Option::<f64>::None,  // fence_impact_time
+                    "InField",            // outbound_result
                     Option::<&str>::None, // fielder_position
                     result,
                 ],

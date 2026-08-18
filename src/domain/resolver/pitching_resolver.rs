@@ -1,6 +1,6 @@
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::PitchSimilarity;
-use crate::domain::shared::ball::{BallLocation, BallMovement, PitchedBall, Zone};
+use crate::domain::shared::ball::{BallLocation, BallMovement, BallZone, PitchedBall};
 use crate::domain::shared::player::PitcherInfo;
 use crate::domain::shared::player::RL;
 use crate::domain::util::GRAVITY;
@@ -63,7 +63,7 @@ pub fn create_pitch(
 // TODO: Consider ball location expetation.
 fn sample_ball_location(
     rng: &mut dyn RandomProvider,
-    zone: Zone,
+    zone: BallZone,
     aim: BallLocation,
 ) -> BallLocation {
     let norm_x = aim.x + zone.width() * rng.normal_std_10_percent();

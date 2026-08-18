@@ -2,12 +2,16 @@ use super::fielding_config::*;
 use super::running_resolver::RunnersOnBase;
 use super::throw_target_rules::*;
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::shared::ball::{BattedBall, FieldedBall, TrajectoryType};
+use crate::domain::resolver::fielding_physics::{
+    evaluate_fielder_interception, evaluate_final_pickup, FieldError, FieldPlayPlayResult,
+    FielderInterception,
+};
+use crate::domain::shared::ball::{BattedBall, FieldedBall};
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::shared::game_state::{ActiveFielder, GameError};
 use crate::domain::shared::player::{CatcherInfo, PitcherInfo, Position};
 use crate::domain::shared::stadium::Base;
-use crate::domain::util::{PolarPosition, calculate_polar_distance};
+use crate::domain::util::{calculate_polar_distance, PolarPosition};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
@@ -266,7 +270,7 @@ fn infield_grounder_defense_play(
 
     let result = calculator.infield_play_time(
         ctx.try_catch_fielder,
-        &ctx.fielded_ball.ball.polar_position,
+        &ctx.fielded_ball.ball.final_position,
         throw_target,
     );
 
@@ -306,7 +310,7 @@ fn outfield_hit_tagup_defense_play(
     // Catch + Throw time
     let defense_time = calculator.best_outfield_throw_time(
         ctx.try_catch_fielder,
-        &ctx.fielded_ball.ball.polar_position,
+        &ctx.fielded_ball.ball.final_position,
         throw_target.base,
         throw_target.play_type,
         cutoff_fielder,
@@ -679,58 +683,6 @@ pub fn evaluate_defense_play(
     }
 }
 
-#[derive(Debug)]
-pub struct BoundedBallResult {
-    pub time_to_fumble: f64, // Total time until the fielder picks up the ball
-    pub final_distance: f64, // Final distance where the ball stopped (or hit the fence)
-}
-
-pub fn find_closest_fielder<'f>(
-    fielders: &'f [ActiveFielder],
-    ball: &BattedBall,
-) -> Result<&'f ActiveFielder, GameError> {
-    // 1. Filter candidate fielders by whether the hit is infield or outfield
-    let candidates: Vec<&ActiveFielder> = fielders
-        .iter()
-        .filter(|f| {
-            match ball.trajectory {
-                // For grounders, infielders chase until the ball rolls past the infield
-                TrajectoryType::Grounder => {
-                    if ball.is_infield() {
-                        f.position.is_infielder()
-                    } else {
-                        f.position.is_outfielder()
-                    }
-                }
-                // For fly balls and liners
-                _ => {
-                    if ball.is_shallow() {
-                        // Shallow fly: both infielders and outfielders can chase
-                        true
-                    } else {
-                        // Deep fly: only outfielders (LF, CF, RF) are candidates
-                        f.position.is_outfielder()
-                    }
-                }
-            }
-        })
-        .collect();
-
-    // 2. Among the filtered candidates, select the closest fielder using law-of-cosines distance
-    candidates
-        .into_iter()
-        .min_by(|a, b| {
-            let dist_a = calculate_polar_distance(&a.polar_position, &ball.polar_position);
-            let dist_b = calculate_polar_distance(&b.polar_position, &ball.polar_position);
-
-            // Use partial_cmp safely since f64 is not a total order
-            dist_a
-                .partial_cmp(&dist_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .ok_or_else(|| GameError::NoPlayerFor("closest fielder".to_string()))
-}
-
 // TODO: The lane width should moved to fielder's ability.
 // Determine whether a fielder is in the ball's trajectory lane (lateral coverage)
 fn is_ball_in_fielder_lane(fielder: &ActiveFielder, ball_angle: f64) -> bool {
@@ -746,79 +698,74 @@ fn is_ball_in_fielder_lane(fielder: &ActiveFielder, ball_angle: f64) -> bool {
     (fielder.angle() - ball_angle).abs() <= coverage_angle
 }
 
-#[derive(Debug, Clone)]
-pub struct DefensiveChainResult<'a> {
-    pub fielder: &'a ActiveFielder,
-    pub ball: BattedBall,
-}
-
 // Evaluate fielders on the trajectory lane from front to back (revised over-the-head version)
-pub fn process_defensive_chain<'a>(
+pub fn process_fielding<'a>(
+    rng: &mut dyn RandomProvider,
     fielders: &'a [ActiveFielder],
-    ball: &BattedBall,
-) -> Result<DefensiveChainResult<'a>, GameError> {
+    ball: &'a BattedBall,
+) -> Result<FieldPlayPlayResult<'a>, GameError> {
     // 1. Sort fielders in the same lane by distance (closest first)
-    let mut lane_fielders: Vec<&ActiveFielder> = fielders
+    // Fielders outside the ball's angle coverage are excluded from the list.
+    let lane_fielders: Vec<&ActiveFielder> = fielders
         .iter()
         .filter(|f| is_ball_in_fielder_lane(f, ball.angle()))
         .filter(|f| f.distance() <= ball.distance())
         .collect();
 
-    lane_fielders.sort_by(|a, b| {
-        a.distance()
-            .partial_cmp(&b.distance())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // 2. Mid-flight catch judgment (for all fielders)
+    let mut interceptions: Vec<FielderInterception> = lane_fielders
+        .iter()
+        .filter_map(|f| evaluate_fielder_interception(rng, ball, f))
+        .collect();
 
-    // 2. Check fielders from front to back
-    for fielder in lane_fielders {
-        // Fielder's position (distance)
-        let fielder_dist = fielder.distance();
+    // If someone can catch it mid-flight, settle on the earliest fielder and return immediately!
+    if !interceptions.is_empty() {
+        // Sort by arrival time (earliest first)
+        interceptions.sort_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
+        let primary = interceptions.into_iter().next().unwrap();
 
-        // Time when the ball passes that fielder's distance
-        let ratio = fielder_dist / ball.distance();
-        let ball_arrival_time = ball.hang_time * ratio;
-
-        // Time for the fielder to move laterally to intercept the ball's line
-        let dx = fielder_dist * (fielder.angle() - ball.angle()).to_radians().sin();
-        let required_move_distance = dx.abs();
-        let fielder_arrival_time =
-            fielder.info.reaction + (required_move_distance / fielder.info.running_speed);
-
-        // [Judgment A] Can the fielder reach the spot laterally before the ball passes through?
-        if fielder_arrival_time <= ball_arrival_time {
-            // ★ Core: calculate the ball's height as it passes over the fielder's head!
-            // Calculate height at this fielder's distance
-            let ball_height = ball.calculate_height_at_distance(fielder_dist);
-
-            match ball.trajectory {
-                // Case 1 & 2: Fly, pop-up, or high liner
-                TrajectoryType::Fly | TrajectoryType::PopUp | TrajectoryType::Liner => {
-                    if ball_height > MAX_REACH_HEIGHT {
-                        // Angle and timing are right, but it's too high even for a jump catch!
-                        continue;
-                    }
-                }
-                // Grounders always have height 0 and never go over the head (proceed to catch)
-                TrajectoryType::Grounder | TrajectoryType::NA => {}
-            }
-
-            let mut ball_fielded_by_another = ball.clone();
-            ball_fielded_by_another.hang_time = ball_arrival_time;
-
-            return Ok(DefensiveChainResult {
-                fielder: fielder,
-                ball: ball_fielded_by_another,
+        // Normal catch or fumble (handled on the spot) completes the play
+        if primary.error_type != Some(FieldError::Passed) {
+            return Ok(FieldPlayPlayResult {
+                primary_interception: primary,
+                covering_interception: None,
             });
         }
+
+        // [Ball got by]: record the infielder's error and have an outfielder cover!
+        let covering = fielders
+            .iter()
+            .filter(|f| f.position.is_outfielder())
+            .map(|f| evaluate_final_pickup(rng, ball, f))
+            .min_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
+
+        return Ok(FieldPlayPlayResult {
+            primary_interception: primary,   // Info of the infielder who committed the error (e.g. E-6)
+            covering_interception: covering, // Info of the outfielder who actually recovers and throws the ball
+        });
     }
 
-    // 3. Nobody touched it and it got through to the outfield (same as before: closest outfielder handles it)
-    let final_closest = find_closest_fielder(fielders, ball)?;
+    // 3. Extra-base hit / ball got by (no one caught it mid-flight)
+    // Calculate final processing time limited to outfielders!
+    // -------------------------------------------------------------------------
+    let mut final_pickups: Vec<FielderInterception> = fielders
+        .iter()
+        .filter(|f| f.position.is_outfielder()) // Pre-filter to outfielders only!
+        .map(|f| evaluate_final_pickup(rng, ball, f))
+        .collect();
 
-    Ok(DefensiveChainResult {
-        fielder: final_closest,
-        ball: ball.clone(),
+    // Select the outfielder who can reach the final point and pick up the ball the fastest
+    final_pickups.sort_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
+
+    // Return an error if there is no outfielder data
+    let covering = final_pickups
+        .into_iter()
+        .next()
+        .ok_or_else(|| GameError::NoPlayerFor("pickup the ball".to_string()))?;
+
+    Ok(FieldPlayPlayResult {
+        primary_interception: covering,
+        covering_interception: None,
     })
 }
 
@@ -826,12 +773,12 @@ pub fn process_defensive_chain<'a>(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
-    use crate::domain::resolver::fielding_physics::try_catch;
+    use crate::domain::resolver::fielding_physics::{evaluate_fielder_interception, CatchType};
+    use crate::domain::shared::ball::{OutboundResult, TrajectoryType};
     use crate::domain::shared::game_state::ActiveRunner;
     use crate::domain::shared::player::{
-        ArmSlot, FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
+        ArmSlot, FielderInfo, FielderType, PitcherStyle, RunningSkills, RL,
     };
-    use crate::domain::shared::stadium::Stadium;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -863,14 +810,26 @@ mod tests {
         launch_speed: f64,
         launch_angle: f64,
     ) -> BattedBall {
-        BattedBall::new(
+        let final_position = PolarPosition::new(distance, angle);
+        let (first_bounce_position, first_bounce_time) = match trajectory {
+            TrajectoryType::Grounder => (Some(PolarPosition::new(0.0, angle)), Some(0.0)),
+            TrajectoryType::Liner => (Some(final_position), Some(hang_time)),
+            TrajectoryType::Fly | TrajectoryType::PopUp | TrajectoryType::NA => (None, None),
+        };
+
+        BattedBall {
             launch_speed,
             launch_angle,
-            angle,
-            distance,
-            hang_time,
-            trajectory,
-        )
+            spin_rate: 0.0,
+            spin_angle: 0.0,
+            final_position,
+            total_time: hang_time,
+            first_bounce_position,
+            first_bounce_time,
+            fence_impact_position: None,
+            fence_impact_time: None,
+            outbound_result: OutboundResult::InField,
+        }
     }
 
     fn fielded_ball(
@@ -880,6 +839,7 @@ mod tests {
         is_fly_catch: bool,
     ) -> FieldedBall {
         FieldedBall {
+            catch_position: ball.final_position,
             ball,
             fielded_by,
             time_to_field,
@@ -948,10 +908,6 @@ mod tests {
                 prep_time,
             },
         }
-    }
-
-    fn stadium() -> Stadium {
-        Stadium::default()
     }
 
     fn fixed_rng() -> Box<dyn RandomProvider> {
@@ -1145,84 +1101,108 @@ mod tests {
     }
 
     #[test]
-    fn try_catch_returns_out_when_fielder_arrives_before_airborne_ball_lands() {
+    fn fielder_interception_returns_direct_fly_when_fielder_reaches_airborne_ball() {
         let center_fielder = fielder(Position::CF, 75.0, 0.0);
         let fly_ball = ball(TrajectoryType::Fly, 80.0, 0.0, 3.0, 120.0, 35.0);
+        let mut rng = fixed_rng();
 
-        let result = try_catch(&center_fielder, &fly_ball, &stadium());
+        let interception =
+            evaluate_fielder_interception(&mut *rng, &fly_ball, &center_fielder).unwrap();
+        let result = interception.ball();
 
+        assert_eq!(interception.catch_type, CatchType::DirectFly);
+        assert_eq!(interception.error_type, None);
         assert!(result.is_fly_catch);
-        assert_near(result.time_to_field, fly_ball.hang_time);
-        assert_near(result.ball.distance(), 80.0);
+        assert!(result.time_to_field <= fly_ball.total_time);
         assert_near(result.ball.angle(), 0.0);
     }
 
     #[test]
-    fn try_catch_returns_safe_and_bounded_distance_when_airborne_ball_falls_in() {
+    fn final_pickup_handles_airborne_ball_that_falls_in() {
         let center_fielder = fielder(Position::CF, 60.0, 0.0);
         let liner = ball(TrajectoryType::Liner, 80.0, 0.0, 1.0, 100.0, 15.0);
         let original_distance = liner.distance();
-        let original_hang_time = liner.hang_time;
+        let original_hang_time = liner.total_time;
+        let mut rng = fixed_rng();
 
-        let result = try_catch(&center_fielder, &liner, &stadium());
+        let interception = evaluate_final_pickup(&mut *rng, &liner, &center_fielder);
+        let result = interception.ball();
 
+        assert_eq!(interception.catch_type, CatchType::FinalPickup);
         assert!(!result.is_fly_catch);
         assert!(result.time_to_field > original_hang_time);
-        assert!(result.ball.distance() > original_distance);
+        assert_near(result.catch_position.distance, original_distance);
         assert_near(result.ball.angle(), 0.0);
     }
 
     #[test]
-    fn try_catch_treats_grounders_as_safe_for_later_base_race() {
+    fn fielder_interception_treats_grounders_as_bounce_catches() {
         let shortstop = fielder(Position::SS, 30.0, -5.0);
         let grounder = ball(TrajectoryType::Grounder, 32.0, -5.0, 0.9, 95.0, 4.0);
+        let mut rng = fixed_rng();
 
-        let result = try_catch(&shortstop, &grounder, &stadium());
+        let interception = evaluate_fielder_interception(&mut *rng, &grounder, &shortstop).unwrap();
+        let result = interception.ball();
 
+        assert_eq!(interception.catch_type, CatchType::BounceCatch);
         assert!(!result.is_fly_catch);
-        assert_near(result.time_to_field, 0.4 + (2.0 / 7.0));
-        assert_near(result.ball.distance(), 32.0);
+        assert!(result.time_to_field <= grounder.total_time);
         assert_near(result.ball.angle(), -5.0);
     }
 
     #[test]
-    fn liner_beyond_fielder_adds_reaction_delay_and_falls_in() {
+    fn final_pickup_adds_delay_when_liner_gets_past_fielder() {
         let center_fielder = fielder(Position::CF, 80.0, 0.0);
         let liner_beyond_fielder = ball(TrajectoryType::Liner, 90.0, 0.0, 2.0, 110.0, 15.0);
+        let mut rng = fixed_rng();
 
-        let result = try_catch(&center_fielder, &liner_beyond_fielder, &stadium());
+        let interception = evaluate_final_pickup(&mut *rng, &liner_beyond_fielder, &center_fielder);
+        let result = interception.ball();
 
+        assert_eq!(interception.catch_type, CatchType::FinalPickup);
         assert!(!result.is_fly_catch);
-        assert!(result.time_to_field > liner_beyond_fielder.hang_time);
-        assert!(result.ball.distance() > liner_beyond_fielder.distance());
+        assert!(result.time_to_field > liner_beyond_fielder.total_time);
+        assert_near(
+            result.catch_position.distance,
+            liner_beyond_fielder.distance(),
+        );
     }
 
     #[test]
-    fn find_closest_fielder_uses_infielders_for_short_grounders() {
+    fn process_fielding_uses_reachable_infielder_for_short_grounders() {
         let fielders = [
             fielder(Position::SB, 35.0, 5.0),
             fielder(Position::LF, 42.0, 0.0),
             fielder(Position::CF, 70.0, 0.0),
         ];
         let grounder = ball(TrajectoryType::Grounder, 40.0, 0.0, 1.0, 90.0, 5.0);
+        let mut rng = fixed_rng();
 
-        let closest = find_closest_fielder(&fielders, &grounder).unwrap();
+        let result = process_fielding(&mut *rng, &fielders, &grounder).unwrap();
 
-        assert_eq!(closest.position, Position::SB);
+        assert_eq!(result.primary_interception.fielder.position, Position::SB);
+        assert_eq!(
+            result.primary_interception.catch_type,
+            CatchType::BounceCatch
+        );
+        assert!(result.covering_interception.is_none());
     }
 
     #[test]
-    fn find_closest_fielder_uses_outfielders_for_deep_airborne_balls() {
+    fn process_fielding_uses_outfielder_for_deep_airborne_balls() {
         let fielders = [
             fielder(Position::SB, 60.0, 0.0),
             fielder(Position::LF, 82.0, -10.0),
             fielder(Position::CF, 80.0, 0.0),
         ];
         let fly_ball = ball(TrajectoryType::Fly, 78.0, 0.0, 3.0, 120.0, 35.0);
+        let mut rng = fixed_rng();
 
-        let closest = find_closest_fielder(&fielders, &fly_ball).unwrap();
+        let result = process_fielding(&mut *rng, &fielders, &fly_ball).unwrap();
 
-        assert_eq!(closest.position, Position::CF);
+        assert_eq!(result.primary_interception.fielder.position, Position::CF);
+        assert_eq!(result.primary_interception.catch_type, CatchType::DirectFly);
+        assert!(result.covering_interception.is_none());
     }
 
     #[test]
@@ -1239,52 +1219,63 @@ mod tests {
     }
 
     #[test]
-    fn process_defensive_chain_returns_front_lane_fielder_for_reachable_grounder() {
+    fn process_fielding_returns_front_lane_fielder_for_reachable_grounder() {
         let fielders = [
             fielder(Position::SS, 28.0, 1.0),
             fielder(Position::CF, 80.0, 0.0),
         ];
         let grounder = ball(TrajectoryType::Grounder, 90.0, 0.0, 3.0, 95.0, 5.0);
-        let grounder = grounder;
-        let expected_arrival_time = grounder.hang_time * (28.0 / 90.0);
+        let mut rng = fixed_rng();
 
-        let result = process_defensive_chain(&fielders, &grounder).unwrap();
+        let result = process_fielding(&mut *rng, &fielders, &grounder).unwrap();
 
-        assert_eq!(result.fielder.position, Position::SS);
-        assert_eq!(result.ball.trajectory, TrajectoryType::Grounder);
-        assert_near(result.ball.hang_time, expected_arrival_time);
+        assert_eq!(result.primary_interception.fielder.position, Position::SS);
+        assert_eq!(
+            result.primary_interception.ball.trajectory(),
+            TrajectoryType::Grounder
+        );
+        assert_eq!(
+            result.primary_interception.catch_type,
+            CatchType::BounceCatch
+        );
+        assert!(result.covering_interception.is_none());
     }
 
     #[test]
-    fn process_defensive_chain_skips_fielder_when_airborne_ball_is_over_reach() {
+    fn process_fielding_skips_fielder_when_airborne_ball_is_over_reach() {
         let fielders = [
             fielder(Position::SS, 35.0, 0.0),
             fielder(Position::CF, 80.0, 0.0),
         ];
         let fly_ball = ball(TrajectoryType::Fly, 85.0, 0.0, 3.5, 130.0, 35.0);
-        let expected_arrival_time = fly_ball.hang_time * (80.0 / 85.0);
+        let mut rng = fixed_rng();
 
-        let result = process_defensive_chain(&fielders, &fly_ball).unwrap();
+        let result = process_fielding(&mut *rng, &fielders, &fly_ball).unwrap();
 
-        assert_eq!(result.fielder.position, Position::CF);
-        assert_eq!(result.ball.trajectory, TrajectoryType::Fly);
-        assert_near(result.ball.hang_time, expected_arrival_time);
+        assert_eq!(result.primary_interception.fielder.position, Position::CF);
+        assert_eq!(
+            result.primary_interception.ball.trajectory(),
+            TrajectoryType::Fly
+        );
+        assert_eq!(result.primary_interception.catch_type, CatchType::DirectFly);
+        assert!(result.covering_interception.is_none());
     }
 
     #[test]
-    fn process_defensive_chain_falls_back_to_closest_fielder_when_lane_misses() {
+    fn process_fielding_falls_back_to_outfield_pickup_when_lane_misses() {
         let fielders = [
             fielder(Position::SS, 30.0, -30.0),
             fielder(Position::CF, 78.0, 0.0),
         ];
         let grounder = ball(TrajectoryType::Grounder, 80.0, 25.0, 2.0, 90.0, 5.0);
-        let original_hang_time = grounder.hang_time;
+        let mut rng = fixed_rng();
 
-        let result = process_defensive_chain(&fielders, &grounder).unwrap();
+        let result = process_fielding(&mut *rng, &fielders, &grounder).unwrap();
+        let final_handler = result.result();
 
-        assert_eq!(result.fielder.position, Position::CF);
-        assert_eq!(result.ball.trajectory, TrajectoryType::Grounder);
-        assert_near(result.ball.hang_time, original_hang_time);
+        assert_eq!(final_handler.fielder.position, Position::CF);
+        assert_eq!(final_handler.ball.trajectory(), TrajectoryType::Grounder);
+        assert_eq!(final_handler.catch_type, CatchType::FinalPickup);
     }
 
     #[test]
@@ -1501,7 +1492,7 @@ mod tests {
         let expected_defense_time = fielded_ball.time_to_field
             + DefenseTimeCalculator::default().best_outfield_throw_time(
                 &center_fielder,
-                &deep_hit.polar_position,
+                &deep_hit.final_position,
                 Base::Second,
                 PlayType::TouchPlay,
                 Some(shortstop),

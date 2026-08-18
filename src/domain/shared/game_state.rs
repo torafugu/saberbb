@@ -8,10 +8,9 @@ use crate::domain::resolver::batting_resolver::{
     SwingContactType, calculate_batted_ball, calculate_pitch_similarity,
     calculate_swing_execution_error, evaluate_swing_contact,
 };
-use crate::domain::resolver::fielding_physics::try_catch;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
-    evaluate_double_play, process_defensive_chain,
+    evaluate_double_play, process_fielding,
 };
 use crate::domain::resolver::pitching_resolver::{
     MatchupContext, calculate_ball_movement, calculate_location_bias, calculate_pitch_offset,
@@ -20,7 +19,7 @@ use crate::domain::resolver::pitching_resolver::{
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
-use crate::domain::shared::ball::{BallLocation, BattedBall};
+use crate::domain::shared::ball::{BallLocation, BattedBall, OutboundResult};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::util::PolarPosition;
@@ -31,6 +30,7 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
+// TODO: Move MAX_INNING to league
 pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
@@ -86,8 +86,22 @@ pub enum GameError {
     #[error("Path of from base and to base is not supported")]
     UnsupportedPath,
 
+    #[error("Stadium has no fence intersection")]
+    StadiumHasNoFenceIntersection,
+
+    #[error("Too long process time of calculate_trajectory")]
+    TimeOut,
+
+    #[error("No fieldes to pick up the batted ball")]
+    NoFieldersToPickUp,
+
     #[error("Failed to create pitch: {0}")]
     PitchCreation(#[from] AppError),
+}
+
+pub struct WindCondition {
+    pub speed_m_per_s: f64, // NOTE: Wind speed (m/s)
+    pub dir_deg: f64, // NOTE: Wind direction (0°: tailwind, 180°: headwind, 90°: crosswind toward first base)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, EnumString, AsRefStr)]
@@ -663,6 +677,9 @@ impl GameState {
         let mut running_seq = 1;
         let mut point = 0;
 
+        // TODO: stadium should move to Game.
+        let stadium = Stadium::new(1, "AAA".to_string(), 98.0, 120.0, 2.0);
+
         let active_pitcher = self.current_pitcher();
         let pitcher_id = active_pitcher.id;
         let pitcher = active_pitcher.pitcher.clone();
@@ -717,22 +734,35 @@ impl GameState {
         let batted_ball = if contact.contact_type == SwingContactType::SwungAndMiss {
             BattedBall::default()
         } else {
-            calculate_batted_ball(&batter, pitched_ball, &contact)
+            calculate_batted_ball(&batter, pitched_ball, &contact, &stadium)?
         };
 
         info!("Batted Ball: {:#?}", batted_ball);
 
-        if self.stadium.is_stand_in(&batted_ball) {
-            self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
-            return Ok(());
+        match batted_ball.outbound_result {
+            OutboundResult::Foul => {
+                // TODO: Create resolve_stand_in_foul(pitcher_id, batter_id, &batted_ball)
+                // self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
+                return Ok(());
+            }
+            OutboundResult::HomeRun => {
+                // TODO: Create resolve_homerun(pitcher_id, batter_id, &batted_ball)
+                // self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
+                return Ok(());
+            }
+            OutboundResult::GroundRuleDouble => {
+                // TODO: Create resolve_homerun(pitcher_id, batter_id, &batted_ball)
+                // self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
+                return Ok(());
+            }
+            OutboundResult::InField => {}
         }
 
-        let fielders = self.current_fielders().clone();
-        let fielder = {
-            let handler = process_defensive_chain(&fielders, &batted_ball)?;
-            handler.fielder
-        };
-        let fielded_ball = try_catch(fielder, &batted_ball, &self.stadium);
+        let fielders = self.current_fielders();
+        let field_play_result = process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
+        let fielder = field_play_result.result().fielder;
+        let fielded_ball = field_play_result.result().ball();
+
         info!("Fielded Ball: {:#?}", fielded_ball);
 
         let ctx = PlayContext {

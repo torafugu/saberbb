@@ -3,7 +3,6 @@ mod common;
 use common::*;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::batting_resolver::*;
-use saberbb::domain::resolver::fielding_physics::try_catch;
 use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::domain::shared::ball::*;
@@ -11,6 +10,7 @@ use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
+use saberbb::domain::util::PolarPosition;
 
 #[test]
 fn test_through_half_inning() -> Result<(), GameError> {
@@ -62,32 +62,35 @@ fn test_through_half_inning() -> Result<(), GameError> {
         );
 
         let contact = evaluate_swing_contact(&batter, &pitch_displacement, &swing_execution_error);
-        let ball = calculate_batted_ball(&batter, pitched_ball, &contact);
+        let ball = calculate_batted_ball(&batter, pitched_ball, &contact, &stadium)?;
 
         println!("{:#?}", ball);
 
-        if stadium.is_stand_in(&ball) {
-            if ball.is_foul() {
+        match ball.outbound_result {
+            OutboundResult::Foul => {
                 println!("{}", BattingResult::Foul);
                 println!("Outs:{}, Scores:{}", inning_state.out, scores);
                 continue;
-            } else {
+            }
+            OutboundResult::HomeRun => {
                 scores += inning_state.runners.after_homerun();
 
                 println!("{}, score:+{}", BattingResult::HomeRun, scores);
                 println!("Outs:{}, Scores:{}", inning_state.out, scores);
                 continue;
             }
+            OutboundResult::GroundRuleDouble => {
+                // TODO: Add new case to running resolver
+            }
+            OutboundResult::InField => {}
         }
 
-        let fielder = {
-            let handler = process_defensive_chain(&fielders, &ball)?;
-            handler.fielder
-        };
+        let field_play_result = process_fielding(&mut rng, &fielders, &ball)?;
+        let fielder = field_play_result.result().fielder;
 
         println!("{:#?}", fielder);
 
-        let fielded_ball = try_catch(fielder, &ball, &stadium);
+        let fielded_ball = field_play_result.result().ball();
 
         println!("{:#?}", fielded_ball);
 
@@ -224,12 +227,25 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
     inning_state.runners.batter_runner = Some(batter_runner);
     inning_state.runners.runner_1st = Some(runner_on_first);
 
-    let ball = BattedBall::new(95.0, 4.0, -25.0, 35.0, 1.0, TrajectoryType::Grounder);
+    let ball = BattedBall {
+        launch_speed: 95.0,
+        launch_angle: 4.0,
+        spin_rate: 0.0,
+        spin_angle: 0.0,
+        final_position: PolarPosition::new(35.0, -25.0),
+        total_time: 1.0,
+        first_bounce_position: Some(PolarPosition::new(0.0, -25.0)),
+        first_bounce_time: Some(0.0),
+        fence_impact_position: None,
+        fence_impact_time: None,
+        outbound_result: OutboundResult::InField,
+    };
 
     let fielder = fielders.iter().find(|f| f.is(Position::SS)).unwrap();
     let fielded_ball = FieldedBall {
         ball,
         fielded_by: Position::SS,
+        catch_position: ball.final_position,
         time_to_field: 1.0,
         is_fly_catch: false,
     };

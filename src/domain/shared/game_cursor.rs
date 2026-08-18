@@ -475,7 +475,7 @@ pub struct ScoreBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::ball::{BattedBall, TrajectoryType};
+    use crate::domain::shared::ball::BattedBall;
     use crate::domain::shared::game::GameType;
     use crate::domain::shared::game_stats::PlayerGameEntryView;
     use crate::domain::shared::player::PlayerInfo;
@@ -546,7 +546,7 @@ mod tests {
                 format!("First{batter_id}"),
                 format!("Last{batter_id}"),
             ),
-            ball: BattedBall::new(100.0, 20.0, 30.0, 80.0, 3.0, TrajectoryType::Fly),
+            ball: BattedBall::default(),
             fielder_position: None,
             result: BattingResult::Single,
         }

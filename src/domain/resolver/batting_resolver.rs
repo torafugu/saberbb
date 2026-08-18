@@ -1,9 +1,13 @@
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
-use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall, TrajectoryType};
+use crate::domain::shared::ball::{
+    BallLocation, BattedBall, FOUL_DEGREE, MAGNUS_COEFF, OutboundResult, PitchedBall,
+};
+use crate::domain::shared::game_state::{GameError, WindCondition};
 use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
+use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::SwingExecution;
-use crate::domain::util::{GRAVITY, sigmoid};
+use crate::domain::util::{GRAVITY, PolarPosition, sigmoid};
 
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -390,6 +394,7 @@ pub fn calculate_launch_speed_with_power(
     launch_speed_ms
 }
 
+// TODO: Remove FieldSector
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, EnumIter, AsRefStr,
 )]
@@ -505,91 +510,243 @@ fn calculate_collision_spin(
     (combined_spin_rate, combined_spin_angle)
 }
 
-/// Determine final batted ball category by combining launch angle and spin
-fn classify_trajectory_type(launch_angle: f64, spin_rate: f64, spin_angle: f64) -> TrajectoryType {
-    // 1. Calculate trajectory correction from spin (lift/sink)
-    // Backspin (0°) gives positive correction, topspin (180°) gives negative correction
-    let spin_angle_rad = spin_angle.to_radians();
-    let backspin_factor = spin_angle_rad.cos(); // 0 deg => 1.0, 180 deg => -1.0
-
-    // Lift/sink correction proportional to spin rate (approximately ±a few degrees)
-    let spin_lift_effect = (spin_rate / 2000.0) * backspin_factor * 3.5;
-
-    // Effective angle incorporating spin effect
-    let effective_angle = launch_angle + spin_lift_effect;
-
-    // 2. Category classification (applying spin correction to MLB Statcast standard thresholds)
-    if effective_angle < 10.0 {
-        TrajectoryType::Grounder
-    } else if effective_angle < 25.0 {
-        TrajectoryType::Liner
-    } else if effective_angle < 50.0 {
-        TrajectoryType::Fly
-    } else {
-        TrajectoryType::PopUp
-    }
+// NOTE: Pinpoint info at the moment the ball reaches a specified point
+#[derive(Debug, Clone, Copy)]
+pub struct TargetArrivalState {
+    pub time_sec: f64,        // Time to reach the specified Y distance (s)
+    pub distance_m: f64,      // Polar r: distance reached from home (m)
+    pub spray_angle_deg: f64, // Polar θ: ball direction angle at that point (deg)
+    pub z_m: f64,             // Ball height at that moment (m) -> used for catch judgment
+    pub v_z: f64,             // Vertical velocity (to determine falling or rising)
 }
 
-fn calculate_3d_flight_path(
+pub struct TrajectorySummaryResult {
+    pub total_time_sec: f64,
+    pub result_type: OutboundResult,
+
+    // Polar coordinates (r, θ) of the final resting position
+    pub final_distance_m: f64,
+    pub final_spray_angle_deg: f64,
+
+    // Polar coordinates (r) and time (t) of the first bounce
+    // None if it hits the fence directly or is a no-bounce home run
+    pub first_bounce_distance_m: Option<f64>,
+    pub first_bounce_time_sec: Option<f64>,
+
+    // NOTE: Only holds the passage state at that point when target_distance_y is specified
+    pub target_arrival: Option<TargetArrivalState>,
+}
+
+fn calculate_trajectory(
     launch_speed_ms: f64, // Batted ball exit velocity (m/s)
     vla_deg: f64,         // Vertical launch angle VLA (deg)
     hla_deg: f64,         // Horizontal launch angle HLA (deg) (+: right/opposite, -: left/pull)
-    spin_rate: f64,       // Spin rate (rpm)
+    spin_rate_rpm: f64,   // Spin rate (rpm)
     spin_angle_deg: f64,  // Spin angle (deg) (0: backspin, 90: slider spin, 270: screw spin)
-) -> (f64, f64, f64) {
+    stadium: &Stadium,
+) -> Result<BattedBall, GameError> {
     let vla_rad = vla_deg.to_radians();
     let hla_rad = hla_deg.to_radians();
-    let spin_angle_rad = spin_angle_deg.to_radians();
 
-    // 1. Decompose Magnus acceleration (vertical vs horizontal)
-    // Total Magnus force (approx. 3.5 m/s² at 2500rpm, 40m/s)
-    let total_magnus_accel = (spin_rate / 2500.0) * (launch_speed_ms / 40.0) * 3.5;
+    // Initial velocity vector
+    let mut v_x = launch_speed_ms * vla_rad.cos() * hla_rad.sin();
+    let mut v_y = launch_speed_ms * vla_rad.cos() * hla_rad.cos().abs();
+    let mut v_z = launch_speed_ms * vla_rad.sin();
 
-    // 2. Decompose into vertical lift (cos) and horizontal break (sin)
-    let vertical_magnus = total_magnus_accel * spin_angle_rad.cos();
-    let side_magnus = total_magnus_accel * spin_angle_rad.sin();
-
-    // Horizontal initial velocity component
-    let v_vertical = launch_speed_ms * vla_rad.sin();
-    let v_horizontal = launch_speed_ms * vla_rad.cos().max(0.0);
-
-    // 3. Calculate effective gravity (gravity 9.81 - Magnus lift)
-    let g_eff = (GRAVITY - vertical_magnus).max(2.0);
-
-    // 4. Contact height (impact position above ground: e.g. 0.9m)
+    //　Contact height (impact position above ground: e.g. 0.9m)
     const IMPACT_HEIGHT_M: f64 = 0.90;
 
-    // 5. Hang time (solution of quadratic: z0 + vz*t - 0.5*g*t^2 = 0)
-    // Even with negative VLA (grounder), sqrt(vz² + 2*g*z0) is larger than vz, so the positive solution is always valid
-    let discriminant = v_vertical.powi(2) + (2.0 * g_eff * IMPACT_HEIGHT_M);
-    let flight_time_sec = (v_vertical + discriminant.sqrt()) / g_eff;
+    // Initial position
+    let mut pos_x: f64 = 0.0;
+    let mut pos_y: f64 = 0.0;
+    let mut pos_z = IMPACT_HEIGHT_M;
 
-    // 6. Air resistance correction (simplified model)
-    let drag_factor = (1.0 - (0.005 * launch_speed_ms) - (0.0001 * spin_rate)).clamp(0.5, 0.95);
+    // Current spin state for calculation (decays and changes after bounces)
+    let mut current_spin_rate = spin_rate_rpm;
+    let mut current_spin_angle = spin_angle_deg;
 
-    // 7. Y-axis flight distance (linear distance × cos(HLA) × air resistance)
-    let distance = (v_horizontal * hla_rad.cos().max(0.0) * flight_time_sec) * drag_factor;
+    // Decompose the wind vector
+    let wind = stadium.default_wind();
+    let wind_rad = wind.dir_deg.to_radians();
+    let wind_v_x = wind.speed_m_per_s * wind_rad.sin();
+    let wind_v_y = wind.speed_m_per_s * wind_rad.cos();
 
-    // 3. Calculate horizontal arrival angle
-    // A. Horizontal break from side spin during flight (1/2 * a * t²)
-    let x_from_side_spin = 0.5 * side_magnus * flight_time_sec.powi(2);
+    let mut current_time = 0.0;
+    let dt = 0.01; // 10ms steps
+    let mut bounce_count = 0;
 
-    // B. Add side-spin deflection angle to initial launch angle (hla_deg)
-    // atan2(lateral deviation, depth distance) gives additional deflection angle (rad)
-    let spin_curve_angle_rad = x_from_side_spin.atan2(distance);
-    let spin_curve_angle_deg = spin_curve_angle_rad.to_degrees();
+    let mut first_bounce_position = None;
+    let mut first_bounce_time_sec = None;
+    let mut fence_impact_position = None;
+    let mut fence_impact_time_sec = None;
+    let mut result_type = OutboundResult::InField;
 
-    // Final horizontal arrival angle (polar coordinate angle θ)
-    let final_spray_angle_deg = hla_deg + spin_curve_angle_deg;
+    const AIR_RESISTANCE_COEFF: f64 = 0.0012; // Simplified air resistance coefficient
+    const RESTITUTION_COEFF: f64 = 0.45; // Ground restitution coefficient
+    const WALL_RESTITUTION: f64 = 0.60; // Fence restitution coefficient
+    const GROUND_FRICTION: f64 = 0.25; // Ground friction coefficient
 
-    (flight_time_sec, distance, final_spray_angle_deg)
+    loop {
+        let prev_x = pos_x;
+        let prev_y = pos_y;
+        // let prev_z = pos_z;
+        // let prev_distance_m = (prev_x.powi(2) + prev_y.powi(2)).sqrt();
+
+        // --- Physics update (air resistance, Magnus, velocity, position) ---
+        let rel_v_x = v_x - wind_v_x;
+        let rel_v_y = v_y - wind_v_y;
+        let rel_v_z = v_z;
+        let rel_speed = (rel_v_x.powi(2) + rel_v_y.powi(2) + rel_v_z.powi(2)).sqrt();
+
+        let drag_a_x = -AIR_RESISTANCE_COEFF * rel_speed * rel_v_x;
+        let drag_a_y = -AIR_RESISTANCE_COEFF * rel_speed * rel_v_y;
+        let drag_a_z = -AIR_RESISTANCE_COEFF * rel_speed * rel_v_z;
+
+        let (mag_a_x, mag_a_y, mag_a_z) = if rel_speed > 0.1 && current_spin_rate > 10.0 {
+            // Unit vector of the direction of travel
+            let u_x = rel_v_x / rel_speed;
+            let u_y = rel_v_y / rel_speed;
+            let u_z = rel_v_z / rel_speed;
+
+            // Construct an "upward" reference vector relative to the direction of travel
+            let proj_z = u_z;
+            let raw_up_x = -proj_z * u_x;
+            let raw_up_y = -proj_z * u_y;
+            let raw_up_z = 1.0 - proj_z * u_z;
+            let up_len = (raw_up_x.powi(2) + raw_up_y.powi(2) + raw_up_z.powi(2)).sqrt();
+
+            let (up_x, up_y, up_z) = if up_len > 0.001 {
+                (raw_up_x / up_len, raw_up_y / up_len, raw_up_z / up_len)
+            } else {
+                (0.0, 0.0, 1.0)
+            };
+
+            // "Rightward" vector relative to direction of travel (cross product: Velocity x Up)
+            let right_x = u_y * up_z - u_z * up_y;
+            let right_y = u_z * up_x - u_x * up_z;
+            let right_z = u_x * up_y - u_y * up_x;
+
+            // Resultant direction vector based on spin axis angle
+            let spin_rad = current_spin_angle.to_radians();
+            let cos_s = spin_rad.cos(); // 0° = backspin (+Up)
+            let sin_s = spin_rad.sin(); // +90° = slice (+Right)
+
+            let mag_dir_x = cos_s * up_x + sin_s * right_x;
+            let mag_dir_y = cos_s * up_y + sin_s * right_y;
+            let mag_dir_z = cos_s * up_z + sin_s * right_z;
+
+            // Magnitude of the Magnus acceleration
+            let magnus_accel = MAGNUS_COEFF * rel_speed * current_spin_rate;
+
+            (
+                magnus_accel * mag_dir_x,
+                magnus_accel * mag_dir_y,
+                magnus_accel * mag_dir_z,
+            )
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+
+        // Update velocity and position (gravity + air resistance + Magnus effect)
+        v_x += (drag_a_x + mag_a_x) * dt;
+        v_y += (drag_a_y + mag_a_y) * dt;
+        v_z += (-GRAVITY + drag_a_z + mag_a_z) * dt;
+
+        pos_x += v_x * dt;
+        pos_y += v_y * dt;
+        pos_z += v_z * dt;
+        current_time += dt;
+
+        let current_spray_angle_deg = pos_x.atan2(pos_y).to_degrees();
+        let current_distance_m = (pos_x.powi(2) + pos_y.powi(2)).sqrt();
+
+        let fence_distace = stadium.fence_distance_at_angle(current_spray_angle_deg)?;
+
+        // 2. Fence clearing / impact judgment
+        if current_distance_m >= fence_distace {
+            if pos_z > stadium.fence_height {
+                result_type = if bounce_count == 0 {
+                    if current_spray_angle_deg.abs() >= FOUL_DEGREE {
+                        OutboundResult::Foul
+                    } else {
+                        OutboundResult::HomeRun
+                    }
+                } else {
+                    OutboundResult::GroundRuleDouble
+                };
+                break;
+            } else if pos_z > 0.0 {
+                if fence_impact_position.is_none() && fence_impact_time_sec.is_none() {
+                    fence_impact_position =
+                        Some(PolarPosition::new(fence_distace, current_spray_angle_deg));
+                    fence_impact_time_sec = Some(current_time);
+                }
+                // Fence impact: reverse the velocity in polar terms (bounce back toward the field)
+                pos_x = prev_x;
+                pos_y = prev_y;
+                v_x = -v_x * WALL_RESTITUTION;
+                v_y = -v_y * WALL_RESTITUTION;
+            }
+        }
+
+        // 7. Ground bounce processing
+        if pos_z <= 0.0 {
+            pos_z = 0.0;
+            bounce_count += 1;
+            if bounce_count == 1 {
+                first_bounce_position = Some(PolarPosition::new(
+                    current_distance_m,
+                    current_spray_angle_deg,
+                ));
+                first_bounce_time_sec = Some(current_time);
+            }
+
+            v_z = -v_z * RESTITUTION_COEFF;
+            v_x *= 1.0 - GROUND_FRICTION;
+            v_y *= 1.0 - GROUND_FRICTION;
+
+            // NOTE: After the bounce, ground friction turns the spin into topspin (180°) and the spin rate decays
+            current_spin_rate *= 0.5;
+            current_spin_angle = 180.0;
+
+            if v_z.abs() < 0.5 {
+                v_z = 0.0;
+                let horiz_speed = (v_x.powi(2) + v_y.powi(2)).sqrt();
+                if horiz_speed < 0.2 {
+                    break; // Stopped, end the loop
+                }
+            }
+        }
+
+        if current_time > 20.0 {
+            return Err(GameError::TimeOut);
+        }
+    }
+
+    let final_distance_m = (pos_x.powi(2) + pos_y.powi(2)).sqrt();
+    let final_spray_angle_deg = pos_x.atan2(pos_y).to_degrees();
+
+    Ok(BattedBall {
+        launch_speed: launch_speed_ms,
+        launch_angle: vla_deg,
+        spin_rate: spin_rate_rpm,
+        spin_angle: spin_angle_deg,
+        final_position: PolarPosition::new(final_distance_m, final_spray_angle_deg),
+        total_time: current_time,
+        first_bounce_position: first_bounce_position,
+        first_bounce_time: first_bounce_time_sec,
+        fence_impact_position: fence_impact_position,
+        fence_impact_time: fence_impact_time_sec,
+        outbound_result: result_type,
+    })
 }
 
 pub fn calculate_batted_ball(
     batter: &BatterInfo,
     ball: PitchedBall,
     contact: &SwingContactResult,
-) -> BattedBall {
+    stadium: &Stadium,
+) -> Result<BattedBall, GameError> {
     // 1. Calculate exit velocity (damped by spatial offset & timing delay)
     let launch_speed_ms = calculate_launch_speed_with_power(
         contact,
@@ -605,23 +762,15 @@ pub fn calculate_batted_ball(
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
     let (batted_spin_rate, batted_spin_angle) =
         calculate_collision_spin(ball, batter.swing_speed, contact);
-    let trajectory = classify_trajectory_type(angles.vla_deg, batted_spin_rate, batted_spin_angle);
+    // let trajectory = classify_trajectory_type(angles.vla_deg, batted_spin_rate, batted_spin_angle);
 
-    let (hang_time, distance, spray_angle) = calculate_3d_flight_path(
+    calculate_trajectory(
         launch_speed_ms,
         angles.vla_deg,
         angles.hla_deg,
         batted_spin_rate,
         batted_spin_angle,
-    );
-
-    BattedBall::new(
-        launch_speed_ms,
-        angles.vla_deg,
-        spray_angle,
-        distance,
-        hang_time,
-        trajectory,
+        stadium,
     )
 }
 
@@ -632,9 +781,13 @@ mod tests {
         calculate_launch_angles,
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
+    use crate::domain::shared::game_state::{GameError, WindCondition};
     use crate::domain::shared::player::{PitchType, RL};
+    use crate::domain::shared::stadium::Stadium;
     use crate::domain::strategy::pitching_strategy::TargetZone;
     use crate::domain::util::Vector3D;
+
+    type TestResult = Result<(), GameError>;
 
     fn batter(batting_side: RL) -> BatterInfo {
         BatterInfo {
@@ -668,6 +821,13 @@ mod tests {
             length_offset_m: 0.0,
             contact_type: SwingContactType::SolidContact,
             attack_angle_deg,
+        }
+    }
+
+    fn no_wind() -> WindCondition {
+        WindCondition {
+            speed_m_per_s: 0.0,
+            dir_deg: 0.0,
         }
     }
 
@@ -713,8 +873,9 @@ mod tests {
     }
 
     #[test]
-    fn calculate_batted_ball_sets_physical_values_and_trajectory_specific_launch_angle() {
+    fn calculate_batted_ball_sets_physical_values() -> TestResult {
         let right_pull_hitter = batter(RL::Right);
+        let stadium = Stadium::default();
 
         for _ in 0..50 {
             let ball = calculate_batted_ball(
@@ -736,14 +897,15 @@ mod tests {
                     actual_location: BallLocation { x: 0.0, y: 0.0 },
                 },
                 &centered_contact(right_pull_hitter.attack_angle),
-            );
+                &stadium,
+            )?;
 
             assert!(ball.launch_speed >= 30.0);
             assert!(ball.distance().is_finite());
-            assert!(ball.hang_time.is_finite());
+            assert!(ball.total_time.is_finite());
             assert_between(ball.angle(), -1.0, 1.0);
 
-            match ball.trajectory {
+            match ball.trajectory() {
                 TrajectoryType::Grounder => assert_between(ball.launch_angle, 0.0, 10.0),
                 TrajectoryType::Liner => assert_between(ball.launch_angle, 10.0, 25.0),
                 TrajectoryType::Fly => assert_between(ball.launch_angle, 25.0, 50.0),
@@ -751,5 +913,7 @@ mod tests {
                 TrajectoryType::NA => panic!("calculated batted ball should have a trajectory"),
             }
         }
+
+        Ok(())
     }
 }

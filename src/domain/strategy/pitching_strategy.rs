@@ -1,5 +1,5 @@
 use crate::domain::shared::ball::BallLocation;
-use crate::domain::shared::ball::Zone;
+use crate::domain::shared::ball::BallZone;
 use crate::domain::shared::player::PitchType;
 use crate::domain::shared::prob::ItemWeighted;
 use strum_macros::AsRefStr;
@@ -33,33 +33,33 @@ pub enum TargetZone {
     HighOutside,
 }
 impl TargetZone {
-    pub fn zone(self) -> Zone {
+    pub fn zone(self) -> BallZone {
         match self {
-            TargetZone::Center => Zone {
+            TargetZone::Center => BallZone {
                 x1: -0.25,
                 y1: 0.25,
                 x2: 0.25,
                 y2: -0.25,
             },
-            TargetZone::LowInside => Zone {
+            TargetZone::LowInside => BallZone {
                 x1: -1.0,
                 y1: 0.0,
                 x2: 0.0,
                 y2: -1.0,
             },
-            TargetZone::LowOutside => Zone {
+            TargetZone::LowOutside => BallZone {
                 x1: 0.0,
                 y1: 0.0,
                 x2: 1.0,
                 y2: -1.0,
             },
-            TargetZone::HighInside => Zone {
+            TargetZone::HighInside => BallZone {
                 x1: -1.0,
                 y1: 1.0,
                 x2: 0.0,
                 y2: 0.0,
             },
-            TargetZone::HighOutside => Zone {
+            TargetZone::HighOutside => BallZone {
                 x1: 0.0,
                 y1: 1.0,
                 x2: 1.0,
