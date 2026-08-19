@@ -347,6 +347,18 @@ impl RunnersOnBase {
         runs_scored
     }
 
+    pub fn after_ground_rule_double(&mut self) -> u8 {
+        let runs_scored = RunnersUnsaved::score_if_some(self.runner_3rd)
+            + RunnersUnsaved::score_if_some(self.runner_2nd);
+
+        self.runner_3rd = self.runner_1st;
+        self.runner_2nd = self.batter_runner;
+        self.runner_1st = None;
+        self.batter_runner = None;
+
+        runs_scored
+    }
+
     pub fn commit_unsaved_runners(&mut self, unsaved_runners: RunnersUnsaved) {
         self.runner_1st = unsaved_runners.runner_1st;
         self.runner_2nd = unsaved_runners.runner_2nd;
@@ -1172,6 +1184,37 @@ mod tests {
         assert!(runners.batter_runner.is_none());
         assert!(runners.runner_1st.is_none());
         assert!(runners.runner_2nd.is_none());
+        assert!(runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_ground_rule_double_scores_two_forces_batter_to_second_and_first_to_third() {
+        let mut runners = runners(
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.1)),
+            Some(runner(7.2)),
+        );
+
+        let runs_scored = runners.after_ground_rule_double();
+
+        assert_eq!(runs_scored, 2);
+        assert!(runners.batter_runner.is_none());
+        assert!(runners.runner_1st.is_none());
+        assert!(runners.runner_2nd.is_some());
+        assert!(runners.runner_3rd.is_some());
+    }
+
+    #[test]
+    fn after_ground_rule_double_scores_none_with_only_batter_runner() {
+        let mut runners = runners(Some(runner(8.0)), None, None, None);
+
+        let runs_scored = runners.after_ground_rule_double();
+
+        assert_eq!(runs_scored, 0);
+        assert!(runners.batter_runner.is_none());
+        assert!(runners.runner_1st.is_none());
+        assert!(runners.runner_2nd.is_some());
         assert!(runners.runner_3rd.is_none());
     }
 

@@ -439,6 +439,52 @@ impl GameState {
         self.inning_state.runners.batter_runner = None;
     }
 
+    fn resolve_foul(&mut self, pitcher_id: i64, batter_id: i64, ball: &BattedBall) {
+        info!("Foul");
+
+        self.game_result.add_player_batting(
+            self.count_seq,
+            pitcher_id,
+            batter_id,
+            *ball,
+            None,
+            BattingResult::Foul,
+        );
+        self.add_count(0);
+    }
+
+    fn resolve_homerun(&mut self, pitcher_id: i64, batter_id: i64, ball: &BattedBall) {
+        info!("Homerun");
+
+        let point = self.inning_state.runners.after_homerun();
+        self.game_result.add_player_batting(
+            self.count_seq,
+            pitcher_id,
+            batter_id,
+            *ball,
+            None,
+            BattingResult::HomeRun,
+        );
+        self.add_count(point);
+        self.finish_plate_appearance();
+    }
+
+    fn resolve_ground_rule_double(&mut self, pitcher_id: i64, batter_id: i64, ball: &BattedBall) {
+        info!("Ground Rule Double");
+
+        let point = self.inning_state.runners.after_ground_rule_double();
+        self.game_result.add_player_batting(
+            self.count_seq,
+            pitcher_id,
+            batter_id,
+            *ball,
+            None,
+            BattingResult::Double,
+        );
+        self.add_count(point);
+        self.finish_plate_appearance();
+    }
+
     fn resolve_stand_in_ball(
         &mut self,
         pitcher_id: i64,
@@ -753,18 +799,15 @@ impl GameState {
 
         match batted_ball.outbound_result {
             OutboundResult::Foul => {
-                // TODO: Create resolve_stand_in_foul(pitcher_id, batter_id, &batted_ball)
-                // self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
+                self.resolve_foul(pitcher_id, batter_id, &batted_ball);
                 return Ok(());
             }
             OutboundResult::HomeRun => {
-                // TODO: Create resolve_homerun(pitcher_id, batter_id, &batted_ball)
-                // self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
+                self.resolve_homerun(pitcher_id, batter_id, &batted_ball);
                 return Ok(());
             }
             OutboundResult::GroundRuleDouble => {
-                // TODO: Create resolve_homerun(pitcher_id, batter_id, &batted_ball)
-                // self.resolve_stand_in_ball(pitcher_id, batter_id, &batted_ball)?;
+                self.resolve_ground_rule_double(pitcher_id, batter_id, &batted_ball);
                 return Ok(());
             }
             OutboundResult::InField => {}
@@ -1270,28 +1313,32 @@ mod tests {
         let mut game = game_state();
 
         game.change_risk_tolerance(FielderRiskTolerance::Conservative);
-        assert!(game
-            .away_lineup
-            .fielders()
-            .iter()
-            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Conservative));
-        assert!(game
-            .home_lineup
-            .fielders()
-            .iter()
-            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Balanced));
+        assert!(
+            game.away_lineup
+                .fielders()
+                .iter()
+                .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Conservative)
+        );
+        assert!(
+            game.home_lineup
+                .fielders()
+                .iter()
+                .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Balanced)
+        );
 
         game.advance_half_inning();
         game.change_risk_tolerance(FielderRiskTolerance::Aggressive);
-        assert!(game
-            .home_lineup
-            .fielders()
-            .iter()
-            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Aggressive));
-        assert!(game
-            .current_fielders()
-            .iter()
-            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Aggressive));
+        assert!(
+            game.home_lineup
+                .fielders()
+                .iter()
+                .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Aggressive)
+        );
+        assert!(
+            game.current_fielders()
+                .iter()
+                .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Aggressive)
+        );
     }
 
     #[test]
