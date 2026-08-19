@@ -98,17 +98,43 @@ impl CountStatus {
             CountStatus::C32 => 0.15,
         }
     }
+
+    pub fn is_strike_two(&self) -> bool {
+        match self {
+            CountStatus::C02 | CountStatus::C12 | CountStatus::C22 | CountStatus::C32 => true,
+            _ => false,
+        }
+    }
 }
 
-// TODO: Reflect catter's characteristics
+pub enum PlateApproach {
+    Aggressive,
+    Patient,
+    Take,
+}
+impl PlateApproach {
+    pub fn prob(&self) -> f64 {
+        match self {
+            PlateApproach::Aggressive => 0.2,
+            PlateApproach::Patient => -0.1,
+            PlateApproach::Take => -5.0,
+        }
+    }
+}
+
 pub fn calculate_swing_factor(
+    approach: PlateApproach,
     count_status: CountStatus,
     actual_pitch_type: PitchType,
     expected_pitch_type: PitchType,
     actual_pitch_location: BallLocation,
     expected_pitch_location: BallLocation,
 ) -> f64 {
-    let count_status_factor = count_status.prob();
+    let mut count_status_factor = count_status.prob();
+
+    if !count_status.is_strike_two() {
+        count_status_factor += approach.prob();
+    }
 
     let pitch_type_factor = if actual_pitch_type == expected_pitch_type {
         0.15
@@ -794,10 +820,7 @@ pub fn calculate_batted_ball(
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::resolver::batting_resolver::{
-        BatterInfo, CountStatus, SwingContactResult, SwingContactType, calculate_batted_ball,
-        calculate_launch_angles, calculate_swing_factor, calculate_zone_similarity,
-    };
+    use crate::domain::resolver::batting_resolver::*;
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::game_state::{GameError, WindCondition};
     use crate::domain::shared::player::{PitchType, RL};
@@ -929,6 +952,7 @@ mod tests {
     #[test]
     fn calculate_swing_factor_handles_locations_outside_target_zones() {
         let swing_factor = calculate_swing_factor(
+            PlateApproach::Aggressive,
             CountStatus::C00,
             PitchType::FourSeamFastball,
             PitchType::FourSeamFastball,

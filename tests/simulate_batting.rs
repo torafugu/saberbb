@@ -18,6 +18,7 @@ fn test_calculate_swing_factor() {
     let expected_pitch_type = PitchType::Curveball;
 
     let swing_factor = calculate_swing_factor(
+        PlateApproach::Aggressive,
         count_status,
         actual_pitch_type,
         expected_pitch_type,
@@ -68,8 +69,10 @@ fn test_batted_ball() {
         );
 
         let count_status = CountStatus::C01;
+        let plate_approach = PlateApproach::Aggressive;
 
         let swing_factor = calculate_swing_factor(
+            plate_approach,
             count_status,
             pitched_ball.pitch_type,
             expected_ball.pitch_type,
