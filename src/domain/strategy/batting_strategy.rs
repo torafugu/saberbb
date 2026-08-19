@@ -1,3 +1,5 @@
+use crate::domain::resolver::batting_resolver::PlateApproach;
+use crate::domain::shared::player::BatterType;
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::strategy::pitching_strategy::TargetZone;
 use strum_macros::AsRefStr;
@@ -53,4 +55,67 @@ pub fn default_expected_zone() -> Vec<ItemWeighted<TargetZone>> {
     });
 
     expected_zone
+}
+
+pub fn default_plate_approach(batter_type: BatterType) -> Vec<ItemWeighted<PlateApproach>> {
+    let mut plate_approach = Vec::new();
+    match batter_type {
+        BatterType::AggressiveFreeSwinger => {
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.7,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.2,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.1,
+            });
+        }
+        BatterType::ClassicAnalyst => {
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.55,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.3,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.15,
+            });
+        }
+        BatterType::GameManager => {
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.5,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.3,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.2,
+            });
+        }
+        BatterType::ClutchHunter => {
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.6,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.3,
+            });
+            plate_approach.push(ItemWeighted {
+                name: PlateApproach::Aggressive,
+                weight: 0.1,
+            });
+        }
+    }
+    plate_approach
 }

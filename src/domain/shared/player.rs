@@ -1,7 +1,9 @@
 use crate::I18nManager;
 use crate::domain::random_provider::{RandomProvider, choose_item_weighted};
+use crate::domain::resolver::batting_resolver::PlateApproach;
 use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::prob::ItemWeighted;
+use crate::domain::strategy::batting_strategy::default_plate_approach;
 use crate::domain::strategy::pitching_strategy::{
     Margin, PitchCall, TargetZone, default_location_distribution,
 };
@@ -352,10 +354,10 @@ impl fmt::Display for HitterTendency {
 )]
 #[strum(ascii_case_insensitive)]
 pub enum BatterType {
-    AggressiveFreeSwinger, // NOTE: 積極的感覚派
-    ClassicAnalyst,        // NOTE: 慎重派理論
-    GameManager,           // NOTE: 状況対応派
-    ClutchHunter,          // NOTE: 一発狙い・勝負師
+    AggressiveFreeSwinger, // NOTE: Aggressive, feel-driven hitter
+    ClassicAnalyst,        // NOTE: Cautious, analytical approach
+    GameManager,           // NOTE: Adapts to the game situation
+    ClutchHunter,          // NOTE: Swings for the fences; a gambler
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
@@ -369,6 +371,14 @@ pub struct BatterInfo {
     pub bat_contact: f64,
     pub timing_bias: f64,
     pub consistency_sigma: f64, // Ex. 0.03
+}
+impl BatterInfo {
+    pub fn sample_plate_approach(
+        &self,
+        rng: &mut dyn RandomProvider,
+    ) -> Result<PlateApproach, AppError> {
+        Ok(choose_item_weighted(rng, &default_plate_approach(self.batter_type))?.clone())
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug, Validate)]

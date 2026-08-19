@@ -741,10 +741,8 @@ impl GameState {
             batter.batting_eye,
         );
 
-        let plate_approach = PlateApproach::Aggressive;
-
         let swing_factor = calculate_swing_factor(
-            plate_approach,
+            batter.sample_plate_approach(self.rng.as_mut())?,
             self.count_status(),
             pitched_ball.pitch_type,
             expected_ball.pitch_type,

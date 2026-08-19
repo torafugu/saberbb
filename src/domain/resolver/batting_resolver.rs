@@ -3,7 +3,7 @@ use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{
     BallLocation, BattedBall, FOUL_DEGREE, MAGNUS_COEFF, OutboundResult, PitchedBall,
 };
-use crate::domain::shared::game_state::{GameError, WindCondition};
+use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::SwingExecution;
@@ -12,7 +12,7 @@ use crate::domain::util::{GRAVITY, PolarPosition, sigmoid};
 
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
-use strum_macros::{AsRefStr, EnumIter, EnumString};
+use strum_macros::{AsRefStr, EnumString};
 
 // Standard reference swing speed (km/h)
 const REF_SWING_SPEED: f64 = 120.0;
@@ -107,6 +107,7 @@ impl CountStatus {
     }
 }
 
+#[derive(Clone)]
 pub enum PlateApproach {
     Aggressive,
     Patient,

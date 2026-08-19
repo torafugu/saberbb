@@ -69,10 +69,9 @@ fn test_batted_ball() {
         );
 
         let count_status = CountStatus::C01;
-        let plate_approach = PlateApproach::Aggressive;
 
         let swing_factor = calculate_swing_factor(
-            plate_approach,
+            batter.sample_plate_approach(&mut rng).unwrap(),
             count_status,
             pitched_ball.pitch_type,
             expected_ball.pitch_type,
