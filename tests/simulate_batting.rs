@@ -17,7 +17,13 @@ fn test_calculate_swing_factor() {
     let actual_pitch_type = PitchType::FourSeamFastball;
     let expected_pitch_type = PitchType::Curveball;
 
-    let swing_factor = calculate_swing_factor(count_status, actual_pitch_type, expected_pitch_type);
+    let swing_factor = calculate_swing_factor(
+        count_status,
+        actual_pitch_type,
+        expected_pitch_type,
+        BallLocation { x: 0.0, y: 0.0 },
+        BallLocation { x: 0.0, y: 0.0 },
+    );
     println!("swing_factor:{}", swing_factor);
 }
 
@@ -67,6 +73,8 @@ fn test_batted_ball() {
             count_status,
             pitched_ball.pitch_type,
             expected_ball.pitch_type,
+            pitched_ball.actual_location,
+            expected_ball.actual_location,
         );
 
         let swing_execution = select_swing_execution(&mut rng, swing_factor);

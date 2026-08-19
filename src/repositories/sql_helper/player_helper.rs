@@ -1,6 +1,6 @@
 use crate::domain::shared::player::{
     ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, FullName, HitterTendency,
-    PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
+    PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
 };
 use crate::error::AppError;
 use crate::repositories::db::FromRow;

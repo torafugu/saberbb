@@ -7,6 +7,7 @@ use crate::domain::shared::game_state::{GameError, WindCondition};
 use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::SwingExecution;
+use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
 use crate::domain::util::{GRAVITY, PolarPosition, sigmoid};
 
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,24 @@ pub fn calculate_pitch_similarity(
     PitchSimilarity {
         speed: speed_similarity,
         spin: spin_similarity,
+    }
+}
+
+pub fn calculate_zone_similarity(
+    actual_target_zone: TargetZone,
+    expected_target_zone: TargetZone,
+) -> f64 {
+    if actual_target_zone == TargetZone::Center && expected_target_zone == TargetZone::Center {
+        0.3
+    } else if actual_target_zone == TargetZone::Center && expected_target_zone != TargetZone::Center
+    {
+        0.1
+    } else {
+        match actual_target_zone.similarity(expected_target_zone) {
+            TargetZoneSimilarity::Same => 0.2,
+            TargetZoneSimilarity::Opposite => -0.2,
+            _ => 0.05,
+        }
     }
 }
 
@@ -86,6 +105,8 @@ pub fn calculate_swing_factor(
     count_status: CountStatus,
     actual_pitch_type: PitchType,
     expected_pitch_type: PitchType,
+    actual_pitch_location: BallLocation,
+    expected_pitch_location: BallLocation,
 ) -> f64 {
     let count_status_factor = count_status.prob();
 
@@ -95,7 +116,12 @@ pub fn calculate_swing_factor(
         -0.15
     };
 
-    (count_status_factor + pitch_type_factor)
+    let zone_similarity = calculate_zone_similarity(
+        actual_pitch_location.target_zone(),
+        expected_pitch_location.target_zone(),
+    );
+
+    count_status_factor + pitch_type_factor + zone_similarity
 }
 
 pub fn select_swing_execution(
@@ -769,8 +795,8 @@ pub fn calculate_batted_ball(
 #[cfg(test)]
 mod tests {
     use crate::domain::resolver::batting_resolver::{
-        BatterInfo, SwingContactResult, SwingContactType, calculate_batted_ball,
-        calculate_launch_angles,
+        BatterInfo, CountStatus, SwingContactResult, SwingContactType, calculate_batted_ball,
+        calculate_launch_angles, calculate_swing_factor, calculate_zone_similarity,
     };
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::game_state::{GameError, WindCondition};
@@ -862,6 +888,55 @@ mod tests {
             assert!((angles.vla_deg - expected_vla).abs() < 0.1);
             assert!((angles.hla_deg - expected_hla).abs() < 0.1);
         }
+    }
+
+    #[test]
+    fn calculate_zone_similarity_scores_same_zone_positive() {
+        assert_eq!(
+            calculate_zone_similarity(TargetZone::LowInside, TargetZone::LowInside),
+            0.2
+        );
+        assert_eq!(
+            calculate_zone_similarity(TargetZone::Center, TargetZone::Center),
+            0.2
+        );
+    }
+
+    #[test]
+    fn calculate_zone_similarity_penalizes_opposite_zones() {
+        assert_eq!(
+            calculate_zone_similarity(TargetZone::LowInside, TargetZone::HighOutside),
+            -0.2
+        );
+        assert_eq!(
+            calculate_zone_similarity(TargetZone::HighInside, TargetZone::LowOutside),
+            -0.2
+        );
+    }
+
+    #[test]
+    fn calculate_zone_similarity_uses_small_penalty_for_partial_mismatch() {
+        assert_eq!(
+            calculate_zone_similarity(TargetZone::LowInside, TargetZone::LowOutside),
+            -0.05
+        );
+        assert_eq!(
+            calculate_zone_similarity(TargetZone::Center, TargetZone::HighOutside),
+            -0.05
+        );
+    }
+
+    #[test]
+    fn calculate_swing_factor_handles_locations_outside_target_zones() {
+        let swing_factor = calculate_swing_factor(
+            CountStatus::C00,
+            PitchType::FourSeamFastball,
+            PitchType::FourSeamFastball,
+            BallLocation { x: 1.1, y: -0.8 },
+            BallLocation { x: 0.7, y: -0.7 },
+        );
+
+        assert!((swing_factor - 0.35).abs() < 1e-9);
     }
 
     #[test]

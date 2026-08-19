@@ -2,7 +2,7 @@ use crate::domain::shared::ball::BallLocation;
 use crate::domain::shared::ball::BallZone;
 use crate::domain::shared::player::PitchType;
 use crate::domain::shared::prob::ItemWeighted;
-use strum_macros::AsRefStr;
+use strum_macros::{AsRefStr, EnumIter};
 
 const WIDE_AIM_FACTOR: f64 = 3.0;
 const EDGE_AIM_FACTOR: f64 = 4.0;
@@ -24,7 +24,15 @@ impl Margin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash, AsRefStr)]
+pub enum TargetZoneSimilarity {
+    Same,
+    Height,
+    Course,
+    Opposite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash, AsRefStr)]
 pub enum TargetZone {
     Center,
     LowInside,
@@ -65,6 +73,18 @@ impl TargetZone {
                 x2: 1.0,
                 y2: 0.0,
             },
+        }
+    }
+
+    pub fn similarity(self, another: TargetZone) -> TargetZoneSimilarity {
+        let is_same_hight = self.zone().x1 == another.zone().x1;
+        let is_same_course = self.zone().y1 == another.zone().y1;
+
+        match (is_same_hight, is_same_course) {
+            (true, true) => TargetZoneSimilarity::Same,
+            (true, false) => TargetZoneSimilarity::Height,
+            (false, true) => TargetZoneSimilarity::Course,
+            (false, false) => TargetZoneSimilarity::Opposite,
         }
     }
 }

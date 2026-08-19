@@ -6,6 +6,7 @@ use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use std::fmt;
+use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumString};
 
 pub const FOUL_DEGREE: f64 = 45.0;
@@ -195,6 +196,12 @@ impl BallLocation {
             PitchResult::Strike
         }
     }
+
+    pub fn target_zone(&self) -> TargetZone {
+        TargetZone::iter()
+            .find(|target_zone| target_zone.zone().is_in_zone(*self))
+            .unwrap_or_else(|| panic!("ball location is outside all target zones: {self:?}"))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -217,6 +224,15 @@ impl BallZone {
     pub fn height(&self) -> f64 {
         (self.y1 - self.y2).abs()
     }
+
+    pub fn is_in_zone(&self, location: BallLocation) -> bool {
+        let min_x = self.x1.min(self.x2);
+        let max_x = self.x1.max(self.x2);
+        let min_y = self.y1.min(self.y2);
+        let max_y = self.y1.max(self.y2);
+
+        location.x >= min_x && location.x <= max_x && location.y >= min_y && location.y <= max_y
+    }
 }
 
 pub struct PitchedBall {
@@ -234,8 +250,8 @@ pub struct PitchedBall {
     pub actual_location: BallLocation,
 }
 impl PitchedBall {
-    /// Returns lateral Magnus acceleration (m/s²)
-    /// (+: acceleration to the right / -: acceleration to the left)
+    // Returns lateral Magnus acceleration (m/s²)
+    // (+: acceleration to the right / -: acceleration to the left)
     pub fn get_side_accel(&self) -> f64 {
         // 1. Effective spin rate (rpm) contributing to Magnus force
         let effective_spin = self.spin_rate * self.spin_efficiency;
@@ -251,7 +267,7 @@ impl PitchedBall {
         total_magnus_accel * side_factor
     }
 
-    /// (Reference) Vertical Magnus acceleration (m/s²) follows the same logic
+    // (Reference) Vertical Magnus acceleration (m/s²) follows the same logic
     pub fn get_vertical_accel(&self) -> f64 {
         // 1. Effective spin rate (rpm) contributing to Magnus force
         let effective_spin = self.spin_rate * self.spin_efficiency;
@@ -318,6 +334,76 @@ mod tests {
             aim_location: BallLocation { x: 0.0, y: 0.0 },
             actual_location: BallLocation { x: 0.0, y: 0.0 },
         }
+    }
+
+    #[test]
+    fn ball_zone_includes_locations_inside_and_on_boundary() {
+        let zone = BallZone {
+            x1: -1.0,
+            y1: 1.0,
+            x2: 0.0,
+            y2: 0.0,
+        };
+
+        assert!(zone.is_in_zone(BallLocation { x: -0.5, y: 0.5 }));
+        assert!(zone.is_in_zone(BallLocation { x: -1.0, y: 1.0 }));
+        assert!(zone.is_in_zone(BallLocation { x: 0.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn ball_zone_excludes_locations_outside() {
+        let zone = BallZone {
+            x1: -1.0,
+            y1: 1.0,
+            x2: 0.0,
+            y2: 0.0,
+        };
+
+        assert!(!zone.is_in_zone(BallLocation { x: -1.1, y: 0.5 }));
+        assert!(!zone.is_in_zone(BallLocation { x: -0.5, y: 1.1 }));
+        assert!(!zone.is_in_zone(BallLocation { x: 0.1, y: 0.5 }));
+        assert!(!zone.is_in_zone(BallLocation { x: -0.5, y: -0.1 }));
+    }
+
+    #[test]
+    fn ball_zone_accepts_either_corner_order() {
+        let zone = BallZone {
+            x1: 0.0,
+            y1: 0.0,
+            x2: -1.0,
+            y2: 1.0,
+        };
+
+        assert!(zone.is_in_zone(BallLocation { x: -0.5, y: 0.5 }));
+        assert!(!zone.is_in_zone(BallLocation { x: 0.1, y: 0.5 }));
+    }
+
+    #[test]
+    fn target_zone_returns_matching_zone() {
+        assert_eq!(
+            BallLocation { x: -0.75, y: -0.75 }.target_zone(),
+            TargetZone::LowInside
+        );
+        assert_eq!(
+            BallLocation { x: 0.75, y: -0.75 }.target_zone(),
+            TargetZone::LowOutside
+        );
+        assert_eq!(
+            BallLocation { x: -0.75, y: 0.75 }.target_zone(),
+            TargetZone::HighInside
+        );
+        assert_eq!(
+            BallLocation { x: 0.75, y: 0.75 }.target_zone(),
+            TargetZone::HighOutside
+        );
+    }
+
+    #[test]
+    fn target_zone_prefers_center_when_zones_overlap() {
+        assert_eq!(
+            BallLocation { x: 0.0, y: 0.0 }.target_zone(),
+            TargetZone::Center
+        );
     }
 
     #[test]

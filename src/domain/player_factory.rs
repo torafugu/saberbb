@@ -8,7 +8,7 @@ use super::shared::prob::{
     RunningSkillProbs,
 };
 use crate::domain::random_provider::{
-    choose_item_if_exists, choose_item_weighted, RandomProvider, RealRng,
+    RandomProvider, RealRng, choose_item_if_exists, choose_item_weighted,
 };
 use crate::domain::shared::player::{BatterInfo, DefenseSkills, PlayerInfo};
 use crate::domain::shared::prob::ItemWeighted;
