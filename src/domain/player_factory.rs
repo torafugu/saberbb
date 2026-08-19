@@ -163,6 +163,8 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     pub fn assign_batter_info(&mut self) -> Result<BatterInfo, AppError> {
         let batting_side =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
+        let batter_type =
+            choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batter_type)?.clone();
 
         let batting_eye = self.rng.normal(self.batter_info_probs.batting_eye);
         let swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
@@ -174,6 +176,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
         Ok(BatterInfo {
             batting_side: batting_side,
+            batter_type: batter_type,
             batting_eye: batting_eye,
             swing_speed: swing_speed,
             swing_power: swing_power,

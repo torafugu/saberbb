@@ -1,4 +1,6 @@
-use crate::domain::shared::player::{ArmSlot, FielderType, HitterTendency, PitcherStyle, RL};
+use crate::domain::shared::player::{
+    ArmSlot, BatterType, FielderType, HitterTendency, PitcherStyle, RL,
+};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -44,6 +46,7 @@ pub struct RunningSkillProbs {
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterInfoProbs {
     pub batting_side: Vec<ItemWeighted<RL>>,
+    pub batter_type: Vec<ItemWeighted<BatterType>>,
     pub batting_eye: NormalParam,
     pub swing_speed: NormalParam,
     pub swing_power: NormalParam,

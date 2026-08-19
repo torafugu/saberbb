@@ -44,6 +44,31 @@ VALUES
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
+    (
+        'player',
+        'batter_type',
+        'AggressiveFreeSwinger',
+        0.25
+    );
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('player', 'batter_type', 'ClassicAnalyst', 0.25);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('player', 'batter_type', 'GameManager', 0.25);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('player', 'batter_type', 'ClutchHunter', 0.25);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
     ('player', 'fielder_type', 'Outfielder', 0.24);
 
 INSERT INTO

@@ -90,6 +90,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         info!("load_batter_info_probs() started");
 
         let batting_side = self.repo.item_probs(PLY, "batting_side")?;
+        let batter_type = self.repo.item_probs(PLY, "batter_type")?;
         let batting_eye = self.repo.normal_params(PLY, "batter_info", "batting_eye")?;
         let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
         let swing_power = self.repo.normal_params(PLY, "batter_info", "swing_power")?;
@@ -104,6 +105,7 @@ impl<R: PlayerRepository> PlayerService<R> {
 
         Ok(BatterInfoProbs {
             batting_side: batting_side,
+            batter_type: batter_type,
             batting_eye: batting_eye,
             swing_speed: swing_speed,
             swing_power: swing_power,
@@ -255,8 +257,8 @@ impl<R: PlayerRepository> PlayerService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::player::{
-        ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill,
-        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FullName, OffenseSkills,
+        PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::domain::shared::prob::{
         GammaParam, ItemWeighted, NormalParam, PitcherInfoProbs, PlayerInfoProbs,
@@ -280,6 +282,7 @@ mod tests {
         team: Team,
         random_team: Team,
         pitch_type_probs: Vec<ItemWeighted<PitchType>>,
+        batter_type_probs: Vec<ItemWeighted<BatterType>>,
         player_attribute_prob: PlayerInfoProbs,
         pitcher_attribute_prob: PitcherInfoProbs,
         random_name_error: Cell<bool>,
@@ -335,6 +338,10 @@ mod tests {
                 random_team: Team::min(99, "Randoms"),
                 pitch_type_probs: vec![ItemWeighted {
                     name: PitchType::Slider,
+                    weight: 1.0,
+                }],
+                batter_type_probs: vec![ItemWeighted {
+                    name: BatterType::ClassicAnalyst,
                     weight: 1.0,
                 }],
                 player_attribute_prob: PlayerInfoProbs {
@@ -437,6 +444,19 @@ mod tests {
 
         unsafe fn cast_pitcher_style_probs<T>(
             items: Vec<ItemWeighted<PitcherStyle>>,
+        ) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
+
+        unsafe fn cast_batter_type_probs<T>(
+            items: Vec<ItemWeighted<BatterType>>,
         ) -> Vec<ItemWeighted<T>> {
             let mut items = ManuallyDrop::new(items);
             unsafe {
@@ -656,6 +676,15 @@ mod tests {
                 (PTI, "throw_side") => Ok(unsafe {
                     Self::cast_rl_probs(self.state.pitcher_attribute_prob.throw_side.clone())
                 }),
+                (PLY, "batting_side") => Ok(unsafe {
+                    Self::cast_rl_probs(vec![ItemWeighted {
+                        name: RL::Right,
+                        weight: 1.0,
+                    }])
+                }),
+                (PLY, "batter_type") => Ok(unsafe {
+                    Self::cast_batter_type_probs(self.state.batter_type_probs.clone())
+                }),
                 (PTI, "arm_slot") => Ok(unsafe {
                     Self::cast_arm_slot_probs(self.state.pitcher_attribute_prob.arm_slot.clone())
                 }),
@@ -733,6 +762,22 @@ mod tests {
                 .item_prob_categories
                 .borrow()
                 .contains(&(PTI.to_string(), "throw_side".to_string()))
+        );
+    }
+
+    #[test]
+    fn load_batter_info_probs_loads_batter_type_from_player_category() {
+        let (service, state) = service_with_repo();
+
+        let probs = service.load_batter_info_probs().unwrap();
+
+        assert_eq!(probs.batter_type.len(), 1);
+        assert_eq!(probs.batter_type[0].name, BatterType::ClassicAnalyst);
+        assert!(
+            state
+                .item_prob_categories
+                .borrow()
+                .contains(&(PLY.to_string(), "batter_type".to_string()))
         );
     }
 

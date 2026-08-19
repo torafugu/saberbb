@@ -1094,6 +1094,7 @@ mod tests {
         };
         player.offense_skills.batter = batting_order.map(|order| BatterInfo {
             batting_side: RL::Right,
+            batter_type: crate::domain::shared::player::BatterType::ClassicAnalyst,
             batting_eye: 0.5,
             swing_speed: 100.0 - order as f64,
             swing_power: 1.0,

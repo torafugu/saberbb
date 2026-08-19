@@ -77,8 +77,8 @@ mod tests {
         PlayerGameFielding, PlayerGameRunning, PlayerGameRunningView,
     };
     use crate::domain::shared::player::{
-        ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType,
-        PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, PitchSkill,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::domain::shared::stadium::Stadium;
     use crate::domain::shared::team::Team;
@@ -298,6 +298,7 @@ mod tests {
         };
         player.offense_skills.batter = Some(BatterInfo {
             batting_side: RL::Right,
+            batter_type: BatterType::ClassicAnalyst,
             batting_eye: 0.5,
             swing_speed: 30.0,
             swing_power: 1.0,

@@ -347,9 +347,21 @@ impl fmt::Display for HitterTendency {
     }
 }
 
+#[derive(
+    Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, EnumIter, Hash, Debug, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum BatterType {
+    AggressiveFreeSwinger, // NOTE: 積極的感覚派
+    ClassicAnalyst,        // NOTE: 慎重派理論
+    GameManager,           // NOTE: 状況対応派
+    ClutchHunter,          // NOTE: 一発狙い・勝負師
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterInfo {
     pub batting_side: RL,
+    pub batter_type: BatterType,
     pub batting_eye: f64,
     pub swing_speed: f64,
     pub swing_power: f64,
