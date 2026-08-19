@@ -988,6 +988,7 @@ mod tests {
             running_speed: 7.0,
             reaction: 0.5,
             prep_time: 0.6,
+            catching: 0.8,
         }
     }
 

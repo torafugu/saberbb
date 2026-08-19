@@ -4,6 +4,8 @@ use crate::domain::shared::ball::{BattedBall, FieldedBall};
 use crate::domain::shared::game_state::ActiveFielder;
 use crate::domain::util::PolarPosition;
 
+const DT: f64 = 0.05;
+
 /// Types of fielding errors
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FieldError {
@@ -70,8 +72,8 @@ pub enum CatchType {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FielderRiskTolerance {
-    Aggressive,   // Go for the no-bounce catch even when it's right at the limit (high risk, high reward)
-    Balanced,     // Normal fielding judgment
+    Aggressive, // Go for the no-bounce catch even when it's right at the limit (high risk, high reward)
+    Balanced,   // Normal fielding judgment
     Conservative, // Prioritize avoiding errors/misses; safely field it on one bounce (low risk)
 }
 
@@ -85,16 +87,12 @@ pub fn evaluate_fielder_interception<'a>(
     let f_x0 = fielder.polar_position.distance * f_rad.sin();
     let f_y0 = fielder.polar_position.distance * f_rad.cos();
 
-    let dt = 0.05;
     let mut t = 0.10;
 
     // Scan chronologically for future points where the ball is at a catchable height (Z <= 2.2m)
     while t <= ball.total_time {
         // Get the ball's polar coordinates (b_r, b_theta), height, and Cartesian coordinates
         let (b_r, b_theta, b_x, b_y, b_z, is_direct) = estimate_ball_state_at_time(t, ball);
-
-        // TODO: fielding_stat should be included to FielderInfo
-        let fielding_stat: f64 = 0.99;
 
         // Only points where the ball is at a catchable height (Z <= MAX_REACH_HEIGHT) become the movement target
         if b_z <= MAX_REACH_HEIGHT {
@@ -132,14 +130,14 @@ pub fn evaluate_fielder_interception<'a>(
                     // If the risk is deemed too high, skip the catch at this (no-bounce) point
                     // and continue the loop to find a safe point after the first bounce
                     if !is_acceptable_risk {
-                        t += dt;
+                        t += DT;
                         continue;
                     }
                 }
 
                 // Fielding error judgment (varies with how little waiting time there is)
                 let difficulty = if waiting_time < 0.2 { 3.0 } else { 1.0 };
-                let base_error_rate = (1.0 - fielding_stat).clamp(0.01, 0.50);
+                let base_error_rate = (1.0 - fielder.info.catching).clamp(0.01, 0.50);
                 let error_probability = base_error_rate * difficulty * 0.10;
                 let rng_value = rng.random();
 
@@ -197,7 +195,7 @@ pub fn evaluate_fielder_interception<'a>(
             }
         }
 
-        t += dt;
+        t += DT;
     }
 
     None // Failed to catch in mid-flight
@@ -261,7 +259,10 @@ pub fn estimate_ball_state_at_time(
         } else {
             (t / ball.total_time).min(1.0)
         };
-        (4.0 * progress * (1.0 - progress) * 15.0).max(0.0)
+        // NOTE: The apex of the parabola is at 0.5
+        // The base parabola at progress rate p ∈ [0, 1] is p(1 - p), so 0.5 × 0.5 = 0.25
+        const HIGHEST_POINT: f64 = 0.25;
+        (progress * (HIGHEST_POINT - progress) * ball.max_height).max(0.0)
     } else {
         // During ground bounce / rolling
         0.3
@@ -287,7 +288,6 @@ pub fn evaluate_final_pickup<'a>(
         .or(ball.first_bounce_time)
         .unwrap_or(0.0);
 
-    let dt = 0.05;
     let mut t = start_time;
 
     // Search for a point the fielder can reach while the ball is moving (or right after it stops)
@@ -298,8 +298,6 @@ pub fn evaluate_final_pickup<'a>(
 
         let move_dist = ((b_x - f_x0).powi(2) + (b_y - f_y0).powi(2)).sqrt();
         let fielder_needed_time = fielder.info.prep_time + (move_dist / fielder.info.running_speed);
-        // TODO: fielding_stat should be included to FielderInfo
-        let fielding_stat: f64 = 0.99;
 
         // Can the fielder reach that point (b_x, b_y) by time t?
         if fielder_needed_time <= t {
@@ -308,12 +306,11 @@ pub fn evaluate_final_pickup<'a>(
             let base_pickup_delay = if is_moving_cushion { 0.65 } else { 0.40 };
             let rng_value = rng.random();
 
-            // -------------------------------------------------------------
             // Error judgment in final processing (fumble / bobble)
-            // -------------------------------------------------------------
             // Error rate increases while handling the cushion (is_moving_cushion)
             let difficulty = if is_moving_cushion { 2.5 } else { 1.0 };
-            let error_probability = (1.0 - fielding_stat).clamp(0.01, 0.40) * difficulty * 0.08;
+            let error_probability =
+                (1.0 - fielder.info.catching).clamp(0.01, 0.40) * difficulty * 0.08;
 
             let (final_delay, error_type) = if rng_value < error_probability {
                 // Bobbling a cushion ball or fumbling a rolling ball (significant 1.5s ~ 2.5s delay)
@@ -336,7 +333,7 @@ pub fn evaluate_final_pickup<'a>(
             };
         }
 
-        t += dt;
+        t += DT;
     }
 
     // Fallback (return the final resting position as a safety measure)

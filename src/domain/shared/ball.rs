@@ -60,6 +60,7 @@ pub struct BattedBall {
     pub spin_rate: f64,
     pub spin_angle: f64,
     pub final_position: PolarPosition,
+    pub max_height: f64,
     pub total_time: f64,
     // NOTE: Polar coordinates (r) and time (t) of the first bounce
     // Note: None if it hits the fence directly or is a no-bounce home run
@@ -89,6 +90,7 @@ impl BattedBall {
             spin_rate: 0.0,
             spin_angle: 0.0,
             final_position: PolarPosition::new(polar_distance, polar_angle),
+            max_height: 0.0,
             total_time,
             first_bounce_position,
             first_bounce_time,
@@ -105,6 +107,7 @@ impl BattedBall {
             spin_rate: 0.0,
             spin_angle: 0.0,
             final_position: PolarPosition::new(0.0, 0.0),
+            max_height: 0.0,
             total_time: 0.0,
             first_bounce_position: None,
             first_bounce_time: None,
@@ -283,6 +286,7 @@ mod tests {
             spin_rate: 0.0,
             spin_angle: 0.0,
             final_position: PolarPosition::new(distance, spray_angle),
+            max_height: 0.0,
             total_time: 2.5,
             first_bounce_position: None,
             first_bounce_time: None,

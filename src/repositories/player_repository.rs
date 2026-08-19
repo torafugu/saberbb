@@ -247,9 +247,9 @@ impl PlayerRepository for SqlPlayerRepository {
         info!("insert_fielder_info() started");
 
         let insert_fielder_info_sql = "INSERT INTO fielder_info (
-                                                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time
+                                                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time, catching
                                                 ) VALUES (
-                                                ?1, ?2, ?3, ?4, ?5, ?6)";
+                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7)";
         self.db_client.execute_tx(
             tx,
             insert_fielder_info_sql,
@@ -259,7 +259,8 @@ impl PlayerRepository for SqlPlayerRepository {
                 fielder_info.throw_speed,
                 fielder_info.running_speed,
                 fielder_info.reaction,
-                fielder_info.prep_time
+                fielder_info.prep_time,
+                fielder_info.catching
             ],
         )
     }
@@ -553,6 +554,7 @@ mod tests {
                 running_speed REAL NOT NULL,
                 reaction REAL NOT NULL,
                 prep_time REAL NOT NULL,
+                catching REAL NOT NULL,
                 PRIMARY KEY (player_id, fielder_type)
             );
 
@@ -818,6 +820,7 @@ mod tests {
             running_speed: 7.0,
             reaction: 0.4,
             prep_time: 0.6,
+            catching: 0.8,
         }
     }
 

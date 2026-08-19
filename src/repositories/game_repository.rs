@@ -524,8 +524,8 @@ impl GameRepository for SqlGameRepository {
     fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError> {
         info!("load_batter_info() started for {}", player_id);
 
-        let query = "SELECT batting_side, swing_speed, base_launch_angle, consistency_sigma,
-                weight_pull, weight_center, weight_opposite, weight_foul_pull, weight_foul_opposite
+        let query = "SELECT batting_side, batting_eye, swing_speed, swing_power, attack_angle,
+                bat_contact, timing_bias, consistency_sigma
                 FROM batter_info WHERE player_id = ?1";
         self.db_client
             .query_row::<BatterInfo>(query, params![player_id])
@@ -539,7 +539,7 @@ impl GameRepository for SqlGameRepository {
     ) -> Result<FielderInfo, AppError> {
         info!("load_fielder_info() started");
         let query =
-                "SELECT fielder_type, throw_speed, running_speed, reaction, prep_time FROM fielder_info 
+                "SELECT fielder_type, throw_speed, running_speed, reaction, prep_time, catching FROM fielder_info 
                 WHERE player_id = ?1 AND fielder_type = ?2";
         self.db_client
             .query_row::<FielderInfo>(query, params![player_id, fielder_type.as_ref()])
@@ -549,7 +549,7 @@ impl GameRepository for SqlGameRepository {
     fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError> {
         info!("load_pitcher_info() started");
         let query =
-                "SELECT height, extension, throw_side, arm_slot, pitcher_style, velocity, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time 
+                "SELECT height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time 
                 FROM pitcher_info WHERE player_id = ?1";
         let mut pitcher_info = self
             .db_client
@@ -796,14 +796,13 @@ mod tests {
             CREATE TABLE batter_info (
                 player_id INTEGER PRIMARY KEY,
                 batting_side TEXT NOT NULL,
+                batting_eye REAL NOT NULL,
                 swing_speed REAL NOT NULL,
-                base_launch_angle REAL NOT NULL,
-                consistency_sigma REAL NOT NULL,
-                weight_pull REAL NOT NULL,
-                weight_center REAL NOT NULL,
-                weight_opposite REAL NOT NULL,
-                weight_foul_pull REAL NOT NULL,
-                weight_foul_opposite REAL NOT NULL
+                swing_power REAL NOT NULL,
+                attack_angle REAL NOT NULL,
+                bat_contact REAL NOT NULL,
+                timing_bias REAL NOT NULL,
+                consistency_sigma REAL NOT NULL
             );
 
             CREATE TABLE fielder_info (
@@ -813,6 +812,7 @@ mod tests {
                 running_speed REAL NOT NULL,
                 reaction REAL NOT NULL,
                 prep_time REAL NOT NULL,
+                catching REAL NOT NULL,
                 PRIMARY KEY (player_id, fielder_type)
             );
 
@@ -824,6 +824,7 @@ mod tests {
                 arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
                 velocity REAL NOT NULL,
+                spin_rate REAL NOT NULL,
                 control REAL NOT NULL,
                 stamina REAL NOT NULL,
                 injury_proneness REAL NOT NULL,
@@ -1049,10 +1050,10 @@ mod tests {
             if position == Position::P {
                 conn.execute(
                     "INSERT INTO pitcher_info (
-                        player_id, height, extension, throw_side, arm_slot, pitcher_style, velocity, control, stamina,
+                        player_id, height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina,
                         injury_proneness, clutch, hpp, platoon_splitting,
                         delivery_motion_time
-                    ) VALUES (?1, 1.85, 1.8, 'Right', 'ThreeQuarter', 'BalancedPitcher', 145.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4)",
+                    ) VALUES (?1, 1.85, 1.8, 'Right', 'ThreeQuarter', 'BalancedPitcher', 145.0, 2200.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4)",
                     params![id],
                 )
                 .unwrap();
@@ -1068,10 +1069,9 @@ mod tests {
             } else {
                 conn.execute(
                     "INSERT INTO batter_info (
-                        player_id, batting_side, swing_speed, base_launch_angle,
-                        consistency_sigma, weight_pull, weight_center, weight_opposite,
-                        weight_foul_pull, weight_foul_opposite
-                    ) VALUES (?1, 'Right', 30.0, 28.0, 0.03, 0.3, 0.3, 0.2, 0.1, 0.1)",
+                        player_id, batting_side, batting_eye, swing_speed, swing_power,
+                        attack_angle, bat_contact, timing_bias, consistency_sigma
+                    ) VALUES (?1, 'Right', 0.5, 30.0, 1.0, 28.0, 0.8, 0.0, 0.03)",
                     params![id],
                 )
                 .unwrap();
@@ -1096,8 +1096,8 @@ mod tests {
     ) {
         conn.execute(
             "INSERT INTO fielder_info (
-                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time
-            ) VALUES (?1, ?2, 38.0, 7.0, 0.5, 0.6)",
+                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time, catching
+            ) VALUES (?1, ?2, 38.0, 7.0, 0.5, 0.6, 0.8)",
             params![player_id, fielder_type],
         )
         .unwrap();

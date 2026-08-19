@@ -72,6 +72,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let running_speed = self.repo.normal_params(PLY, FI, "running_speed")?;
         let reaction = self.repo.normal_params(PLY, FI, "reaction")?;
         let prep_time = self.repo.normal_params(PLY, FI, "prep_time")?;
+        let catching = self.repo.normal_params(PLY, FI, "catching")?;
 
         Ok(FielderInfoProbs {
             fielder_type: fielder_type,
@@ -79,6 +80,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             running_speed: running_speed,
             reaction: reaction,
             prep_time: prep_time,
+            catching: catching,
         })
     }
 

@@ -797,6 +797,7 @@ mod tests {
                 running_speed: 7.0,
                 reaction: 0.4,
                 prep_time: 0.6,
+                catching: 0.8,
             },
             polar_position: PolarPosition::new(distance, angle),
         }
@@ -823,6 +824,7 @@ mod tests {
             spin_rate: 0.0,
             spin_angle: 0.0,
             final_position,
+            max_height: 0.0,
             total_time: hang_time,
             first_bounce_position,
             first_bounce_time,
@@ -894,6 +896,7 @@ mod tests {
                 running_speed: 7.0,
                 reaction: 0.5,
                 prep_time: 0.65,
+                catching: 0.8,
             },
         }
     }
@@ -906,6 +909,7 @@ mod tests {
                 running_speed: 7.0,
                 reaction: 0.5,
                 prep_time,
+                catching: 0.8,
             },
         }
     }
@@ -958,6 +962,7 @@ mod tests {
                 running_speed: 7.5,
                 reaction: 0.3,
                 prep_time: 0.5,
+                catching: 0.8,
             },
             polar_position: PolarPosition::new(80.0, 0.0),
         };

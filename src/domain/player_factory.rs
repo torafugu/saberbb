@@ -141,6 +141,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             running_speed: 7.0,
             reaction: 0.5,
             prep_time: 0.65,
+            catching: 0.8,
         }
     }
 
@@ -249,6 +250,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             running_speed: self.rng.normal(self.fielder_info_probs.running_speed),
             reaction: self.rng.normal(self.fielder_info_probs.reaction),
             prep_time: self.rng.normal(self.fielder_info_probs.prep_time),
+            catching: self.rng.normal(self.fielder_info_probs.catching),
         })
     }
 

@@ -540,13 +540,14 @@ fn calculate_trajectory(
     let mut v_y = launch_speed_ms * vla_rad.cos() * hla_rad.cos().abs();
     let mut v_z = launch_speed_ms * vla_rad.sin();
 
-    //　Contact height (impact position above ground: e.g. 0.9m)
+    // Contact height (impact position above ground: e.g. 0.9m)
     const IMPACT_HEIGHT_M: f64 = 0.90;
 
     // Initial position
     let mut pos_x: f64 = 0.0;
     let mut pos_y: f64 = 0.0;
     let mut pos_z = IMPACT_HEIGHT_M;
+    let mut max_height_m = pos_z; // Tracks the max height reached (initial value: impact height)
 
     // Current spin state for calculation (decays and changes after bounces)
     let mut current_spin_rate = spin_rate_rpm;
@@ -576,8 +577,6 @@ fn calculate_trajectory(
     loop {
         let prev_x = pos_x;
         let prev_y = pos_y;
-        // let prev_z = pos_z;
-        // let prev_distance_m = (prev_x.powi(2) + prev_y.powi(2)).sqrt();
 
         // --- Physics update (air resistance, Magnus, velocity, position) ---
         let rel_v_x = v_x - wind_v_x;
@@ -643,6 +642,11 @@ fn calculate_trajectory(
         pos_y += v_y * dt;
         pos_z += v_z * dt;
         current_time += dt;
+
+        // Update the max height on every step until the first bounce occurs
+        if bounce_count == 0 {
+            max_height_m = max_height_m.max(pos_z);
+        }
 
         let current_spray_angle_deg = pos_x.atan2(pos_y).to_degrees();
         let current_distance_m = (pos_x.powi(2) + pos_y.powi(2)).sqrt();
@@ -719,6 +723,7 @@ fn calculate_trajectory(
         spin_rate: spin_rate_rpm,
         spin_angle: spin_angle_deg,
         final_position: PolarPosition::new(final_distance_m, final_spray_angle_deg),
+        max_height: max_height_m,
         total_time: current_time,
         first_bounce_position: first_bounce_position,
         first_bounce_time: first_bounce_time_sec,

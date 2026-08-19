@@ -233,6 +233,7 @@ fn test_inning_double_play_deterministically() -> Result<(), GameError> {
         spin_rate: 0.0,
         spin_angle: 0.0,
         final_position: PolarPosition::new(35.0, -25.0),
+        max_height: 0.0,
         total_time: 1.0,
         first_bounce_position: Some(PolarPosition::new(0.0, -25.0)),
         first_bounce_time: Some(0.0),
@@ -307,6 +308,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
             running_speed: 7.0,
             reaction: 0.5,
             prep_time: 0.65,
+            catching: 0.8,
         },
     };
     let catcher = CatcherInfo {
@@ -316,6 +318,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
             running_speed: 7.0,
             reaction: 0.5,
             prep_time: 0.65,
+            catching: 0.8,
         },
     };
     let runner_on_first = ActiveRunner {

@@ -7,5 +7,6 @@ CREATE TABLE fielder_info (
     running_speed REAL NOT NULL,
     reaction REAL NOT NULL,
     prep_time REAL NOT NULL,
+    catching REAL NOT NULL,
     PRIMARY KEY (player_id, fielder_type)
 );

@@ -171,6 +171,7 @@ impl FromRow for FielderInfo {
             running_speed: row.get("running_speed")?,
             reaction: row.get("reaction")?,
             prep_time: row.get("prep_time")?,
+            catching: row.get("catching")?,
         };
 
         fielder_info.validate()?;
