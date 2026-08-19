@@ -1,6 +1,6 @@
 use crate::domain::shared::player::{
     ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, FullName, HitterTendency,
-    PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+    PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
 };
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -173,6 +173,7 @@ impl FromRow for FielderInfo {
             prep_time: row.get("prep_time")?,
             catching: row.get("catching")?,
             reach_height: row.get("reach_height")?,
+            reach_range: row.get("reach_range")?,
         };
 
         fielder_info.validate()?;

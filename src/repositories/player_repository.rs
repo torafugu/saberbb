@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::repositories::db::FromRow;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
-use rusqlite::{Transaction, params};
+use rusqlite::{params, Transaction};
 use tracing::info;
 
 pub trait PlayerRepository {
@@ -247,9 +247,9 @@ impl PlayerRepository for SqlPlayerRepository {
         info!("insert_fielder_info() started");
 
         let insert_fielder_info_sql = "INSERT INTO fielder_info (
-                                                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time, catching, reach_height
+                                                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time, catching, reach_height, reach_range
                                                 ) VALUES (
-                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
         self.db_client.execute_tx(
             tx,
             insert_fielder_info_sql,
@@ -261,7 +261,8 @@ impl PlayerRepository for SqlPlayerRepository {
                 fielder_info.reaction,
                 fielder_info.prep_time,
                 fielder_info.catching,
-                fielder_info.reach_height
+                fielder_info.reach_height,
+                fielder_info.reach_range
             ],
         )
     }
@@ -478,11 +479,11 @@ mod tests {
     use super::*;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, OffenseSkills, PitchSkill,
-        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
     };
     use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -557,6 +558,7 @@ mod tests {
                 prep_time REAL NOT NULL,
                 catching REAL NOT NULL,
                 reach_height REAL NOT NULL,
+                reach_range REAL NOT NULL,
                 PRIMARY KEY (player_id, fielder_type)
             );
 
@@ -824,6 +826,7 @@ mod tests {
             prep_time: 0.6,
             catching: 0.8,
             reach_height: 2.5,
+            reach_range: 1.0,
         }
     }
 
@@ -1185,16 +1188,12 @@ mod tests {
             repo.item_probs("player", "position").unwrap();
 
         assert_eq!(position_probs.len(), 2);
-        assert!(
-            position_probs
-                .iter()
-                .any(|prob| prob.name == Position::P && prob.weight == 0.42)
-        );
-        assert!(
-            position_probs
-                .iter()
-                .any(|prob| prob.name == Position::CF && prob.weight == 0.07)
-        );
+        assert!(position_probs
+            .iter()
+            .any(|prob| prob.name == Position::P && prob.weight == 0.42));
+        assert!(position_probs
+            .iter()
+            .any(|prob| prob.name == Position::CF && prob.weight == 0.07));
         std::fs::remove_file(path).ok();
     }
 
@@ -1263,11 +1262,9 @@ mod tests {
         assert!(pitch_type_probs.iter().any(|prob| {
             matches!(prob.name, PitchType::FourSeamFastball) && prob.weight == 1.0
         }));
-        assert!(
-            pitch_type_probs
-                .iter()
-                .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5)
-        );
+        assert!(pitch_type_probs
+            .iter()
+            .any(|prob| matches!(prob.name, PitchType::Slider) && prob.weight == 0.5));
         std::fs::remove_file(path).ok();
     }
 

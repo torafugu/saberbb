@@ -990,6 +990,7 @@ mod tests {
             prep_time: 0.6,
             catching: 0.8,
             reach_height: 2.5,
+            reach_range: 0.0,
         }
     }
 

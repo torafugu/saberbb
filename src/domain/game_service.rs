@@ -78,7 +78,7 @@ mod tests {
     };
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitchType,
-        PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        PitcherInfo, PitcherStyle, PlayerInfo, Position, RunningSkills, RL,
     };
     use crate::domain::shared::stadium::Stadium;
     use crate::domain::shared::team::Team;
@@ -317,6 +317,7 @@ mod tests {
             prep_time: 0.6,
             catching: 0.8,
             reach_height: 2.5,
+            reach_range: 1.0,
         };
         if position == Position::P {
             player.offense_skills.batter = None;
@@ -473,12 +474,10 @@ mod tests {
                 assert!(count.seq >= 1);
                 assert!(count.out <= 3);
             }
-            assert!(
-                inning
-                    .counts
-                    .windows(2)
-                    .all(|counts| counts[0].seq < counts[1].seq)
-            );
+            assert!(inning
+                .counts
+                .windows(2)
+                .all(|counts| counts[0].seq < counts[1].seq));
         }
     }
 

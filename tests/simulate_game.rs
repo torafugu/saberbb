@@ -310,6 +310,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
             prep_time: 0.65,
             catching: 0.8,
             reach_height: 2.5,
+            reach_range: 0.0,
         },
     };
     let catcher = CatcherInfo {
@@ -321,6 +322,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
             prep_time: 0.65,
             catching: 0.8,
             reach_height: 2.5,
+            reach_range: 0.0,
         },
     };
     let runner_on_first = ActiveRunner {

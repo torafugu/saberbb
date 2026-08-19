@@ -8,7 +8,7 @@ use super::shared::prob::{
     RunningSkillProbs,
 };
 use crate::domain::random_provider::{
-    RandomProvider, RealRng, choose_item_if_exists, choose_item_weighted,
+    choose_item_if_exists, choose_item_weighted, RandomProvider, RealRng,
 };
 use crate::domain::shared::player::{BatterInfo, DefenseSkills, PlayerInfo};
 use crate::domain::shared::prob::ItemWeighted;
@@ -143,6 +143,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             prep_time: 0.65,
             catching: 0.8,
             reach_height: 2.5,
+            reach_range: 1.0,
         }
     }
 
@@ -253,6 +254,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             prep_time: self.rng.normal(self.fielder_info_probs.prep_time),
             catching: self.rng.normal(self.fielder_info_probs.catching),
             reach_height: self.rng.normal(self.fielder_info_probs.reach_height),
+            reach_range: 1.0,
         })
     }
 

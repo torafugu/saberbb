@@ -375,6 +375,7 @@ pub struct FielderInfo {
     pub prep_time: f64, // NOTE: Pitch preparation / transfer time (seconds) e.g. 0.5 – 0.8 s (lower is better)
     pub catching: f64,
     pub reach_height: f64,
+    pub reach_range: f64,
 }
 impl FielderInfo {
     pub fn new_pitcher() -> Self {
@@ -386,6 +387,7 @@ impl FielderInfo {
             prep_time: 0.0,
             catching: 0.0,
             reach_height: 0.0,
+            reach_range: 0.0,
         }
     }
 }
