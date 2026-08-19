@@ -1,5 +1,4 @@
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::resolver::fielding_config::MAX_REACH_HEIGHT;
 use crate::domain::shared::ball::{BattedBall, FieldedBall};
 use crate::domain::shared::game_state::ActiveFielder;
 use crate::domain::util::PolarPosition;
@@ -89,13 +88,13 @@ pub fn evaluate_fielder_interception<'a>(
 
     let mut t = 0.10;
 
-    // Scan chronologically for future points where the ball is at a catchable height (Z <= 2.2m)
+    // Scan chronologically for future points where the ball is at a catchable height.
     while t <= ball.total_time {
         // Get the ball's polar coordinates (b_r, b_theta), height, and Cartesian coordinates
         let (b_r, b_theta, b_x, b_y, b_z, is_direct) = estimate_ball_state_at_time(t, ball);
 
-        // Only points where the ball is at a catchable height (Z <= MAX_REACH_HEIGHT) become the movement target
-        if b_z <= MAX_REACH_HEIGHT {
+        // Only points where the ball is at the fielder's catchable height become the movement target.
+        if b_z <= fielder.info.reach_height {
             // Calculate the fielder's movement distance to the ball's straight-line trajectory and required time (only movement uses Cartesian distance temporarily)
             let move_dist = ((b_x - f_x0).powi(2) + (b_y - f_y0).powi(2)).sqrt();
             let fielder_needed_time =
@@ -262,7 +261,7 @@ pub fn estimate_ball_state_at_time(
         // NOTE: The apex of the parabola is at 0.5
         // The base parabola at progress rate p ∈ [0, 1] is p(1 - p), so 0.5 × 0.5 = 0.25
         const HIGHEST_POINT: f64 = 0.25;
-        (progress * (HIGHEST_POINT - progress) * ball.max_height).max(0.0)
+        (progress * (1.0 - progress) / HIGHEST_POINT * ball.max_height).max(0.0)
     } else {
         // During ground bounce / rolling
         0.3

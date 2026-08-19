@@ -142,6 +142,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             reaction: 0.5,
             prep_time: 0.65,
             catching: 0.8,
+            reach_height: 2.5,
         }
     }
 
@@ -251,6 +252,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             reaction: self.rng.normal(self.fielder_info_probs.reaction),
             prep_time: self.rng.normal(self.fielder_info_probs.prep_time),
             catching: self.rng.normal(self.fielder_info_probs.catching),
+            reach_height: self.rng.normal(self.fielder_info_probs.reach_height),
         })
     }
 

@@ -3,15 +3,15 @@ use super::running_resolver::RunnersOnBase;
 use super::throw_target_rules::*;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_physics::{
-    evaluate_fielder_interception, evaluate_final_pickup, FieldError, FieldPlayPlayResult,
-    FielderInterception,
+    FieldError, FieldPlayPlayResult, FielderInterception, evaluate_fielder_interception,
+    evaluate_final_pickup,
 };
-use crate::domain::shared::ball::{BattedBall, FieldedBall};
+use crate::domain::shared::ball::{BattedBall, FieldedBall, TrajectoryType};
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::shared::game_state::{ActiveFielder, GameError};
 use crate::domain::shared::player::{CatcherInfo, PitcherInfo, Position};
 use crate::domain::shared::stadium::Base;
-use crate::domain::util::{calculate_polar_distance, PolarPosition};
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::SQRT_2;
@@ -740,7 +740,7 @@ pub fn process_fielding<'a>(
             .min_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
 
         return Ok(FieldPlayPlayResult {
-            primary_interception: primary,   // Info of the infielder who committed the error (e.g. E-6)
+            primary_interception: primary, // Info of the infielder who committed the error (e.g. E-6)
             covering_interception: covering, // Info of the outfielder who actually recovers and throws the ball
         });
     }
@@ -773,11 +773,11 @@ pub fn process_fielding<'a>(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
-    use crate::domain::resolver::fielding_physics::{evaluate_fielder_interception, CatchType};
+    use crate::domain::resolver::fielding_physics::{CatchType, evaluate_fielder_interception};
     use crate::domain::shared::ball::{OutboundResult, TrajectoryType};
     use crate::domain::shared::game_state::ActiveRunner;
     use crate::domain::shared::player::{
-        ArmSlot, FielderInfo, FielderType, PitcherStyle, RunningSkills, RL,
+        ArmSlot, FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
     };
 
     fn assert_near(actual: f64, expected: f64) {
@@ -798,6 +798,7 @@ mod tests {
                 reaction: 0.4,
                 prep_time: 0.6,
                 catching: 0.8,
+                reach_height: 2.5,
             },
             polar_position: PolarPosition::new(distance, angle),
         }
@@ -824,7 +825,11 @@ mod tests {
             spin_rate: 0.0,
             spin_angle: 0.0,
             final_position,
-            max_height: 0.0,
+            max_height: if trajectory == TrajectoryType::Grounder {
+                0.0
+            } else {
+                launch_angle.max(0.0)
+            },
             total_time: hang_time,
             first_bounce_position,
             first_bounce_time,
@@ -897,6 +902,7 @@ mod tests {
                 reaction: 0.5,
                 prep_time: 0.65,
                 catching: 0.8,
+                reach_height: 2.5,
             },
         }
     }
@@ -910,6 +916,7 @@ mod tests {
                 reaction: 0.5,
                 prep_time,
                 catching: 0.8,
+                reach_height: 2.5,
             },
         }
     }
@@ -963,6 +970,7 @@ mod tests {
                 reaction: 0.3,
                 prep_time: 0.5,
                 catching: 0.8,
+                reach_height: 2.5,
             },
             polar_position: PolarPosition::new(80.0, 0.0),
         };
@@ -1176,7 +1184,7 @@ mod tests {
     #[test]
     fn process_fielding_uses_reachable_infielder_for_short_grounders() {
         let fielders = [
-            fielder(Position::SB, 35.0, 5.0),
+            fielder(Position::SB, 35.0, 0.0),
             fielder(Position::LF, 42.0, 0.0),
             fielder(Position::CF, 70.0, 0.0),
         ];
@@ -1197,7 +1205,7 @@ mod tests {
     fn process_fielding_uses_outfielder_for_deep_airborne_balls() {
         let fielders = [
             fielder(Position::SB, 60.0, 0.0),
-            fielder(Position::LF, 82.0, -10.0),
+            fielder(Position::LF, 82.0, -13.0),
             fielder(Position::CF, 80.0, 0.0),
         ];
         let fly_ball = ball(TrajectoryType::Fly, 78.0, 0.0, 3.0, 120.0, 35.0);

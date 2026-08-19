@@ -172,6 +172,7 @@ impl FromRow for FielderInfo {
             reaction: row.get("reaction")?,
             prep_time: row.get("prep_time")?,
             catching: row.get("catching")?,
+            reach_height: row.get("reach_height")?,
         };
 
         fielder_info.validate()?;

@@ -539,7 +539,7 @@ impl GameRepository for SqlGameRepository {
     ) -> Result<FielderInfo, AppError> {
         info!("load_fielder_info() started");
         let query =
-                "SELECT fielder_type, throw_speed, running_speed, reaction, prep_time, catching FROM fielder_info 
+                "SELECT fielder_type, throw_speed, running_speed, reaction, prep_time, catching, reach_height FROM fielder_info 
                 WHERE player_id = ?1 AND fielder_type = ?2";
         self.db_client
             .query_row::<FielderInfo>(query, params![player_id, fielder_type.as_ref()])
@@ -813,6 +813,7 @@ mod tests {
                 reaction REAL NOT NULL,
                 prep_time REAL NOT NULL,
                 catching REAL NOT NULL,
+                reach_height REAL NOT NULL,
                 PRIMARY KEY (player_id, fielder_type)
             );
 
@@ -1096,8 +1097,8 @@ mod tests {
     ) {
         conn.execute(
             "INSERT INTO fielder_info (
-                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time, catching
-            ) VALUES (?1, ?2, 38.0, 7.0, 0.5, 0.6, 0.8)",
+                player_id, fielder_type, throw_speed, running_speed, reaction, prep_time, catching, reach_height
+            ) VALUES (?1, ?2, 38.0, 7.0, 0.5, 0.6, 0.8, 2.5)",
             params![player_id, fielder_type],
         )
         .unwrap();

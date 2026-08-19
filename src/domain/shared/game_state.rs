@@ -989,6 +989,7 @@ mod tests {
             reaction: 0.5,
             prep_time: 0.6,
             catching: 0.8,
+            reach_height: 2.5,
         }
     }
 

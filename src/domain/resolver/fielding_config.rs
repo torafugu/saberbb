@@ -11,8 +11,5 @@ pub const BALL_FLIGHT_SPEED_CONTINUE_DISTANCE: f64 = 30.0;
 
 pub const TOUCH_PENALTY_TIME: f64 = 0.3;
 
-// Maximum jump catch height for a fielder (2.5m)
-pub const MAX_REACH_HEIGHT: f64 = 2.5; // TODO: Should be changed to Player's ability
-
 pub const WEIGHT_SS_BASE_COVER: f64 = 0.3;
 pub const WEIGHT_IS_LOADED_TARGET_THIRD: f64 = 0.3;

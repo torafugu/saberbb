@@ -61,6 +61,7 @@ pub struct FielderInfoProbs {
     pub reaction: NormalParam,
     pub prep_time: NormalParam,
     pub catching: NormalParam,
+    pub reach_height: NormalParam,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]

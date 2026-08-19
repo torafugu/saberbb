@@ -73,6 +73,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let reaction = self.repo.normal_params(PLY, FI, "reaction")?;
         let prep_time = self.repo.normal_params(PLY, FI, "prep_time")?;
         let catching = self.repo.normal_params(PLY, FI, "catching")?;
+        let reach_height = self.repo.normal_params(PLY, FI, "reach_height")?;
 
         Ok(FielderInfoProbs {
             fielder_type: fielder_type,
@@ -81,6 +82,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             reaction: reaction,
             prep_time: prep_time,
             catching: catching,
+            reach_height: reach_height,
         })
     }
 
