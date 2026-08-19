@@ -9,5 +9,6 @@ CREATE TABLE fielder_info (
     prep_time REAL NOT NULL,
     catching REAL NOT NULL,
     reach_height REAL NOT NULL,
+    reach_range REAL NOT NULL,
     PRIMARY KEY (player_id, fielder_type)
 );

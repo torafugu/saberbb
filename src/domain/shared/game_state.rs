@@ -8,6 +8,7 @@ use crate::domain::resolver::batting_resolver::{
     SwingContactType, calculate_batted_ball, calculate_pitch_similarity,
     calculate_swing_execution_error, evaluate_swing_contact,
 };
+use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_fielding,
@@ -148,12 +149,13 @@ impl ActivePlayer {
         })
     }
 
-    pub fn active_fielder(&self) -> Option<ActiveFielder> {
+    pub fn active_fielder(&self, risk_tolerance: FielderRiskTolerance) -> Option<ActiveFielder> {
         Some(ActiveFielder {
             position: self.fielding_position?,
             id: self.id,
             info: self.fielder?,
             polar_position: self.polar_position?,
+            risk_tolerance,
         })
     }
 
@@ -228,6 +230,7 @@ pub struct ActiveFielder {
     pub id: i64,
     pub info: FielderInfo,
     pub polar_position: PolarPosition,
+    pub risk_tolerance: FielderRiskTolerance,
 }
 impl ActiveFielder {
     pub fn new(position: Position, player_id: i64, info: FielderInfo) -> Self {
@@ -236,6 +239,7 @@ impl ActiveFielder {
             id: player_id,
             info: info,
             polar_position: PolarPosition::default(),
+            risk_tolerance: FielderRiskTolerance::Balanced,
         }
     }
 
@@ -404,6 +408,14 @@ impl GameState {
             self.home_lineup.fielders()
         } else {
             self.away_lineup.fielders()
+        }
+    }
+
+    pub fn change_risk_tolerance(&mut self, risk_tolerance: FielderRiskTolerance) {
+        if self.inning_tb == TB::Top {
+            self.home_lineup.change_risk_tolerance(risk_tolerance);
+        } else {
+            self.away_lineup.change_risk_tolerance(risk_tolerance);
         }
     }
 
@@ -1251,6 +1263,35 @@ mod tests {
 
         game.advance_half_inning();
         assert_eq!(game.current_pitcher().id, 1);
+    }
+
+    #[test]
+    fn change_risk_tolerance_updates_current_fielding_lineup() {
+        let mut game = game_state();
+
+        game.change_risk_tolerance(FielderRiskTolerance::Conservative);
+        assert!(game
+            .away_lineup
+            .fielders()
+            .iter()
+            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Conservative));
+        assert!(game
+            .home_lineup
+            .fielders()
+            .iter()
+            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Balanced));
+
+        game.advance_half_inning();
+        game.change_risk_tolerance(FielderRiskTolerance::Aggressive);
+        assert!(game
+            .home_lineup
+            .fielders()
+            .iter()
+            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Aggressive));
+        assert!(game
+            .current_fielders()
+            .iter()
+            .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Aggressive));
     }
 
     #[test]

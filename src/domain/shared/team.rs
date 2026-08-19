@@ -1,5 +1,6 @@
 use super::player::Position;
 use crate::domain::random_provider::RandomProvider;
+use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
 use crate::domain::shared::game_state::{
     ActiveBatter, ActiveCatcher, ActiveFielder, ActivePitcher, ActivePlayer, GameError,
 };
@@ -136,6 +137,7 @@ impl Team {
 pub struct Lineup {
     pub current_index: usize,
     pub players: [ActivePlayer; MAX_LINEUP_PLAYERS],
+    pub risk_tolerance: FielderRiskTolerance,
 }
 impl Lineup {
     pub fn new(vec_players: Vec<ActivePlayer>) -> Result<Self, GameError> {
@@ -146,6 +148,7 @@ impl Lineup {
         let lineup = Self {
             current_index: 0,
             players: arr_players,
+            risk_tolerance: FielderRiskTolerance::Balanced,
         };
         if lineup.batters().len() != 9 {
             return Err(GameError::Lineup(
@@ -176,8 +179,12 @@ impl Lineup {
     pub fn fielders(&self) -> Vec<ActiveFielder> {
         self.players
             .iter()
-            .filter_map(ActivePlayer::active_fielder)
+            .filter_map(|player| player.active_fielder(self.risk_tolerance))
             .collect()
+    }
+
+    pub fn change_risk_tolerance(&mut self, risk_tolerance: FielderRiskTolerance) {
+        self.risk_tolerance = risk_tolerance;
     }
 
     pub fn pitcher(&self) -> ActivePitcher {

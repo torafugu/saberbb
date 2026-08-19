@@ -774,7 +774,9 @@ pub fn process_fielding<'a>(
 mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
-    use crate::domain::resolver::fielding_physics::{CatchType, evaluate_fielder_interception};
+    use crate::domain::resolver::fielding_physics::{
+        CatchType, FielderRiskTolerance, evaluate_fielder_interception,
+    };
     use crate::domain::shared::ball::{OutboundResult, TrajectoryType};
     use crate::domain::shared::game_state::ActiveRunner;
     use crate::domain::shared::player::{
@@ -803,6 +805,7 @@ mod tests {
                 reach_range: 0.0,
             },
             polar_position: PolarPosition::new(distance, angle),
+            risk_tolerance: FielderRiskTolerance::Balanced,
         }
     }
 
@@ -978,6 +981,7 @@ mod tests {
                 reach_range: 0.0,
             },
             polar_position: PolarPosition::new(80.0, 0.0),
+            risk_tolerance: FielderRiskTolerance::Balanced,
         };
 
         assert_eq!(fielder.position, Position::CF);
@@ -1208,11 +1212,12 @@ mod tests {
 
     #[test]
     fn process_fielding_uses_outfielder_for_deep_airborne_balls() {
-        let fielders = [
+        let mut fielders = [
             fielder(Position::SB, 60.0, 0.0),
             fielder(Position::LF, 82.0, -13.0),
-            fielder(Position::CF, 80.0, 0.0),
+            fielder(Position::CF, 76.0, 0.0),
         ];
+        fielders[2].risk_tolerance = FielderRiskTolerance::Aggressive;
         let fly_ball = ball(TrajectoryType::Fly, 78.0, 0.0, 3.0, 120.0, 35.0);
         let mut rng = fixed_rng();
 

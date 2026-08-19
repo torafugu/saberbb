@@ -1,5 +1,6 @@
 use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
+use saberbb::domain::resolver::fielding_physics::FielderRiskTolerance;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
@@ -16,6 +17,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
         id: 0,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Pitcher),
         polar_position: PolarPosition::new(MOUND_DISTANCE, 0.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let c = ActiveFielder {
@@ -23,6 +25,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
         id: 1,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Catcher),
         polar_position: PolarPosition::new(0.0, 0.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let fb = ActiveFielder {
@@ -32,6 +35,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
             FielderType::CornerInfielder,
         ),
         polar_position: PolarPosition::new(35.0, 33.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let sb = ActiveFielder {
@@ -41,6 +45,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
             FielderType::MiddleInfielder,
         ),
         polar_position: PolarPosition::new(40.0, 18.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let tb = ActiveFielder {
@@ -50,6 +55,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
             FielderType::CornerInfielder,
         ),
         polar_position: PolarPosition::new(35.0, -33.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let ss = ActiveFielder {
@@ -59,6 +65,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
             FielderType::MiddleInfielder,
         ),
         polar_position: PolarPosition::new(40.0, -18.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let rf = ActiveFielder {
@@ -66,6 +73,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
         id: 6,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(80.0, 26.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let cf = ActiveFielder {
@@ -73,6 +81,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
         id: 7,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(90.0, 0.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     let lf = ActiveFielder {
@@ -80,6 +89,7 @@ pub fn generate_default_fielders() -> [ActiveFielder; 9] {
         id: 8,
         info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(FielderType::Outfielder),
         polar_position: PolarPosition::new(80.0, -26.0),
+        risk_tolerance: FielderRiskTolerance::Balanced,
     };
 
     [p, c, fb, sb, tb, ss, rf, cf, lf]

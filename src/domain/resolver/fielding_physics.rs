@@ -100,9 +100,6 @@ pub fn evaluate_fielder_interception<'a>(
             let fielder_needed_time =
                 fielder.info.prep_time + (move_dist / fielder.info.running_speed);
 
-            // TODO: risk_tolerance should be included to ActiveFielder
-            let risk_tolerance = FielderRiskTolerance::Balanced;
-
             // Can the fielder reach the target point by the ball's arrival time t?
             if fielder_needed_time <= t {
                 let waiting_time = t - fielder_needed_time;
@@ -111,7 +108,7 @@ pub fn evaluate_fielder_interception<'a>(
                 // 1. No-bounce catch avoidance judgment based on FielderRiskTolerance
                 // ---------------------------------------------------------
                 if is_direct {
-                    let is_acceptable_risk = match risk_tolerance {
+                    let is_acceptable_risk = match fielder.risk_tolerance {
                         FielderRiskTolerance::Aggressive => {
                             // Go for it no matter how tight, as long as waiting time is >= 0
                             waiting_time >= 0.0
