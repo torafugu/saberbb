@@ -10,6 +10,26 @@ pub struct Vector3D {
     pub z: f64,
 }
 
+/// Data structure representing a single peak (or trough) within the ball zone
+#[derive(Debug, Clone)]
+pub struct GaussianPeak {
+    pub center_x: f64,  // Center coordinate X (e.g. strike zone width -1.0 ~ 1.0)
+    pub center_y: f64,  // Center coordinate Y (e.g. strike zone height -1.0 ~ 1.0)
+    pub amplitude: f64, // Amplitude A_i (positive = strength, negative = weakness)
+    pub sigma_x: f64,   // Spread in the X direction σ_x
+    pub sigma_y: f64,   // Spread in the Y direction σ_y
+}
+
+impl GaussianPeak {
+    /// Calculate this peak's contribution at the specified coordinates (x, y)
+    #[inline]
+    pub fn evaluate(&self, x: f64, y: f64) -> f64 {
+        let dx2 = (x - self.center_x).powi(2) / (2.0 * self.sigma_x.powi(2));
+        let dy2 = (y - self.center_y).powi(2) / (2.0 * self.sigma_y.powi(2));
+        self.amplitude * (-dx2 - dy2).exp()
+    }
+}
+
 pub fn euclidean_distance(a: &[f64], b: &[f64]) -> Result<f64, AppError> {
     if a.len() != b.len() {
         return Err(AppError::InvalidInput(
