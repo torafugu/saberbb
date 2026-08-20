@@ -149,7 +149,7 @@ impl PlayerRepository for SqlPlayerRepository {
 
         let insert_batter_info_sql = "INSERT INTO batter_info (
                                                 player_id, batting_side, batter_type, batting_eye, swing_speed, swing_power,
-                                                attack_angle, bat_contact, timing_bias, consistency_sigma
+                                                attack_angle, bat_control, timing_bias, consistency_sigma
                                                 ) VALUES (
                                                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
         self.db_client.execute_tx(
@@ -163,7 +163,7 @@ impl PlayerRepository for SqlPlayerRepository {
                 batter_info.swing_speed,
                 batter_info.swing_power,
                 batter_info.attack_angle,
-                batter_info.bat_contact,
+                batter_info.bat_control,
                 batter_info.timing_bias,
                 batter_info.consistency_sigma,
             ],
@@ -534,7 +534,7 @@ mod tests {
                 swing_speed REAL NOT NULL,
                 swing_power REAL NOT NULL,
                 attack_angle REAL NOT NULL,
-                bat_contact REAL NOT NULL,
+                bat_control REAL NOT NULL,
                 timing_bias REAL NOT NULL,
                 consistency_sigma REAL NOT NULL
             );
@@ -806,7 +806,7 @@ mod tests {
                     swing_speed: 1.0,
                     swing_power: 1.1,
                     attack_angle: 28.0,
-                    bat_contact: 0.8,
+                    bat_control: 0.8,
                     timing_bias: 0.0,
                     consistency_sigma: 0.03,
                 }),

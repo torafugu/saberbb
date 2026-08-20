@@ -765,11 +765,11 @@ impl GameState {
             );
             self.add_count(0);
         } else {
-            let displacement = adapt_to_pitch(batter.bat_contact, &pitch_displacement);
+            let displacement = adapt_to_pitch(batter.bat_control, &pitch_displacement);
 
             let swing_error = calculate_swing_execution_error(
                 self.rng.as_mut(),
-                batter.bat_contact,
+                batter.bat_control,
                 batter.attack_angle,
                 batter.batter_type,
                 &pitched_ball.actual_location,
@@ -1092,7 +1092,7 @@ mod tests {
             swing_speed: 100.0 - order as f64,
             swing_power: 1.0,
             attack_angle: 28.0,
-            bat_contact: 0.8,
+            bat_control: 0.8,
             timing_bias: 0.0,
             consistency_sigma: 0.03,
         });

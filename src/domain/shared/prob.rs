@@ -51,7 +51,7 @@ pub struct BatterInfoProbs {
     pub swing_speed: NormalParam,
     pub swing_power: NormalParam,
     pub attack_angle: NormalParam,
-    pub bat_contact: NormalParam,
+    pub bat_control: NormalParam,
     pub timing_bias: NormalParam,
     pub consistency_sigma: NormalParam,
 }

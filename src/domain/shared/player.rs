@@ -368,7 +368,7 @@ pub struct BatterInfo {
     pub swing_speed: f64,
     pub swing_power: f64,
     pub attack_angle: f64, // Ex. 28.0 deg
-    pub bat_contact: f64,
+    pub bat_control: f64,
     pub timing_bias: f64,
     pub consistency_sigma: f64, // Ex. 0.03
 }

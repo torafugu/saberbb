@@ -303,7 +303,7 @@ mod tests {
             swing_speed: 30.0,
             swing_power: 1.0,
             attack_angle: 28.0,
-            bat_contact: 0.8,
+            bat_control: 0.8,
             timing_bias: 0.0,
             consistency_sigma: 0.03,
         });

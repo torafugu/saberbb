@@ -279,7 +279,7 @@ impl FromRow for BatterInfo {
             swing_speed: row.get("swing_speed")?,
             swing_power: row.get("swing_power")?,
             attack_angle: row.get("attack_angle")?,
-            bat_contact: row.get("bat_contact")?,
+            bat_control: row.get("bat_control")?,
             timing_bias: row.get("timing_bias")?,
             consistency_sigma: row.get("consistency_sigma")?,
         };

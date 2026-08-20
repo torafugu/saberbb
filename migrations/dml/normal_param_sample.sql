@@ -177,7 +177,7 @@ VALUES
     (
         'player',
         'batter_info',
-        'bat_contact',
+        'bat_control',
         0.0,
         1.0,
         0.05,

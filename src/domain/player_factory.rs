@@ -170,7 +170,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
         let swing_power = self.rng.normal(self.batter_info_probs.swing_power);
         let attack_angle = self.rng.normal(self.batter_info_probs.attack_angle);
-        let bat_contact = self.rng.normal(self.batter_info_probs.bat_contact);
+        let bat_contact = self.rng.normal(self.batter_info_probs.bat_control);
         let timing_bias = self.rng.normal(self.batter_info_probs.timing_bias);
         let consistency_sigma = self.rng.normal(self.batter_info_probs.consistency_sigma);
 
@@ -181,7 +181,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             swing_speed: swing_speed,
             swing_power: swing_power,
             attack_angle: attack_angle,
-            bat_contact: bat_contact,
+            bat_control: bat_contact,
             timing_bias: timing_bias,
             consistency_sigma: consistency_sigma,
         })

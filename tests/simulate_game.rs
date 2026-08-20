@@ -55,9 +55,10 @@ fn test_through_half_inning() -> Result<(), GameError> {
         );
 
         let swing_execution_error = calculate_swing_execution_error(
-            batter.bat_contact,
+            &mut rng,
+            batter.bat_control,
             batter.attack_angle,
-            &pitched_ball.actual_location,
+            batter.batter_type,
             &pitched_ball.actual_location,
         );
 

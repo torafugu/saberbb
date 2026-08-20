@@ -162,13 +162,13 @@ pub fn select_swing_execution(
     }
 }
 
-pub fn adapt_to_pitch(bat_contact: f64, offset: &PitchDisplacement) -> PitchDisplacement {
+pub fn adapt_to_pitch(bat_control: f64, offset: &PitchDisplacement) -> PitchDisplacement {
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
-    let adapted_x = offset.horizontal_offset_m * (1.0 - sigmoid(bat_contact));
-    let adapted_z = offset.vertical_offset_m * (1.0 - sigmoid(bat_contact));
+    let adapted_x = offset.horizontal_offset_m * (1.0 - sigmoid(bat_control));
+    let adapted_z = offset.vertical_offset_m * (1.0 - sigmoid(bat_control));
 
     // 2. Adjust timing offset with bat lag/steering (e.g. shrink 0.012s delay to 0.006s)
-    let adapted_timing = offset.timing_offset_sec * (1.0 - sigmoid(bat_contact));
+    let adapted_timing = offset.timing_offset_sec * (1.0 - sigmoid(bat_control));
 
     PitchDisplacement {
         crossfire_multiplier: offset.crossfire_multiplier,
@@ -217,7 +217,7 @@ pub struct SwingExecutionError {
 // Calculate the actual bat_angle_deg the batter swings through based on the real trajectory and their prediction
 pub fn calculate_swing_execution_error(
     rng: &mut dyn RandomProvider,
-    bat_contact: f64,
+    bat_control: f64,
     attack_angle: f64,
     batter_type: BatterType,
     actual_location: &BallLocation,
@@ -225,15 +225,15 @@ pub fn calculate_swing_execution_error(
     // 1. Calculate the difference between intended and ideal angle (angle error)
     let intended_location = BallLocation {
         x: actual_location.x
-            + actual_location.x * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_contact)),
+            + actual_location.x * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_control)),
         y: actual_location.y
-            + actual_location.y * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_contact)),
+            + actual_location.y * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_control)),
     };
     let intended_angle = calculate_bat_angle(&intended_location);
     let ideal_angle = calculate_bat_angle(actual_location);
 
     // Lower contact skill leaves a larger Δθ because the swing can't correct toward the ideal angle
-    let unadjusted_ratio = (1.0 - bat_contact).clamp(0.1, 1.0);
+    let unadjusted_ratio = (1.0 - bat_control).clamp(0.1, 1.0);
     let delta_angle_deg = (intended_angle - ideal_angle) * unadjusted_ratio;
 
     // 2. Convert angle error (deg) to spatial meter error (Δx, Δz)
@@ -245,7 +245,7 @@ pub fn calculate_swing_execution_error(
 
     // 3. Calculate actual bat angle and attack angle the batter swung
     let actual_bat_angle_deg =
-        intended_angle - (intended_angle - ideal_angle) * (1.0 - sigmoid(bat_contact));
+        intended_angle - (intended_angle - ideal_angle) * (1.0 - sigmoid(bat_control));
     let actual_attack_angle_deg =
         calculate_dynamic_attack_angle(attack_angle, actual_bat_angle_deg)
             + calculate_attack_angle_modifier(batter_type) * rng.normal_factor_std_5_percent();
@@ -848,7 +848,7 @@ mod tests {
             swing_speed: 150.0,
             swing_power: 1.0,
             attack_angle: 28.0,
-            bat_contact: 0.8,
+            bat_control: 0.8,
             timing_bias: 0.0,
             consistency_sigma: 0.03,
         }

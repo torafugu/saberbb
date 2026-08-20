@@ -84,11 +84,11 @@ fn test_batted_ball() {
                     SwingContactResult::default(),
                 )
             } else {
-                let displacement = adapt_to_pitch(batter.bat_contact, &pitch_displacement);
+                let displacement = adapt_to_pitch(batter.bat_control, &pitch_displacement);
 
                 let swing_error = calculate_swing_execution_error(
                     &mut rng,
-                    batter.bat_contact,
+                    batter.bat_control,
                     batter.attack_angle,
                     batter.batter_type,
                     &pitched_ball.actual_location,

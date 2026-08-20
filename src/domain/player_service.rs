@@ -97,7 +97,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let attack_angle = self
             .repo
             .normal_params(PLY, "batter_info", "attack_angle")?;
-        let bat_contact = self.repo.normal_params(PLY, "batter_info", "bat_contact")?;
+        let bat_control = self.repo.normal_params(PLY, "batter_info", "bat_control")?;
         let timing_bias = self.repo.normal_params(PLY, "batter_info", "timing_bias")?;
         let consistency_sigma = self
             .repo
@@ -110,7 +110,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             swing_speed: swing_speed,
             swing_power: swing_power,
             attack_angle: attack_angle,
-            bat_contact: bat_contact,
+            bat_control,
             timing_bias: timing_bias,
             consistency_sigma: consistency_sigma,
         })
