@@ -19,8 +19,6 @@ CREATE TABLE test_pitched_ball (
     pitch_result TEXT NOT NULL,
     movement_x REAL NOT NULL,
     movement_z REAL NOT NULL,
-    similarity_speed REAL NOT NULL,
-    similarity_spin REAL NOT NULL,
     location_bias_x REAL NOT NULL,
     location_bias_y REAL NOT NULL,
     location_bias_timing REAL NOT NULL,

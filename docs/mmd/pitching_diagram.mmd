@@ -18,7 +18,6 @@ flowchart TD
     end
     
     create_pitch --> MatchupContext --> calculate_pitch_offset
-    create_pitch --> calculate_pitch_similarity --> calculate_pitch_offset
     create_pitch --> calculate_location_bias --> calculate_pitch_offset
     create_pitch --> calculate_ball_movement
 

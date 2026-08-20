@@ -19,35 +19,6 @@ const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
 
-pub struct PitchSimilarity {
-    pub speed: f64,
-    pub spin: f64,
-}
-
-pub fn calculate_pitch_similarity(
-    pitcher: &PitcherInfo,
-    actual_pitch_type: PitchType,
-    expected_pitch_type: PitchType,
-) -> PitchSimilarity {
-    let actual_pitch_skill = pitcher.select_pitch_skill(actual_pitch_type);
-    let expected_pitch_skill = pitcher.select_pitch_skill(expected_pitch_type);
-
-    let speed_similarity =
-        1.0 - (actual_pitch_skill.velocity - expected_pitch_skill.velocity).abs();
-
-    let spin_rate_similarity =
-        1.0 - (actual_pitch_skill.spin_rate - expected_pitch_skill.spin_rate).abs();
-    let spin_angle_similarity = 1.0
-        - ((actual_pitch_skill.spin_angle - expected_pitch_skill.spin_angle) / 360.0 * 2.0).abs();
-    let spin_similarity =
-        ((spin_rate_similarity.powi(2) + spin_angle_similarity.powi(2)) / 2.0).sqrt();
-
-    PitchSimilarity {
-        speed: speed_similarity,
-        spin: spin_similarity,
-    }
-}
-
 pub fn calculate_zone_similarity(
     actual_target_zone: TargetZone,
     expected_target_zone: TargetZone,

@@ -39,16 +39,12 @@ fn test_through_half_inning() -> Result<(), GameError> {
             batting_side: batter.batting_side,
         };
 
-        let pitch_similarity =
-            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
-
         let location_bias = calculate_location_bias(pitched_ball.actual_location);
 
         let pitch_displacement = calculate_pitch_offset(
             &mut rng,
             &pitched_ball,
             &expected_ball,
-            &pitch_similarity,
             &matchup,
             &location_bias,
             batter.batting_eye,

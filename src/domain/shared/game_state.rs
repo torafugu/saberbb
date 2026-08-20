@@ -721,9 +721,6 @@ impl GameState {
 
         let absolute_location = calculate_ball_movement(&pitched_ball);
 
-        let pitch_similarity =
-            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
-
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
             batting_side: batter.batting_side,
@@ -735,7 +732,6 @@ impl GameState {
             self.rng.as_mut(),
             &pitched_ball,
             &expected_ball,
-            &pitch_similarity,
             &matchup,
             &location_bias,
             batter.batting_eye,
