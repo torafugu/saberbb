@@ -51,11 +51,6 @@ fn test_batted_ball() {
             batting_side: batter.batting_side,
         };
 
-        let intended_location = BallLocation {
-            x: pitched_ball.actual_location.x * rng.normal_factor_std_1_percent(),
-            y: pitched_ball.actual_location.y * rng.normal_factor_std_1_percent(),
-        };
-
         let location_bias = calculate_location_bias(pitched_ball.actual_location);
 
         let pitch_displacement = calculate_pitch_offset(
@@ -92,9 +87,10 @@ fn test_batted_ball() {
                 let displacement = adapt_to_pitch(batter.bat_contact, &pitch_displacement);
 
                 let swing_error = calculate_swing_execution_error(
+                    &mut rng,
                     batter.bat_contact,
                     batter.attack_angle,
-                    &intended_location,
+                    batter.batter_type,
                     &pitched_ball.actual_location,
                 );
 

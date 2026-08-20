@@ -10,6 +10,10 @@ pub trait RandomProvider: std::fmt::Debug {
     fn range_f64(&mut self, low: f64, high: f64) -> f64;
     fn normal(&mut self, normal: NormalParam) -> f64;
     fn normal_factor_std_1_percent(&mut self) -> f64;
+    fn normal_factor_std_5_percent(&mut self) -> f64;
+    fn normal_factor_std_10_percent(&mut self) -> f64;
+    fn normal_std_1_percent(&mut self) -> f64;
+    fn normal_std_5_percent(&mut self) -> f64;
     fn normal_std_10_percent(&mut self) -> f64;
     fn normal_random(
         &mut self,
@@ -61,6 +65,22 @@ impl RandomProvider for RealRng {
 
     fn normal_factor_std_1_percent(&mut self) -> f64 {
         self.normal_random(0.0, 0.01, 0.0, 1.0, 1.0)
+    }
+
+    fn normal_factor_std_5_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.05, 0.0, 1.0, 1.0)
+    }
+
+    fn normal_factor_std_10_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.1, 0.0, 1.0, 1.0)
+    }
+
+    fn normal_std_1_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.01, 0.0, 1.0, 0.0)
+    }
+
+    fn normal_std_5_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.05, 0.0, 1.0, 0.0)
     }
 
     fn normal_std_10_percent(&mut self) -> f64 {
@@ -132,6 +152,22 @@ impl RandomProvider for FixedRng {
 
     fn normal_factor_std_1_percent(&mut self) -> f64 {
         self.normal_random(0.0, 0.01, 0.0, 1.0, 1.0)
+    }
+
+    fn normal_factor_std_5_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.05, 0.0, 1.0, 1.0)
+    }
+
+    fn normal_factor_std_10_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.1, 0.0, 1.0, 1.0)
+    }
+
+    fn normal_std_1_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.01, 0.0, 1.0, 0.0)
+    }
+
+    fn normal_std_5_percent(&mut self) -> f64 {
+        self.normal_random(0.0, 0.05, 0.0, 1.0, 0.0)
     }
 
     fn normal_std_10_percent(&mut self) -> f64 {

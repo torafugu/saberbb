@@ -4,9 +4,9 @@ use crate::domain::shared::ball::{
     BallLocation, BattedBall, FOUL_DEGREE, MAGNUS_COEFF, OutboundResult, PitchedBall,
 };
 use crate::domain::shared::game_state::GameError;
-use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
+use crate::domain::shared::player::{BatterInfo, BatterType, PitchType, PitcherInfo, RL};
 use crate::domain::shared::stadium::Stadium;
-use crate::domain::strategy::batting_strategy::SwingExecution;
+use crate::domain::strategy::batting_strategy::{SwingExecution, calculate_attack_angle_modifier};
 use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
 use crate::domain::util::{GRAVITY, PolarPosition, sigmoid};
 
@@ -216,13 +216,20 @@ pub struct SwingExecutionError {
 
 // Calculate the actual bat_angle_deg the batter swings through based on the real trajectory and their prediction
 pub fn calculate_swing_execution_error(
+    rng: &mut dyn RandomProvider,
     bat_contact: f64,
     attack_angle: f64,
-    intended_location: &BallLocation,
+    batter_type: BatterType,
     actual_location: &BallLocation,
 ) -> SwingExecutionError {
     // 1. Calculate the difference between intended and ideal angle (angle error)
-    let intended_angle = calculate_bat_angle(intended_location);
+    let intended_location = BallLocation {
+        x: actual_location.x
+            + actual_location.x * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_contact)),
+        y: actual_location.y
+            + actual_location.y * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_contact)),
+    };
+    let intended_angle = calculate_bat_angle(&intended_location);
     let ideal_angle = calculate_bat_angle(actual_location);
 
     // Lower contact skill leaves a larger Δθ because the swing can't correct toward the ideal angle
@@ -237,9 +244,11 @@ pub fn calculate_swing_execution_error(
     let additional_x_m = BAT_BARREL_LENGTH_M * (1.0 - delta_rad.cos());
 
     // 3. Calculate actual bat angle and attack angle the batter swung
-    let actual_bat_angle_deg = intended_angle - (intended_angle - ideal_angle) * bat_contact;
+    let actual_bat_angle_deg =
+        intended_angle - (intended_angle - ideal_angle) * (1.0 - sigmoid(bat_contact));
     let actual_attack_angle_deg =
-        calculate_dynamic_attack_angle(attack_angle, actual_bat_angle_deg);
+        calculate_dynamic_attack_angle(attack_angle, actual_bat_angle_deg)
+            + calculate_attack_angle_modifier(batter_type) * rng.normal_factor_std_5_percent();
 
     SwingExecutionError {
         additional_x_m,

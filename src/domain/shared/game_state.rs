@@ -767,16 +767,11 @@ impl GameState {
         } else {
             let displacement = adapt_to_pitch(batter.bat_contact, &pitch_displacement);
 
-            // TODO: Replace by TargetZone
-            let intended_location = BallLocation {
-                x: pitched_ball.actual_location.x * self.rng.normal_factor_std_1_percent(),
-                y: pitched_ball.actual_location.y * self.rng.normal_factor_std_1_percent(),
-            };
-
             let swing_error = calculate_swing_execution_error(
+                self.rng.as_mut(),
                 batter.bat_contact,
                 batter.attack_angle,
-                &intended_location,
+                batter.batter_type,
                 &pitched_ball.actual_location,
             );
 
