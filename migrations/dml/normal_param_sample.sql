@@ -85,6 +85,29 @@ VALUES
     (
         'player',
         'batter_info',
+        'hot_zone_scale',
+        0.0,
+        1.0,
+        0.0,
+        0.1,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
+        'player',
+        'batter_info',
         'batting_eye',
         0.0,
         1.0,

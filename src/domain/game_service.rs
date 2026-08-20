@@ -300,6 +300,7 @@ mod tests {
             batting_side: RL::Right,
             batter_type: BatterType::ClassicAnalyst,
             zone_aptitude: crate::domain::shared::player::ZoneAptitude::Balanced,
+            hot_zone_scale: 0.1,
             batting_eye: 0.5,
             swing_speed: 30.0,
             swing_power: 1.0,

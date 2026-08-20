@@ -92,6 +92,9 @@ impl<R: PlayerRepository> PlayerService<R> {
         let batting_side = self.repo.item_probs(PLY, "batting_side")?;
         let batter_type = self.repo.item_probs(PLY, "batter_type")?;
         let zone_aptitude = self.repo.item_probs(PLY, "zone_aptitude")?;
+        let hot_zone_scale = self
+            .repo
+            .normal_params(PLY, "batter_info", "hot_zone_scale")?;
         let batting_eye = self.repo.normal_params(PLY, "batter_info", "batting_eye")?;
         let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
         let swing_power = self.repo.normal_params(PLY, "batter_info", "swing_power")?;
@@ -108,6 +111,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             batting_side: batting_side,
             batter_type: batter_type,
             zone_aptitude: zone_aptitude,
+            hot_zone_scale: hot_zone_scale,
             batting_eye: batting_eye,
             swing_speed: swing_speed,
             swing_power: swing_power,

@@ -293,6 +293,7 @@ impl FromRow for BatterInfo {
             batting_side: row.get("batting_side")?,
             batter_type: row.get("batter_type")?,
             zone_aptitude: row.get("zone_aptitude")?,
+            hot_zone_scale: row.get("hot_zone_scale")?,
             batting_eye: row.get("batting_eye")?,
             swing_speed: row.get("swing_speed")?,
             swing_power: row.get("swing_power")?,

@@ -369,7 +369,7 @@ pub enum ZoneAptitude {
     OutsideDominant, // NOTE: Good at outside pitches (opposite-field / cover type)
     LowBaller,       // NOTE: Good at low pitches (low-ball hitter)
     HighBaller,      // NOTE: Good at high pitches (high-ball hitter)
-    DiagonalCross,   // NOTE: Diagonal type (good at specific lines such as inside-high & outside-low)
+    DiagonalCross, // NOTE: Diagonal type (good at specific lines such as inside-high & outside-low)
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
@@ -377,6 +377,7 @@ pub struct BatterInfo {
     pub batting_side: RL,
     pub batter_type: BatterType,
     pub zone_aptitude: ZoneAptitude,
+    pub hot_zone_scale: f64, // zone_aptitude modification strength
     pub batting_eye: f64,
     pub swing_speed: f64,
     pub swing_power: f64,

@@ -48,6 +48,7 @@ pub struct BatterInfoProbs {
     pub batting_side: Vec<ItemWeighted<RL>>,
     pub batter_type: Vec<ItemWeighted<BatterType>>,
     pub zone_aptitude: Vec<ItemWeighted<ZoneAptitude>>,
+    pub hot_zone_scale: NormalParam,
     pub batting_eye: NormalParam,
     pub swing_speed: NormalParam,
     pub swing_power: NormalParam,

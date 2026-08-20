@@ -4,7 +4,7 @@ use crate::domain::shared::ball::{
     BallLocation, BattedBall, FOUL_DEGREE, MAGNUS_COEFF, OutboundResult, PitchedBall,
 };
 use crate::domain::shared::game_state::GameError;
-use crate::domain::shared::player::{BatterInfo, BatterType, PitchType, PitcherInfo, RL};
+use crate::domain::shared::player::{BatterInfo, BatterType, PitchType, RL, ZoneAptitude};
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::{SwingExecution, calculate_attack_angle_modifier};
 use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
@@ -35,6 +35,44 @@ pub fn calculate_zone_similarity(
             _ => 0.05,
         }
     }
+}
+
+// TODO: Replace completely
+pub fn calculate_zone_aptitude_modifier(
+    zone_aptitude: ZoneAptitude,
+    target_zone: TargetZone,
+    hot_zone_scale: f64,
+) -> f64 {
+    let aptitude = match zone_aptitude {
+        ZoneAptitude::Balanced => 0.0,
+        ZoneAptitude::InsideDominant => match target_zone {
+            TargetZone::LowInside | TargetZone::HighInside => 1.0,
+            TargetZone::LowOutside | TargetZone::HighOutside => -1.0,
+            TargetZone::Center => 0.0,
+        },
+        ZoneAptitude::OutsideDominant => match target_zone {
+            TargetZone::LowOutside | TargetZone::HighOutside => 1.0,
+            TargetZone::LowInside | TargetZone::HighInside => -1.0,
+            TargetZone::Center => 0.0,
+        },
+        ZoneAptitude::LowBaller => match target_zone {
+            TargetZone::LowInside | TargetZone::LowOutside => 1.0,
+            TargetZone::HighInside | TargetZone::HighOutside => -1.0,
+            TargetZone::Center => 0.0,
+        },
+        ZoneAptitude::HighBaller => match target_zone {
+            TargetZone::HighInside | TargetZone::HighOutside => 1.0,
+            TargetZone::LowInside | TargetZone::LowOutside => -1.0,
+            TargetZone::Center => 0.0,
+        },
+        ZoneAptitude::DiagonalCross => match target_zone {
+            TargetZone::HighInside | TargetZone::LowOutside => 1.0,
+            TargetZone::LowInside | TargetZone::HighOutside => -1.0,
+            TargetZone::Center => 0.0,
+        },
+    };
+
+    aptitude * hot_zone_scale
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
@@ -816,6 +854,7 @@ mod tests {
             batting_side,
             batter_type: BatterType::ClassicAnalyst,
             zone_aptitude: ZoneAptitude::Balanced,
+            hot_zone_scale: 0.1,
             batting_eye: 0.5,
             swing_speed: 150.0,
             swing_power: 1.0,
@@ -934,6 +973,8 @@ mod tests {
 
     #[test]
     fn calculate_swing_factor_handles_locations_outside_target_zones() {
+        let batter = batter(RL::Right);
+
         let swing_factor = calculate_swing_factor(
             PlateApproach::Aggressive,
             CountStatus::C00,
