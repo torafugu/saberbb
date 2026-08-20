@@ -360,10 +360,23 @@ pub enum BatterType {
     ClutchHunter,          // NOTE: Swings for the fences; a gambler
 }
 
+// Batter's strengths and weaknesses by pitch location (zone aptitude)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, AsRefStr, EnumString)]
+#[strum(ascii_case_insensitive)]
+pub enum ZoneAptitude {
+    Balanced,        // NOTE: Even type (no particular bias)
+    InsideDominant,  // NOTE: Good at inside pitches (pull-hitter tendency)
+    OutsideDominant, // NOTE: Good at outside pitches (opposite-field / cover type)
+    LowBaller,       // NOTE: Good at low pitches (low-ball hitter)
+    HighBaller,      // NOTE: Good at high pitches (high-ball hitter)
+    DiagonalCross,   // NOTE: Diagonal type (good at specific lines such as inside-high & outside-low)
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct BatterInfo {
     pub batting_side: RL,
     pub batter_type: BatterType,
+    pub zone_aptitude: ZoneAptitude,
     pub batting_eye: f64,
     pub swing_speed: f64,
     pub swing_power: f64,

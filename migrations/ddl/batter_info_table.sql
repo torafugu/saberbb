@@ -4,6 +4,7 @@ CREATE TABLE batter_info (
     player_id INTEGER PRIMARY KEY,
     batting_side TEXT NOT NULL,
     batter_type TEXT NOT NULL,
+    zone_aptitude TEXT NOT NULL,
     batting_eye REAL NOT NULL,
     swing_speed REAL NOT NULL,
     swing_power REAL NOT NULL,

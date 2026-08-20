@@ -91,6 +91,7 @@ impl<R: PlayerRepository> PlayerService<R> {
 
         let batting_side = self.repo.item_probs(PLY, "batting_side")?;
         let batter_type = self.repo.item_probs(PLY, "batter_type")?;
+        let zone_aptitude = self.repo.item_probs(PLY, "zone_aptitude")?;
         let batting_eye = self.repo.normal_params(PLY, "batter_info", "batting_eye")?;
         let swing_speed = self.repo.normal_params(PLY, "batter_info", "swing_speed")?;
         let swing_power = self.repo.normal_params(PLY, "batter_info", "swing_power")?;
@@ -106,6 +107,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         Ok(BatterInfoProbs {
             batting_side: batting_side,
             batter_type: batter_type,
+            zone_aptitude: zone_aptitude,
             batting_eye: batting_eye,
             swing_speed: swing_speed,
             swing_power: swing_power,
@@ -259,6 +261,7 @@ mod tests {
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FullName, OffenseSkills,
         PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        ZoneAptitude,
     };
     use crate::domain::shared::prob::{
         GammaParam, ItemWeighted, NormalParam, PitcherInfoProbs, PlayerInfoProbs,
@@ -283,6 +286,7 @@ mod tests {
         random_team: Team,
         pitch_type_probs: Vec<ItemWeighted<PitchType>>,
         batter_type_probs: Vec<ItemWeighted<BatterType>>,
+        zone_aptitude_probs: Vec<ItemWeighted<ZoneAptitude>>,
         player_attribute_prob: PlayerInfoProbs,
         pitcher_attribute_prob: PitcherInfoProbs,
         random_name_error: Cell<bool>,
@@ -342,6 +346,10 @@ mod tests {
                 }],
                 batter_type_probs: vec![ItemWeighted {
                     name: BatterType::ClassicAnalyst,
+                    weight: 1.0,
+                }],
+                zone_aptitude_probs: vec![ItemWeighted {
+                    name: ZoneAptitude::Balanced,
                     weight: 1.0,
                 }],
                 player_attribute_prob: PlayerInfoProbs {
@@ -457,6 +465,19 @@ mod tests {
 
         unsafe fn cast_batter_type_probs<T>(
             items: Vec<ItemWeighted<BatterType>>,
+        ) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
+
+        unsafe fn cast_zone_aptitude_probs<T>(
+            items: Vec<ItemWeighted<ZoneAptitude>>,
         ) -> Vec<ItemWeighted<T>> {
             let mut items = ManuallyDrop::new(items);
             unsafe {
@@ -685,6 +706,9 @@ mod tests {
                 (PLY, "batter_type") => Ok(unsafe {
                     Self::cast_batter_type_probs(self.state.batter_type_probs.clone())
                 }),
+                (PLY, "zone_aptitude") => Ok(unsafe {
+                    Self::cast_zone_aptitude_probs(self.state.zone_aptitude_probs.clone())
+                }),
                 (PTI, "arm_slot") => Ok(unsafe {
                     Self::cast_arm_slot_probs(self.state.pitcher_attribute_prob.arm_slot.clone())
                 }),
@@ -766,18 +790,26 @@ mod tests {
     }
 
     #[test]
-    fn load_batter_info_probs_loads_batter_type_from_player_category() {
+    fn load_batter_info_probs_loads_weighted_values_from_player_category() {
         let (service, state) = service_with_repo();
 
         let probs = service.load_batter_info_probs().unwrap();
 
         assert_eq!(probs.batter_type.len(), 1);
         assert_eq!(probs.batter_type[0].name, BatterType::ClassicAnalyst);
+        assert_eq!(probs.zone_aptitude.len(), 1);
+        assert_eq!(probs.zone_aptitude[0].name, ZoneAptitude::Balanced);
         assert!(
             state
                 .item_prob_categories
                 .borrow()
                 .contains(&(PLY.to_string(), "batter_type".to_string()))
+        );
+        assert!(
+            state
+                .item_prob_categories
+                .borrow()
+                .contains(&(PLY.to_string(), "zone_aptitude".to_string()))
         );
     }
 

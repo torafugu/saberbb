@@ -299,6 +299,7 @@ mod tests {
         player.offense_skills.batter = Some(BatterInfo {
             batting_side: RL::Right,
             batter_type: BatterType::ClassicAnalyst,
+            zone_aptitude: crate::domain::shared::player::ZoneAptitude::Balanced,
             batting_eye: 0.5,
             swing_speed: 30.0,
             swing_power: 1.0,

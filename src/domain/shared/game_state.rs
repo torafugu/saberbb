@@ -5,9 +5,9 @@ use super::player::{
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
-    CountStatus, PlateApproach, SwingContactType, adapt_to_pitch, calculate_batted_ball,
-    calculate_pitch_similarity, calculate_swing_execution_error, calculate_swing_factor,
-    evaluate_swing_contact, select_swing_execution,
+    CountStatus, SwingContactType, adapt_to_pitch, calculate_batted_ball,
+    calculate_swing_execution_error, calculate_swing_factor, evaluate_swing_contact,
+    select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
 use crate::domain::resolver::fielding_resolver::{
@@ -21,7 +21,7 @@ use crate::domain::resolver::pitching_resolver::{
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
-use crate::domain::shared::ball::{BallLocation, BattedBall, OutboundResult};
+use crate::domain::shared::ball::{BattedBall, OutboundResult};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::SwingExecution;
@@ -1084,6 +1084,7 @@ mod tests {
         player.offense_skills.batter = batting_order.map(|order| BatterInfo {
             batting_side: RL::Right,
             batter_type: crate::domain::shared::player::BatterType::ClassicAnalyst,
+            zone_aptitude: crate::domain::shared::player::ZoneAptitude::Balanced,
             batting_eye: 0.5,
             swing_speed: 100.0 - order as f64,
             swing_power: 1.0,

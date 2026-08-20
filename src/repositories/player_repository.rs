@@ -148,10 +148,10 @@ impl PlayerRepository for SqlPlayerRepository {
         info!("insert_batter_info() started");
 
         let insert_batter_info_sql = "INSERT INTO batter_info (
-                                                player_id, batting_side, batter_type, batting_eye, swing_speed, swing_power,
+                                                player_id, batting_side, batter_type, zone_aptitude, batting_eye, swing_speed, swing_power,
                                                 attack_angle, bat_control, timing_bias, consistency_sigma
                                                 ) VALUES (
-                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+                                                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
         self.db_client.execute_tx(
             tx,
             insert_batter_info_sql,
@@ -159,6 +159,7 @@ impl PlayerRepository for SqlPlayerRepository {
                 player_id,
                 batter_info.batting_side,
                 batter_info.batter_type,
+                batter_info.zone_aptitude,
                 batter_info.batting_eye,
                 batter_info.swing_speed,
                 batter_info.swing_power,
@@ -481,6 +482,7 @@ mod tests {
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, OffenseSkills,
         PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        ZoneAptitude,
     };
     use crate::repositories::db::SqliteManager;
     use deadpool::managed::Pool;
@@ -530,6 +532,7 @@ mod tests {
                 player_id INTEGER PRIMARY KEY,
                 batting_side TEXT NOT NULL,
                 batter_type TEXT NOT NULL,
+                zone_aptitude TEXT NOT NULL,
                 batting_eye REAL NOT NULL,
                 swing_speed REAL NOT NULL,
                 swing_power REAL NOT NULL,
@@ -802,6 +805,7 @@ mod tests {
                 batter: Some(BatterInfo {
                     batting_side: RL::Right,
                     batter_type: BatterType::ClassicAnalyst,
+                    zone_aptitude: ZoneAptitude::Balanced,
                     batting_eye: 0.5,
                     swing_speed: 1.0,
                     swing_power: 1.1,

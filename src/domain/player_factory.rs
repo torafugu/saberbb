@@ -165,6 +165,11 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batting_side)?.clone();
         let batter_type =
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.batter_type)?.clone();
+        let zone_aptitude = choose_item_weighted(
+            self.rng.as_mut(),
+            &self.batter_info_probs.zone_aptitude,
+        )?
+        .clone();
 
         let batting_eye = self.rng.normal(self.batter_info_probs.batting_eye);
         let swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
@@ -177,6 +182,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         Ok(BatterInfo {
             batting_side: batting_side,
             batter_type: batter_type,
+            zone_aptitude: zone_aptitude,
             batting_eye: batting_eye,
             swing_speed: swing_speed,
             swing_power: swing_power,

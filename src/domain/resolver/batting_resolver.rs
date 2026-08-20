@@ -804,7 +804,7 @@ mod tests {
     use crate::domain::resolver::batting_resolver::*;
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::game_state::{GameError, WindCondition};
-    use crate::domain::shared::player::{BatterType, PitchType, RL};
+    use crate::domain::shared::player::{BatterType, PitchType, RL, ZoneAptitude};
     use crate::domain::shared::stadium::Stadium;
     use crate::domain::strategy::pitching_strategy::TargetZone;
     use crate::domain::util::Vector3D;
@@ -815,6 +815,7 @@ mod tests {
         BatterInfo {
             batting_side,
             batter_type: BatterType::ClassicAnalyst,
+            zone_aptitude: ZoneAptitude::Balanced,
             batting_eye: 0.5,
             swing_speed: 150.0,
             swing_power: 1.0,

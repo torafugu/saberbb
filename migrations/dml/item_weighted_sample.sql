@@ -69,6 +69,46 @@ VALUES
 INSERT INTO
     item_weighted (category1, category2, name, weight)
 VALUES
+    ('player', 'zone_aptitude', 'Balanced', 0.4);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    (
+        'player',
+        'zone_aptitude',
+        'InsideDominant',
+        0.16
+    );
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    (
+        'player',
+        'zone_aptitude',
+        'OutsideDominant',
+        0.12
+    );
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('player', 'zone_aptitude', 'LowBaller', 0.12);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('player', 'zone_aptitude', 'HighBaller', 0.16);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
+    ('player', 'zone_aptitude', 'DiagonalCross', 0.04);
+
+INSERT INTO
+    item_weighted (category1, category2, name, weight)
+VALUES
     ('player', 'fielder_type', 'Outfielder', 0.24);
 
 INSERT INTO
