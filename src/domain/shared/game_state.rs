@@ -6,8 +6,8 @@ use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
     CountStatus, SwingContactType, adapt_to_pitch, calculate_batted_ball,
-    calculate_swing_execution_error, calculate_swing_factor, calculate_zone_similarity_factor,
-    evaluate_swing_contact, select_swing_execution,
+    calculate_pitch_similarity, calculate_swing_execution_error, calculate_swing_factor,
+    calculate_zone_similarity_factor, evaluate_swing_contact, select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
 use crate::domain::resolver::fielding_resolver::{
@@ -742,12 +742,15 @@ impl GameState {
             expected_ball.actual_location,
         );
 
+        let pitch_similarity =
+            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
+
         let swing_factor = calculate_swing_factor(
             batter.sample_plate_approach(self.rng.as_mut())?,
             self.count_status(),
             pitched_ball.pitch_type,
-            expected_ball.pitch_type,
             zone_similarity,
+            pitch_similarity,
         );
 
         let swing_execution = select_swing_execution(self.rng.as_mut(), swing_factor);
@@ -765,8 +768,12 @@ impl GameState {
             );
             self.add_count(0);
         } else {
-            let displacement =
-                adapt_to_pitch(batter.bat_control, zone_similarity, &pitch_displacement);
+            let displacement = adapt_to_pitch(
+                &pitch_displacement,
+                batter.bat_control,
+                zone_similarity,
+                pitch_similarity,
+            );
 
             let swing_error = calculate_swing_execution_error(
                 self.rng.as_mut(),

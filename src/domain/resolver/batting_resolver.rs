@@ -4,7 +4,7 @@ use crate::domain::shared::ball::{
     BallLocation, BattedBall, FOUL_DEGREE, MAGNUS_COEFF, OutboundResult, PitchedBall,
 };
 use crate::domain::shared::game_state::GameError;
-use crate::domain::shared::player::{BatterInfo, PitchType, RL};
+use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::{SwingExecution, calculate_attack_angle_modifier};
 use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
@@ -36,23 +36,6 @@ pub fn calculate_zone_similarity_factor(
             TargetZoneSimilarity::Opposite => -0.2,
             _ => 0.05,
         }
-    }
-}
-
-pub fn calculate_zone_similarity_swing_factor(
-    actual_target_zone: TargetZone,
-    expected_target_zone: TargetZone,
-) -> f64 {
-    if actual_target_zone == expected_target_zone {
-        return 0.2;
-    }
-
-    match (actual_target_zone, expected_target_zone) {
-        (TargetZone::LowInside, TargetZone::HighOutside)
-        | (TargetZone::HighOutside, TargetZone::LowInside)
-        | (TargetZone::HighInside, TargetZone::LowOutside)
-        | (TargetZone::LowOutside, TargetZone::HighInside) => -0.2,
-        _ => -0.05,
     }
 }
 
@@ -113,12 +96,28 @@ impl PlateApproach {
     }
 }
 
+pub fn calculate_pitch_similarity(
+    pitcher: &PitcherInfo,
+    actual_pitch_type: PitchType,
+    expected_pitch_type: PitchType,
+) -> f64 {
+    let actual_pitch_skill = pitcher.select_pitch_skill(actual_pitch_type);
+    let expected_pitch_skill = pitcher.select_pitch_skill(expected_pitch_type);
+
+    let spin_rate_similarity =
+        0.2 - (actual_pitch_skill.spin_rate - expected_pitch_skill.spin_rate).abs();
+    let spin_angle_similarity =
+        0.2 - ((actual_pitch_skill.spin_angle - expected_pitch_skill.spin_angle) / 360.0).abs();
+
+    (spin_rate_similarity + spin_angle_similarity).clamp(-0.2, 0.2)
+}
+
 pub fn calculate_swing_factor(
     approach: PlateApproach,
     count_status: CountStatus,
-    actual_pitch_type: PitchType,
-    expected_pitch_type: PitchType,
+    pitch_type: PitchType,
     zone_similarity: f64,
+    pitch_similarity: f64,
 ) -> f64 {
     let mut count_status_factor = count_status.prob();
 
@@ -126,14 +125,13 @@ pub fn calculate_swing_factor(
         count_status_factor += approach.prob();
     }
 
-    // TODO: Calculate more detailed difference
-    let pitch_type_factor = if actual_pitch_type == expected_pitch_type {
-        0.15
+    let fastball_factor = if pitch_type == PitchType::FourSeamFastball {
+        0.1
     } else {
-        -0.15
+        -0.05
     };
 
-    count_status_factor + pitch_type_factor + zone_similarity
+    count_status_factor + fastball_factor + pitch_similarity + zone_similarity
 }
 
 pub fn select_swing_execution(
@@ -148,19 +146,23 @@ pub fn select_swing_execution(
 }
 
 pub fn adapt_to_pitch(
+    offset: &PitchDisplacement,
     bat_control: f64,
     zone_similarity: f64,
-    offset: &PitchDisplacement,
+    pitch_similarity: f64,
 ) -> PitchDisplacement {
     let bat_control_modifier = 1.0 - sigmoid(bat_control);
     let zone_similarity_modifier = 1.0 - zone_similarity;
+    let pitch_similarity_modifier = 1.0 - pitch_similarity;
+    let toral_similarity_modifier = (zone_similarity_modifier + pitch_similarity_modifier) / 2.0;
 
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
-    let adapted_x = offset.horizontal_offset_m * bat_control_modifier * zone_similarity_modifier;
-    let adapted_z = offset.vertical_offset_m * bat_control_modifier * zone_similarity_modifier;
+    let adapted_x = offset.horizontal_offset_m * bat_control_modifier * toral_similarity_modifier;
+    let adapted_z = offset.vertical_offset_m * bat_control_modifier * toral_similarity_modifier;
 
     // 2. Adjust timing offset with bat lag/steering (e.g. shrink 0.012s delay to 0.006s)
-    let adapted_timing = offset.timing_offset_sec * bat_control_modifier;
+    let adapted_timing =
+        offset.timing_offset_sec * bat_control_modifier * toral_similarity_modifier;
 
     PitchDisplacement {
         crossfire_multiplier: offset.crossfire_multiplier,
@@ -920,36 +922,54 @@ mod tests {
     #[test]
     fn calculate_zone_similarity_scores_same_zone_positive() {
         assert_eq!(
-            calculate_zone_similarity_swing_factor(TargetZone::LowInside, TargetZone::LowInside),
+            calculate_zone_similarity_factor(
+                BallLocation { x: -0.5, y: -0.5 },
+                BallLocation { x: -0.5, y: -0.5 },
+            ),
             0.2
         );
         assert_eq!(
-            calculate_zone_similarity_swing_factor(TargetZone::Center, TargetZone::Center),
-            0.2
+            calculate_zone_similarity_factor(
+                BallLocation { x: 0.0, y: 0.0 },
+                BallLocation { x: 0.0, y: 0.0 },
+            ),
+            0.3
         );
     }
 
     #[test]
     fn calculate_zone_similarity_penalizes_opposite_zones() {
         assert_eq!(
-            calculate_zone_similarity_swing_factor(TargetZone::LowInside, TargetZone::HighOutside),
+            calculate_zone_similarity_factor(
+                BallLocation { x: -0.5, y: -0.5 },
+                BallLocation { x: 0.5, y: 0.5 },
+            ),
             -0.2
         );
         assert_eq!(
-            calculate_zone_similarity_swing_factor(TargetZone::HighInside, TargetZone::LowOutside),
+            calculate_zone_similarity_factor(
+                BallLocation { x: -0.5, y: 0.5 },
+                BallLocation { x: 0.5, y: -0.5 },
+            ),
             -0.2
         );
     }
 
     #[test]
-    fn calculate_zone_similarity_uses_small_penalty_for_partial_mismatch() {
+    fn calculate_zone_similarity_uses_small_bonus_for_partial_mismatch() {
         assert_eq!(
-            calculate_zone_similarity_swing_factor(TargetZone::LowInside, TargetZone::LowOutside),
-            -0.05
+            calculate_zone_similarity_factor(
+                BallLocation { x: -0.5, y: -0.5 },
+                BallLocation { x: 0.5, y: -0.5 },
+            ),
+            0.05
         );
         assert_eq!(
-            calculate_zone_similarity_swing_factor(TargetZone::Center, TargetZone::HighOutside),
-            -0.05
+            calculate_zone_similarity_factor(
+                BallLocation { x: 0.0, y: 0.0 },
+                BallLocation { x: 0.5, y: 0.5 },
+            ),
+            0.1
         );
     }
 
@@ -959,11 +979,11 @@ mod tests {
             PlateApproach::Aggressive,
             CountStatus::C00,
             PitchType::FourSeamFastball,
-            PitchType::FourSeamFastball,
             0.0,
+            0.15,
         );
 
-        assert!((swing_factor - 0.35).abs() < 1e-9);
+        assert!((swing_factor - 0.45).abs() < 1e-9);
     }
 
     #[test]

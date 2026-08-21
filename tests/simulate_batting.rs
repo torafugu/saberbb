@@ -15,13 +15,12 @@ use saberbb::repositories::db::*;
 fn test_calculate_swing_factor() {
     let count_status = CountStatus::C01;
     let actual_pitch_type = PitchType::FourSeamFastball;
-    let expected_pitch_type = PitchType::Curveball;
 
     let swing_factor = calculate_swing_factor(
         PlateApproach::Aggressive,
         count_status,
         actual_pitch_type,
-        expected_pitch_type,
+        0.1,
         0.1,
     );
     println!("swing_factor:{}", swing_factor);
@@ -65,12 +64,15 @@ fn test_batted_ball() {
             expected_ball.actual_location,
         );
 
+        let pitch_similarity =
+            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
+
         let swing_factor = calculate_swing_factor(
             batter.sample_plate_approach(&mut rng).unwrap(),
             count_status,
             pitched_ball.pitch_type,
-            expected_ball.pitch_type,
             zone_similarity,
+            pitch_similarity,
         );
 
         let swing_execution = select_swing_execution(&mut rng, swing_factor);
@@ -84,8 +86,12 @@ fn test_batted_ball() {
                 SwingContactResult::default(),
             )
         } else {
-            let displacement =
-                adapt_to_pitch(batter.bat_control, zone_similarity, &pitch_displacement);
+            let displacement = adapt_to_pitch(
+                &pitch_displacement,
+                batter.bat_control,
+                zone_similarity,
+                pitch_similarity,
+            );
 
             let swing_error =
                 calculate_swing_execution_error(&mut rng, &batter, &pitched_ball.actual_location);

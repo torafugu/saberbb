@@ -1,6 +1,8 @@
 flowchart TD
     calculate_zone_similarity_factor --> calculate_swing_factor
     calculate_zone_similarity_factor --> |Swing|adapt_to_pitch
+    calculate_pitch_similarity --> calculate_swing_factor
+    calculate_pitch_similarity --> |Swing|adapt_to_pitch
     calculate_swing_factor --> select_swing_execution
     select_swing_execution --> |Swing|adapt_to_pitch --> evaluate_swing_contact
     select_swing_execution --> |Swing|calculate_swing_execution_error --> evaluate_swing_contact
