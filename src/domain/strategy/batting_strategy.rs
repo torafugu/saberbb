@@ -1,7 +1,8 @@
 use crate::domain::resolver::batting_resolver::PlateApproach;
-use crate::domain::shared::player::BatterType;
+use crate::domain::shared::player::{BatterType, ZoneAptitude};
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::strategy::pitching_strategy::TargetZone;
+use crate::domain::util::GaussianPeak;
 use strum_macros::AsRefStr;
 
 #[derive(Clone, Debug, PartialEq, AsRefStr)]
@@ -127,5 +128,111 @@ pub fn calculate_attack_angle_modifier(batter_type: BatterType) -> f64 {
         BatterType::ClassicAnalyst => 2.0,
         BatterType::GameManager => 3.0,
         BatterType::ClutchHunter => 0.0,
+    }
+}
+
+pub fn zone_aptitude_peaks(zone_aptitude: ZoneAptitude) -> Vec<GaussianPeak> {
+    match zone_aptitude {
+        ZoneAptitude::Balanced => vec![GaussianPeak {
+            center_x: 0.0,
+            center_y: 0.0,
+            amplitude: 0.100,
+            sigma_x: 0.5,
+            sigma_y: 0.5,
+        }],
+        ZoneAptitude::InsideDominant => vec![
+            GaussianPeak {
+                center_x: 0.0,
+                center_y: 0.0,
+                amplitude: 0.080,
+                sigma_x: 0.5,
+                sigma_y: 0.5,
+            },
+            GaussianPeak {
+                center_x: -0.6,
+                center_y: 0.0,
+                amplitude: 0.060,
+                sigma_x: 0.3,
+                sigma_y: 0.4,
+            },
+        ],
+        ZoneAptitude::OutsideDominant => vec![
+            GaussianPeak {
+                center_x: 0.0,
+                center_y: 0.0,
+                amplitude: 0.080,
+                sigma_x: 0.5,
+                sigma_y: 0.5,
+            },
+            GaussianPeak {
+                center_x: 0.6,
+                center_y: 0.0,
+                amplitude: 0.060,
+                sigma_x: 0.3,
+                sigma_y: 0.4,
+            },
+        ],
+        ZoneAptitude::HighBaller => vec![
+            GaussianPeak {
+                center_x: 0.0,
+                center_y: 0.4,
+                amplitude: 0.110,
+                sigma_x: 0.5,
+                sigma_y: 0.3,
+            },
+            GaussianPeak {
+                center_x: 0.0,
+                center_y: -0.6,
+                amplitude: -0.050,
+                sigma_x: 0.4,
+                sigma_y: 0.2,
+            },
+        ],
+        ZoneAptitude::LowBaller => vec![
+            GaussianPeak {
+                center_x: 0.0,
+                center_y: -0.4,
+                amplitude: 0.110,
+                sigma_x: 0.5,
+                sigma_y: 0.3,
+            },
+            GaussianPeak {
+                center_x: 0.0,
+                center_y: 0.6,
+                amplitude: -0.050,
+                sigma_x: 0.4,
+                sigma_y: 0.2,
+            },
+        ],
+        ZoneAptitude::DiagonalCross => vec![
+            GaussianPeak {
+                center_x: 0.4,
+                center_y: 0.4,
+                amplitude: 0.060,
+                sigma_x: 0.5,
+                sigma_y: 0.3,
+            },
+            GaussianPeak {
+                center_x: -0.4,
+                center_y: -0.4,
+                amplitude: 0.060,
+                sigma_x: 0.5,
+                sigma_y: 0.3,
+            },
+            GaussianPeak {
+                center_x: 0.6,
+                center_y: -0.6,
+                amplitude: -0.050,
+                sigma_x: 0.4,
+                sigma_y: 0.2,
+            },
+            GaussianPeak {
+                center_x: -0.6,
+                center_y: 0.6,
+                amplitude: -0.050,
+                sigma_x: 0.4,
+                sigma_y: 0.2,
+            },
+        ],
     }
 }

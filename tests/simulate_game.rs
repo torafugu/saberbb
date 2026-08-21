@@ -10,6 +10,7 @@ use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
+use saberbb::domain::strategy::batting_strategy::*;
 use saberbb::domain::util::PolarPosition;
 
 #[test]
@@ -50,149 +51,176 @@ fn test_through_half_inning() -> Result<(), GameError> {
             batter.batting_eye,
         );
 
-        let swing_execution_error = calculate_swing_execution_error(
-            &mut rng,
-            batter.bat_control,
-            batter.attack_angle,
-            batter.batter_type,
-            &pitched_ball.actual_location,
+        let count_status = CountStatus::C01;
+
+        let zone_similarity = calculate_zone_similarity_factor(
+            pitched_ball.actual_location,
+            expected_ball.actual_location,
         );
 
-        let contact = evaluate_swing_contact(&batter, &pitch_displacement, &swing_execution_error);
-        let ball = calculate_batted_ball(&batter, pitched_ball, &contact, &stadium)?;
+        let swing_factor = calculate_swing_factor(
+            batter.sample_plate_approach(&mut rng).unwrap(),
+            count_status,
+            pitched_ball.pitch_type,
+            expected_ball.pitch_type,
+            zone_similarity,
+        );
 
-        println!("{:#?}", ball);
+        let swing_execution = select_swing_execution(&mut rng, swing_factor);
 
-        match ball.outbound_result {
-            OutboundResult::Foul => {
-                println!("{}", BattingResult::Foul);
-                println!("Outs:{}, Scores:{}", inning_state.out, scores);
-                continue;
-            }
-            OutboundResult::HomeRun => {
-                scores += inning_state.runners.after_homerun();
-
-                println!("{}, score:+{}", BattingResult::HomeRun, scores);
-                println!("Outs:{}, Scores:{}", inning_state.out, scores);
-                continue;
-            }
-            OutboundResult::GroundRuleDouble => {
-                // TODO: Add new case to running resolver
-            }
-            OutboundResult::InField => {}
-        }
-
-        let field_play_result = process_fielding(&mut rng, &fielders, &ball)?;
-        let fielder = field_play_result.result().fielder;
-
-        println!("{:#?}", fielder);
-
-        let fielded_ball = field_play_result.result().ball();
-
-        println!("{:#?}", fielded_ball);
-
-        if fielded_ball.is_fly_catch {
-            inning_state.add_out();
-
-            println!(
-                "Fly is caught. Outs:{}, Scores:{}",
-                inning_state.out, scores
-            );
-
-            if fielded_ball.fielded_by.is_infielder() || !inning_state.allows_tagup() {
-                println!("No tag-up.");
-                continue;
-            }
-        }
-
-        // TODO: stolen base tunrned into hit-and-run case
-        let mut steal_attempt_rng = RealRng::new();
-        if inning_state.can_steal_base(&mut steal_attempt_rng) {
-            let mut steal_defense_rng = RealRng::new();
-            let steal_defense_play_result =
-                evaluate_base_stealing(Base::Second, &pitcher, &catcher, &mut steal_defense_rng);
-
-            println!("{:#?}", steal_defense_play_result);
-
-            let steal_runner_advance_result = inning_state
-                .runners
-                .after_base_stealing(steal_defense_play_result)?;
-
-            println!("{:#?}", steal_runner_advance_result);
-
-            if steal_runner_advance_result.ruling == Ruling::Out {
-                inning_state.add_out();
-                if inning_state.inning_progress() == InningProgress::Over {
-                    break;
-                }
-            };
-        }
-
-        let ctx = PlayContext {
-            runners: &inning_state.runners,
-            fielders: &fielders,
-            try_catch_fielder: fielder,
-            fielded_ball: &fielded_ball,
-        };
-
-        let mut defense_rng = RealRng::new();
-        let defense_play_result = evaluate_defense_play(&ctx, &mut defense_rng)?;
-
-        println!("{:#?}", defense_play_result);
-
-        let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
-            if inning_state.allows_tagup() {
-                inning_state.runners.after_tagup(&defense_play_result)?
-            } else {
-                inning_state
-                    .runners
-                    .after_outfield_hit(&defense_play_result, batter.batting_side)?
-            }
+        if swing_execution == SwingExecution::Take {
+            println!("Take");
         } else {
-            inning_state
-                .runners
-                .after_infield_grounder(&defense_play_result, batter.batting_side)?
-        };
+            let displacement =
+                adapt_to_pitch(batter.bat_control, zone_similarity, &pitch_displacement);
 
-        println!("{:#?}", runner_advance_result);
+            let swing_error =
+                calculate_swing_execution_error(&mut rng, &batter, &pitched_ball.actual_location);
 
-        if ctx.fielded_ball.fielded_by.is_infielder() && inning_state.can_double_play() {
-            let mut double_play_rng = RealRng::new();
-            if let Some(double_play_defense_play_result) =
-                evaluate_double_play(&ctx, &defense_play_result, &mut double_play_rng)?
-            {
-                println!("{:#?}", double_play_defense_play_result);
+            let swing_contact = evaluate_swing_contact(&batter, &displacement, &swing_error);
 
-                let double_play_runner_advance_result = inning_state.runners.after_double_play(
-                    &double_play_defense_play_result,
-                    &runner_advance_result,
-                    batter.batting_side,
-                )?;
+            if swing_contact.contact_type == SwingContactType::SwungAndMiss {
+                println!("SwungAndMiss");
+            } else {
+                let ball = calculate_batted_ball(&batter, pitched_ball, &swing_contact, &stadium)?;
 
-                println!("{:#?}", double_play_runner_advance_result);
+                println!("{:#?}", ball);
 
-                inning_state
-                    .runners
-                    .commit_unsaved_runners(double_play_runner_advance_result.unsaved_runners);
-
-                if double_play_runner_advance_result.ruling == Ruling::Out {
-                    inning_state.add_out();
-                    if inning_state.inning_progress() == InningProgress::Ongoing {
-                        break;
+                match ball.outbound_result {
+                    OutboundResult::Foul => {
+                        println!("{}", BattingResult::Foul);
+                        println!("Outs:{}, Scores:{}", inning_state.out, scores);
+                        continue;
                     }
+                    OutboundResult::HomeRun => {
+                        scores += inning_state.runners.after_homerun();
+
+                        println!("{}, score:+{}", BattingResult::HomeRun, scores);
+                        println!("Outs:{}, Scores:{}", inning_state.out, scores);
+                        continue;
+                    }
+                    OutboundResult::GroundRuleDouble => {
+                        // TODO: Add new case to running resolver
+                    }
+                    OutboundResult::InField => {}
+                }
+
+                let field_play_result = process_fielding(&mut rng, &fielders, &ball)?;
+                let fielder = field_play_result.result().fielder;
+
+                println!("{:#?}", fielder);
+
+                let fielded_ball = field_play_result.result().ball();
+
+                println!("{:#?}", fielded_ball);
+
+                if fielded_ball.is_fly_catch {
+                    inning_state.add_out();
+
+                    println!(
+                        "Fly is caught. Outs:{}, Scores:{}",
+                        inning_state.out, scores
+                    );
+
+                    if fielded_ball.fielded_by.is_infielder() || !inning_state.allows_tagup() {
+                        println!("No tag-up.");
+                        continue;
+                    }
+                }
+
+                // TODO: stolen base tunrned into hit-and-run case
+                let mut steal_attempt_rng = RealRng::new();
+                if inning_state.can_steal_base(&mut steal_attempt_rng) {
+                    let mut steal_defense_rng = RealRng::new();
+                    let steal_defense_play_result = evaluate_base_stealing(
+                        Base::Second,
+                        &pitcher,
+                        &catcher,
+                        &mut steal_defense_rng,
+                    );
+
+                    println!("{:#?}", steal_defense_play_result);
+
+                    let steal_runner_advance_result = inning_state
+                        .runners
+                        .after_base_stealing(steal_defense_play_result)?;
+
+                    println!("{:#?}", steal_runner_advance_result);
+
+                    if steal_runner_advance_result.ruling == Ruling::Out {
+                        inning_state.add_out();
+                        if inning_state.inning_progress() == InningProgress::Over {
+                            break;
+                        }
+                    };
+                }
+
+                let ctx = PlayContext {
+                    runners: &inning_state.runners,
+                    fielders: &fielders,
+                    try_catch_fielder: fielder,
+                    fielded_ball: &fielded_ball,
+                };
+
+                let mut defense_rng = RealRng::new();
+                let defense_play_result = evaluate_defense_play(&ctx, &mut defense_rng)?;
+
+                println!("{:#?}", defense_play_result);
+
+                let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
+                    if inning_state.allows_tagup() {
+                        inning_state.runners.after_tagup(&defense_play_result)?
+                    } else {
+                        inning_state
+                            .runners
+                            .after_outfield_hit(&defense_play_result, batter.batting_side)?
+                    }
+                } else {
+                    inning_state
+                        .runners
+                        .after_infield_grounder(&defense_play_result, batter.batting_side)?
+                };
+
+                println!("{:#?}", runner_advance_result);
+
+                if ctx.fielded_ball.fielded_by.is_infielder() && inning_state.can_double_play() {
+                    let mut double_play_rng = RealRng::new();
+                    if let Some(double_play_defense_play_result) =
+                        evaluate_double_play(&ctx, &defense_play_result, &mut double_play_rng)?
+                    {
+                        println!("{:#?}", double_play_defense_play_result);
+
+                        let double_play_runner_advance_result =
+                            inning_state.runners.after_double_play(
+                                &double_play_defense_play_result,
+                                &runner_advance_result,
+                                batter.batting_side,
+                            )?;
+
+                        println!("{:#?}", double_play_runner_advance_result);
+
+                        inning_state.runners.commit_unsaved_runners(
+                            double_play_runner_advance_result.unsaved_runners,
+                        );
+
+                        if double_play_runner_advance_result.ruling == Ruling::Out {
+                            inning_state.add_out();
+                            if inning_state.inning_progress() == InningProgress::Ongoing {
+                                break;
+                            }
+                        };
+                    }
+                } else {
+                    inning_state
+                        .runners
+                        .commit_unsaved_runners(runner_advance_result.unsaved_runners);
+                }
+
+                if runner_advance_result.ruling == Ruling::Out {
+                    inning_state.add_out();
                 };
             }
-        } else {
-            inning_state
-                .runners
-                .commit_unsaved_runners(runner_advance_result.unsaved_runners);
-        }
-
-        if runner_advance_result.ruling == Ruling::Out {
-            inning_state.add_out();
         };
-
-        // TODO: Record fielding result
     }
 
     Ok(())

@@ -1,9 +1,11 @@
 use crate::I18nManager;
 use crate::domain::random_provider::{RandomProvider, choose_item_weighted};
 use crate::domain::resolver::batting_resolver::PlateApproach;
+use crate::domain::shared::ball::BallLocation;
 use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::prob::ItemWeighted;
-use crate::domain::strategy::batting_strategy::default_plate_approach;
+use crate::domain::shared::stadium::MOUND_DISTANCE;
+use crate::domain::strategy::batting_strategy::{default_plate_approach, zone_aptitude_peaks};
 use crate::domain::strategy::pitching_strategy::{
     Margin, PitchCall, TargetZone, default_location_distribution,
 };
@@ -393,6 +395,15 @@ impl BatterInfo {
     ) -> Result<PlateApproach, AppError> {
         Ok(choose_item_weighted(rng, &default_plate_approach(self.batter_type))?.clone())
     }
+
+    pub fn zone_modifier(&self, location: &BallLocation) -> f64 {
+        let peaks = zone_aptitude_peaks(self.zone_aptitude);
+        peaks
+            .iter()
+            .map(|p| p.evaluate(location.x, location.y))
+            .sum::<f64>()
+            * (1.0 + self.hot_zone_scale)
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug, Validate)]
@@ -597,7 +608,7 @@ impl PitcherInfo {
         };
 
         // 3. Y-axis (distance to batter): pitching rubber (18.44m) - extension
-        let distance_to_home = 18.44
+        let distance_to_home = MOUND_DISTANCE
             - (self.extension * rng.normal_factor_std_1_percent())
                 .clamp(PITCH_EXTENSION_MIN, PITCH_EXTENSION_MAX);
 

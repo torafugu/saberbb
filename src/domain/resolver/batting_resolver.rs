@@ -4,7 +4,7 @@ use crate::domain::shared::ball::{
     BallLocation, BattedBall, FOUL_DEGREE, MAGNUS_COEFF, OutboundResult, PitchedBall,
 };
 use crate::domain::shared::game_state::GameError;
-use crate::domain::shared::player::{BatterInfo, BatterType, PitchType, RL, ZoneAptitude};
+use crate::domain::shared::player::{BatterInfo, PitchType, RL};
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::{SwingExecution, calculate_attack_angle_modifier};
 use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
@@ -19,10 +19,12 @@ const REF_SWING_SPEED: f64 = 120.0;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
 
-pub fn calculate_zone_similarity(
-    actual_target_zone: TargetZone,
-    expected_target_zone: TargetZone,
+pub fn calculate_zone_similarity_factor(
+    actual_target_location: BallLocation,
+    expected_target_location: BallLocation,
 ) -> f64 {
+    let actual_target_zone = actual_target_location.target_zone();
+    let expected_target_zone = expected_target_location.target_zone();
     if actual_target_zone == TargetZone::Center && expected_target_zone == TargetZone::Center {
         0.3
     } else if actual_target_zone == TargetZone::Center && expected_target_zone != TargetZone::Center
@@ -37,42 +39,21 @@ pub fn calculate_zone_similarity(
     }
 }
 
-// TODO: Replace completely
-pub fn calculate_zone_aptitude_modifier(
-    zone_aptitude: ZoneAptitude,
-    target_zone: TargetZone,
-    hot_zone_scale: f64,
+pub fn calculate_zone_similarity_swing_factor(
+    actual_target_zone: TargetZone,
+    expected_target_zone: TargetZone,
 ) -> f64 {
-    let aptitude = match zone_aptitude {
-        ZoneAptitude::Balanced => 0.0,
-        ZoneAptitude::InsideDominant => match target_zone {
-            TargetZone::LowInside | TargetZone::HighInside => 1.0,
-            TargetZone::LowOutside | TargetZone::HighOutside => -1.0,
-            TargetZone::Center => 0.0,
-        },
-        ZoneAptitude::OutsideDominant => match target_zone {
-            TargetZone::LowOutside | TargetZone::HighOutside => 1.0,
-            TargetZone::LowInside | TargetZone::HighInside => -1.0,
-            TargetZone::Center => 0.0,
-        },
-        ZoneAptitude::LowBaller => match target_zone {
-            TargetZone::LowInside | TargetZone::LowOutside => 1.0,
-            TargetZone::HighInside | TargetZone::HighOutside => -1.0,
-            TargetZone::Center => 0.0,
-        },
-        ZoneAptitude::HighBaller => match target_zone {
-            TargetZone::HighInside | TargetZone::HighOutside => 1.0,
-            TargetZone::LowInside | TargetZone::LowOutside => -1.0,
-            TargetZone::Center => 0.0,
-        },
-        ZoneAptitude::DiagonalCross => match target_zone {
-            TargetZone::HighInside | TargetZone::LowOutside => 1.0,
-            TargetZone::LowInside | TargetZone::HighOutside => -1.0,
-            TargetZone::Center => 0.0,
-        },
-    };
+    if actual_target_zone == expected_target_zone {
+        return 0.2;
+    }
 
-    aptitude * hot_zone_scale
+    match (actual_target_zone, expected_target_zone) {
+        (TargetZone::LowInside, TargetZone::HighOutside)
+        | (TargetZone::HighOutside, TargetZone::LowInside)
+        | (TargetZone::HighInside, TargetZone::LowOutside)
+        | (TargetZone::LowOutside, TargetZone::HighInside) => -0.2,
+        _ => -0.05,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
@@ -137,8 +118,7 @@ pub fn calculate_swing_factor(
     count_status: CountStatus,
     actual_pitch_type: PitchType,
     expected_pitch_type: PitchType,
-    actual_pitch_location: BallLocation,
-    expected_pitch_location: BallLocation,
+    zone_similarity: f64,
 ) -> f64 {
     let mut count_status_factor = count_status.prob();
 
@@ -146,16 +126,12 @@ pub fn calculate_swing_factor(
         count_status_factor += approach.prob();
     }
 
+    // TODO: Calculate more detailed difference
     let pitch_type_factor = if actual_pitch_type == expected_pitch_type {
         0.15
     } else {
         -0.15
     };
-
-    let zone_similarity = calculate_zone_similarity(
-        actual_pitch_location.target_zone(),
-        expected_pitch_location.target_zone(),
-    );
 
     count_status_factor + pitch_type_factor + zone_similarity
 }
@@ -171,13 +147,20 @@ pub fn select_swing_execution(
     }
 }
 
-pub fn adapt_to_pitch(bat_control: f64, offset: &PitchDisplacement) -> PitchDisplacement {
+pub fn adapt_to_pitch(
+    bat_control: f64,
+    zone_similarity: f64,
+    offset: &PitchDisplacement,
+) -> PitchDisplacement {
+    let bat_control_modifier = 1.0 - sigmoid(bat_control);
+    let zone_similarity_modifier = 1.0 - zone_similarity;
+
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
-    let adapted_x = offset.horizontal_offset_m * (1.0 - sigmoid(bat_control));
-    let adapted_z = offset.vertical_offset_m * (1.0 - sigmoid(bat_control));
+    let adapted_x = offset.horizontal_offset_m * bat_control_modifier * zone_similarity_modifier;
+    let adapted_z = offset.vertical_offset_m * bat_control_modifier * zone_similarity_modifier;
 
     // 2. Adjust timing offset with bat lag/steering (e.g. shrink 0.012s delay to 0.006s)
-    let adapted_timing = offset.timing_offset_sec * (1.0 - sigmoid(bat_control));
+    let adapted_timing = offset.timing_offset_sec * bat_control_modifier;
 
     PitchDisplacement {
         crossfire_multiplier: offset.crossfire_multiplier,
@@ -226,23 +209,22 @@ pub struct SwingExecutionError {
 // Calculate the actual bat_angle_deg the batter swings through based on the real trajectory and their prediction
 pub fn calculate_swing_execution_error(
     rng: &mut dyn RandomProvider,
-    bat_control: f64,
-    attack_angle: f64,
-    batter_type: BatterType,
+    batter: &BatterInfo,
     actual_location: &BallLocation,
 ) -> SwingExecutionError {
+    let zone_modifier = 1.0 - batter.zone_modifier(actual_location);
+    let bat_control_modifier = batter.bat_control / 20.0;
+
     // 1. Calculate the difference between intended and ideal angle (angle error)
     let intended_location = BallLocation {
-        x: actual_location.x
-            + actual_location.x * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_control)),
-        y: actual_location.y
-            + actual_location.y * rng.normal_std_5_percent() * (1.0 - sigmoid(bat_control)),
+        x: actual_location.x + actual_location.x * bat_control_modifier * zone_modifier,
+        y: actual_location.y + actual_location.y * bat_control_modifier * zone_modifier,
     };
     let intended_angle = calculate_bat_angle(&intended_location);
     let ideal_angle = calculate_bat_angle(actual_location);
 
     // Lower contact skill leaves a larger Δθ because the swing can't correct toward the ideal angle
-    let unadjusted_ratio = (1.0 - bat_control).clamp(0.1, 1.0);
+    let unadjusted_ratio = (1.0 - batter.bat_control).clamp(0.1, 1.0);
     let delta_angle_deg = (intended_angle - ideal_angle) * unadjusted_ratio;
 
     // 2. Convert angle error (deg) to spatial meter error (Δx, Δz)
@@ -253,18 +235,18 @@ pub fn calculate_swing_execution_error(
     let additional_x_m = BAT_BARREL_LENGTH_M * (1.0 - delta_rad.cos());
 
     // 3. Calculate actual bat angle and attack angle the batter swung
-    let actual_bat_angle_deg =
-        intended_angle - (intended_angle - ideal_angle) * (1.0 - sigmoid(bat_control));
+    let actual_bat_angle_deg = intended_angle - (intended_angle - ideal_angle);
     let actual_attack_angle_deg =
-        calculate_dynamic_attack_angle(attack_angle, actual_bat_angle_deg)
-            + calculate_attack_angle_modifier(batter_type) * rng.normal_factor_std_5_percent();
+        calculate_dynamic_attack_angle(batter.attack_angle, actual_bat_angle_deg)
+            + calculate_attack_angle_modifier(batter.batter_type)
+                * rng.normal_factor_std_5_percent();
 
     SwingExecutionError {
         additional_x_m,
         additional_z_m,
         ideal_bat_angle_deg: ideal_angle,
         actual_bat_angle_deg,
-        ideal_attack_angle_deg: attack_angle,
+        ideal_attack_angle_deg: batter.attack_angle,
         actual_attack_angle_deg,
     }
 }
@@ -938,11 +920,11 @@ mod tests {
     #[test]
     fn calculate_zone_similarity_scores_same_zone_positive() {
         assert_eq!(
-            calculate_zone_similarity(TargetZone::LowInside, TargetZone::LowInside),
+            calculate_zone_similarity_swing_factor(TargetZone::LowInside, TargetZone::LowInside),
             0.2
         );
         assert_eq!(
-            calculate_zone_similarity(TargetZone::Center, TargetZone::Center),
+            calculate_zone_similarity_swing_factor(TargetZone::Center, TargetZone::Center),
             0.2
         );
     }
@@ -950,11 +932,11 @@ mod tests {
     #[test]
     fn calculate_zone_similarity_penalizes_opposite_zones() {
         assert_eq!(
-            calculate_zone_similarity(TargetZone::LowInside, TargetZone::HighOutside),
+            calculate_zone_similarity_swing_factor(TargetZone::LowInside, TargetZone::HighOutside),
             -0.2
         );
         assert_eq!(
-            calculate_zone_similarity(TargetZone::HighInside, TargetZone::LowOutside),
+            calculate_zone_similarity_swing_factor(TargetZone::HighInside, TargetZone::LowOutside),
             -0.2
         );
     }
@@ -962,26 +944,23 @@ mod tests {
     #[test]
     fn calculate_zone_similarity_uses_small_penalty_for_partial_mismatch() {
         assert_eq!(
-            calculate_zone_similarity(TargetZone::LowInside, TargetZone::LowOutside),
+            calculate_zone_similarity_swing_factor(TargetZone::LowInside, TargetZone::LowOutside),
             -0.05
         );
         assert_eq!(
-            calculate_zone_similarity(TargetZone::Center, TargetZone::HighOutside),
+            calculate_zone_similarity_swing_factor(TargetZone::Center, TargetZone::HighOutside),
             -0.05
         );
     }
 
     #[test]
     fn calculate_swing_factor_handles_locations_outside_target_zones() {
-        let batter = batter(RL::Right);
-
         let swing_factor = calculate_swing_factor(
             PlateApproach::Aggressive,
             CountStatus::C00,
             PitchType::FourSeamFastball,
             PitchType::FourSeamFastball,
-            BallLocation { x: 1.1, y: -0.8 },
-            BallLocation { x: 0.7, y: -0.7 },
+            0.0,
         );
 
         assert!((swing_factor - 0.35).abs() < 1e-9);

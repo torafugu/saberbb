@@ -22,8 +22,7 @@ fn test_calculate_swing_factor() {
         count_status,
         actual_pitch_type,
         expected_pitch_type,
-        BallLocation { x: 0.0, y: 0.0 },
-        BallLocation { x: 0.0, y: 0.0 },
+        0.1,
     );
     println!("swing_factor:{}", swing_factor);
 }
@@ -61,39 +60,40 @@ fn test_batted_ball() {
 
         let count_status = CountStatus::C01;
 
+        let zone_similarity = calculate_zone_similarity_factor(
+            pitched_ball.actual_location,
+            expected_ball.actual_location,
+        );
+
         let swing_factor = calculate_swing_factor(
             batter.sample_plate_approach(&mut rng).unwrap(),
             count_status,
             pitched_ball.pitch_type,
             expected_ball.pitch_type,
-            pitched_ball.actual_location,
-            expected_ball.actual_location,
+            zone_similarity,
         );
 
         let swing_execution = select_swing_execution(&mut rng, swing_factor);
 
-        let (adapted_displacement, swing_execution_error, swing_contact) =
-            if swing_execution == SwingExecution::Take {
-                (
-                    PitchDisplacement::default(),
-                    SwingExecutionError::default(),
-                    SwingContactResult::default(),
-                )
-            } else {
-                let displacement = adapt_to_pitch(batter.bat_control, &pitch_displacement);
+        let (adapted_displacement, swing_execution_error, swing_contact) = if swing_execution
+            == SwingExecution::Take
+        {
+            (
+                PitchDisplacement::default(),
+                SwingExecutionError::default(),
+                SwingContactResult::default(),
+            )
+        } else {
+            let displacement =
+                adapt_to_pitch(batter.bat_control, zone_similarity, &pitch_displacement);
 
-                let swing_error = calculate_swing_execution_error(
-                    &mut rng,
-                    batter.bat_control,
-                    batter.attack_angle,
-                    batter.batter_type,
-                    &pitched_ball.actual_location,
-                );
+            let swing_error =
+                calculate_swing_execution_error(&mut rng, &batter, &pitched_ball.actual_location);
 
-                let contact = evaluate_swing_contact(&batter, &displacement, &swing_error);
+            let contact = evaluate_swing_contact(&batter, &displacement, &swing_error);
 
-                (displacement, swing_error, contact)
-            };
+            (displacement, swing_error, contact)
+        };
 
         let batted_ball = if (swing_contact.contact_type == SwingContactType::Take
             || swing_contact.contact_type == SwingContactType::SwungAndMiss)
