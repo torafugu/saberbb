@@ -12,21 +12,6 @@ use saberbb::domain::strategy::batting_strategy::*;
 use saberbb::repositories::db::*;
 
 #[test]
-fn test_calculate_swing_factor() {
-    let count_status = CountStatus::C01;
-    let actual_pitch_type = PitchType::FourSeamFastball;
-
-    let swing_factor = calculate_swing_factor(
-        PlateApproach::Aggressive,
-        count_status,
-        actual_pitch_type,
-        0.1,
-        0.1,
-    );
-    println!("swing_factor:{}", swing_factor);
-}
-
-#[test]
 fn test_batted_ball() {
     let conn = SqlDb::new().unwrap().get_conn().unwrap();
     conn.execute("DELETE FROM test_batted_ball", []).unwrap();
@@ -59,20 +44,20 @@ fn test_batted_ball() {
 
         let count_status = CountStatus::C01;
 
-        let zone_similarity = calculate_zone_similarity_factor(
-            pitched_ball.actual_location,
-            expected_ball.actual_location,
+        let batting_factor = calculate_batting_factor(
+            &pitcher,
+            &batter,
+            pitched_ball.pitch_type,
+            expected_ball.pitch_type,
+            &pitched_ball.actual_location,
+            &expected_ball.actual_location,
         );
-
-        let pitch_similarity =
-            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
 
         let swing_factor = calculate_swing_factor(
             batter.sample_plate_approach(&mut rng).unwrap(),
             count_status,
             pitched_ball.pitch_type,
-            zone_similarity,
-            pitch_similarity,
+            &batting_factor,
         );
 
         let swing_execution = select_swing_execution(&mut rng, swing_factor);
@@ -86,12 +71,8 @@ fn test_batted_ball() {
                 SwingContactResult::default(),
             )
         } else {
-            let displacement = adapt_to_pitch(
-                &pitch_displacement,
-                batter.bat_control,
-                zone_similarity,
-                pitch_similarity,
-            );
+            let displacement =
+                adapt_to_pitch(&pitch_displacement, batter.bat_control, &batting_factor);
 
             let swing_error =
                 calculate_swing_execution_error(&mut rng, &batter, &pitched_ball.actual_location);

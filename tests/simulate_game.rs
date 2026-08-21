@@ -53,20 +53,20 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
         let count_status = CountStatus::C01;
 
-        let zone_similarity = calculate_zone_similarity_factor(
-            pitched_ball.actual_location,
-            expected_ball.actual_location,
+        let batting_factor = calculate_batting_factor(
+            &pitcher,
+            &batter,
+            pitched_ball.pitch_type,
+            expected_ball.pitch_type,
+            &pitched_ball.actual_location,
+            &expected_ball.actual_location,
         );
-
-        let pitch_similarity =
-            calculate_pitch_similarity(&pitcher, pitched_ball.pitch_type, expected_ball.pitch_type);
 
         let swing_factor = calculate_swing_factor(
             batter.sample_plate_approach(&mut rng).unwrap(),
             count_status,
             pitched_ball.pitch_type,
-            zone_similarity,
-            pitch_similarity,
+            &batting_factor,
         );
 
         let swing_execution = select_swing_execution(&mut rng, swing_factor);
@@ -74,12 +74,8 @@ fn test_through_half_inning() -> Result<(), GameError> {
         if swing_execution == SwingExecution::Take {
             println!("Take");
         } else {
-            let displacement = adapt_to_pitch(
-                &pitch_displacement,
-                batter.bat_control,
-                zone_similarity,
-                pitch_similarity,
-            );
+            let displacement =
+                adapt_to_pitch(&pitch_displacement, batter.bat_control, &batting_factor);
 
             let swing_error =
                 calculate_swing_execution_error(&mut rng, &batter, &pitched_ball.actual_location);
