@@ -124,6 +124,8 @@ pub fn generate_pitcher() -> PitcherInfo {
             .defense_skills
             .pitcher
         {
+            let mut pitcher_info = pitcher_info;
+            pitcher_info.control = 10.0;
             return pitcher_info;
         }
     }

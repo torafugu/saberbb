@@ -30,8 +30,9 @@ fn test_through_half_inning() -> Result<(), GameError> {
         println!("\n--- New count ---");
         inning_state.runners.batter_runner = Some(batter_runner);
 
-        let pitched_ball = create_pitch(&mut rng, &pitcher)?;
-        let expected_ball = create_pitch(&mut rng, &pitcher)?;
+        let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
+        let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect)?;
+        let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect)?;
 
         let absolute_location = calculate_ball_movement(&pitched_ball);
 

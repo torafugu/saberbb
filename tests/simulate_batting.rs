@@ -23,8 +23,9 @@ fn test_batted_ball() {
     let mut rng = RealRng::new();
 
     for _ in 0..1000 {
-        let pitched_ball = create_pitch(&mut rng, &pitcher).unwrap();
-        let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
+        let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
+        let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
+        let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,

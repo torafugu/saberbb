@@ -17,8 +17,9 @@ fn test_pitched_ball() {
     let batter = generate_batter();
 
     for _ in 0..1000 {
-        let pitched_ball = create_pitch(&mut rng, &pitcher).unwrap();
-        let expected_ball = create_pitch(&mut rng, &pitcher).unwrap();
+        let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
+        let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
+        let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
 
         let ball_movement = calculate_ball_movement(&pitched_ball);
 

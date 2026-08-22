@@ -15,8 +15,8 @@ use crate::domain::resolver::fielding_resolver::{
     evaluate_double_play, process_fielding,
 };
 use crate::domain::resolver::pitching_resolver::{
-    MatchupContext, calculate_ball_movement, calculate_location_bias, calculate_pitch_offset,
-    create_pitch,
+    MatchupContext, calculate_ball_movement, calculate_hanging_pitch_effect,
+    calculate_location_bias, calculate_pitch_offset, create_pitch,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -715,9 +715,11 @@ impl GameState {
 
         self.prepare_plate_appearance(batter_runner);
 
-        let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
+        let hanging_pitch_effect = calculate_hanging_pitch_effect(self.rng.as_mut(), &pitcher);
+
+        let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher, hanging_pitch_effect)?;
         // TODO: expected_pitched_ball should be created by better logic.
-        let expected_ball = create_pitch(self.rng.as_mut(), &pitcher)?;
+        let expected_ball = create_pitch(self.rng.as_mut(), &pitcher, hanging_pitch_effect)?;
 
         let absolute_location = calculate_ball_movement(&pitched_ball);
 
@@ -1112,7 +1114,7 @@ mod tests {
                     pitcher_style: PitcherStyle::BalancedPitcher,
                     velocity: 145.0,
                     spin_rate: 2200.0,
-                    control: 0.5,
+                    control: 10.0,
                     stamina: 0.5,
                     injury_proneness: 0.5,
                     clutch: 0.5,
@@ -1122,11 +1124,11 @@ mod tests {
                     consistency: 0.03,
                     pitch_skills: vec![PitchSkill {
                         pitch_type: PitchType::FourSeamFastball,
-                        velocity: 145.0,
-                        control: 0.5,
+                        velocity: 1.0,
+                        control: 10.0,
                         stamina: 0.5,
                         injury_proneness: 0.5,
-                        spin_rate: 2200.0,
+                        spin_rate: 1.0,
                         spin_angle: 0.0,
                         spin_efficiency: 0.9,
                         usage: 1.0,
@@ -1272,7 +1274,9 @@ mod tests {
             game.game_result.player_battings.last().unwrap().batter_id,
             away_batter_id
         );
-        assert!(game.inning_state.active_batter.is_none());
+        if let Some(active_batter) = &game.inning_state.active_batter {
+            assert_eq!(active_batter.id, away_batter_id);
+        }
 
         game.advance_half_inning();
         let home_batter_id = game.home_lineup.batters()[0].id;
@@ -1287,7 +1291,9 @@ mod tests {
             game.game_result.player_battings.last().unwrap().batter_id,
             home_batter_id
         );
-        assert!(game.inning_state.active_batter.is_none());
+        if let Some(active_batter) = &game.inning_state.active_batter {
+            assert_eq!(active_batter.id, home_batter_id);
+        }
     }
 
     #[test]

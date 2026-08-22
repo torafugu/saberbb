@@ -16,7 +16,8 @@ flowchart TD
     subgraph MatchupContext
         crossfire_perceived_multiplier
     end
-    
+
+    calculate_hanging_pitch_effect --> create_pitch 
     create_pitch --> MatchupContext --> calculate_pitch_offset
     create_pitch --> calculate_location_bias --> calculate_pitch_offset
     create_pitch --> calculate_ball_movement

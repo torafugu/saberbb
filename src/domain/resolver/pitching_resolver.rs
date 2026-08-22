@@ -14,31 +14,50 @@ const PITCH_OFFSET_DECISION_RATIO: f64 = 0.6;
 // so the average speed during flight is approx. 95% (0.95) of initial velocity
 const AIR_DRAG_FACTOR: f64 = 0.95;
 
+pub fn calculate_hanging_pitch_effect(
+    rng: &mut dyn RandomProvider,
+    pitcher: &PitcherInfo,
+) -> Option<f64> {
+    // TODO: Add effect of difficulty of pitch type
+    // TODO: Add effect of proficiency of pitch type
+    if rng.random() < pitcher.consistency {
+        Some(rng.normal_factor_std_10_percent())
+    } else {
+        None
+    }
+}
+
 pub fn create_pitch(
     rng: &mut dyn RandomProvider,
     pitcher: &PitcherInfo,
+    hanging_pitch_effect: Option<f64>,
 ) -> Result<PitchedBall, AppError> {
+    let pitch_effect = if let Some(effect) = hanging_pitch_effect {
+        effect
+    } else {
+        rng.normal_factor_std_1_percent()
+    };
+
     // delivery form
     let base_spin_angle = pitcher.base_spin_angle();
 
     let pitch_call = pitcher.sample_pitch_calling(rng)?;
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
+    let pitch_spin_angle = (pitch_skill.spin_angle * pitch_effect).clamp(-180.0, 180.0);
 
     let final_spin_angle = if pitcher.throw_side == RL::Left {
-        (base_spin_angle - pitch_skill.spin_angle + 360.0) % 360.0
+        (base_spin_angle - pitch_spin_angle + 360.0) % 360.0
     } else {
-        (base_spin_angle + pitch_skill.spin_angle + 360.0) % 360.0
+        (base_spin_angle + pitch_spin_angle + 360.0) % 360.0
     };
 
-    let speed = pitcher.velocity * pitch_skill.velocity * rng.normal_factor_std_1_percent();
+    let speed = pitcher.velocity * pitch_skill.velocity * pitch_effect;
 
     // NOTE: Speed-based correction (slower pitches have lower spin rate)
     let speed_factor = speed / BASE_FOUR_SEAM_SPEED;
 
-    let raw_spin_rate = pitcher.spin_rate
-        * pitch_skill.spin_rate
-        * rng.normal_factor_std_1_percent()
-        * speed_factor;
+    let raw_spin_rate =
+        pitcher.spin_rate * pitch_skill.spin_rate * pitch_effect.max(1.0) * speed_factor;
     let release_point = pitcher.calculate_release_point(rng);
     let flight_time = calculate_flight_time(speed, release_point.y);
 
@@ -304,6 +323,16 @@ mod tests {
         }
     }
 
+    fn expected_raw_spin_rate(
+        pitcher_velocity: f64,
+        pitch_skill_velocity: f64,
+        pitch_skill_spin_rate: f64,
+        pitch_effect: f64,
+    ) -> f64 {
+        let speed = pitcher_velocity * pitch_skill_velocity * pitch_effect;
+        2200.0 * pitch_skill_spin_rate * pitch_effect * (speed / BASE_FOUR_SEAM_SPEED)
+    }
+
     fn pitcher(throw_side: RL, pitch_skills: Vec<PitchSkill>) -> PitcherInfo {
         PitcherInfo::from_prob(
             1.80,
@@ -377,12 +406,21 @@ mod tests {
             RL::Right,
             vec![pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0)],
         );
+        let pitch_skill = pitcher.pitch_skills[0];
 
-        let ball = create_pitch(&mut rng, &pitcher).expect("pitch should be created");
+        let ball = create_pitch(&mut rng, &pitcher, None).expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::FourSeamFastball);
         assert_near(ball.speed, 150.0);
-        assert_near(ball.spin_rate, 2300.0);
+        assert_near(
+            ball.spin_rate,
+            expected_raw_spin_rate(
+                pitcher.velocity,
+                pitch_skill.velocity,
+                pitch_skill.spin_rate,
+                1.0,
+            ),
+        );
         assert_near(ball.spin_angle, 75.0);
         assert_near(ball.spin_efficiency, 1.0);
         assert_near(ball.release_point.x, 0.55);
@@ -397,14 +435,72 @@ mod tests {
     fn create_pitch_mirrors_spin_angle_and_release_for_left_hander() {
         let mut rng = FixedRng::new(0.0);
         let pitcher = pitcher(RL::Left, vec![pitch_skill(PitchType::Slider, 20.0, 2300.0)]);
+        let pitch_skill = pitcher.pitch_skills[0];
 
-        let ball = create_pitch(&mut rng, &pitcher).expect("pitch should be created");
+        let ball = create_pitch(&mut rng, &pitcher, None).expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::Slider);
         assert_near(ball.speed, 132.0);
-        assert_near(ball.spin_rate, 2024.0);
+        assert_near(
+            ball.spin_rate,
+            expected_raw_spin_rate(
+                pitcher.velocity,
+                pitch_skill.velocity,
+                pitch_skill.spin_rate,
+                1.0,
+            ),
+        );
         assert_near(ball.spin_angle, 285.0);
         assert_near(ball.release_point.x, -0.55);
+    }
+
+    #[test]
+    fn calculate_hanging_pitch_effect_returns_shared_effect_when_consistency_roll_hits() {
+        let mut rng = FixedRng::new(0.0);
+        let pitcher = pitcher(
+            RL::Right,
+            vec![pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0)],
+        );
+
+        assert_eq!(
+            calculate_hanging_pitch_effect(&mut rng, &pitcher),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn calculate_hanging_pitch_effect_returns_none_when_consistency_roll_misses() {
+        let mut rng = FixedRng::new(1.0);
+        let pitcher = pitcher(
+            RL::Right,
+            vec![pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0)],
+        );
+
+        assert_eq!(calculate_hanging_pitch_effect(&mut rng, &pitcher), None);
+    }
+
+    #[test]
+    fn create_pitch_applies_hanging_pitch_effect_to_speed_spin_and_spin_angle() {
+        let mut rng = FixedRng::new(0.0);
+        let pitcher = pitcher(
+            RL::Right,
+            vec![pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0)],
+        );
+        let pitch_skill = pitcher.pitch_skills[0];
+
+        let ball = create_pitch(&mut rng, &pitcher, Some(0.9)).expect("pitch should be created");
+
+        assert_near(ball.speed, 135.0);
+        assert_near(
+            ball.spin_rate,
+            expected_raw_spin_rate(
+                pitcher.velocity,
+                pitch_skill.velocity,
+                pitch_skill.spin_rate,
+                0.9,
+            ),
+        );
+        assert_near(ball.spin_angle, 73.0);
     }
 
     #[test]
