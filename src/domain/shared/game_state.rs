@@ -5,9 +5,9 @@ use super::player::{
 use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
-    CountStatus, SwingContactType, adapt_to_pitch, calculate_batted_ball, calculate_batting_factor,
-    calculate_swing_execution_error, calculate_swing_factor, evaluate_swing_contact,
-    select_swing_execution,
+    BattingFactor, CountStatus, SwingContactResult, SwingContactType, adapt_to_pitch,
+    calculate_batted_ball, calculate_batting_factor, calculate_swing_execution_error,
+    calculate_swing_factor, evaluate_swing_contact, select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
 use crate::domain::resolver::fielding_resolver::{
@@ -15,13 +15,13 @@ use crate::domain::resolver::fielding_resolver::{
     evaluate_double_play, process_fielding,
 };
 use crate::domain::resolver::pitching_resolver::{
-    MatchupContext, calculate_ball_movement, calculate_hanging_pitch_effect,
+    MatchupContext, PitchDisplacement, calculate_ball_movement, calculate_hanging_pitch_effect,
     calculate_location_bias, calculate_pitch_offset, create_pitch,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
-use crate::domain::shared::ball::{BattedBall, OutboundResult};
+use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::SwingExecution;
@@ -735,9 +735,6 @@ impl GameState {
     pub fn process_count(&mut self) -> Result<(), GameError> {
         info!("new count started");
 
-        let mut running_seq = 1;
-        let mut point = 0;
-
         // TODO: stadium should move to Game.
         let stadium = Stadium::new(1, "AAA".to_string(), 98.0, 120.0, 2.0);
 
@@ -758,7 +755,7 @@ impl GameState {
         // TODO: expected_pitched_ball should be created by better logic.
         let expected_ball = create_pitch(self.rng.as_mut(), &pitcher, hanging_pitch_effect)?;
 
-        let absolute_location = calculate_ball_movement(&pitched_ball);
+        let _absolute_location = calculate_ball_movement(&pitched_ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -795,216 +792,247 @@ impl GameState {
         let swing_execution = select_swing_execution(self.rng.as_mut(), swing_factor);
 
         if swing_execution == SwingExecution::Take {
-            info!("Take");
+            self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
+        } else {
+            let swing_contact = self.evaluate_swing_contact(
+                &batter,
+                &pitched_ball,
+                &pitch_displacement,
+                &batting_factor,
+            );
 
-            let pitch_result = pitched_ball.actual_location.call(batter.batting_side);
-
-            let batting_result = match pitch_result {
-                PitchResult::Ball if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
-                PitchResult::WildPitch if self.inning_state.ball + 1 >= MAX_BALL => {
-                    BattingResult::Walk
-                }
-                PitchResult::Strike if self.inning_state.strike + 1 >= MAX_STRIKE => {
-                    BattingResult::Strikeout
-                }
-                PitchResult::HitByPitch => BattingResult::HitByPitch,
-                PitchResult::WildPitch => BattingResult::WildPitch,
-                _ => BattingResult::Take,
+            if swing_contact.contact_type == SwingContactType::SwungAndMiss {
+                self.resolve_swing_miss(pitcher_id, batter_id);
+            } else {
+                self.resolve_contact(
+                    pitcher_id,
+                    batter_id,
+                    &batter,
+                    batting_side,
+                    pitched_ball,
+                    &swing_contact,
+                    &stadium,
+                )?;
             };
+        };
+
+        Ok(())
+    }
+
+    fn resolve_take(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        pitched_ball: &PitchedBall,
+        batting_side: RL,
+    ) {
+        info!("Take");
+
+        let pitch_result = pitched_ball.actual_location.call(batting_side);
+
+        let batting_result = match pitch_result {
+            PitchResult::Ball if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
+            PitchResult::WildPitch if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
+            PitchResult::Strike if self.inning_state.strike + 1 >= MAX_STRIKE => {
+                BattingResult::Strikeout
+            }
+            PitchResult::HitByPitch => BattingResult::HitByPitch,
+            PitchResult::WildPitch => BattingResult::WildPitch,
+            _ => BattingResult::Take,
+        };
+
+        self.game_result.add_player_batting(
+            self.count_seq,
+            pitcher_id,
+            batter_id,
+            BattedBall::default(),
+            None,
+            batting_result,
+        );
+
+        let point = match pitch_result {
+            PitchResult::HitByPitch => self.resolve_walk(),
+            PitchResult::WildPitch => self.resolve_wild_pitch(),
+            PitchResult::Ball => self.add_ball(),
+            PitchResult::Strike => {
+                self.add_strike();
+                0
+            }
+        };
+        self.add_count(point);
+    }
+
+    fn evaluate_swing_contact(
+        &mut self,
+        batter: &BatterInfo,
+        pitched_ball: &PitchedBall,
+        pitch_displacement: &PitchDisplacement,
+        batting_factor: &BattingFactor,
+    ) -> SwingContactResult {
+        let displacement = adapt_to_pitch(pitch_displacement, batter.bat_control, batting_factor);
+
+        let swing_error = calculate_swing_execution_error(
+            self.rng.as_mut(),
+            batter,
+            &pitched_ball.actual_location,
+        );
+
+        evaluate_swing_contact(batter, &displacement, &swing_error)
+    }
+
+    fn resolve_swing_miss(&mut self, pitcher_id: i64, batter_id: i64) {
+        info!("SwungAndMiss");
+
+        let batting_result = if self.inning_state.strike + 1 >= MAX_STRIKE {
+            BattingResult::Strikeout
+        } else {
+            BattingResult::StrikeSwung
+        };
+
+        self.game_result.add_player_batting(
+            self.count_seq,
+            pitcher_id,
+            batter_id,
+            BattedBall::default(),
+            None,
+            batting_result,
+        );
+        self.add_strike();
+        self.add_count(0);
+    }
+
+    fn resolve_contact(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        batter: &BatterInfo,
+        batting_side: RL,
+        pitched_ball: PitchedBall,
+        swing_contact: &SwingContactResult,
+        stadium: &Stadium,
+    ) -> Result<(), GameError> {
+        let batted_ball =
+            calculate_batted_ball(batter, pitched_ball, swing_contact, stadium).unwrap();
+
+        info!("Batted Ball: {:#?}", batted_ball);
+
+        match batted_ball.outbound_result {
+            OutboundResult::Foul => {
+                self.resolve_foul(pitcher_id, batter_id, &batted_ball);
+                return Ok(());
+            }
+            OutboundResult::HomeRun => {
+                self.resolve_homerun(pitcher_id, batter_id, &batted_ball);
+                return Ok(());
+            }
+            OutboundResult::GroundRuleDouble => {
+                self.resolve_ground_rule_double(pitcher_id, batter_id, &batted_ball);
+                return Ok(());
+            }
+            OutboundResult::InField => {}
+        }
+
+        self.resolve_ball_fielded(pitcher_id, batter_id, batting_side, batted_ball)
+    }
+
+    fn resolve_ball_fielded(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        batting_side: RL,
+        batted_ball: BattedBall,
+    ) -> Result<(), GameError> {
+        let mut running_seq = 1;
+        let mut point = 0;
+
+        let fielders = self.current_fielders();
+        let field_play_result = process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
+        let fielder = field_play_result.result().fielder;
+        let fielded_ball = field_play_result.result().ball();
+
+        info!("Fielded Ball: {:#?}", fielded_ball);
+
+        let ctx = PlayContext {
+            runners: &self.inning_state.runners.clone(),
+            fielders: &fielders,
+            try_catch_fielder: fielder,
+            fielded_ball: &fielded_ball,
+        };
+
+        if fielded_ball.is_fly_catch {
+            self.resolve_fly_catch(pitcher_id, batter_id, &ctx)?;
+            return Ok(());
+        }
+
+        if batted_ball.is_foul() {
+            info!("Foul");
 
             self.game_result.add_player_batting(
                 self.count_seq,
                 pitcher_id,
                 batter_id,
-                BattedBall::default(),
+                batted_ball,
                 None,
-                batting_result,
+                BattingResult::Foul,
             );
 
-            let point = match pitch_result {
-                PitchResult::HitByPitch => self.resolve_walk(),
-                PitchResult::WildPitch => self.resolve_wild_pitch(),
-                PitchResult::Ball => self.add_ball(),
-                PitchResult::Strike => {
-                    self.add_strike();
-                    0
-                }
-            };
-            self.add_count(point);
-        } else {
-            let displacement =
-                adapt_to_pitch(&pitch_displacement, batter.bat_control, &batting_factor);
-
-            let swing_error = calculate_swing_execution_error(
-                self.rng.as_mut(),
-                &batter,
-                &pitched_ball.actual_location,
-            );
-
-            let swing_contact = evaluate_swing_contact(&batter, &displacement, &swing_error);
-
-            if swing_contact.contact_type == SwingContactType::SwungAndMiss {
-                info!("SwungAndMiss");
-
-                let batting_result = if self.inning_state.strike + 1 >= MAX_STRIKE {
-                    BattingResult::Strikeout
-                } else {
-                    BattingResult::StrikeSwung
-                };
-
-                self.game_result.add_player_batting(
-                    self.count_seq,
-                    pitcher_id,
-                    batter_id,
-                    BattedBall::default(),
-                    None,
-                    batting_result,
-                );
+            if self.inning_state.strike < 2 {
                 self.add_strike();
-                self.add_count(0);
-            } else {
-                let batted_ball =
-                    calculate_batted_ball(&batter, pitched_ball, &swing_contact, &stadium).unwrap();
+            };
 
-                info!("Batted Ball: {:#?}", batted_ball);
+            self.add_count(0);
 
-                match batted_ball.outbound_result {
-                    OutboundResult::Foul => {
-                        self.resolve_foul(pitcher_id, batter_id, &batted_ball);
-                        return Ok(());
-                    }
-                    OutboundResult::HomeRun => {
-                        self.resolve_homerun(pitcher_id, batter_id, &batted_ball);
-                        return Ok(());
-                    }
-                    OutboundResult::GroundRuleDouble => {
-                        self.resolve_ground_rule_double(pitcher_id, batter_id, &batted_ball);
-                        return Ok(());
-                    }
-                    OutboundResult::InField => {}
-                }
+            return Ok(());
+        }
 
-                let fielders = self.current_fielders();
-                let field_play_result =
-                    process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
-                let fielder = field_play_result.result().fielder;
-                let fielded_ball = field_play_result.result().ball();
+        let mut runners_after_steal = None;
 
-                info!("Fielded Ball: {:#?}", fielded_ball);
+        if self.inning_state.can_steal_base(&mut *self.rng) {
+            let steal_result = self.try_steal_base()?;
 
-                let ctx = PlayContext {
-                    runners: &self.inning_state.runners.clone(),
-                    fielders: &fielders,
-                    try_catch_fielder: fielder,
-                    fielded_ball: &fielded_ball,
-                };
+            running_seq += 1;
 
-                if fielded_ball.is_fly_catch {
-                    self.resolve_fly_catch(pitcher_id, batter_id, &ctx)?;
-                    return Ok(());
-                }
+            if steal_result == Ruling::Out {
+                return Ok(());
+            }
 
-                if batted_ball.is_foul() {
-                    info!("Foul");
+            runners_after_steal = Some(self.inning_state.runners.clone());
+        }
 
-                    self.game_result.add_player_batting(
-                        self.count_seq,
-                        pitcher_id,
-                        batter_id,
-                        batted_ball,
-                        None,
-                        BattingResult::Foul,
-                    );
+        // NOTE: This logic is needed to update runners after stolen base case.
+        let ctx = if let Some(runners) = &runners_after_steal {
+            PlayContext {
+                runners,
+                fielders: &fielders,
+                try_catch_fielder: fielder,
+                fielded_ball: &fielded_ball,
+            }
+        } else {
+            ctx
+        };
 
-                    if self.inning_state.strike < 2 {
-                        self.add_strike();
-                    };
+        let (defense_play_result, runner_advance_result) = Self::resolve_ball_in_play(
+            self.rng.as_mut(),
+            &self.inning_state.runners,
+            &ctx,
+            batting_side,
+        )?;
+        point += runner_advance_result.runs_scored;
 
-                    self.add_count(0);
+        self.game_result
+            .add_player_fielding(self.count_seq, &defense_play_result);
+        self.game_result.add_player_running(
+            self.count_seq,
+            running_seq,
+            RunningEvent::GrounderPlay,
+            &runner_advance_result,
+        );
+        running_seq += 1;
 
-                    return Ok(());
-                }
+        if runner_advance_result.ruling == Ruling::Out {
+            self.inning_state.add_out();
 
-                let mut runners_after_steal = None;
-
-                if self.inning_state.can_steal_base(&mut *self.rng) {
-                    let steal_result = self.try_steal_base()?;
-
-                    running_seq += 1;
-
-                    if steal_result == Ruling::Out {
-                        return Ok(());
-                    }
-
-                    runners_after_steal = Some(self.inning_state.runners.clone());
-                }
-
-                // NOTE: This logic is needed to update runners after stolen base case.
-                let ctx = if let Some(runners) = &runners_after_steal {
-                    PlayContext {
-                        runners,
-                        fielders: &fielders,
-                        try_catch_fielder: fielder,
-                        fielded_ball: &fielded_ball,
-                    }
-                } else {
-                    ctx
-                };
-
-                let (defense_play_result, runner_advance_result) = Self::resolve_ball_in_play(
-                    self.rng.as_mut(),
-                    &self.inning_state.runners,
-                    &ctx,
-                    batting_side,
-                )?;
-                point += runner_advance_result.runs_scored;
-
-                self.game_result
-                    .add_player_fielding(self.count_seq, &defense_play_result);
-                self.game_result.add_player_running(
-                    self.count_seq,
-                    running_seq,
-                    RunningEvent::GrounderPlay,
-                    &runner_advance_result,
-                );
-                running_seq += 1;
-
-                if runner_advance_result.ruling == Ruling::Out {
-                    self.inning_state.add_out();
-
-                    if self.inning_state.inning_progress() == InningProgress::Over {
-                        self.commit_count_result(
-                            pitcher_id,
-                            batter_id,
-                            &ctx,
-                            runner_advance_result.batting_result,
-                            point,
-                            runner_advance_result.unsaved_runners,
-                        )?;
-
-                        return Ok(());
-                    }
-                };
-
-                info!("Runner Advance Result:{:#?}", runner_advance_result);
-
-                if ctx.fielded_ball.fielded_by.is_infielder() && self.inning_state.can_double_play()
-                {
-                    let is_double_play_occured = self.try_double_play(
-                        pitcher_id,
-                        batter_id,
-                        &ctx,
-                        running_seq,
-                        &defense_play_result,
-                        &runner_advance_result,
-                        batting_side,
-                    )?;
-
-                    if is_double_play_occured {
-                        return Ok(());
-                    }
-                };
-
+            if self.inning_state.inning_progress() == InningProgress::Over {
                 self.commit_count_result(
                     pitcher_id,
                     batter_id,
@@ -1013,8 +1041,37 @@ impl GameState {
                     point,
                     runner_advance_result.unsaved_runners,
                 )?;
-            };
+
+                return Ok(());
+            }
         };
+
+        info!("Runner Advance Result:{:#?}", runner_advance_result);
+
+        if ctx.fielded_ball.fielded_by.is_infielder() && self.inning_state.can_double_play() {
+            let is_double_play_occured = self.try_double_play(
+                pitcher_id,
+                batter_id,
+                &ctx,
+                running_seq,
+                &defense_play_result,
+                &runner_advance_result,
+                batting_side,
+            )?;
+
+            if is_double_play_occured {
+                return Ok(());
+            }
+        };
+
+        self.commit_count_result(
+            pitcher_id,
+            batter_id,
+            &ctx,
+            runner_advance_result.batting_result,
+            point,
+            runner_advance_result.unsaved_runners,
+        )?;
 
         Ok(())
     }
