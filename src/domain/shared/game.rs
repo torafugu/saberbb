@@ -389,6 +389,8 @@ pub enum BattingResult {
     Take,
     Strikeout,
     Walk,
+    WildPitch,
+    HitByPitch,
     Single,
     Double,
     Triple,
@@ -405,6 +407,8 @@ impl std::fmt::Display for BattingResult {
             BattingResult::Take => write!(f, "{}", t!("take")),
             BattingResult::Strikeout => write!(f, "{}", t!("strikeout")),
             BattingResult::Walk => write!(f, "{}", t!("walk")),
+            BattingResult::WildPitch => write!(f, "{}", t!("wild_pitch")),
+            BattingResult::HitByPitch => write!(f, "{}", t!("HitByPitch")),
             BattingResult::Single => write!(f, "{}", t!("single")),
             BattingResult::Double => write!(f, "{}", t!("double")),
             BattingResult::Triple => write!(f, "{}", t!("triple")),
@@ -442,4 +446,6 @@ pub enum FieldingResult {
 pub enum PitchResult {
     Strike,
     Ball,
+    HitByPitch,
+    WildPitch,
 }

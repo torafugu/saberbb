@@ -1,4 +1,5 @@
 use crate::domain::shared::game::PitchResult;
+use crate::domain::shared::player::RL;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::strategy::pitching_strategy::TargetZone;
 use crate::domain::util::{PolarPosition, Vector3D};
@@ -188,8 +189,25 @@ pub struct BallLocation {
     pub y: f64,
 }
 impl BallLocation {
-    /// Determine whether this is a ball (outside the strike zone)
-    pub fn call(&self) -> PitchResult {
+    // Determine whether this is a ball (outside the strike zone)
+    pub fn call(&self, batting_side: RL) -> PitchResult {
+        // 1. Wild pitch (area well beyond the catcher's catchable frame)
+        if self.x.abs() > 3.2 || self.y > 3.5 || self.y < -2.2 {
+            return PitchResult::WildPitch;
+        }
+
+        // 2. Hit by pitch (entering the batter's standing position / body area)
+        // For right-handed batters: norm_x is largely negative (inside) and at body height (y)
+        let body_side_x = if batting_side == RL::Right {
+            -self.x
+        } else {
+            self.x
+        };
+        if body_side_x > 1.8 && self.y.abs() < 2.5 {
+            return PitchResult::HitByPitch;
+        }
+
+        // 3. Normal strike / ball call
         if self.x.abs() > 1.0 || self.y.abs() > 1.0 {
             PitchResult::Ball
         } else {
@@ -201,6 +219,13 @@ impl BallLocation {
         TargetZone::iter()
             .find(|target_zone| target_zone.zone().is_in_zone(*self))
             .unwrap_or_else(|| panic!("ball location is outside all target zones: {self:?}"))
+    }
+
+    // Physical ball distance from the strike zone center (degree of deviation)
+    pub fn distance_from_zone_edge(&self) -> f64 {
+        let x_out = (self.x.abs() - 1.0).max(0.0);
+        let y_out = (self.y.abs() - 1.0).max(0.0);
+        (x_out.powi(2) + y_out.powi(2)).sqrt()
     }
 }
 

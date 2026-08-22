@@ -2,8 +2,10 @@ flowchart TD
     
     subgraph calculate_batting_factor
         direction TB
+        distance_from_zone_edge
         calculate_zone_similarity_factor
         calculate_pitch_similarity
+        zone_modifier
     end
     
     calculate_batting_factor --> |Swing|adapt_to_pitch

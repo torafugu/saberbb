@@ -456,7 +456,13 @@ impl GameCursor {
                 BattingResult::Walk => {
                     stat.plate_appearances += 1;
                 }
-                BattingResult::Foul | BattingResult::StrikeSwung | BattingResult::Take => {}
+                BattingResult::HitByPitch => {
+                    stat.plate_appearances += 1;
+                }
+                BattingResult::Foul
+                | BattingResult::StrikeSwung
+                | BattingResult::Take
+                | BattingResult::WildPitch => {}
             }
         }
 

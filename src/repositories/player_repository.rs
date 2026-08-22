@@ -964,7 +964,9 @@ mod tests {
                 "Left".to_string(),
                 "Sidearm".to_string(),
                 "BalancedPitcher".to_string(),
-                [1.1, 1.15, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8, 0.03]
+                [
+                    1.1, 1.15, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8, 0.03
+                ]
             )
         );
         std::fs::remove_file(path).ok();

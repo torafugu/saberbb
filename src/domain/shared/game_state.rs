@@ -497,6 +497,23 @@ impl GameState {
         self.finish_plate_appearance();
     }
 
+    fn resolve_wild_pitch(&mut self) -> u8 {
+        if self.inning_state.ball < MAX_BALL {
+            self.inning_state.ball += 1;
+        }
+
+        let walk = self.inning_state.ball >= MAX_BALL;
+        let point = self.inning_state.runners.after_wild_pitch(walk);
+
+        if walk {
+            self.inning_state.ball = 0;
+            self.inning_state.strike = 0;
+            self.finish_plate_appearance();
+        }
+
+        point
+    }
+
     fn resolve_walk(&mut self) -> u8 {
         let point = self.inning_state.runners.after_walk();
 
@@ -780,11 +797,18 @@ impl GameState {
         if swing_execution == SwingExecution::Take {
             info!("Take");
 
-            let batting_result = match pitched_ball.actual_location.call() {
+            let pitch_result = pitched_ball.actual_location.call(batter.batting_side);
+
+            let batting_result = match pitch_result {
                 PitchResult::Ball if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
+                PitchResult::WildPitch if self.inning_state.ball + 1 >= MAX_BALL => {
+                    BattingResult::Walk
+                }
                 PitchResult::Strike if self.inning_state.strike + 1 >= MAX_STRIKE => {
                     BattingResult::Strikeout
                 }
+                PitchResult::HitByPitch => BattingResult::HitByPitch,
+                PitchResult::WildPitch => BattingResult::WildPitch,
                 _ => BattingResult::Take,
             };
 
@@ -797,7 +821,9 @@ impl GameState {
                 batting_result,
             );
 
-            let point = match pitched_ball.actual_location.call() {
+            let point = match pitch_result {
+                PitchResult::HitByPitch => self.resolve_walk(),
+                PitchResult::WildPitch => self.resolve_wild_pitch(),
                 PitchResult::Ball => self.add_ball(),
                 PitchResult::Strike => {
                     self.add_strike();
@@ -1510,6 +1536,56 @@ mod tests {
         assert_eq!(game.inning_state.runners.runner_3rd.unwrap().id, 20);
         assert!(game.inning_state.active_batter.is_none());
         assert!(game.inning_state.runners.batter_runner.is_none());
+    }
+
+    #[test]
+    fn resolve_wild_pitch_advances_base_runners_without_moving_batter_before_walk() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = 1;
+        game.inning_state.strike = 2;
+        game.inning_state.runners.runner_1st = Some(runner(10));
+        game.inning_state.runners.runner_3rd = Some(runner(30));
+
+        let point = game.resolve_wild_pitch();
+
+        assert_eq!(point, 1);
+        assert_eq!(game.inning_state.ball, 2);
+        assert_eq!(game.inning_state.strike, 2);
+        assert_eq!(game.inning_state.active_batter.unwrap().id, batter.id);
+        assert_eq!(
+            game.inning_state.runners.batter_runner.unwrap().id,
+            batter.id
+        );
+        assert!(game.inning_state.runners.runner_1st.is_none());
+        assert_eq!(game.inning_state.runners.runner_2nd.unwrap().id, 10);
+        assert!(game.inning_state.runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn resolve_wild_pitch_on_ball_four_advances_runners_and_walks_batter() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = MAX_BALL - 1;
+        game.inning_state.strike = 2;
+        game.inning_state.runners.runner_1st = Some(runner(10));
+        game.inning_state.runners.runner_2nd = Some(runner(20));
+        game.inning_state.runners.runner_3rd = Some(runner(30));
+
+        let point = game.resolve_wild_pitch();
+
+        assert_eq!(point, 1);
+        assert_eq!(game.inning_state.ball, 0);
+        assert_eq!(game.inning_state.strike, 0);
+        assert!(game.inning_state.active_batter.is_none());
+        assert!(game.inning_state.runners.batter_runner.is_none());
+        assert_eq!(game.inning_state.runners.runner_1st.unwrap().id, batter.id);
+        assert_eq!(game.inning_state.runners.runner_2nd.unwrap().id, 10);
+        assert_eq!(game.inning_state.runners.runner_3rd.unwrap().id, 20);
     }
 
     #[test]

@@ -20,6 +20,7 @@ const REF_SWING_SPEED: f64 = 120.0;
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
 
 pub struct BattingFactor {
+    pub distance_from_zone_edge: f64,
     pub zone_similarity: f64,
     pub pitch_similarity: f64,
     pub zone_aptitude: f64,
@@ -34,6 +35,7 @@ pub fn calculate_batting_factor(
     actual_location: &BallLocation,
     expected_location: &BallLocation,
 ) -> BattingFactor {
+    let distance_from_zone_edge = actual_location.distance_from_zone_edge();
     let zone_similarity = calculate_zone_similarity_factor(actual_location, expected_location);
     let pitch_similarity =
         calculate_pitch_similarity(pitcher, actual_pitch_type, expected_pitch_type);
@@ -42,6 +44,7 @@ pub fn calculate_batting_factor(
         ((1.0 - zone_aptitude) + (1.0 - zone_similarity) + (1.0 - pitch_similarity)) / 3.0;
 
     BattingFactor {
+        distance_from_zone_edge,
         zone_similarity,
         pitch_similarity,
         zone_aptitude,
@@ -162,6 +165,7 @@ pub fn calculate_swing_factor(
 
     count_status_factor
         + fastball_factor
+        + batting_factor.distance_from_zone_edge
         + batting_factor.zone_similarity
         + batting_factor.pitch_similarity
         + batting_factor.zone_aptitude
