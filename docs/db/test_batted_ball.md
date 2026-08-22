@@ -7,11 +7,32 @@
 
 ```sql
 CREATE TABLE test_batted_ball (
-    launch_speed_kmh REAL NOT NULL,
+    horizontal_offset_m REAL NOT NULL,
+    vertical_offset_m REAL NOT NULL,
+    timing_offset_sec REAL NOT NULL,
+    swing_factor REAL NOT NULL,
+    swing_execution TEXT NOT NULL,
+    adapted_x_m REAL NOT NULL,
+    adapted_z_m REAL NOT NULL,
+    adapted_timing REAL NOT NULL,
+    additional_x_m REAL NOT NULL,
+    additional_z_m REAL NOT NULL,
+    ideal_bat_angle_deg REAL NOT NULL,
+    actual_bat_angle_deg REAL NOT NULL,
+    ideal_attack_angle_deg REAL NOT NULL,
+    actual_attack_angle_deg REAL NOT NULL,
+    timing_impact_x_m REAL NOT NULL,
+    offset_x_m REAL NOT NULL,
+    offset_z_m REAL NOT NULL,
+    thickness_offset_m REAL NOT NULL,
+    length_offset_m REAL NOT NULL,
+    contact_type TEXT NOT NULL,
+    modified_attack_angle_deg REAL NOT NULL,
+    launch_speed_ms REAL NOT NULL,
     launch_angle REAL NOT NULL,
     spray_angle REAL NOT NULL,
-    distance REAL NOT NULL,
-    hang_time REAL NOT NULL,
+    distance_m REAL NOT NULL,
+    hang_time_sec REAL NOT NULL,
     trajectory TEXT NOT NULL
 )
 ```
@@ -20,14 +41,35 @@ CREATE TABLE test_batted_ball (
 
 ## Columns
 
-| Name             | Type | Default | Nullable | Children | Parents | Comment |
-| ---------------- | ---- | ------- | -------- | -------- | ------- | ------- |
-| launch_speed_kmh | REAL |         | false    |          |         |         |
-| launch_angle     | REAL |         | false    |          |         |         |
-| spray_angle      | REAL |         | false    |          |         |         |
-| distance         | REAL |         | false    |          |         |         |
-| hang_time        | REAL |         | false    |          |         |         |
-| trajectory       | TEXT |         | false    |          |         |         |
+| Name                      | Type | Default | Nullable | Children | Parents | Comment |
+| ------------------------- | ---- | ------- | -------- | -------- | ------- | ------- |
+| horizontal_offset_m       | REAL |         | false    |          |         |         |
+| vertical_offset_m         | REAL |         | false    |          |         |         |
+| timing_offset_sec         | REAL |         | false    |          |         |         |
+| swing_factor              | REAL |         | false    |          |         |         |
+| swing_execution           | TEXT |         | false    |          |         |         |
+| adapted_x_m               | REAL |         | false    |          |         |         |
+| adapted_z_m               | REAL |         | false    |          |         |         |
+| adapted_timing            | REAL |         | false    |          |         |         |
+| additional_x_m            | REAL |         | false    |          |         |         |
+| additional_z_m            | REAL |         | false    |          |         |         |
+| ideal_bat_angle_deg       | REAL |         | false    |          |         |         |
+| actual_bat_angle_deg      | REAL |         | false    |          |         |         |
+| ideal_attack_angle_deg    | REAL |         | false    |          |         |         |
+| actual_attack_angle_deg   | REAL |         | false    |          |         |         |
+| timing_impact_x_m         | REAL |         | false    |          |         |         |
+| offset_x_m                | REAL |         | false    |          |         |         |
+| offset_z_m                | REAL |         | false    |          |         |         |
+| thickness_offset_m        | REAL |         | false    |          |         |         |
+| length_offset_m           | REAL |         | false    |          |         |         |
+| contact_type              | TEXT |         | false    |          |         |         |
+| modified_attack_angle_deg | REAL |         | false    |          |         |         |
+| launch_speed_ms           | REAL |         | false    |          |         |         |
+| launch_angle              | REAL |         | false    |          |         |         |
+| spray_angle               | REAL |         | false    |          |         |         |
+| distance_m                | REAL |         | false    |          |         |         |
+| hang_time_sec             | REAL |         | false    |          |         |         |
+| trajectory                | TEXT |         | false    |          |         |         |
 
 ## Relations
 

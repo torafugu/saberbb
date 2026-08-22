@@ -1,4 +1,4 @@
-use super::game::{BattingResult, Count, Inning, TB};
+use super::game::{BattingResult, Count, Inning, PitchResult, TB};
 use super::player::{
     BatterInfo, CatcherInfo, FielderInfo, PitcherInfo, Position, RL, RunningSkills,
 };
@@ -119,6 +119,16 @@ impl fmt::Display for Ruling {
             Ruling::Out => write!(f, "{}", t!("out")),
         }
     }
+}
+
+#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
+#[strum(ascii_case_insensitive)]
+pub enum PitchOutcome {
+    InPlay,
+    Foul,
+    StrikeSwung,
+    StrikeLooking,
+    Ball,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -487,6 +497,16 @@ impl GameState {
         self.finish_plate_appearance();
     }
 
+    fn resolve_walk(&mut self) -> u8 {
+        let point = self.inning_state.runners.after_walk();
+
+        self.inning_state.ball = 0;
+        self.inning_state.strike = 0;
+        self.finish_plate_appearance();
+
+        point
+    }
+
     fn resolve_fly_catch(
         &mut self,
         pitcher_id: i64,
@@ -760,15 +780,31 @@ impl GameState {
         if swing_execution == SwingExecution::Take {
             info!("Take");
 
+            let batting_result = match pitched_ball.actual_location.call() {
+                PitchResult::Ball if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
+                PitchResult::Strike if self.inning_state.strike + 1 >= MAX_STRIKE => {
+                    BattingResult::Strikeout
+                }
+                _ => BattingResult::Take,
+            };
+
             self.game_result.add_player_batting(
                 self.count_seq,
                 pitcher_id,
                 batter_id,
                 BattedBall::default(),
                 None,
-                BattingResult::Foul,
+                batting_result,
             );
-            self.add_count(0);
+
+            let point = match pitched_ball.actual_location.call() {
+                PitchResult::Ball => self.add_ball(),
+                PitchResult::Strike => {
+                    self.add_strike();
+                    0
+                }
+            };
+            self.add_count(point);
         } else {
             let displacement =
                 adapt_to_pitch(&pitch_displacement, batter.bat_control, &batting_factor);
@@ -784,14 +820,21 @@ impl GameState {
             if swing_contact.contact_type == SwingContactType::SwungAndMiss {
                 info!("SwungAndMiss");
 
+                let batting_result = if self.inning_state.strike + 1 >= MAX_STRIKE {
+                    BattingResult::Strikeout
+                } else {
+                    BattingResult::StrikeSwung
+                };
+
                 self.game_result.add_player_batting(
                     self.count_seq,
                     pitcher_id,
                     batter_id,
                     BattedBall::default(),
                     None,
-                    BattingResult::Foul,
+                    batting_result,
                 );
+                self.add_strike();
                 self.add_count(0);
             } else {
                 let batted_ball =
@@ -846,6 +889,11 @@ impl GameState {
                         None,
                         BattingResult::Foul,
                     );
+
+                    if self.inning_state.strike < 2 {
+                        self.add_strike();
+                    };
+
                     self.add_count(0);
 
                     return Ok(());
@@ -963,6 +1011,31 @@ impl GameState {
                 "invalid count: {} balls, {} strikes",
                 self.inning_state.ball, self.inning_state.strike
             ),
+        }
+    }
+
+    fn add_ball(&mut self) -> u8 {
+        if self.inning_state.ball < MAX_BALL {
+            self.inning_state.ball += 1;
+        }
+
+        if self.inning_state.ball < MAX_BALL {
+            return 0;
+        }
+
+        self.resolve_walk()
+    }
+
+    fn add_strike(&mut self) {
+        if self.inning_state.strike < MAX_STRIKE {
+            self.inning_state.strike += 1;
+        }
+
+        if self.inning_state.strike >= MAX_STRIKE {
+            self.inning_state.add_out();
+            self.inning_state.ball = 0;
+            self.inning_state.strike = 0;
+            self.finish_plate_appearance();
         }
     }
 
@@ -1216,6 +1289,17 @@ mod tests {
         assert!(!inning_state.runners.has_runner_on(Base::Third));
     }
 
+    fn runner(id: i64) -> ActiveRunner {
+        ActiveRunner {
+            id,
+            skills: RunningSkills {
+                speed: 7.7,
+                lead_distance: 4.0,
+                start_reaction: 0.1,
+            },
+        }
+    }
+
     #[test]
     fn new_initializes_game_before_first_inning() {
         let game = game_state();
@@ -1329,6 +1413,103 @@ mod tests {
         let next_batter = game.active_batter_for_count().unwrap();
         assert_eq!(next_batter.id, 3);
         assert_eq!(game.away_lineup.current_index, 2);
+    }
+
+    #[test]
+    fn add_strike_increments_strike_without_finishing_plate_appearance() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = 2;
+
+        game.add_strike();
+
+        assert_eq!(game.inning_state.ball, 2);
+        assert_eq!(game.inning_state.strike, 1);
+        assert_eq!(game.inning_state.out, 0);
+        assert_eq!(game.inning_state.active_batter.unwrap().id, batter.id);
+        assert!(game.inning_state.runners.batter_runner.is_some());
+    }
+
+    #[test]
+    fn add_strike_records_out_and_resets_plate_appearance_on_third_strike() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = 3;
+        game.inning_state.strike = MAX_STRIKE - 1;
+
+        game.add_strike();
+
+        assert_eq!(game.inning_state.ball, 0);
+        assert_eq!(game.inning_state.strike, 0);
+        assert_eq!(game.inning_state.out, 1);
+        assert_no_runners(&game.inning_state);
+    }
+
+    #[test]
+    fn add_ball_increments_ball_without_finishing_plate_appearance() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = 2;
+        game.inning_state.strike = 2;
+
+        let point = game.add_ball();
+
+        assert_eq!(point, 0);
+        assert_eq!(game.inning_state.ball, 3);
+        assert_eq!(game.inning_state.strike, 2);
+        assert_eq!(game.inning_state.out, 0);
+        assert_eq!(game.inning_state.active_batter.unwrap().id, batter.id);
+        assert!(game.inning_state.runners.batter_runner.is_some());
+    }
+
+    #[test]
+    fn add_ball_walks_batter_and_resets_plate_appearance_on_fourth_ball() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = MAX_BALL - 1;
+        game.inning_state.strike = 2;
+        game.inning_state.runners.runner_2nd = Some(runner(20));
+
+        let point = game.add_ball();
+
+        assert_eq!(point, 0);
+        assert_eq!(game.inning_state.ball, 0);
+        assert_eq!(game.inning_state.strike, 0);
+        assert_eq!(game.inning_state.out, 0);
+        assert!(game.inning_state.active_batter.is_none());
+        assert!(game.inning_state.runners.batter_runner.is_none());
+        assert_eq!(game.inning_state.runners.runner_1st.unwrap().id, batter.id);
+        assert_eq!(game.inning_state.runners.runner_2nd.unwrap().id, 20);
+        assert!(game.inning_state.runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn add_ball_forces_runners_and_scores_when_bases_are_loaded() {
+        let mut game = game_state();
+        game.advance_half_inning();
+        let batter = game.active_batter_for_count().unwrap();
+        game.prepare_plate_appearance(batter.runner());
+        game.inning_state.ball = MAX_BALL - 1;
+        game.inning_state.runners.runner_1st = Some(runner(10));
+        game.inning_state.runners.runner_2nd = Some(runner(20));
+        game.inning_state.runners.runner_3rd = Some(runner(30));
+
+        let point = game.add_ball();
+
+        assert_eq!(point, 1);
+        assert_eq!(game.inning_state.runners.runner_1st.unwrap().id, batter.id);
+        assert_eq!(game.inning_state.runners.runner_2nd.unwrap().id, 10);
+        assert_eq!(game.inning_state.runners.runner_3rd.unwrap().id, 20);
+        assert!(game.inning_state.active_batter.is_none());
+        assert!(game.inning_state.runners.batter_runner.is_none());
     }
 
     #[test]

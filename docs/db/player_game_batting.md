@@ -15,8 +15,14 @@ CREATE TABLE player_game_batting (
     launch_angle REAL NOT NULL,
     polar_distance REAL NOT NULL,
     polar_angle REAL NOT NULL,
-    hang_time REAL NOT NULL,
-    trajectory TEXT NOT NULL,
+    total_time REAL NOT NULL,
+    first_bounce_distance REAL,
+    first_bounce_angle REAL,
+    first_bounce_time REAL,
+    fence_impact_distance REAL,
+    fence_impact_angle REAL,
+    fence_impact_time REAL,
+    outbound_result TEXT NOT NULL,
     fielder_position TEXT,
     result TEXT NOT NULL,
     PRIMARY KEY (game_id, count_seq)
@@ -27,20 +33,26 @@ CREATE TABLE player_game_batting (
 
 ## Columns
 
-| Name             | Type    | Default | Nullable | Children | Parents | Comment |
-| ---------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_id          | INTEGER |         | true     |          |         |         |
-| count_seq        | INTEGER |         | true     |          |         |         |
-| pitcher_id       | INTEGER |         | false    |          |         |         |
-| batter_id        | INTEGER |         | false    |          |         |         |
-| launch_speed     | REAL    |         | false    |          |         |         |
-| launch_angle     | REAL    |         | false    |          |         |         |
-| polar_distance   | REAL    |         | false    |          |         |         |
-| polar_angle      | REAL    |         | false    |          |         |         |
-| hang_time        | REAL    |         | false    |          |         |         |
-| trajectory       | TEXT    |         | false    |          |         |         |
-| fielder_position | TEXT    |         | true     |          |         |         |
-| result           | TEXT    |         | false    |          |         |         |
+| Name                  | Type    | Default | Nullable | Children | Parents | Comment |
+| --------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id               | INTEGER |         | true     |          |         |         |
+| count_seq             | INTEGER |         | true     |          |         |         |
+| pitcher_id            | INTEGER |         | false    |          |         |         |
+| batter_id             | INTEGER |         | false    |          |         |         |
+| launch_speed          | REAL    |         | false    |          |         |         |
+| launch_angle          | REAL    |         | false    |          |         |         |
+| polar_distance        | REAL    |         | false    |          |         |         |
+| polar_angle           | REAL    |         | false    |          |         |         |
+| total_time            | REAL    |         | false    |          |         |         |
+| first_bounce_distance | REAL    |         | true     |          |         |         |
+| first_bounce_angle    | REAL    |         | true     |          |         |         |
+| first_bounce_time     | REAL    |         | true     |          |         |         |
+| fence_impact_distance | REAL    |         | true     |          |         |         |
+| fence_impact_angle    | REAL    |         | true     |          |         |         |
+| fence_impact_time     | REAL    |         | true     |          |         |         |
+| outbound_result       | TEXT    |         | false    |          |         |         |
+| fielder_position      | TEXT    |         | true     |          |         |         |
+| result                | TEXT    |         | false    |          |         |         |
 
 ## Constraints
 

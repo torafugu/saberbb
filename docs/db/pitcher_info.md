@@ -8,17 +8,21 @@
 ```sql
 CREATE TABLE pitcher_info(
     player_id INTEGER PRIMARY KEY,
+    height REAL NOT NULL,
+    extension REAL NOT NULL,
     throw_side TEXT NOT NULL,
     arm_slot TEXT NOT NULL,
     pitcher_style TEXT NOT NULL,
     velocity REAL NOT NULL,
+    spin_rate REAL NOT NULL,
     control REAL NOT NULL,
     stamina REAL NOT NULL,
     injury_proneness REAL NOT NULL,
     clutch REAL NOT NULL,
     hpp REAL NOT NULL,
     platoon_splitting REAL NOT NULL,
-    delivery_motion_time REAL NOT NULL
+    delivery_motion_time REAL NOT NULL,
+    consistency REAL NOT NULL
 )
 ```
 
@@ -29,10 +33,13 @@ CREATE TABLE pitcher_info(
 | Name                 | Type    | Default | Nullable | Children | Parents | Comment |
 | -------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
 | player_id            | INTEGER |         | true     |          |         |         |
+| height               | REAL    |         | false    |          |         |         |
+| extension            | REAL    |         | false    |          |         |         |
 | throw_side           | TEXT    |         | false    |          |         |         |
 | arm_slot             | TEXT    |         | false    |          |         |         |
 | pitcher_style        | TEXT    |         | false    |          |         |         |
 | velocity             | REAL    |         | false    |          |         |         |
+| spin_rate            | REAL    |         | false    |          |         |         |
 | control              | REAL    |         | false    |          |         |         |
 | stamina              | REAL    |         | false    |          |         |         |
 | injury_proneness     | REAL    |         | false    |          |         |         |
@@ -40,6 +47,7 @@ CREATE TABLE pitcher_info(
 | hpp                  | REAL    |         | false    |          |         |         |
 | platoon_splitting    | REAL    |         | false    |          |         |         |
 | delivery_motion_time | REAL    |         | false    |          |         |         |
+| consistency          | REAL    |         | false    |          |         |         |
 
 ## Constraints
 

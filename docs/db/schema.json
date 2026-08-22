@@ -325,43 +325,6 @@
       "def": "CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)"
     },
     {
-      "name": "test_batted_ball",
-      "type": "table",
-      "columns": [
-        {
-          "name": "launch_speed_kmh",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "launch_angle",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "spray_angle",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "distance",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "hang_time",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "trajectory",
-          "type": "TEXT",
-          "nullable": false
-        }
-      ],
-      "def": "CREATE TABLE test_batted_ball (\n    launch_speed_kmh REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    spray_angle REAL NOT NULL,\n    distance REAL NOT NULL,\n    hang_time REAL NOT NULL,\n    trajectory TEXT NOT NULL\n)"
-    },
-    {
       "name": "player_info",
       "type": "table",
       "columns": [
@@ -408,84 +371,6 @@
         }
       ],
       "def": "CREATE TABLE player_info (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    team_id INTEGER NOT NULL,\n    first_name TEXT NOT NULL,\n    last_name TEXT NOT NULL,\n    age INTEGER NOT NULL,\n    uniform_number INTEGER NOT NULL\n)"
-    },
-    {
-      "name": "fielder_info",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "fielder_type",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "throw_speed",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "running_speed",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "reaction",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "prep_time",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_fielder_info_1",
-          "def": "PRIMARY KEY (player_id, fielder_type)",
-          "table": "fielder_info",
-          "columns": [
-            "player_id",
-            "fielder_type"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "fielder_info",
-          "columns": [
-            "player_id"
-          ]
-        },
-        {
-          "name": "fielder_type",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (fielder_type)",
-          "table": "fielder_info",
-          "columns": [
-            "fielder_type"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_fielder_info_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id, fielder_type)",
-          "table": "fielder_info",
-          "columns": [
-            "player_id",
-            "fielder_type"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE fielder_info (\n    player_id INTEGER,\n    fielder_type TEXT,\n    throw_speed REAL NOT NULL,\n    running_speed REAL NOT NULL,\n    reaction REAL NOT NULL,\n    prep_time REAL NOT NULL,\n    PRIMARY KEY (player_id, fielder_type)\n)"
     },
     {
       "name": "running_skills",
@@ -1172,114 +1057,6 @@
       "def": "CREATE TABLE count (\n    game_id INTEGER,\n    inning_seq INTEGER,\n    inning_tb TEXT,\n    seq INTEGER,\n    point INTEGER NOT NULL,\n    ball INTEGER NOT NULL,\n    strike INTEGER NOT NULL,\n    out INTEGER NOT NULL,\n    PRIMARY KEY (\n        game_id,\n        inning_seq,\n        inning_tb,\n        seq\n    )\n)"
     },
     {
-      "name": "player_game_batting",
-      "type": "table",
-      "columns": [
-        {
-          "name": "game_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "count_seq",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "pitcher_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "batter_id",
-          "type": "INTEGER",
-          "nullable": false
-        },
-        {
-          "name": "launch_speed",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "launch_angle",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "polar_distance",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "polar_angle",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "hang_time",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "trajectory",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "fielder_position",
-          "type": "TEXT",
-          "nullable": true
-        },
-        {
-          "name": "result",
-          "type": "TEXT",
-          "nullable": false
-        }
-      ],
-      "indexes": [
-        {
-          "name": "sqlite_autoindex_player_game_batting_1",
-          "def": "PRIMARY KEY (game_id, count_seq)",
-          "table": "player_game_batting",
-          "columns": [
-            "game_id",
-            "count_seq"
-          ]
-        }
-      ],
-      "constraints": [
-        {
-          "name": "game_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id)",
-          "table": "player_game_batting",
-          "columns": [
-            "game_id"
-          ]
-        },
-        {
-          "name": "count_seq",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (count_seq)",
-          "table": "player_game_batting",
-          "columns": [
-            "count_seq"
-          ]
-        },
-        {
-          "name": "sqlite_autoindex_player_game_batting_1",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (game_id, count_seq)",
-          "table": "player_game_batting",
-          "columns": [
-            "game_id",
-            "count_seq"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE player_game_batting (\n    game_id INTEGER,\n    count_seq INTEGER,\n    pitcher_id INTEGER NOT NULL,\n    batter_id INTEGER NOT NULL,\n    launch_speed REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    polar_distance REAL NOT NULL,\n    polar_angle REAL NOT NULL,\n    hang_time REAL NOT NULL,\n    trajectory TEXT NOT NULL,\n    fielder_position TEXT,\n    result TEXT NOT NULL,\n    PRIMARY KEY (game_id, count_seq)\n)"
-    },
-    {
       "name": "player_game_running",
       "type": "table",
       "columns": [
@@ -1498,152 +1275,6 @@
       "def": "CREATE TABLE player_game_entry (\n    game_id INTEGER,\n    start_count_seq INTEGER,\n    end_count_seq INTEGER,\n    position TEXT,\n    batting_order INTEGER,\n    player_id INTEGER,\n    PRIMARY KEY (\n        game_id,\n        start_count_seq,\n        player_id\n    )\n)"
     },
     {
-      "name": "batter_info",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "batting_side",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "swing_speed",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "base_launch_angle",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "consistency_sigma",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_foul_pull",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_pull",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_center",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_opposite",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "weight_foul_opposite",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "batter_info",
-          "columns": [
-            "player_id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE batter_info (\n    player_id INTEGER PRIMARY KEY,\n    batting_side TEXT NOT NULL,\n    swing_speed REAL NOT NULL,\n    base_launch_angle REAL NOT NULL,\n    consistency_sigma REAL NOT NULL,\n    weight_foul_pull REAL NOT NULL,\n    weight_pull REAL NOT NULL,\n    weight_center REAL NOT NULL,\n    weight_opposite REAL NOT NULL,\n    weight_foul_opposite REAL NOT NULL\n)"
-    },
-    {
-      "name": "pitcher_info",
-      "type": "table",
-      "columns": [
-        {
-          "name": "player_id",
-          "type": "INTEGER",
-          "nullable": true
-        },
-        {
-          "name": "throw_side",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "arm_slot",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "pitcher_style",
-          "type": "TEXT",
-          "nullable": false
-        },
-        {
-          "name": "velocity",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "control",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "stamina",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "injury_proneness",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "clutch",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "hpp",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "platoon_splitting",
-          "type": "REAL",
-          "nullable": false
-        },
-        {
-          "name": "delivery_motion_time",
-          "type": "REAL",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "player_id",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (player_id)",
-          "table": "pitcher_info",
-          "columns": [
-            "player_id"
-          ]
-        }
-      ],
-      "def": "CREATE TABLE pitcher_info(\n    player_id INTEGER PRIMARY KEY,\n    throw_side TEXT NOT NULL,\n    arm_slot TEXT NOT NULL,\n    pitcher_style TEXT NOT NULL,\n    velocity REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    clutch REAL NOT NULL,\n    hpp REAL NOT NULL,\n    platoon_splitting REAL NOT NULL,\n    delivery_motion_time REAL NOT NULL\n)"
-    },
-    {
       "name": "pitch_skill",
       "type": "table",
       "columns": [
@@ -1740,6 +1371,699 @@
         }
       ],
       "def": "CREATE TABLE pitch_skill (\n    player_id INTEGER,\n    pitch_type TEXT,\n    velocity REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    spin_rate REAL NOT NULL,\n    spin_angle REAL NOT NULL,\n    spin_efficiency REAL NOT NULL,\n    usage REAL NOT NULL,\n    PRIMARY KEY (player_id, pitch_type)\n)"
+    },
+    {
+      "name": "test_normal_random",
+      "type": "table",
+      "columns": [
+        {
+          "name": "value",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "def": "CREATE TABLE test_normal_random (value REAL NOT NULL)"
+    },
+    {
+      "name": "test_batted_ball",
+      "type": "table",
+      "columns": [
+        {
+          "name": "horizontal_offset_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "vertical_offset_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "timing_offset_sec",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "swing_factor",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "swing_execution",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "adapted_x_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "adapted_z_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "adapted_timing",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "additional_x_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "additional_z_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "ideal_bat_angle_deg",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "actual_bat_angle_deg",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "ideal_attack_angle_deg",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "actual_attack_angle_deg",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "timing_impact_x_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "offset_x_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "offset_z_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "thickness_offset_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "length_offset_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "contact_type",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "modified_attack_angle_deg",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "launch_speed_ms",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "launch_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spray_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "distance_m",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "hang_time_sec",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "trajectory",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "def": "CREATE TABLE test_batted_ball (\n    horizontal_offset_m REAL NOT NULL,\n    vertical_offset_m REAL NOT NULL,\n    timing_offset_sec REAL NOT NULL,\n    swing_factor REAL NOT NULL,\n    swing_execution TEXT NOT NULL,\n    adapted_x_m REAL NOT NULL,\n    adapted_z_m REAL NOT NULL,\n    adapted_timing REAL NOT NULL,\n    additional_x_m REAL NOT NULL,\n    additional_z_m REAL NOT NULL,\n    ideal_bat_angle_deg REAL NOT NULL,\n    actual_bat_angle_deg REAL NOT NULL,\n    ideal_attack_angle_deg REAL NOT NULL,\n    actual_attack_angle_deg REAL NOT NULL,\n    timing_impact_x_m REAL NOT NULL,\n    offset_x_m REAL NOT NULL,\n    offset_z_m REAL NOT NULL,\n    thickness_offset_m REAL NOT NULL,\n    length_offset_m REAL NOT NULL,\n    contact_type TEXT NOT NULL,\n    modified_attack_angle_deg REAL NOT NULL,\n    launch_speed_ms REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    spray_angle REAL NOT NULL,\n    distance_m REAL NOT NULL,\n    hang_time_sec REAL NOT NULL,\n    trajectory TEXT NOT NULL\n)"
+    },
+    {
+      "name": "player_game_batting",
+      "type": "table",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "count_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "pitcher_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "batter_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "launch_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "launch_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "polar_distance",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "polar_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "total_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "first_bounce_distance",
+          "type": "REAL",
+          "nullable": true
+        },
+        {
+          "name": "first_bounce_angle",
+          "type": "REAL",
+          "nullable": true
+        },
+        {
+          "name": "first_bounce_time",
+          "type": "REAL",
+          "nullable": true
+        },
+        {
+          "name": "fence_impact_distance",
+          "type": "REAL",
+          "nullable": true
+        },
+        {
+          "name": "fence_impact_angle",
+          "type": "REAL",
+          "nullable": true
+        },
+        {
+          "name": "fence_impact_time",
+          "type": "REAL",
+          "nullable": true
+        },
+        {
+          "name": "outbound_result",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "fielder_position",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "result",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_player_game_batting_1",
+          "def": "PRIMARY KEY (game_id, count_seq)",
+          "table": "player_game_batting",
+          "columns": [
+            "game_id",
+            "count_seq"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "game_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id)",
+          "table": "player_game_batting",
+          "columns": [
+            "game_id"
+          ]
+        },
+        {
+          "name": "count_seq",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (count_seq)",
+          "table": "player_game_batting",
+          "columns": [
+            "count_seq"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_player_game_batting_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (game_id, count_seq)",
+          "table": "player_game_batting",
+          "columns": [
+            "game_id",
+            "count_seq"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE player_game_batting (\n    game_id INTEGER,\n    count_seq INTEGER,\n    pitcher_id INTEGER NOT NULL,\n    batter_id INTEGER NOT NULL,\n    launch_speed REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    polar_distance REAL NOT NULL,\n    polar_angle REAL NOT NULL,\n    total_time REAL NOT NULL,\n    first_bounce_distance REAL,\n    first_bounce_angle REAL,\n    first_bounce_time REAL,\n    fence_impact_distance REAL,\n    fence_impact_angle REAL,\n    fence_impact_time REAL,\n    outbound_result TEXT NOT NULL,\n    fielder_position TEXT,\n    result TEXT NOT NULL,\n    PRIMARY KEY (game_id, count_seq)\n)"
+    },
+    {
+      "name": "fielder_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "fielder_type",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "throw_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "running_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "reaction",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "prep_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "catching",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "reach_height",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "reach_range",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sqlite_autoindex_fielder_info_1",
+          "def": "PRIMARY KEY (player_id, fielder_type)",
+          "table": "fielder_info",
+          "columns": [
+            "player_id",
+            "fielder_type"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "fielder_info",
+          "columns": [
+            "player_id"
+          ]
+        },
+        {
+          "name": "fielder_type",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (fielder_type)",
+          "table": "fielder_info",
+          "columns": [
+            "fielder_type"
+          ]
+        },
+        {
+          "name": "sqlite_autoindex_fielder_info_1",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id, fielder_type)",
+          "table": "fielder_info",
+          "columns": [
+            "player_id",
+            "fielder_type"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE fielder_info (\n    player_id INTEGER,\n    fielder_type TEXT,\n    throw_speed REAL NOT NULL,\n    running_speed REAL NOT NULL,\n    reaction REAL NOT NULL,\n    prep_time REAL NOT NULL,\n    catching REAL NOT NULL,\n    reach_height REAL NOT NULL,\n    reach_range REAL NOT NULL,\n    PRIMARY KEY (player_id, fielder_type)\n)"
+    },
+    {
+      "name": "test_pitched_ball",
+      "type": "table",
+      "columns": [
+        {
+          "name": "pitch_type",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "expected_pitch_type",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "speed_ms",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spin_rate",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spin_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spin_efficiency",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "release_point_x",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "release_point_y",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "release_point_z",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "flight_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "aim_zone",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "aim_x",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "aim_y",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "actual_x",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "actual_y",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "pitch_result",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "movement_x",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "movement_z",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "location_bias_x",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "location_bias_y",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "location_bias_timing",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "crossfire_multiplier",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "release_x_factor",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "disp_x",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "disp_y",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "timing",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "def": "CREATE TABLE test_pitched_ball (\n    pitch_type TEXT NOT NULL,\n    expected_pitch_type TEXT NOT NULL,\n    speed_ms REAL NOT NULL,\n    spin_rate REAL NOT NULL,\n    spin_angle REAL NOT NULL,\n    spin_efficiency REAL NOT NULL,\n    release_point_x REAL NOT NULL,\n    release_point_y REAL NOT NULL,\n    release_point_z REAL NOT NULL,\n    flight_time REAL NOT NULL,\n    aim_zone TEXT NOT NULL,\n    aim_x REAL NOT NULL,\n    aim_y REAL NOT NULL,\n    actual_x REAL NOT NULL,\n    actual_y REAL NOT NULL,\n    pitch_result TEXT NOT NULL,\n    movement_x REAL NOT NULL,\n    movement_z REAL NOT NULL,\n    location_bias_x REAL NOT NULL,\n    location_bias_y REAL NOT NULL,\n    location_bias_timing REAL NOT NULL,\n    crossfire_multiplier REAL NOT NULL,\n    release_x_factor REAL NOT NULL,\n    disp_x REAL NOT NULL,\n    disp_y REAL NOT NULL,\n    timing REAL NOT NULL\n)"
+    },
+    {
+      "name": "batter_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "batting_side",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "batter_type",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "zone_aptitude",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "hot_zone_scale",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "batting_eye",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "swing_speed",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "swing_power",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "attack_angle",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "bat_control",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "consistency",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "batter_info",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE batter_info (\n    player_id INTEGER PRIMARY KEY,\n    batting_side TEXT NOT NULL,\n    batter_type TEXT NOT NULL,\n    zone_aptitude TEXT NOT NULL,\n    hot_zone_scale REAL NOT NULL,\n    batting_eye REAL NOT NULL,\n    swing_speed REAL NOT NULL,\n    swing_power REAL NOT NULL,\n    attack_angle REAL NOT NULL,\n    bat_control REAL NOT NULL,\n    consistency REAL NOT NULL\n)"
+    },
+    {
+      "name": "pitcher_info",
+      "type": "table",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "height",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "extension",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "throw_side",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "arm_slot",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "pitcher_style",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "velocity",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "spin_rate",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "control",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "stamina",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "injury_proneness",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "clutch",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "hpp",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "platoon_splitting",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "delivery_motion_time",
+          "type": "REAL",
+          "nullable": false
+        },
+        {
+          "name": "consistency",
+          "type": "REAL",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "player_id",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (player_id)",
+          "table": "pitcher_info",
+          "columns": [
+            "player_id"
+          ]
+        }
+      ],
+      "def": "CREATE TABLE pitcher_info(\n    player_id INTEGER PRIMARY KEY,\n    height REAL NOT NULL,\n    extension REAL NOT NULL,\n    throw_side TEXT NOT NULL,\n    arm_slot TEXT NOT NULL,\n    pitcher_style TEXT NOT NULL,\n    velocity REAL NOT NULL,\n    spin_rate REAL NOT NULL,\n    control REAL NOT NULL,\n    stamina REAL NOT NULL,\n    injury_proneness REAL NOT NULL,\n    clutch REAL NOT NULL,\n    hpp REAL NOT NULL,\n    platoon_splitting REAL NOT NULL,\n    delivery_motion_time REAL NOT NULL,\n    consistency REAL NOT NULL\n)"
     }
   ],
   "driver": {

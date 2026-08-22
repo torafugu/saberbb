@@ -446,11 +446,17 @@ impl GameCursor {
                     stat.hits += 1;
                     stat.home_runs += 1;
                 }
-                BattingResult::FieldersChoice | BattingResult::Out | BattingResult::DoublePlay => {
+                BattingResult::FieldersChoice
+                | BattingResult::Out
+                | BattingResult::DoublePlay
+                | BattingResult::Strikeout => {
                     stat.plate_appearances += 1;
                     stat.at_bats += 1;
                 }
-                BattingResult::Foul => {}
+                BattingResult::Walk => {
+                    stat.plate_appearances += 1;
+                }
+                BattingResult::Foul | BattingResult::StrikeSwung | BattingResult::Take => {}
             }
         }
 

@@ -337,6 +337,21 @@ impl RunnersOnBase {
         Ok(Self::runner_advance_time(runner, base_count, true))
     }
 
+    pub fn after_walk(&mut self) -> u8 {
+        let runs_scored = if self.is_loaded() { 1 } else { 0 };
+
+        if self.runner_1st.is_some() {
+            if self.runner_2nd.is_some() {
+                self.runner_3rd = self.runner_2nd;
+            }
+            self.runner_2nd = self.runner_1st;
+        }
+        self.runner_1st = self.batter_runner;
+        self.batter_runner = None;
+
+        runs_scored
+    }
+
     pub fn after_homerun(&mut self) -> u8 {
         let mut runs_scored: u8 = 1;
         runs_scored += RunnersUnsaved::score_if_some(self.runner_1st);
@@ -1185,6 +1200,37 @@ mod tests {
         assert!(runners.runner_1st.is_none());
         assert!(runners.runner_2nd.is_none());
         assert!(runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_walk_moves_batter_to_first_without_forcing_unoccupied_bases() {
+        let mut runners = runners(Some(runner(8.0)), None, Some(runner(7.1)), None);
+
+        let runs_scored = runners.after_walk();
+
+        assert_eq!(runs_scored, 0);
+        assert!(runners.batter_runner.is_none());
+        assert!(runners.runner_1st.is_some());
+        assert!(runners.runner_2nd.is_some());
+        assert!(runners.runner_3rd.is_none());
+    }
+
+    #[test]
+    fn after_walk_forces_runners_and_scores_with_bases_loaded() {
+        let mut runners = runners(
+            Some(runner(8.0)),
+            Some(runner(7.0)),
+            Some(runner(7.1)),
+            Some(runner(7.2)),
+        );
+
+        let runs_scored = runners.after_walk();
+
+        assert_eq!(runs_scored, 1);
+        assert!(runners.batter_runner.is_none());
+        assert!(runners.runner_1st.is_some());
+        assert!(runners.runner_2nd.is_some());
+        assert!(runners.runner_3rd.is_some());
     }
 
     #[test]

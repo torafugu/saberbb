@@ -385,6 +385,10 @@ pub struct Count {
 #[derive(Clone, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
 pub enum BattingResult {
+    StrikeSwung,
+    Take,
+    Strikeout,
+    Walk,
     Single,
     Double,
     Triple,
@@ -397,6 +401,10 @@ pub enum BattingResult {
 impl std::fmt::Display for BattingResult {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
+            BattingResult::StrikeSwung => write!(f, "{}", t!("strike_swung")),
+            BattingResult::Take => write!(f, "{}", t!("take")),
+            BattingResult::Strikeout => write!(f, "{}", t!("strikeout")),
+            BattingResult::Walk => write!(f, "{}", t!("walk")),
             BattingResult::Single => write!(f, "{}", t!("single")),
             BattingResult::Double => write!(f, "{}", t!("double")),
             BattingResult::Triple => write!(f, "{}", t!("triple")),
@@ -410,7 +418,7 @@ impl std::fmt::Display for BattingResult {
 }
 impl BattingResult {
     pub fn is_out(&self) -> bool {
-        matches!(self, BattingResult::Out)
+        matches!(self, BattingResult::Out | BattingResult::Strikeout)
     }
 }
 

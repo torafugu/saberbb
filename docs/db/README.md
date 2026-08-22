@@ -12,9 +12,7 @@
 | [game_season](game_season.md)                   | 4       |         | table |
 | [sqlite_stat1](sqlite_stat1.md)                 | 3       |         | table |
 | [sqlite_stat4](sqlite_stat4.md)                 | 6       |         | table |
-| [test_batted_ball](test_batted_ball.md)         | 6       |         | table |
 | [player_info](player_info.md)                   | 6       |         | table |
-| [fielder_info](fielder_info.md)                 | 6       |         | table |
 | [running_skills](running_skills.md)             | 4       |         | table |
 | [item_weighted](item_weighted.md)               | 4       |         | table |
 | [normal_param](normal_param.md)                 | 8       |         | table |
@@ -24,12 +22,16 @@
 | [game](game.md)                                 | 12      |         | table |
 | [player_game_fielding](player_game_fielding.md) | 11      |         | table |
 | [count](count.md)                               | 8       |         | table |
-| [player_game_batting](player_game_batting.md)   | 12      |         | table |
 | [player_game_running](player_game_running.md)   | 14      |         | table |
 | [player_game_entry](player_game_entry.md)       | 6       |         | table |
-| [batter_info](batter_info.md)                   | 10      |         | table |
-| [pitcher_info](pitcher_info.md)                 | 12      |         | table |
 | [pitch_skill](pitch_skill.md)                   | 10      |         | table |
+| [test_normal_random](test_normal_random.md)     | 1       |         | table |
+| [test_batted_ball](test_batted_ball.md)         | 27      |         | table |
+| [player_game_batting](player_game_batting.md)   | 18      |         | table |
+| [fielder_info](fielder_info.md)                 | 9       |         | table |
+| [test_pitched_ball](test_pitched_ball.md)       | 26      |         | table |
+| [batter_info](batter_info.md)                   | 11      |         | table |
+| [pitcher_info](pitcher_info.md)                 | 16      |         | table |
 
 ## Relations
 

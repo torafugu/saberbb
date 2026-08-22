@@ -9,14 +9,15 @@
 CREATE TABLE batter_info (
     player_id INTEGER PRIMARY KEY,
     batting_side TEXT NOT NULL,
+    batter_type TEXT NOT NULL,
+    zone_aptitude TEXT NOT NULL,
+    hot_zone_scale REAL NOT NULL,
+    batting_eye REAL NOT NULL,
     swing_speed REAL NOT NULL,
-    base_launch_angle REAL NOT NULL,
-    consistency_sigma REAL NOT NULL,
-    weight_foul_pull REAL NOT NULL,
-    weight_pull REAL NOT NULL,
-    weight_center REAL NOT NULL,
-    weight_opposite REAL NOT NULL,
-    weight_foul_opposite REAL NOT NULL
+    swing_power REAL NOT NULL,
+    attack_angle REAL NOT NULL,
+    bat_control REAL NOT NULL,
+    consistency REAL NOT NULL
 )
 ```
 
@@ -24,18 +25,19 @@ CREATE TABLE batter_info (
 
 ## Columns
 
-| Name                 | Type    | Default | Nullable | Children | Parents | Comment |
-| -------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| player_id            | INTEGER |         | true     |          |         |         |
-| batting_side         | TEXT    |         | false    |          |         |         |
-| swing_speed          | REAL    |         | false    |          |         |         |
-| base_launch_angle    | REAL    |         | false    |          |         |         |
-| consistency_sigma    | REAL    |         | false    |          |         |         |
-| weight_foul_pull     | REAL    |         | false    |          |         |         |
-| weight_pull          | REAL    |         | false    |          |         |         |
-| weight_center        | REAL    |         | false    |          |         |         |
-| weight_opposite      | REAL    |         | false    |          |         |         |
-| weight_foul_opposite | REAL    |         | false    |          |         |         |
+| Name           | Type    | Default | Nullable | Children | Parents | Comment |
+| -------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| player_id      | INTEGER |         | true     |          |         |         |
+| batting_side   | TEXT    |         | false    |          |         |         |
+| batter_type    | TEXT    |         | false    |          |         |         |
+| zone_aptitude  | TEXT    |         | false    |          |         |         |
+| hot_zone_scale | REAL    |         | false    |          |         |         |
+| batting_eye    | REAL    |         | false    |          |         |         |
+| swing_speed    | REAL    |         | false    |          |         |         |
+| swing_power    | REAL    |         | false    |          |         |         |
+| attack_angle   | REAL    |         | false    |          |         |         |
+| bat_control    | REAL    |         | false    |          |         |         |
+| consistency    | REAL    |         | false    |          |         |         |
 
 ## Constraints
 

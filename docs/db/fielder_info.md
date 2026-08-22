@@ -13,6 +13,9 @@ CREATE TABLE fielder_info (
     running_speed REAL NOT NULL,
     reaction REAL NOT NULL,
     prep_time REAL NOT NULL,
+    catching REAL NOT NULL,
+    reach_height REAL NOT NULL,
+    reach_range REAL NOT NULL,
     PRIMARY KEY (player_id, fielder_type)
 )
 ```
@@ -29,6 +32,9 @@ CREATE TABLE fielder_info (
 | running_speed | REAL    |         | false    |          |         |         |
 | reaction      | REAL    |         | false    |          |         |         |
 | prep_time     | REAL    |         | false    |          |         |         |
+| catching      | REAL    |         | false    |          |         |         |
+| reach_height  | REAL    |         | false    |          |         |         |
+| reach_range   | REAL    |         | false    |          |         |         |
 
 ## Constraints
 

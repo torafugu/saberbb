@@ -281,16 +281,6 @@ pub fn calculate_swing_execution_error(
     }
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
-#[strum(ascii_case_insensitive)]
-pub enum PitchOutcome {
-    InPlay,
-    Foul,
-    StrikeSwung,
-    StrikeLooking,
-    Ball,
-}
-
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
