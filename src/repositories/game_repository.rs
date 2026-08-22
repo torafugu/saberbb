@@ -2,8 +2,7 @@ use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB,
 };
 use crate::domain::shared::game_stats::{
-    PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGameRunning, PlayerGameRunningView,
+    PlayerGameBattingView, PlayerGameEntryView, PlayerGameRunningView,
 };
 use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
@@ -11,8 +10,15 @@ use crate::domain::shared::player::{
 };
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
+use crate::repositories::sql_helper::game_helper::{
+    insert_inning_with_counts, update_game_result_header,
+};
+use crate::repositories::sql_helper::game_stat_helper::{
+    insert_player_game_batting, insert_player_game_entry, insert_player_game_fielding,
+    insert_player_game_running,
+};
 use anyhow::Result;
-use rusqlite::{Transaction, params};
+use rusqlite::params;
 use tracing::info;
 
 pub trait GameResultWriter {
@@ -108,248 +114,30 @@ impl GameResultWriter for SqlGameRepository {
     fn update_game_result(&mut self, game: &GameResult) -> Result<(), AppError> {
         info!("save_game_result() started");
         self.db_client.transaction(|tx| {
-            let update_game_sql =
-                "UPDATE game SET actual_date = ?1, away_points = ?2, home_points = ?3 WHERE id = ?4";
-            self.db_client.execute_tx(
-                tx,
-                update_game_sql,
-                params![
-                    game.actual_date,
-                    game.away_total_point,
-                    game.home_total_point,
-                    game.id
-                ],
-            )?;
-
-            let insert_inning_sql = "INSERT INTO inning (game_id, seq, tb) VALUES (?1, ?2, ?3)";
-            let insert_count_sql = "INSERT INTO count (
-                            game_id, inning_seq, inning_tb, seq, point, ball, strike, out
-                            ) VALUES (
-                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+            update_game_result_header(&self.db_client, tx, game)?;
 
             for inning in &game.innings {
-                self.db_client.execute_tx(
-                    tx,
-                    insert_inning_sql,
-                    params![game.id, inning.seq, inning.tb],
-                )?;
-
-                for count in &inning.counts {
-                    self.db_client.execute_tx(
-                        tx,
-                        insert_count_sql,
-                        params![
-                            game.id,
-                            inning.seq,
-                            inning.tb,
-                            count.seq,
-                            count.point,
-                            count.ball,
-                            count.strike,
-                            count.out
-                        ],
-                    )?;
-                }
+                insert_inning_with_counts(&self.db_client, tx, game.id, inning)?;
             }
 
             for player_game_entry in &game.player_entries {
-                self.insert_player_entry(tx, game.id, player_game_entry)?;
+                insert_player_game_entry(&self.db_client, tx, game.id, player_game_entry)?;
             }
 
             for player_game_batting in &game.player_battings {
-                self.insert_player_batting(tx, game.id, player_game_batting)?;
+                insert_player_game_batting(&self.db_client, tx, game.id, player_game_batting)?;
             }
 
-
             for player_game_fielding in &game.player_fieldings {
-                self.insert_player_fielding(tx, game.id, player_game_fielding)?;
+                insert_player_game_fielding(&self.db_client, tx, game.id, player_game_fielding)?;
             }
 
             for player_game_running in &game.player_runnings {
-                self.insert_player_running(tx, game.id, player_game_running)?;
+                insert_player_game_running(&self.db_client, tx, game.id, player_game_running)?;
             }
 
             Ok(())
         })
-    }
-}
-
-impl SqlGameRepository {
-    #[tracing::instrument(skip(self, tx, player_game_entry), fields(game_id = %game_id, count_seq = %player_game_entry.start_count_seq, player_id = %player_game_entry.player_id), err)]
-    fn insert_player_entry(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_entry: &PlayerGameEntry,
-    ) -> Result<usize, AppError> {
-        info!(
-            "insert_player_entry() started for Start Count:{}, Player ID:{}",
-            player_game_entry.start_count_seq, player_game_entry.player_id
-        );
-
-        let end_count_seq = if let Some(seq) = player_game_entry.end_count_seq {
-            seq
-        } else {
-            0
-        };
-
-        let insert_player_game_entry_sql = "INSERT INTO player_game_entry (
-                    game_id, start_count_seq, end_count_seq, position, batting_order, player_id
-                    ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6)";
-        self.db_client.execute_tx(
-            tx,
-            insert_player_game_entry_sql,
-            params![
-                game_id,
-                player_game_entry.start_count_seq,
-                end_count_seq,
-                player_game_entry.position,
-                player_game_entry.batting_order,
-                player_game_entry.player_id
-            ],
-        )
-    }
-
-    #[tracing::instrument(skip(self, tx, player_game_batting), fields(game_id = %game_id, count_seq = %player_game_batting.count_seq), err)]
-    fn insert_player_batting(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_batting: &PlayerGameBatting,
-    ) -> Result<usize, AppError> {
-        info!(
-            "insert_player_batting() for Started Count:{}",
-            player_game_batting.count_seq
-        );
-
-        let fielder_position_str: Option<&str> = player_game_batting
-            .fielder_position
-            .as_ref()
-            .map(|p| p.as_ref());
-
-        let insert_player_game_batting_sql =
-                "INSERT INTO player_game_batting (
-                    game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle, polar_distance, polar_angle, 
-                    total_time, first_bounce_distance, first_bounce_angle, first_bounce_time,
-                    fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
-                    fielder_position, result
-                    ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)";
-        self.db_client.execute_tx(
-            tx,
-            insert_player_game_batting_sql,
-            params![
-                game_id,
-                player_game_batting.count_seq,
-                player_game_batting.pitcher_id,
-                player_game_batting.batter_id,
-                player_game_batting.ball.launch_speed,
-                player_game_batting.ball.launch_angle,
-                player_game_batting.ball.final_position.distance,
-                player_game_batting.ball.final_position.angle,
-                player_game_batting.ball.total_time,
-                player_game_batting
-                    .ball
-                    .first_bounce_position
-                    .map(|position| position.distance),
-                player_game_batting
-                    .ball
-                    .first_bounce_position
-                    .map(|position| position.angle),
-                player_game_batting.ball.first_bounce_time,
-                player_game_batting
-                    .ball
-                    .fence_impact_position
-                    .map(|position| position.distance),
-                player_game_batting
-                    .ball
-                    .fence_impact_position
-                    .map(|position| position.angle),
-                player_game_batting.ball.fence_impact_time,
-                player_game_batting.ball.outbound_result,
-                fielder_position_str,
-                player_game_batting.result
-            ],
-        )
-    }
-
-    #[tracing::instrument(skip(self, tx, player_game_fielding), fields(game_id = %game_id, count_seq = %player_game_fielding.count_seq, seq = %player_game_fielding.seq), err)]
-    fn insert_player_fielding(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_fielding: &PlayerGameFielding,
-    ) -> Result<usize, AppError> {
-        info!(
-            "insert_player_fielding() for Count:{}, Seq:{}",
-            player_game_fielding.count_seq, player_game_fielding.seq
-        );
-
-        let insert_player_game_fielding_sql =
-                "INSERT INTO player_game_fielding (
-                    game_id, count_seq, seq, catch_fielder_id, catch_fielder_position, cutoff_fielder_id, cutoff_fielder_position, 
-                    final_fielder_id, final_fielder_position, time_to_field, play_type
-                    ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
-        self.db_client.execute_tx(
-            tx,
-            insert_player_game_fielding_sql,
-            params![
-                game_id,
-                player_game_fielding.count_seq,
-                player_game_fielding.seq,
-                player_game_fielding.catch_fielder_id,
-                player_game_fielding.catch_fielder_position,
-                player_game_fielding.cutoff_fielder_id,
-                player_game_fielding.cutoff_fielder_position,
-                player_game_fielding.final_fielder_id,
-                player_game_fielding.final_fielder_position,
-                player_game_fielding.time_to_field,
-                player_game_fielding.play_type
-            ],
-        )
-    }
-
-    #[tracing::instrument(skip(self, tx, player_game_running), fields(game_id = %game_id, count_seq = %player_game_running.count_seq, seq = %player_game_running.seq), err)]
-    fn insert_player_running(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_running: &PlayerGameRunning,
-    ) -> Result<usize, AppError> {
-        info!(
-            "insert_player_fielding() for Count:{}, Seq:{}",
-            player_game_running.count_seq, player_game_running.seq
-        );
-
-        let insert_player_game_running_sql =
-                "INSERT INTO player_game_running (
-                    game_id, count_seq, seq, defense_time, runner_time, throw_target_base, event,
-                    play_type, 
-                    ruling, runs_scored, target_runner_id, runner_1st_id, runner_2nd_id, runner_3rd_id
-                    ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
-        self.db_client.execute_tx(
-            tx,
-            insert_player_game_running_sql,
-            params![
-                game_id,
-                player_game_running.count_seq,
-                player_game_running.seq,
-                player_game_running.defense_time,
-                player_game_running.runner_time,
-                player_game_running.throw_target_base,
-                player_game_running.event.as_ref(),
-                player_game_running.play_type,
-                player_game_running.ruling,
-                player_game_running.runs_scored,
-                player_game_running.target_runner_id,
-                player_game_running.runner_1st_id,
-                player_game_running.runner_2nd_id,
-                player_game_running.runner_3rd_id
-            ],
-        )
     }
 }
 

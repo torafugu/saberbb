@@ -1,12 +1,94 @@
 use crate::domain::shared::game::{
-    BattingResult, Count, GameDetail, GameHeader, GameSchedule, GameSeason, GameType, Inning, TB,
+    BattingResult, Count, GameDetail, GameHeader, GameResult, GameSchedule, GameSeason, GameType,
+    Inning, TB,
 };
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
-use crate::repositories::db::FromRow;
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use crate::repositories::db::{DbClient, FromRow};
+use rusqlite::{
+    Transaction, params,
+    types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
+};
+use tracing::info;
 use validator::Validate;
+
+const UPDATE_GAME_RESULT_SQL: &str =
+    "UPDATE game SET actual_date = ?1, away_points = ?2, home_points = ?3 WHERE id = ?4";
+const INSERT_INNING_SQL: &str = "INSERT INTO inning (game_id, seq, tb) VALUES (?1, ?2, ?3)";
+const INSERT_COUNT_SQL: &str = "INSERT INTO count (
+        game_id, inning_seq, inning_tb, seq, point, ball, strike, out
+    ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+    )";
+
+#[tracing::instrument(skip(db_client, tx, game), fields(game_id = %game.id), err)]
+pub fn update_game_result_header(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game: &GameResult,
+) -> Result<usize, AppError> {
+    info!("update_game_result_header() started");
+
+    db_client.execute_tx(
+        tx,
+        UPDATE_GAME_RESULT_SQL,
+        params![
+            game.actual_date,
+            game.away_total_point,
+            game.home_total_point,
+            game.id
+        ],
+    )
+}
+
+#[tracing::instrument(skip(db_client, tx, inning), fields(game_id = %game_id, inning_seq = %inning.seq, inning_tb = %inning.tb), err)]
+pub fn insert_inning_with_counts(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game_id: u32,
+    inning: &Inning,
+) -> Result<(), AppError> {
+    info!("insert_inning_with_counts() started");
+
+    db_client.execute_tx(
+        tx,
+        INSERT_INNING_SQL,
+        params![game_id, inning.seq, inning.tb],
+    )?;
+
+    for count in &inning.counts {
+        insert_count(db_client, tx, game_id, inning, count)?;
+    }
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(db_client, tx, inning, count), fields(game_id = %game_id, inning_seq = %inning.seq, inning_tb = %inning.tb, count_seq = %count.seq), err)]
+fn insert_count(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game_id: u32,
+    inning: &Inning,
+    count: &Count,
+) -> Result<usize, AppError> {
+    info!("insert_count() started");
+
+    db_client.execute_tx(
+        tx,
+        INSERT_COUNT_SQL,
+        params![
+            game_id,
+            inning.seq,
+            inning.tb,
+            count.seq,
+            count.point,
+            count.ball,
+            count.strike,
+            count.out
+        ],
+    )
+}
 
 impl ToSql for GameType {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
