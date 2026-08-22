@@ -2,7 +2,7 @@ use super::shared::game::{GameSchedule, GameType, TOTAL_GAMES};
 use super::shared::stadium::Stadium;
 use crate::repositories::schedule_repository::ScheduleRepository;
 use crate::t;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use chrono::{Datelike, Duration, NaiveDate};
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -26,6 +26,12 @@ impl<R: ScheduleRepository> ScheduleService<R> {
             .context(t!("error", "function" => "load_all_leagues"))?;
 
         for league in leagues {
+            ensure!(
+                league.teams.len() >= 2,
+                "League {} must have at least 2 teams to schedule games",
+                league.id
+            );
+
             let mut dequed_teams = VecDeque::from(league.teams.clone());
             // let mut game_rounds = Vec::new();
             let mut current_date = game_season.start_date;
@@ -44,7 +50,9 @@ impl<R: ScheduleRepository> ScheduleService<R> {
 
                 let mut temp_teams = dequed_teams.clone();
                 let mut pairings = Vec::new();
-                let fixed = temp_teams.pop_front().unwrap();
+                let fixed = temp_teams
+                    .pop_front()
+                    .context("league team queue unexpectedly empty")?;
                 let n = temp_teams.len(); // this value must be 5
                 // let round_seq = round_count + 1;
 
@@ -96,7 +104,9 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                 current_date += Duration::days(3);
 
                 // Roll the teams (1st id fixed)
-                let last = dequed_teams.pop_back().unwrap();
+                let last = dequed_teams
+                    .pop_back()
+                    .context("league team queue unexpectedly empty during rotation")?;
                 dequed_teams.insert(1, last);
                 round_seq += 1;
             }

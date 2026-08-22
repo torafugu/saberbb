@@ -100,7 +100,14 @@ impl RandomProvider for RealRng {
         coefficient: f64,
         offset: f64,
     ) -> f64 {
-        let normal = rand_distr::Normal::new(mean, std_dev).unwrap();
+        let std_dev = if std_dev.is_finite() && std_dev > 0.0 {
+            std_dev
+        } else {
+            f64::EPSILON
+        };
+        let Ok(normal) = rand_distr::Normal::new(mean, std_dev) else {
+            return mean * coefficient + offset;
+        };
 
         if skew == 0.0 {
             normal.sample(&mut self.0) * coefficient + offset
@@ -116,7 +123,19 @@ impl RandomProvider for RealRng {
     }
 
     fn gamma_random(&mut self, shape: f64, scale: f64, offset: f64) -> f64 {
-        let dist = Gamma::new(shape, scale).unwrap();
+        let shape = if shape.is_finite() && shape > 0.0 {
+            shape
+        } else {
+            f64::EPSILON
+        };
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            f64::EPSILON
+        };
+        let Ok(dist) = Gamma::new(shape, scale) else {
+            return offset;
+        };
         dist.sample(&mut self.0) + offset
     }
 }

@@ -141,9 +141,15 @@ pub struct Lineup {
 }
 impl Lineup {
     pub fn new(vec_players: Vec<ActivePlayer>) -> Result<Self, GameError> {
-        let arr_players: [ActivePlayer; MAX_LINEUP_PLAYERS] = vec_players
-            .try_into()
-            .expect("Number of lineup players must be 10.");
+        let arr_players: [ActivePlayer; MAX_LINEUP_PLAYERS] =
+            vec_players
+                .try_into()
+                .map_err(|players: Vec<ActivePlayer>| {
+                    GameError::Lineup(format!(
+                        "Number of lineup players must be {MAX_LINEUP_PLAYERS}, but got {}.",
+                        players.len()
+                    ))
+                })?;
 
         let lineup = Self {
             current_index: 0,
@@ -160,8 +166,8 @@ impl Lineup {
                 "Number of fielders must be 9.".to_string(),
             ));
         }
-        lineup.pitcher();
-        lineup.catcher();
+        lineup.pitcher()?;
+        lineup.catcher()?;
 
         Ok(lineup)
     }
@@ -187,18 +193,18 @@ impl Lineup {
         self.risk_tolerance = risk_tolerance;
     }
 
-    pub fn pitcher(&self) -> ActivePitcher {
+    pub fn pitcher(&self) -> Result<ActivePitcher, GameError> {
         self.players
             .iter()
             .find_map(ActivePlayer::active_pitcher)
-            .expect("Lineup must have pitcher.")
+            .ok_or_else(|| GameError::Lineup("Lineup must have pitcher.".to_string()))
     }
 
-    pub fn catcher(&self) -> ActiveCatcher {
+    pub fn catcher(&self) -> Result<ActiveCatcher, GameError> {
         self.players
             .iter()
             .find_map(ActivePlayer::active_catcher)
-            .expect("Lineup must have catcher.")
+            .ok_or_else(|| GameError::Lineup("Lineup must have catcher.".to_string()))
     }
 
     pub fn next(&mut self) -> Result<ActiveBatter, GameError> {

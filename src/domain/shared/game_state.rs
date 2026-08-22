@@ -98,6 +98,9 @@ pub enum GameError {
     #[error("No fieldes to pick up the batted ball")]
     NoFieldersToPickUp,
 
+    #[error("Invalid count: {balls} balls, {strikes} strikes")]
+    InvalidCount { balls: u8, strikes: u8 },
+
     #[error("Failed to create pitch: {0}")]
     PitchCreation(#[from] AppError),
 }
@@ -391,7 +394,7 @@ impl GameState {
         self.game_result.innings.push(self.inning.clone());
     }
 
-    pub fn current_pitcher(&self) -> ActivePitcher {
+    pub fn current_pitcher(&self) -> Result<ActivePitcher, GameError> {
         if self.inning_tb == TB::Top {
             self.home_lineup.pitcher()
         } else {
@@ -399,7 +402,7 @@ impl GameState {
         }
     }
 
-    pub fn current_catcher(&self) -> ActiveCatcher {
+    pub fn current_catcher(&self) -> Result<ActiveCatcher, GameError> {
         if self.inning_tb == TB::Top {
             self.home_lineup.catcher()
         } else {
@@ -586,8 +589,8 @@ impl GameState {
 
     // TODO: stolen base should cover hit-and-run case
     fn try_steal_base(&mut self) -> Result<Ruling, GameError> {
-        let pitcher = self.current_pitcher().pitcher.clone();
-        let catcher = self.current_catcher().catcher;
+        let pitcher = self.current_pitcher()?.pitcher.clone();
+        let catcher = self.current_catcher()?.catcher;
         let steal_defense_play_result =
             evaluate_base_stealing(Base::Second, &pitcher, &catcher, self.rng.as_mut());
 
@@ -738,7 +741,7 @@ impl GameState {
         // TODO: stadium should move to Game.
         let stadium = Stadium::new(1, "AAA".to_string(), 98.0, 120.0, 2.0);
 
-        let active_pitcher = self.current_pitcher();
+        let active_pitcher = self.current_pitcher()?;
         let pitcher_id = active_pitcher.id;
         let pitcher = active_pitcher.pitcher.clone();
         let active_batter = self.active_batter_for_count()?;
@@ -784,7 +787,7 @@ impl GameState {
 
         let swing_factor = calculate_swing_factor(
             batter.sample_plate_approach(self.rng.as_mut())?,
-            self.count_status(),
+            self.count_status()?,
             pitched_ball.pitch_type,
             &batting_factor,
         );
@@ -911,8 +914,7 @@ impl GameState {
         swing_contact: &SwingContactResult,
         stadium: &Stadium,
     ) -> Result<(), GameError> {
-        let batted_ball =
-            calculate_batted_ball(batter, pitched_ball, swing_contact, stadium).unwrap();
+        let batted_ball = calculate_batted_ball(batter, pitched_ball, swing_contact, stadium)?;
 
         info!("Batted Ball: {:#?}", batted_ball);
 
@@ -1076,8 +1078,8 @@ impl GameState {
         Ok(())
     }
 
-    fn count_status(&self) -> CountStatus {
-        match (self.inning_state.ball, self.inning_state.strike) {
+    fn count_status(&self) -> Result<CountStatus, GameError> {
+        let status = match (self.inning_state.ball, self.inning_state.strike) {
             (0, 0) => CountStatus::C00,
             (1, 0) => CountStatus::C10,
             (2, 0) => CountStatus::C20,
@@ -1090,11 +1092,15 @@ impl GameState {
             (1, 2) => CountStatus::C12,
             (2, 2) => CountStatus::C22,
             (3, 2) => CountStatus::C32,
-            _ => panic!(
-                "invalid count: {} balls, {} strikes",
-                self.inning_state.ball, self.inning_state.strike
-            ),
-        }
+            _ => {
+                return Err(GameError::InvalidCount {
+                    balls: self.inning_state.ball,
+                    strikes: self.inning_state.strike,
+                });
+            }
+        };
+
+        Ok(status)
     }
 
     fn add_ball(&mut self) -> u8 {
@@ -1646,14 +1652,16 @@ mod tests {
     }
 
     #[test]
-    fn current_pitcher_returns_fielding_teams_pitcher() {
+    fn current_pitcher_returns_fielding_teams_pitcher() -> Result<(), GameError> {
         let mut game = game_state();
 
         game.advance_half_inning();
-        assert_eq!(game.current_pitcher().id, 101);
+        assert_eq!(game.current_pitcher()?.id, 101);
 
         game.advance_half_inning();
-        assert_eq!(game.current_pitcher().id, 1);
+        assert_eq!(game.current_pitcher()?.id, 1);
+
+        Ok(())
     }
 
     #[test]

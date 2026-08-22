@@ -525,8 +525,11 @@ pub fn process_fielding<'a>(
     // If someone can catch it mid-flight, settle on the earliest fielder and return immediately!
     if !interceptions.is_empty() {
         // Sort by arrival time (earliest first)
-        interceptions.sort_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
-        let primary = interceptions.into_iter().next().unwrap();
+        interceptions.sort_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
+        let primary = interceptions
+            .into_iter()
+            .next()
+            .ok_or(GameError::NoFieldersToPickUp)?;
 
         // Normal catch or fumble (handled on the spot) completes the play
         if primary.error_type != Some(FieldError::Passed) {
@@ -541,7 +544,7 @@ pub fn process_fielding<'a>(
             .iter()
             .filter(|f| f.position.is_outfielder())
             .map(|f| evaluate_final_pickup(rng, ball, f))
-            .min_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
+            .min_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
 
         return Ok(FieldPlayPlayResult {
             primary_interception: primary, // Info of the infielder who committed the error (e.g. E-6)
@@ -559,7 +562,7 @@ pub fn process_fielding<'a>(
         .collect();
 
     // Select the outfielder who can reach the final point and pick up the ball the fastest
-    final_pickups.sort_by(|a, b| a.catch_time_sec.partial_cmp(&b.catch_time_sec).unwrap());
+    final_pickups.sort_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
 
     // Return an error if there is no outfielder data
     let covering = final_pickups

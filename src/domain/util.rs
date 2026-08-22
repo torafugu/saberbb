@@ -54,7 +54,7 @@ pub fn softmax(values: &[f64]) -> Vec<f64> {
         return Vec::new();
     }
 
-    let max_value = values.iter().copied().reduce(f64::max).unwrap();
+    let max_value = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
     let exp_values: Vec<f64> = values.iter().map(|&x| (x - max_value).exp()).collect();
 
