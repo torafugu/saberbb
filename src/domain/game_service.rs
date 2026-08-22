@@ -1,17 +1,15 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
-use crate::domain::shared::game::GameResult;
-use crate::domain::shared::player::Player;
-use crate::repositories::game_repository::GameRepository;
+use crate::repositories::game_repository::GameRoundRepository;
 use crate::t;
 use anyhow::{Context, Result};
 use tracing::info;
 
-pub struct GameService<R: GameRepository> {
+pub struct GameService<R: GameRoundRepository> {
     pub repo: R,
 }
 
-impl<R: GameRepository> GameService<R> {
+impl<R: GameRoundRepository> GameService<R> {
     pub fn process_game_round(&mut self) -> Result<()> {
         info!("process_game_round() started");
 
@@ -67,25 +65,22 @@ impl<R: GameRepository> GameService<R> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::game::{
-        Count, GameDetail, GameHeader, GameSchedule, GameType, Inning, TB,
-    };
-    use crate::domain::shared::game_stats::{
-        PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-        PlayerGameFielding, PlayerGameRunning, PlayerGameRunningView,
-    };
+    use crate::domain::shared::game::{GameResult, GameSchedule, GameType, TB};
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, PitchSkill,
-        PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
+        PitchType, PitcherInfo, PitcherStyle, Player, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::domain::shared::stadium::Stadium;
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
+    use crate::repositories::game_repository::{
+        GameResultWriter, GameRoundWriter, GameScheduleReader,
+    };
     use anyhow::anyhow;
     use chrono::NaiveDate;
-    use rusqlite::Transaction;
 
     struct RecordingRepo {
         schedules: Vec<GameSchedule>,
@@ -111,7 +106,7 @@ mod tests {
         }
     }
 
-    impl GameRepository for RecordingRepo {
+    impl GameResultWriter for RecordingRepo {
         fn update_game_result(&mut self, game: &GameResult) -> std::result::Result<(), AppError> {
             let call_index = self.save_calls;
             self.save_calls += 1;
@@ -123,43 +118,9 @@ mod tests {
             self.saved_results.push(game.clone());
             Ok(())
         }
+    }
 
-        fn insert_player_entry(
-            &self,
-            _tx: &Transaction,
-            _game_id: u32,
-            _player_game_entry: &PlayerGameEntry,
-        ) -> std::result::Result<usize, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn insert_player_batting(
-            &self,
-            _tx: &Transaction,
-            _game_id: u32,
-            _player_game_batting: &PlayerGameBatting,
-        ) -> std::result::Result<usize, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn insert_player_fielding(
-            &self,
-            _tx: &Transaction,
-            _game_id: u32,
-            _player_game_fielding: &PlayerGameFielding,
-        ) -> std::result::Result<usize, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn insert_player_running(
-            &self,
-            _tx: &Transaction,
-            _game_id: u32,
-            _player_game_running: &PlayerGameRunning,
-        ) -> std::result::Result<usize, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
+    impl GameRoundWriter for RecordingRepo {
         fn update_current_round_seq(&mut self) -> std::result::Result<usize, AppError> {
             self.update_calls += 1;
 
@@ -169,18 +130,9 @@ mod tests {
 
             Ok(1)
         }
+    }
 
-        fn load_processed_seasons(&self) -> std::result::Result<Vec<u16>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_processed_game_headers(
-            &self,
-            _season: u16,
-        ) -> std::result::Result<Vec<GameHeader>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
+    impl GameScheduleReader for RecordingRepo {
         fn load_game_schedules_to_process(
             &self,
         ) -> std::result::Result<Vec<GameSchedule>, AppError> {
@@ -189,85 +141,6 @@ mod tests {
             }
 
             Ok(self.schedules.clone())
-        }
-
-        fn load_game_detail(&self, _game_id: u32) -> std::result::Result<GameDetail, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_team_players(&self, _team_id: u16) -> std::result::Result<Vec<Player>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_running_skills(
-            &self,
-            _player_id: i64,
-        ) -> std::result::Result<RunningSkills, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_batter_info(&self, _player_id: i64) -> std::result::Result<BatterInfo, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_fielder_info(
-            &self,
-            _player_id: i64,
-            _fielder_type: FielderType,
-        ) -> std::result::Result<FielderInfo, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_pitcher_info(&self, _player_id: i64) -> std::result::Result<PitcherInfo, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_pitch_skill(
-            &self,
-            _player_id: i64,
-        ) -> std::result::Result<Vec<PitchSkill>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_defense_skills(
-            &self,
-            _player_id: i64,
-        ) -> std::result::Result<DefenseSkills, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_innings(&self, _game_id: u32) -> std::result::Result<Vec<Inning>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_counts(
-            &self,
-            _game_id: u32,
-            _inning_seq: u8,
-            _inning_tb: TB,
-        ) -> std::result::Result<Vec<Count>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_player_game_entry_views(
-            &self,
-            _game_id: u32,
-        ) -> std::result::Result<Vec<PlayerGameEntryView>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_player_game_batting_views(
-            &self,
-            _game_id: u32,
-        ) -> std::result::Result<Vec<PlayerGameBattingView>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
-        }
-
-        fn load_player_game_running_views(
-            &self,
-            _game_id: u32,
-        ) -> std::result::Result<Vec<PlayerGameRunningView>, AppError> {
-            unimplemented!("not used by GameService::process_game_round")
         }
     }
 

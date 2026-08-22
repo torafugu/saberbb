@@ -3,7 +3,7 @@ use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::{Count, GameHeader};
 use crate::domain::shared::game_cursor::{BatterGameStatView, GameCursor, ScoreBoard};
-use crate::repositories::game_repository::GameRepository;
+use crate::repositories::game_repository::{GameDetailReader, ProcessedGameReader};
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
 use crossterm::event::{KeyCode, KeyEvent};

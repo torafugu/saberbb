@@ -15,48 +15,28 @@ use anyhow::Result;
 use rusqlite::{Transaction, params};
 use tracing::info;
 
-pub trait GameRepository {
+pub trait GameResultWriter {
     fn update_game_result(&mut self, game: &GameResult) -> Result<(), AppError>;
-    fn insert_player_entry(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_entry: &PlayerGameEntry,
-    ) -> Result<usize, AppError>;
-    fn insert_player_batting(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_batting: &PlayerGameBatting,
-    ) -> Result<usize, AppError>;
-    fn insert_player_fielding(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_fielding: &PlayerGameFielding,
-    ) -> Result<usize, AppError>;
-    fn insert_player_running(
-        &self,
-        tx: &Transaction,
-        game_id: u32,
-        player_game_running: &PlayerGameRunning,
-    ) -> Result<usize, AppError>;
+}
+
+pub trait GameRoundWriter {
     fn update_current_round_seq(&mut self) -> Result<usize, AppError>;
+}
+
+pub trait GameScheduleReader {
+    fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError>;
+}
+
+pub trait ProcessedGameReader {
     fn load_processed_seasons(&self) -> Result<Vec<u16>, AppError>;
     fn load_processed_game_headers(&self, season: u16) -> Result<Vec<GameHeader>, AppError>;
-    fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError>;
+}
+
+pub trait GameDetailReader {
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError>;
-    fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError>;
-    fn load_running_skills(&self, player_id: i64) -> Result<RunningSkills, AppError>;
-    fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError>;
-    fn load_fielder_info(
-        &self,
-        player_id: i64,
-        fielder_type: FielderType,
-    ) -> Result<FielderInfo, AppError>;
-    fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError>;
-    fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError>;
-    fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError>;
+}
+
+pub trait GamePlayByPlayReader {
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError>;
     fn load_player_game_entry_views(
         &self,
@@ -78,6 +58,40 @@ pub trait GameRepository {
     ) -> Result<Vec<Count>, AppError>;
 }
 
+pub trait GamePlayerReader {
+    fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError>;
+    fn load_running_skills(&self, player_id: i64) -> Result<RunningSkills, AppError>;
+    fn load_batter_info(&self, player_id: i64) -> Result<BatterInfo, AppError>;
+    fn load_fielder_info(
+        &self,
+        player_id: i64,
+        fielder_type: FielderType,
+    ) -> Result<FielderInfo, AppError>;
+    fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError>;
+    fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError>;
+    fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError>;
+}
+
+pub trait GameRoundRepository: GameScheduleReader + GameResultWriter + GameRoundWriter {}
+impl<T> GameRoundRepository for T where T: GameScheduleReader + GameResultWriter + GameRoundWriter {}
+
+pub trait GameRepository:
+    GameRoundRepository
+    + ProcessedGameReader
+    + GameDetailReader
+    + GamePlayByPlayReader
+    + GamePlayerReader
+{
+}
+impl<T> GameRepository for T where
+    T: GameRoundRepository
+        + ProcessedGameReader
+        + GameDetailReader
+        + GamePlayByPlayReader
+        + GamePlayerReader
+{
+}
+
 #[derive(Clone, Debug)]
 pub struct SqlGameRepository {
     db_client: DbClient,
@@ -89,7 +103,7 @@ impl SqlGameRepository {
         Ok(Self { db_client })
     }
 }
-impl GameRepository for SqlGameRepository {
+impl GameResultWriter for SqlGameRepository {
     #[tracing::instrument(skip(self, game), fields(game_id = %game.id), err)]
     fn update_game_result(&mut self, game: &GameResult) -> Result<(), AppError> {
         info!("save_game_result() started");
@@ -158,7 +172,9 @@ impl GameRepository for SqlGameRepository {
             Ok(())
         })
     }
+}
 
+impl SqlGameRepository {
     #[tracing::instrument(skip(self, tx, player_game_entry), fields(game_id = %game_id, count_seq = %player_game_entry.start_count_seq, player_id = %player_game_entry.player_id), err)]
     fn insert_player_entry(
         &self,
@@ -335,7 +351,9 @@ impl GameRepository for SqlGameRepository {
             ],
         )
     }
+}
 
+impl GameRoundWriter for SqlGameRepository {
     #[tracing::instrument(skip(self), err)]
     fn update_current_round_seq(&mut self) -> Result<usize, AppError> {
         info!("update_current_round_seq() started");
@@ -343,7 +361,9 @@ impl GameRepository for SqlGameRepository {
             "UPDATE game_season SET current_round_seq = current_round_seq + 1";
         self.db_client.execute(update_game_season_sql, params![])
     }
+}
 
+impl ProcessedGameReader for SqlGameRepository {
     #[tracing::instrument(skip(self), err)]
     fn load_processed_seasons(&self) -> Result<Vec<u16>, AppError> {
         let query = "SELECT season 
@@ -379,7 +399,9 @@ impl GameRepository for SqlGameRepository {
         self.db_client
             .query_rows::<GameHeader>(query, params![season])
     }
+}
 
+impl GameScheduleReader for SqlGameRepository {
     #[tracing::instrument(skip(self), err)]
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError> {
         info!("load_game_schedules_to_process() started");
@@ -420,7 +442,9 @@ impl GameRepository for SqlGameRepository {
         }
         Ok(game_schedules)
     }
+}
 
+impl GameDetailReader for SqlGameRepository {
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_game_detail(&self, game_id: u32) -> Result<GameDetail, AppError> {
         info!("load_game_detail() started");
@@ -458,7 +482,9 @@ impl GameRepository for SqlGameRepository {
 
         Ok(game)
     }
+}
 
+impl GamePlayerReader for SqlGameRepository {
     // CONSTRAINT: Player does not use multiple fielder info in a game.
     #[tracing::instrument(skip(self), fields(team_id = %team_id), err)]
     fn load_team_players(&self, team_id: u16) -> Result<Vec<Player>, AppError> {
@@ -578,7 +604,9 @@ impl GameRepository for SqlGameRepository {
         self.db_client
             .query_row::<DefenseSkills>(query, params![player_id])
     }
+}
 
+impl GamePlayByPlayReader for SqlGameRepository {
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_innings(&self, game_id: u32) -> Result<Vec<Inning>, AppError> {
         info!("load_innings() started");
