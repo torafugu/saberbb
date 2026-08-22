@@ -895,6 +895,7 @@ mod tests {
             hpp: 0.5,
             platoon_splitting: 0.5,
             delivery_motion_time: 1.4,
+            consistency: 0.03,
             pitch_skills: vec![
                 PitchSkill {
                     pitch_type: PitchType::FourSeamFastball,

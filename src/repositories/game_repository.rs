@@ -550,7 +550,7 @@ impl GameRepository for SqlGameRepository {
     fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError> {
         info!("load_pitcher_info() started");
         let query =
-                "SELECT height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time 
+                "SELECT height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time, consistency 
                 FROM pitcher_info WHERE player_id = ?1";
         let mut pitcher_info = self
             .db_client
@@ -836,7 +836,8 @@ mod tests {
                 clutch REAL NOT NULL,
                 hpp REAL NOT NULL,
                 platoon_splitting REAL NOT NULL,
-                delivery_motion_time REAL NOT NULL
+                delivery_motion_time REAL NOT NULL,
+                consistency REAL NOT NULL
             );
 
             CREATE TABLE pitch_skill (
@@ -1057,8 +1058,8 @@ mod tests {
                     "INSERT INTO pitcher_info (
                         player_id, height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina,
                         injury_proneness, clutch, hpp, platoon_splitting,
-                        delivery_motion_time
-                    ) VALUES (?1, 1.85, 1.8, 'Right', 'ThreeQuarter', 'BalancedPitcher', 145.0, 2200.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4)",
+                        delivery_motion_time, consistency
+                    ) VALUES (?1, 1.85, 1.8, 'Right', 'ThreeQuarter', 'BalancedPitcher', 145.0, 2200.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4, 0.03)",
                     params![id],
                 )
                 .unwrap();

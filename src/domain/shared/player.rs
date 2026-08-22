@@ -539,6 +539,7 @@ pub struct PitcherInfo {
     pub hpp: f64, // NOTE: Home-Away Splitting
     pub platoon_splitting: f64,
     pub delivery_motion_time: f64,
+    pub consistency: f64, // Ex. 0.03
     pub pitch_skills: Vec<PitchSkill>,
     pub fielder_info: FielderInfo,
 }
@@ -558,6 +559,7 @@ impl PitcherInfo {
         hpp: f64, // Home-Away Splitting
         platoon_splitting: f64,
         delivery_motion_time: f64,
+        consistency: f64,
         pitch_skills: Vec<PitchSkill>,
         fielder_info: FielderInfo,
     ) -> Self {
@@ -576,6 +578,7 @@ impl PitcherInfo {
             hpp,
             platoon_splitting,
             delivery_motion_time,
+            consistency,
             pitch_skills,
             fielder_info,
         }

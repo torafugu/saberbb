@@ -202,6 +202,7 @@ impl FromRow for PitcherInfo {
             hpp: row.get("hpp")?,
             platoon_splitting: row.get("platoon_splitting")?,
             delivery_motion_time: row.get("delivery_motion_time")?,
+            consistency: row.get("consistency")?,
             pitch_skills: Vec::new(),
             fielder_info: FielderInfo::new_pitcher(),
         };

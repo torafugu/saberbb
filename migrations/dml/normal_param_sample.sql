@@ -658,6 +658,29 @@ INSERT INTO
     )
 VALUES
     (
+        'player',
+        'pitcher_info',
+        'consistency',
+        0.03,
+        0.012,
+        0.0,
+        1.0,
+        0.0
+    );
+
+INSERT INTO
+    normal_param (
+        category1,
+        category2,
+        name,
+        mean,
+        std_dev,
+        skew,
+        coefficient,
+        offset
+    )
+VALUES
+    (
         'pitch_type',
         'FourSeamFastball',
         'velocity',

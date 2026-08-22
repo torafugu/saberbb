@@ -293,9 +293,10 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             clutch,
                                                             hpp,
                                                             platoon_splitting,
-                                                            delivery_motion_time
+                                                            delivery_motion_time,
+                                                            consistency
                                                             ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)";
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)";
         self.db_client.execute_tx(
             tx,
             insert_pitcher_info_sql,
@@ -314,7 +315,8 @@ impl PlayerRepository for SqlPlayerRepository {
                 pitcher_info.clutch,
                 pitcher_info.hpp,
                 pitcher_info.platoon_splitting,
-                pitcher_info.delivery_motion_time
+                pitcher_info.delivery_motion_time,
+                pitcher_info.consistency
             ],
         )?;
 
@@ -582,7 +584,8 @@ mod tests {
                 clutch REAL NOT NULL,
                 hpp REAL NOT NULL,
                 platoon_splitting REAL NOT NULL,
-                delivery_motion_time REAL NOT NULL
+                delivery_motion_time REAL NOT NULL,
+                consistency REAL NOT NULL
             );
 
             CREATE TABLE pitch_skill (
@@ -909,6 +912,7 @@ mod tests {
             hpp: 1.6,
             platoon_splitting: 1.7,
             delivery_motion_time: 1.8,
+            consistency: 0.03,
             pitch_skills: Vec::new(),
             fielder_info: fielder_info(FielderType::Pitcher),
         });
@@ -921,11 +925,11 @@ mod tests {
             String,
             String,
             String,
-            [f64; 11],
+            [f64; 12],
         ) = conn
             .query_row(
                 "SELECT player_id, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina,
-                    height, extension, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time
+                    height, extension, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time, consistency
                  FROM pitcher_info",
                 [],
                 |row| {
@@ -946,6 +950,7 @@ mod tests {
                             row.get(12)?,
                             row.get(13)?,
                             row.get(14)?,
+                            row.get(15)?,
                         ],
                     ))
                 },
@@ -959,7 +964,7 @@ mod tests {
                 "Left".to_string(),
                 "Sidearm".to_string(),
                 "BalancedPitcher".to_string(),
-                [1.1, 1.15, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8]
+                [1.1, 1.15, 1.2, 1.3, 1.85, 1.8, 1.4, 1.5, 1.6, 1.7, 1.8, 0.03]
             )
         );
         std::fs::remove_file(path).ok();
@@ -986,6 +991,7 @@ mod tests {
             hpp: 1.6,
             platoon_splitting: 1.7,
             delivery_motion_time: 1.8,
+            consistency: 0.03,
             pitch_skills: vec![PitchSkill {
                 pitch_type: PitchType::FourSeamFastball,
                 velocity: 2.1,

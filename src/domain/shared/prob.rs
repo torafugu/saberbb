@@ -84,6 +84,7 @@ pub struct PitcherInfoProbs {
     pub hpp: NormalParam,
     pub platoon_splitting: NormalParam,
     pub delivery_motion_time: NormalParam,
+    pub consistency: NormalParam,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]

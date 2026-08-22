@@ -290,6 +290,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             delivery_motion_time: self
                 .rng
                 .normal(self.pitcher_info_probs.delivery_motion_time),
+            consistency: self.rng.normal(self.pitcher_info_probs.consistency),
             pitch_skills: pitch_skills,
             fielder_info: fielder_info.clone(),
         })

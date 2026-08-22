@@ -320,6 +320,7 @@ mod tests {
             0.0,
             0.0,
             1.5,
+            0.03,
             pitch_skills,
             FielderInfo {
                 fielder_type: FielderType::Pitcher,

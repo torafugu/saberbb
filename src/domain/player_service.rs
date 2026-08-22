@@ -135,6 +135,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let hpp = self.repo.normal_params(PLY, PTI, "hpp")?;
         let platoon_splitting = self.repo.normal_params(PLY, PTI, "platoon_splitting")?;
         let delivery_motion_time = self.repo.normal_params(PLY, PTI, "delivery_motion_time")?;
+        let consistency = self.repo.normal_params(PLY, PTI, "consistency")?;
 
         Ok(PitcherInfoProbs {
             height: height,
@@ -151,6 +152,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             hpp: hpp,
             platoon_splitting: platoon_splitting,
             delivery_motion_time: delivery_motion_time,
+            consistency: consistency,
         })
     }
 
@@ -383,6 +385,7 @@ mod tests {
                     hpp: normal,
                     platoon_splitting: normal,
                     delivery_motion_time: normal,
+                    consistency: normal,
                 },
                 random_name_error: Cell::new(false),
                 next_team_error: Cell::new(false),

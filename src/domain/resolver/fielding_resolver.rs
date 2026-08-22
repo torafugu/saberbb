@@ -899,6 +899,7 @@ mod tests {
             hpp: 0.0,
             platoon_splitting: 0.0,
             delivery_motion_time,
+            consistency: 0.03,
             pitch_skills: vec![],
             fielder_info: FielderInfo {
                 fielder_type: FielderType::Pitcher,

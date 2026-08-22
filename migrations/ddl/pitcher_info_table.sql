@@ -15,5 +15,6 @@ CREATE TABLE pitcher_info(
     clutch REAL NOT NULL,
     hpp REAL NOT NULL,
     platoon_splitting REAL NOT NULL,
-    delivery_motion_time REAL NOT NULL
+    delivery_motion_time REAL NOT NULL,
+    consistency REAL NOT NULL
 );
