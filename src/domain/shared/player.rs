@@ -379,7 +379,7 @@ pub struct BatterInfo {
     pub batting_side: RL,
     pub batter_type: BatterType,
     pub zone_aptitude: ZoneAptitude,
-    pub hot_zone_scale: f64, // zone_aptitude modification strength
+    pub hot_zone_scale: f64, // NOTE: zone_aptitude modification strength
     pub batting_eye: f64,
     pub swing_speed: f64,
     pub swing_power: f64,

@@ -43,7 +43,12 @@ pub fn create_pitch(
     let flight_time = calculate_flight_time(speed, release_point.y);
 
     let aim_location = pitch_call.aim_location();
-    let actual_location = sample_ball_location(rng, pitch_call.target_zone.zone(), aim_location);
+    let actual_location = sample_ball_location(
+        rng,
+        pitcher.control,
+        pitch_call.target_zone.zone(),
+        aim_location,
+    );
 
     Ok(PitchedBall {
         pitch_type: pitch_skill.pitch_type,
@@ -60,14 +65,15 @@ pub fn create_pitch(
 }
 
 // TODO: Consider pitcher's control effect.
-// TODO: Consider ball location expetation.
 fn sample_ball_location(
     rng: &mut dyn RandomProvider,
+    control: f64,
     zone: BallZone,
     aim: BallLocation,
 ) -> BallLocation {
-    let norm_x = aim.x + zone.width() * rng.normal_std_10_percent();
-    let norm_y = aim.y + zone.height() * rng.normal_std_10_percent();
+    let control_modififier = 1.0 - sigmoid(control);
+    let norm_x = aim.x + zone.width() * rng.normal_std(control_modififier);
+    let norm_y = aim.y + zone.height() * rng.normal_std(control_modififier);
 
     BallLocation {
         x: norm_x,
