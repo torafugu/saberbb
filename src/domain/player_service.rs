@@ -102,10 +102,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             .repo
             .normal_params(PLY, "batter_info", "attack_angle")?;
         let bat_control = self.repo.normal_params(PLY, "batter_info", "bat_control")?;
-        let timing_bias = self.repo.normal_params(PLY, "batter_info", "timing_bias")?;
-        let consistency_sigma = self
-            .repo
-            .normal_params(PLY, "batter_info", "consistency_sigma")?;
+        let consistency = self.repo.normal_params(PLY, "batter_info", "consistency")?;
 
         Ok(BatterInfoProbs {
             batting_side: batting_side,
@@ -117,8 +114,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             swing_power: swing_power,
             attack_angle: attack_angle,
             bat_control,
-            timing_bias: timing_bias,
-            consistency_sigma: consistency_sigma,
+            consistency,
         })
     }
 

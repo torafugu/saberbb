@@ -54,8 +54,7 @@ pub struct BatterInfoProbs {
     pub swing_power: NormalParam,
     pub attack_angle: NormalParam,
     pub bat_control: NormalParam,
-    pub timing_bias: NormalParam,
-    pub consistency_sigma: NormalParam,
+    pub consistency: NormalParam,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]

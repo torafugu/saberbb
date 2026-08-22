@@ -173,8 +173,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let swing_power = self.rng.normal(self.batter_info_probs.swing_power);
         let attack_angle = self.rng.normal(self.batter_info_probs.attack_angle);
         let bat_control = self.rng.normal(self.batter_info_probs.bat_control);
-        let timing_bias = self.rng.normal(self.batter_info_probs.timing_bias);
-        let consistency_sigma = self.rng.normal(self.batter_info_probs.consistency_sigma);
+        let consistency = self.rng.normal(self.batter_info_probs.consistency);
 
         Ok(BatterInfo {
             batting_side: batting_side,
@@ -186,8 +185,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             swing_power: swing_power,
             attack_angle: attack_angle,
             bat_control,
-            timing_bias: timing_bias,
-            consistency_sigma: consistency_sigma,
+            consistency,
         })
     }
 

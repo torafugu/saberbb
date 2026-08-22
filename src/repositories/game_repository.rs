@@ -526,7 +526,7 @@ impl GameRepository for SqlGameRepository {
 
         let query =
             "SELECT batting_side, batter_type, zone_aptitude, hot_zone_scale, batting_eye, swing_speed, swing_power, attack_angle,
-                bat_control, timing_bias, consistency_sigma
+                bat_control, consistency
                 FROM batter_info WHERE player_id = ?1";
         self.db_client
             .query_row::<BatterInfo>(query, params![player_id])
@@ -805,8 +805,7 @@ mod tests {
                 swing_power REAL NOT NULL,
                 attack_angle REAL NOT NULL,
                 bat_control REAL NOT NULL,
-                timing_bias REAL NOT NULL,
-                consistency_sigma REAL NOT NULL
+                consistency REAL NOT NULL
             );
 
             CREATE TABLE fielder_info (
@@ -1076,8 +1075,8 @@ mod tests {
                 conn.execute(
                     "INSERT INTO batter_info (
                         player_id, batting_side, batter_type, zone_aptitude, hot_zone_scale, batting_eye, swing_speed, swing_power,
-                        attack_angle, bat_control, timing_bias, consistency_sigma
-                    ) VALUES (?1, 'Right', 'ClassicAnalyst', 'Balanced', 0.1, 0.5, 30.0, 1.0, 28.0, 0.8, 0.0, 0.03)",
+                        attack_angle, bat_control, consistency
+                    ) VALUES (?1, 'Right', 'ClassicAnalyst', 'Balanced', 0.1, 0.5, 30.0, 1.0, 28.0, 0.8, 0.03)",
                     params![id],
                 )
                 .unwrap();

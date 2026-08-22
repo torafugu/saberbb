@@ -11,6 +11,5 @@ CREATE TABLE batter_info (
     swing_power REAL NOT NULL,
     attack_angle REAL NOT NULL,
     bat_control REAL NOT NULL,
-    timing_bias REAL NOT NULL,
-    consistency_sigma REAL NOT NULL
+    consistency REAL NOT NULL
 );

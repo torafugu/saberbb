@@ -306,8 +306,7 @@ mod tests {
             swing_power: 1.0,
             attack_angle: 28.0,
             bat_control: 0.8,
-            timing_bias: 0.0,
-            consistency_sigma: 0.03,
+            consistency: 0.03,
         });
 
         let position = positions[((id - 1) as usize) % positions.len()];

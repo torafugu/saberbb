@@ -223,30 +223,7 @@ VALUES
     (
         'player',
         'batter_info',
-        'timing_bias',
-        0.0,
-        0.005,
-        -0.1,
-        1.0,
-        0.0
-    );
-
-INSERT INTO
-    normal_param (
-        category1,
-        category2,
-        name,
-        mean,
-        std_dev,
-        skew,
-        coefficient,
-        offset
-    )
-VALUES
-    (
-        'player',
-        'batter_info',
-        'consistency_sigma',
+        'consistency',
         0.03,
         0.012,
         0.0,

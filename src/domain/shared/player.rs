@@ -385,8 +385,7 @@ pub struct BatterInfo {
     pub swing_power: f64,
     pub attack_angle: f64, // Ex. 28.0 deg
     pub bat_control: f64,
-    pub timing_bias: f64,
-    pub consistency_sigma: f64, // Ex. 0.03
+    pub consistency: f64, // Ex. 0.03
 }
 impl BatterInfo {
     pub fn sample_plate_approach(
