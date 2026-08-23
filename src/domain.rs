@@ -7,4 +7,6 @@ pub mod schedule_service;
 pub mod shared;
 pub mod statistics_service;
 pub mod strategy;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod util;

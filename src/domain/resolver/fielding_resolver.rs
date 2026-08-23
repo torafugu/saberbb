@@ -589,6 +589,7 @@ mod tests {
     use crate::domain::shared::player::{
         ArmSlot, FielderInfo, FielderType, PitcherStyle, RL, RunningSkills,
     };
+    use crate::domain::test_support::{active_fielder as fielder, default_fielders};
     use crate::domain::util::PolarPosition;
 
     fn assert_near(actual: f64, expected: f64) {
@@ -596,25 +597,6 @@ mod tests {
             (actual - expected).abs() < 1e-9,
             "expected {actual} to be near {expected}"
         );
-    }
-
-    fn fielder(position: Position, distance: f64, angle: f64) -> ActiveFielder {
-        ActiveFielder {
-            position,
-            id: 0,
-            info: FielderInfo {
-                fielder_type: FielderType::Outfielder,
-                throw_speed: 35.0,
-                running_speed: 7.0,
-                reaction: 0.4,
-                prep_time: 0.6,
-                catching: 0.8,
-                reach_height: 2.5,
-                reach_range: 0.0,
-            },
-            polar_position: PolarPosition::new(distance, angle),
-            risk_tolerance: FielderRiskTolerance::Balanced,
-        }
     }
 
     fn ball(
@@ -753,20 +735,6 @@ mod tests {
             + catcher.fielder_info.prep_time
             + (throw_distance / catcher.fielder_info.throw_speed)
             + 0.3
-    }
-
-    fn default_fielders() -> [ActiveFielder; 9] {
-        [
-            fielder(Position::P, 18.44, 0.0),
-            fielder(Position::C, 0.0, 0.0),
-            fielder(Position::FB, 35.0, 33.0),
-            fielder(Position::SB, 40.0, 18.0),
-            fielder(Position::TB, 35.0, -33.0),
-            fielder(Position::SS, 35.0, -33.0),
-            fielder(Position::RF, 80.0, 26.0),
-            fielder(Position::CF, 90.0, 0.0),
-            fielder(Position::LF, 80.0, -26.0),
-        ]
     }
 
     fn assert_target(target: ThrowTarget, expected_base: Base, expected_play_type: PlayType) {
