@@ -34,16 +34,17 @@ The current `Player` model is nested:
 | Parameter | Type | Stored in DB | Description |
 | --- | --- | --- | --- |
 | `batting_side` | `RL` | `batter_info.batting_side` | Batting side. Values: `Right`, `Left`. |
+| `batter_type` | `BatterType` | `batter_info.batter_type` | Plate-approach archetype used by `default_plate_approach()`. |
+| `zone_aptitude` | `ZoneAptitude` | `batter_info.zone_aptitude` | Hot/cold-zone profile used by `zone_modifier()`. |
+| `hot_zone_scale` | `f64` | `batter_info.hot_zone_scale` | Strength multiplier for the zone-aptitude modifier. |
+| `batting_eye` | `f64` | `batter_info.batting_eye` | Plate-discipline or pitch-recognition skill. Generated from `normal_param` under `player/batter_info/batting_eye`. |
 | `swing_speed` | `f64` | `batter_info.swing_speed` | Swing speed. Generated from `normal_param` under `player/batter_info/swing_speed`. |
-| `base_launch_angle` | `f64` | `batter_info.base_launch_angle` | Base launch angle in degrees. Generated from `normal_param` under `player/batter_info/base_launch_angle`. |
-| `consistency_sigma` | `f64` | `batter_info.consistency_sigma` | Contact consistency spread. Generated from `normal_param` under `player/batter_info/consistency_sigma`. |
-| `weight_foul_pull` | `f64` | `batter_info.weight_foul_pull` | Field-sector weight for foul pull-side contact. |
-| `weight_pull` | `f64` | `batter_info.weight_pull` | Field-sector weight for pull-side contact. |
-| `weight_center` | `f64` | `batter_info.weight_center` | Field-sector weight for center contact. |
-| `weight_opposite` | `f64` | `batter_info.weight_opposite` | Field-sector weight for opposite-field contact. |
-| `weight_foul_opposite` | `f64` | `batter_info.weight_foul_opposite` | Field-sector weight for foul opposite-side contact. |
+| `swing_power` | `f64` | `batter_info.swing_power` | Swing power. Generated from `normal_param` under `player/batter_info/swing_power`. |
+| `attack_angle` | `f64` | `batter_info.attack_angle` | Swing attack angle in degrees. Generated from `normal_param` under `player/batter_info/attack_angle`. |
+| `bat_control` | `f64` | `batter_info.bat_control` | Bat-control skill. Generated from `normal_param` under `player/batter_info/bat_control`. |
+| `consistency` | `f64` | `batter_info.consistency` | Contact consistency. Generated from `normal_param` under `player/batter_info/consistency`. |
 
-The field-sector weights are selected by first choosing a `HitterTendency` (`Normal`, `Pull`, or `Spray`), then loading sector weights from the `hitter_tendency/<tendency>` item weights.
+`BatterInfo::sample_plate_approach(rng)` samples a `PlateApproach` from the player's `BatterType`. `BatterInfo::zone_modifier(location)` evaluates the player's `ZoneAptitude` peaks at the pitch location and scales the result by `hot_zone_scale`.
 
 ## RunningSkills
 
@@ -75,8 +76,11 @@ The field-sector weights are selected by first choosing a `HitterTendency` (`Nor
 | `running_speed` | `f64` | `fielder_info.running_speed` | Fielding running speed in meters per second. |
 | `reaction` | `f64` | `fielder_info.reaction` | Fielding reaction time in seconds; lower is better. |
 | `prep_time` | `f64` | `fielder_info.prep_time` | Throw preparation or transfer time in seconds; lower is better. |
+| `catching` | `f64` | `fielder_info.catching` | Catching or receiving skill. |
+| `reach_height` | `f64` | `fielder_info.reach_height` | Vertical reach height. |
+| `reach_range` | `f64` | `fielder_info.reach_range` | Horizontal reach range. Currently generated as `1.0`. |
 
-All `FielderInfo` numeric values are generated from `normal_param` under `player/fielder_info`.
+Most `FielderInfo` numeric values are generated from `normal_param` under `player/fielder_info`. `reach_range` is currently fixed at `1.0` in `PlayerFactory::assign_fielder_info()`.
 
 ## PitcherInfo
 
@@ -88,6 +92,7 @@ All `FielderInfo` numeric values are generated from `normal_param` under `player
 | `arm_slot` | `ArmSlot` | `pitcher_info.arm_slot` | Delivery arm slot. |
 | `pitcher_style` | `PitcherStyle` | `pitcher_info.pitcher_style` | Pitcher archetype used to choose pitch types. |
 | `velocity` | `f64` | `pitcher_info.velocity` | Pitcher-level velocity value. |
+| `spin_rate` | `f64` | `pitcher_info.spin_rate` | Pitcher-level spin-rate value. |
 | `control` | `f64` | `pitcher_info.control` | Pitcher-level control value. |
 | `stamina` | `f64` | `pitcher_info.stamina` | Pitcher-level stamina value. |
 | `injury_proneness` | `f64` | `pitcher_info.injury_proneness` | Pitcher-level injury-proneness value. |
@@ -95,6 +100,7 @@ All `FielderInfo` numeric values are generated from `normal_param` under `player
 | `hpp` | `f64` | `pitcher_info.hpp` | Home-away splitting value. |
 | `platoon_splitting` | `f64` | `pitcher_info.platoon_splitting` | Platoon-splitting value. |
 | `delivery_motion_time` | `f64` | `pitcher_info.delivery_motion_time` | Delivery motion time. |
+| `consistency` | `f64` | `pitcher_info.consistency` | Pitcher-level consistency value. |
 | `pitch_skills` | `Vec<PitchSkill>` | `pitch_skill` | Pitch-specific skill values and usage. |
 | `fielder_info` | `FielderInfo` | `fielder_info` | Pitcher fielding info, stored as `FielderType::Pitcher`. |
 
@@ -104,7 +110,7 @@ PitcherInfo also derives:
 | --- | --- |
 | `calculate_release_point()` | Calculates release `(x, y, z)` from height, extension, arm slot, and throw side. |
 | `base_spin_angle()` | Returns the fastball base spin angle for the arm slot, mirrored for left-handed pitchers. |
-| `pitch_type_distribution()` | Applies `softmax` to pitch-skill `usage` values. |
+| `pitch_skill_distribution()` | Applies `softmax` to pitch-skill `usage` values. |
 | `pitch_calling_distribution()` | Combines pitch-type distribution with the default location distribution. |
 | `sample_pitch_type(rng)` | Samples a `PitchSkill` by pitch-type distribution. |
 
@@ -158,13 +164,25 @@ Pitch skills are generated from `normal_param` rows under `pitch_type/<PitchType
 | `Pitcher` | Pitcher skill group. |
 | `Catcher` | Catcher skill group. |
 
-### HitterTendency
+### BatterType
 
 | Value | Meaning |
 | --- | --- |
-| `Normal` | Balanced field-sector tendency. |
-| `Pull` | Pull-side tendency. |
-| `Spray` | Spray/opposite-field tendency. |
+| `AggressiveFreeSwinger` | Aggressive, feel-driven hitter. |
+| `ClassicAnalyst` | Cautious, analytical hitter. |
+| `GameManager` | Hitter that adapts to the game situation. |
+| `ClutchHunter` | High-risk, power-oriented hitter. |
+
+### ZoneAptitude
+
+| Value | Meaning |
+| --- | --- |
+| `Balanced` | Even zone profile with no particular bias. |
+| `InsideDominant` | Stronger against inside pitches. |
+| `OutsideDominant` | Stronger against outside pitches. |
+| `LowBaller` | Stronger against low pitches. |
+| `HighBaller` | Stronger against high pitches. |
+| `DiagonalCross` | Stronger along diagonal zone patterns. |
 
 ### ArmSlot
 
@@ -194,7 +212,7 @@ Left-handed pitchers mirror the base spin angle with `(360.0 - base_deg) % 360.0
 | `Curveball` | Curveball |
 | `Slider` | Slider |
 | `Changeup` | Changeup |
-| `Forkball` | Forkball |
+| `Splitter` | Splitter |
 
 ## Generation Notes
 
@@ -204,8 +222,7 @@ Left-handed pitchers mirror the base spin angle with `(360.0 - base_deg) % 360.0
 | --- | --- |
 | `load_player_info_probs()` | `gamma_param`: `player/player_info/age` |
 | `load_running_skill_probs()` | `normal_param`: `player/running_skills/*` |
-| `load_batter_info_probs()` | `item_weighted`: `player/batting_side`, `player/hitter_tendency`; `normal_param`: `player/batter_info/*` |
-| `load_field_sector_weights_prob()` | `item_weighted`: `hitter_tendency/<HitterTendency>` |
+| `load_batter_info_probs()` | `item_weighted`: `player/batting_side`, `player/batter_type`, `player/zone_aptitude`; `normal_param`: `player/batter_info/*` |
 | `load_fielder_info_probs()` | `item_weighted`: `player/fielder_type`; `normal_param`: `player/fielder_info/*` |
 | `load_pitcher_info_prob()` | `item_weighted`: `pitcher_info/throw_side`, `pitcher_info/arm_slot`, `pitcher_info/pitcher_style`; `normal_param`: `player/pitcher_info/*` |
 | `load_pitch_type_prob()` | `item_weighted`: `pitcher_style/<PitcherStyle>` |
@@ -231,6 +248,13 @@ The factory may add extra defensive skill groups from `multiple_fielder_type/<Fi
 | `PlayerInfo::new(id, first_name, last_name, age, uniform_number)` | Creates fully populated player info. |
 | `PlayerInfo::new_min(id, first_name, last_name)` | Creates minimal player info with `age = 0` and `uniform_number = 0`. |
 | `Player::from_player_info(info)` | Creates a `Player` with the supplied info, no batter or pitcher info, zeroed running skills, and `DefenseSkills::new(Position::DH)`. |
+| `Player::is(id)` | Returns whether the player's id matches `id`. |
+| `Player::full_name()` | Returns `PlayerInfo::full_name()`. |
+| `Player::batter()` | Returns the batter info or `GameError::BatterInfo`. |
+| `Player::runner()` | Returns the running skills. |
+| `Player::pitcher()` | Returns the pitcher info or `GameError::PitcherInfo`. |
+| `Player::catcher()` | Returns the catcher info or `GameError::PitcherInfo`. |
+| `Player::fielder()` | Returns the fielding info for the player's primary position or `GameError::FielderInfo`. |
 | `DefenseSkills::new(position)` | Creates defense skills for a primary position with all optional skill groups set to `None`. |
 | `FielderInfo::new_pitcher()` | Creates zeroed pitcher fielding info. |
 | `CatcherInfo::from_fielder_info(fielder_info)` | Wraps fielder info as catcher info. |

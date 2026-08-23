@@ -7,4 +7,9 @@ This wiki documents domain concepts used by SaberBB.
 - [Player Parameters](Player_Parameters.MD)
 - [Player Generation](Player_Generation.MD)
 - [Pitching Parameters](Pitching_Parameters.MD)
+- [Batting Parameters](Batting_Parameters.MD)
 
+## Logic Pages
+
+- [Running Logic](Running_logic.MD)
+  

@@ -31,8 +31,7 @@ The CLI player-generate mode in `src/main.rs` creates a `PlayerFactory`, calls `
 | --- | --- | --- |
 | `player_info_probs` | `load_player_info_probs()` | `gamma_param`: `player/player_info/age` |
 | `running_skill_probs` | `load_running_skill_probs()` | `normal_param`: `player/running_skills/*` |
-| `batter_info_probs` | `load_batter_info_probs()` | `item_weighted`: `player/batting_side`, `player/hitter_tendency`; `normal_param`: `player/batter_info/*` |
-| `field_sector_weights_map` | `load_field_sector_weights_prob()` | `item_weighted`: `hitter_tendency/<HitterTendency>` |
+| `batter_info_probs` | `load_batter_info_probs()` | `item_weighted`: `player/batting_side`, `player/batter_type`, `player/zone_aptitude`; `normal_param`: `player/batter_info/*` |
 | `fielder_info_probs` | `load_fielder_info_probs()` | `item_weighted`: `player/fielder_type`; `normal_param`: `player/fielder_info/*` |
 | `pitcher_info_probs` | `load_pitcher_info_prob()` | `item_weighted`: `pitcher_info/throw_side`, `pitcher_info/arm_slot`, `pitcher_info/pitcher_style`; `normal_param`: `player/pitcher_info/*` |
 | `pitch_type_map` | `load_pitch_type_prob()` | `item_weighted`: `pitcher_style/<PitcherStyle>` |
@@ -63,7 +62,7 @@ The CLI player-generate mode in `src/main.rs` creates a `PlayerFactory`, calls `
 
 The first fielder type is selected from `item_weighted` rows with category `player/fielder_type`.
 
-Sample weights from `migrations/item_weighted_sample.sql`:
+Sample weights from `migrations/dml/item_weighted_sample.sql`:
 
 | FielderType | Sample weight |
 | --- | --- |
@@ -107,6 +106,9 @@ For each selected fielder type:
 | `running_speed` | `player/fielder_info/running_speed` |
 | `reaction` | `player/fielder_info/reaction` |
 | `prep_time` | `player/fielder_info/prep_time` |
+| `catching` | `player/fielder_info/catching` |
+| `reach_height` | `player/fielder_info/reach_height` |
+| `reach_range` | Fixed at `1.0` in `assign_fielder_info()`. |
 
 ## Batter Generation
 
@@ -115,20 +117,17 @@ The factory generates `BatterInfo` only when the primary position is not `P`.
 | Field | Generation source |
 | --- | --- |
 | `batting_side` | Weighted choice from `player/batting_side`. |
+| `batter_type` | Weighted choice from `player/batter_type`. |
+| `zone_aptitude` | Weighted choice from `player/zone_aptitude`. |
+| `hot_zone_scale` | `normal_param`: `player/batter_info/hot_zone_scale`. |
+| `batting_eye` | `normal_param`: `player/batter_info/batting_eye`. |
 | `swing_speed` | `normal_param`: `player/batter_info/swing_speed`. |
-| `base_launch_angle` | `normal_param`: `player/batter_info/base_launch_angle`. |
-| `consistency_sigma` | `normal_param`: `player/batter_info/consistency_sigma`. |
-| field-sector weights | Choose `HitterTendency` from `player/hitter_tendency`, then load weights from `hitter_tendency/<HitterTendency>`. |
+| `swing_power` | `normal_param`: `player/batter_info/swing_power`. |
+| `attack_angle` | `normal_param`: `player/batter_info/attack_angle`. |
+| `bat_control` | `normal_param`: `player/batter_info/bat_control`. |
+| `consistency` | `normal_param`: `player/batter_info/consistency`. |
 
-Current field-sector assignment in `assign_batter_info()`:
-
-| `FieldSector` | Assigned field |
-| --- | --- |
-| `Pull` | `weight_pull` |
-| `Center` | `weight_center` |
-| `Opposite` | `weight_opposite` |
-| `FoulOpposite` | `weight_foul_pull` |
-| `FoulPull` | `weight_foul_opposite` |
+At runtime, `batter_type` drives `BatterInfo::sample_plate_approach(rng)` through `default_plate_approach()`. `zone_aptitude` and `hot_zone_scale` drive `BatterInfo::zone_modifier(location)` through `zone_aptitude_peaks()`.
 
 ## Running Generation
 
@@ -152,6 +151,7 @@ Pitcher data is generated when the selected fielder types include `FielderType::
 | `height` | `normal_param`: `player/pitcher_info/height`. |
 | `extension` | `normal_param`: `player/pitcher_info/extension`. |
 | `velocity` | `normal_param`: `player/pitcher_info/velocity`. |
+| `spin_rate` | `normal_param`: `player/pitcher_info/spin_rate`. |
 | `control` | `normal_param`: `player/pitcher_info/control`. |
 | `stamina` | `normal_param`: `player/pitcher_info/stamina`. |
 | `injury_proneness` | `normal_param`: `player/pitcher_info/injury_proneness`. |
@@ -159,6 +159,7 @@ Pitcher data is generated when the selected fielder types include `FielderType::
 | `hpp` | `normal_param`: `player/pitcher_info/hpp`. |
 | `platoon_splitting` | `normal_param`: `player/pitcher_info/platoon_splitting`. |
 | `delivery_motion_time` | `normal_param`: `player/pitcher_info/delivery_motion_time`. |
+| `consistency` | `normal_param`: `player/pitcher_info/consistency`. |
 | `pitch_skills` | Generated from selected pitch types for the pitcher's style. |
 | `fielder_info` | The generated `FielderInfo` for `FielderType::Pitcher`. |
 
@@ -185,9 +186,9 @@ Generated players are saved by `SqlPlayerRepository::insert_player()` in one tra
 | Table | Saved data |
 | --- | --- |
 | `player_info` | Team id, first name, last name, age, uniform number. |
-| `batter_info` | Present only when `offense_skills.batter` is `Some`. |
+| `batter_info` | Present only when `offense_skills.batter` is `Some`; includes batting side, batter type, zone aptitude, hot-zone scale, batting eye, swing speed, swing power, attack angle, bat control, and consistency. |
 | `running_skills` | Saved for every generated player. |
 | `defense_skills` | Primary position. |
-| `fielder_info` | One row per generated defensive skill group. |
-| `pitcher_info` | Present only when `defense_skills.pitcher` is `Some`. |
+| `fielder_info` | One row per generated defensive skill group; includes throw speed, running speed, reaction, prep time, catching, reach height, and reach range. |
+| `pitcher_info` | Present only when `defense_skills.pitcher` is `Some`; includes pitcher-level spin rate and consistency. |
 | `pitch_skill` | One row per generated pitch skill for pitchers. |

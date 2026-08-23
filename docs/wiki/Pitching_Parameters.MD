@@ -16,6 +16,7 @@ Pitching is now generated and persisted for players with `FielderType::Pitcher`.
 | `arm_slot` | `ArmSlot` | `pitcher_info.arm_slot` | Delivery arm slot. Used for release point and base spin angle. |
 | `pitcher_style` | `PitcherStyle` | `pitcher_info.pitcher_style` | Pitcher archetype used to choose pitch types. |
 | `velocity` | `f64` | `pitcher_info.velocity` | Pitcher-level velocity multiplier/base value. |
+| `spin_rate` | `f64` | `pitcher_info.spin_rate` | Pitcher-level spin-rate base value. |
 | `control` | `f64` | `pitcher_info.control` | Pitcher-level control value. |
 | `stamina` | `f64` | `pitcher_info.stamina` | Pitcher-level stamina value. |
 | `injury_proneness` | `f64` | `pitcher_info.injury_proneness` | Pitcher-level injury-proneness value. |
@@ -23,6 +24,7 @@ Pitching is now generated and persisted for players with `FielderType::Pitcher`.
 | `hpp` | `f64` | `pitcher_info.hpp` | Home-away splitting value. |
 | `platoon_splitting` | `f64` | `pitcher_info.platoon_splitting` | Platoon-splitting value. |
 | `delivery_motion_time` | `f64` | `pitcher_info.delivery_motion_time` | Delivery motion time, also used by fielding/running resolution. |
+| `consistency` | `f64` | `pitcher_info.consistency` | Pitcher-level consistency value used when sampling hanging-pitch effects. |
 | `pitch_skills` | `Vec<PitchSkill>` | `pitch_skill` | Pitch-specific values and usage scores. |
 | `fielder_info` | `FielderInfo` | `fielder_info` | Pitcher fielding info stored with `FielderType::Pitcher`. |
 
@@ -53,7 +55,7 @@ Available pitch types are the variants of `PitchType`:
 | `Curveball` | Curveball |
 | `Slider` | Slider |
 | `Changeup` | Changeup |
-| `Forkball` | Forkball |
+| `Splitter` | Splitter |
 
 ## Arm Slots
 
@@ -92,6 +94,7 @@ Pitch-type weights are loaded from `item_weighted` for each style by `PlayerServ
 | `height` | `normal_param`: `player/pitcher_info/height` |
 | `extension` | `normal_param`: `player/pitcher_info/extension` |
 | `velocity` | `normal_param`: `player/pitcher_info/velocity` |
+| `spin_rate` | `normal_param`: `player/pitcher_info/spin_rate` |
 | `control` | `normal_param`: `player/pitcher_info/control` |
 | `stamina` | `normal_param`: `player/pitcher_info/stamina` |
 | `injury_proneness` | `normal_param`: `player/pitcher_info/injury_proneness` |
@@ -99,6 +102,7 @@ Pitch-type weights are loaded from `item_weighted` for each style by `PlayerServ
 | `hpp` | `normal_param`: `player/pitcher_info/hpp` |
 | `platoon_splitting` | `normal_param`: `player/pitcher_info/platoon_splitting` |
 | `delivery_motion_time` | `normal_param`: `player/pitcher_info/delivery_motion_time` |
+| `consistency` | `normal_param`: `player/pitcher_info/consistency` |
 | pitch inventory | `item_weighted`: `pitcher_style/<PitcherStyle>` |
 | pitch-skill fields | `normal_param`: `pitch_type/<PitchType>/{velocity,control,stamina,injury_proneness,spin_rate,spin_angle,spin_efficiency,usage}` |
 
@@ -118,47 +122,52 @@ Pitching data is saved as part of `SqlPlayerRepository::insert_player()`.
 
 ## Release Point
 
-`PitcherInfo::calculate_release_point()` derives release coordinates:
+`PitcherInfo::calculate_release_point(rng)` derives release coordinates:
 
 | Coordinate | Formula |
 | --- | --- |
 | `x` | Arm-slot side distance; negated for left-handed pitchers. |
-| `y` | `18.44 - extension.clamp(1.2, 2.3)` |
+| `y` | `18.44 - (extension * rng.normal_factor_std_1_percent()).clamp(1.2, 2.3)` |
 | `z` | `height * arm_slot_height_factor` |
 
 ## Pitch Creation
 
-`create_pitch(rng, pitcher)` converts pitcher parameters into a `PitchedBall`.
+`calculate_hanging_pitch_effect(rng, pitcher)` may return a shared pitch effect when `rng.random() < pitcher.consistency`; otherwise each pitch uses a normal 1% factor. `create_pitch(rng, pitcher, hanging_pitch_effect)` converts pitcher parameters into a `PitchedBall`.
 
 | Output | Formula or source |
 | --- | --- |
-| `pitch_type` | Sampled from `pitcher.pitch_skills` by softmax of `usage`. |
-| `speed_kmh` | `pitcher.velocity * pitch_skill.velocity * rng.normal_factor_std_1percent()` |
-| `spin_rate` | `pitch_skill.spin_rate * rng.normal_factor_std_1percent() * (speed_kmh / 150.0)` |
-| `spin_angle` | Right-handed: `base_spin_angle + pitch_skill.spin_angle`; left-handed: `base_spin_angle - pitch_skill.spin_angle`; normalized to `0..360`. |
+| `pitch_type` | Sampled as part of `PitchCall` from pitch-skill usage and default location distribution. |
+| `speed` | `pitcher.velocity * pitch_skill.velocity * pitch_effect` in meters per second. |
+| `spin_rate` | `pitcher.spin_rate * pitch_skill.spin_rate * pitch_effect.max(1.0) * (speed / BASE_FOUR_SEAM_SPEED)`. |
+| `spin_angle` | `pitch_skill.spin_angle * pitch_effect`, clamped to `-180.0..180.0`, then added to the base spin angle for right-handed pitchers or subtracted for left-handed pitchers; normalized to `0..360`. |
 | `spin_efficiency` | `pitch_skill.spin_efficiency` |
-| `release_point` | `pitcher.calculate_release_point()` |
-| `flight_time` | `release_point.y / ((speed_kmh / 3.6) * 0.95)` |
-| `norm_x`, `norm_y` | Currently initialized to `0.0`. |
+| `release_point` | `pitcher.calculate_release_point(rng)` |
+| `flight_time` | `release_point.y / (speed * 0.95)` |
+| `aim_zone` | Target zone from sampled `PitchCall`. |
+| `aim_location` | Derived from the pitch call's target zone and margin. |
+| `actual_location` | Sampled around `aim_location` using `pitcher.control` and the target zone size. |
 
 Constants used by pitching resolution:
 
 | Constant | Value | Meaning |
 | --- | --- | --- |
-| `BASE_FOUR_SEAM_SPEED` | `150.0` | Reference speed for spin-rate speed adjustment. |
+| `BASE_FOUR_SEAM_SPEED` | `40.833` | Reference speed in meters per second for spin-rate speed adjustment. |
+| `PITCH_OFFSET_DECISION_RATIO` | `0.6` | Swing-decision point used by pitch-offset calculation. |
 | `AIR_DRAG_FACTOR` | `0.95` | Average-speed factor used for flight-time calculation. |
-| `MAGNUS_FORCE_BASE_SPIN_RATE` | `2300.0` | Spin-rate baseline for movement displacement. |
+| `MAGNUS_COEFF` | `0.0000336` | Magnus acceleration coefficient used by `PitchedBall` movement helpers. |
 
 ## Pitch Movement
 
-`calculate_pitch_displacement(ball)` estimates movement from spin:
+`calculate_ball_movement(ball)` estimates physical movement from spin and gravity:
 
 | Component | Behavior |
 | --- | --- |
-| horizontal | `sin(spin_angle)` times spin strength, scaled and clamped to `-1.0..1.0`. |
-| vertical | Difference from a standard fastball backspin reference, scaled and clamped to `-1.0..1.0`. |
+| horizontal | `0.5 * ball.get_side_accel() * flight_time^2`. |
+| vertical | `0.5 * (ball.get_vertical_accel() - GRAVITY) * flight_time^2`. |
 
-`calculate_late_break_displacement(ball, expected_ball)` compares actual and expected Magnus acceleration during the final 40% of flight time. `calculate_total_pitch_offset(ball, matchup, expected_ball)` combines base movement, late break, and handedness-based crossfire perception.
+`calculate_location_bias(location)` derives timing and spatial bias from the actual pitch location. Inside pitches bias timing later, outside pitches earlier; high and low locations bias vertical contact.
+
+`calculate_pitch_offset(rng, pitched_ball, expected_ball, matchup, location_bias, batting_eye)` compares actual and expected pitch movement during the final 40% of flight time. It combines late break, handedness-based crossfire perception, release-width perception, location bias, and timing error.
 
 | Matchup | Crossfire multiplier |
 | --- | --- |
@@ -166,20 +175,22 @@ Constants used by pitching resolution:
 | Right-handed pitcher vs left-handed batter | `1.05` |
 | Same-side or other matchup | `1.00` |
 
-`calculate_timing_offset(ball, expected_ball)` compares actual flight time to expected flight time using the midpoint standard extension `(1.2 + 2.3) / 2.0`.
+`calculate_timing_offset(rng, pitched_ball, expected_ball, batting_eye)` compares actual and expected flight time after applying release-point noise, batter-eye perception, and a speed factor.
 
 ## Pitch Calling
 
-`PitcherInfo::pitch_calling_distribution()` combines:
+`PitcherInfo::pitch_skill_distribution()` applies `softmax` to pitch-skill usage. `PitcherInfo::pitch_calling_distribution()` combines:
 
 | Distribution | Source |
 | --- | --- |
-| Pitch type | `PitcherInfo::pitch_type_distribution()` |
+| Pitch type | `PitcherInfo::pitch_skill_distribution()` |
 | Location | `default_location_distribution()` |
 
 The current default location distribution is:
 
-| LocationZone | Weight |
+| TargetZone | Weight |
 | --- | --- |
-| `LowAway` | `0.8` |
-| `UpIn` | `0.2` |
+| `LowOutside` | `0.8` |
+| `HighInside` | `0.2` |
+
+Every generated `PitchCall` currently uses `Margin::Edge`. Available target zones are `Center`, `LowInside`, `LowOutside`, `HighInside`, and `HighOutside`.
