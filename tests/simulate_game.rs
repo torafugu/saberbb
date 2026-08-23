@@ -34,7 +34,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
         let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect)?;
         let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect)?;
 
-        let absolute_location = calculate_ball_movement(&pitched_ball);
+        let _absolute_location = calculate_ball_movement(&pitched_ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,

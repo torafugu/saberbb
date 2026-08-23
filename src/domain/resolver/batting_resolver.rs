@@ -847,7 +847,7 @@ pub fn calculate_batted_ball(
 mod tests {
     use crate::domain::resolver::batting_resolver::*;
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
-    use crate::domain::shared::game_state::{GameError, WindCondition};
+    use crate::domain::shared::game_state::GameError;
     use crate::domain::shared::player::{
         ArmSlot, BatterType, FielderInfo, PitchSkill, PitchType, PitcherInfo, PitcherStyle, RL,
         ZoneAptitude,
@@ -951,13 +951,6 @@ mod tests {
             length_offset_m: 0.0,
             contact_type: SwingContactType::SolidContact,
             attack_angle_deg,
-        }
-    }
-
-    fn no_wind() -> WindCondition {
-        WindCondition {
-            speed_m_per_s: 0.0,
-            dir_deg: 0.0,
         }
     }
 

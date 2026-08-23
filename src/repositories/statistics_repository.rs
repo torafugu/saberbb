@@ -1,4 +1,4 @@
-use crate::domain::shared::stat::{BattingStats, Standing};
+use crate::domain::shared::stat::Standing;
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
@@ -210,18 +210,6 @@ mod tests {
             .unwrap();
     }
 
-    fn seed_player(repo: &SqlStatRepository, id: u32, first_name: &str, last_name: &str) {
-        conn(repo)
-            .execute(
-                "INSERT INTO player (
-                    id, team_id, first_name, last_name, age, throw,
-                    bat, mod_ba, mod_slg
-                ) VALUES (?1, 1, ?2, ?3, 25, 'Right', 'Right', 0.0, 0.0)",
-                params![id, first_name, last_name],
-            )
-            .unwrap();
-    }
-
     fn seed_game(
         repo: &SqlStatRepository,
         id: u32,
@@ -245,24 +233,6 @@ mod tests {
                     away_points,
                     home_points
                 ],
-            )
-            .unwrap();
-    }
-
-    fn seed_count(
-        repo: &SqlStatRepository,
-        game_id: u32,
-        seq: u8,
-        batter_id: u32,
-        result: &str,
-        point: u8,
-    ) {
-        conn(repo)
-            .execute(
-                "INSERT INTO count (
-                    game_id, inning_seq, inning_tb, seq, batter_id, result, point, out
-                ) VALUES (?1, 1, 'Top', ?2, ?3, ?4, ?5, 0)",
-                params![game_id, seq, batter_id, result, point],
             )
             .unwrap();
     }

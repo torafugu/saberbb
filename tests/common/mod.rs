@@ -7,10 +7,12 @@ use saberbb::domain::shared::stadium::*;
 use saberbb::domain::util::*;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 
+#[allow(dead_code)]
 pub fn generate_stadium() -> Stadium {
     Stadium::new(1, "AAA".to_string(), 98.0, 120.0, 2.0)
 }
 
+#[allow(dead_code)]
 pub fn generate_default_fielders() -> [ActiveFielder; 9] {
     let p = ActiveFielder {
         position: Position::P,
@@ -131,6 +133,7 @@ pub fn generate_pitcher() -> PitcherInfo {
     }
 }
 
+#[allow(dead_code)]
 pub fn generate_catcher() -> CatcherInfo {
     CatcherInfo {
         fielder_info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
@@ -139,6 +142,7 @@ pub fn generate_catcher() -> CatcherInfo {
     }
 }
 
+#[allow(dead_code)]
 pub fn generate_runner() -> ActiveRunner {
     let player_service = PlayerService {
         repo: SqlPlayerRepository::new().expect("failed to initialize player repository"),

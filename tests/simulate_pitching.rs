@@ -69,7 +69,10 @@ fn test_pitched_ball() {
                 pitched_ball.aim_location.y,
                 pitched_ball.actual_location.x,
                 pitched_ball.actual_location.y,
-                pitched_ball.actual_location.call().as_ref(),
+                pitched_ball
+                    .actual_location
+                    .call(batter.batting_side)
+                    .as_ref(),
                 ball_movement.x_m,
                 ball_movement.z_m,
                 location_bias.spatial_bias_x,

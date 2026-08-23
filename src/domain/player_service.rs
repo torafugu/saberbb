@@ -282,6 +282,7 @@ mod tests {
         state: Rc<RepoState>,
     }
 
+    #[allow(dead_code)]
     struct RepoState {
         name: FullName,
         team: Team,
@@ -434,10 +435,6 @@ mod tests {
                 },
                 state,
             )
-        }
-
-        fn cast_item_probs<T>(items: Vec<ItemWeighted<T>>) -> Vec<ItemWeighted<T>> {
-            items
         }
 
         unsafe fn cast_pitch_type_probs<T>(

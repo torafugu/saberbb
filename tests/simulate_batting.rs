@@ -6,8 +6,6 @@ use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::domain::shared::ball::*;
-use saberbb::domain::shared::game::*;
-use saberbb::domain::shared::player::*;
 use saberbb::domain::strategy::batting_strategy::*;
 use saberbb::repositories::db::*;
 
@@ -83,8 +81,8 @@ fn test_batted_ball() {
             (displacement, swing_error, contact)
         };
 
-        let batted_ball = if (swing_contact.contact_type == SwingContactType::Take
-            || swing_contact.contact_type == SwingContactType::SwungAndMiss)
+        let batted_ball = if swing_contact.contact_type == SwingContactType::Take
+            || swing_contact.contact_type == SwingContactType::SwungAndMiss
         {
             BattedBall::default()
         } else {
