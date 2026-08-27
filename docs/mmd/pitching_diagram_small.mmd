@@ -1,0 +1,5 @@
+flowchart TD
+    calculate_hanging_pitch_effect --> create_pitch 
+    create_pitch --> crossfire_perceived_multiplier --> calculate_pitch_offset
+    create_pitch --> calculate_location_bias --> calculate_pitch_offset
+    create_pitch --> calculate_ball_movement

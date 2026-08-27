@@ -158,6 +158,7 @@ impl ProcessedGameReader for SqlGameRepository {
                     FROM game
                     INNER JOIN 
                     game_season ON current_season >= season 
+                    WHERE actual_date IS NOT NULL
                     GROUP BY season
                     ORDER BY season";
         self.db_client.query_rows::<u16>(query, params![])
@@ -177,7 +178,8 @@ impl ProcessedGameReader for SqlGameRepository {
                             g.home_points
                             FROM game g
                             INNER JOIN game_season
-                    	        ON current_round_seq >= round_seq
+                                ON current_season = g.season
+                                AND current_round_seq >= round_seq
 					        LEFT JOIN 
                 		        team t_away ON g.away_team_id = t_away.id
             		        LEFT JOIN 
@@ -219,6 +221,7 @@ impl GameScheduleReader for SqlGameRepository {
                 		        team t_home ON g.home_team_id = t_home.id
                             LEFT JOIN
                                 stadium st ON g.stadium_id = st.id
+                            WHERE g.actual_date IS NULL
                             ORDER BY round_seq, seq DESC";
         let mut game_schedules = self
             .db_client
@@ -1042,6 +1045,19 @@ mod tests {
     }
 
     #[test]
+    fn load_processed_seasons_excludes_scheduled_games_without_results() {
+        let (repo, path) = setup_repo();
+        seed_game_season(&repo, 2026, 1);
+        seed_teams(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, None);
+
+        let seasons = repo.load_processed_seasons().unwrap();
+
+        assert!(seasons.is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn load_processed_game_headers_returns_completed_games_for_season() {
         let (repo, path) = setup_repo();
         seed_game_season(&repo, 2026, 1);
@@ -1062,6 +1078,22 @@ mod tests {
         assert!(matches!(games[0].game_type, GameType::Regular));
         assert_eq!(games[0].away_points, 3);
         assert_eq!(games[0].home_points, 2);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_processed_game_headers_uses_matching_season_progress() {
+        let (repo, path) = setup_repo();
+        seed_game_season(&repo, 2025, 100);
+        seed_game_season(&repo, 2026, 1);
+        seed_teams(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
+        seed_game(&repo, 2, 2026, 2, 1, Some("2026-04-02"));
+
+        let games = repo.load_processed_game_headers(2026).unwrap();
+
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].id, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -1107,6 +1139,23 @@ mod tests {
             schedules[0].home_team.players[0].defense_skills.position,
             Position::P
         ));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_game_schedules_to_process_skips_completed_games() {
+        let (repo, path) = setup_repo();
+        seed_game_season(&repo, 2026, 1);
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_player_skills(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
+        seed_game(&repo, 2, 2026, 1, 2, None);
+
+        let schedules = repo.load_game_schedules_to_process().unwrap();
+
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].id, 2);
         std::fs::remove_file(path).ok();
     }
 

@@ -251,7 +251,7 @@ pub fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String
     }
     let raw = if !raw.contains("><") {
         let raw = raw.strip_prefix('<').unwrap_or(raw);
-        let raw = raw.strip_prefix('>').unwrap_or(raw);
+        let raw = raw.strip_suffix('>').unwrap_or(raw);
         raw
     } else {
         raw
@@ -462,11 +462,27 @@ mod tests {
                 .0
                 .get(&Mode::Home)
                 .unwrap()
-                .get(&parse_key_sequence("<q>").unwrap_or_default())
+                .get(&parse_key_sequence("<q>").unwrap())
                 .unwrap(),
             &Action::Quit
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_parse_wrapped_single_key_sequence() {
+        assert_eq!(
+            parse_key_sequence("<q>").unwrap(),
+            vec![KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty())]
+        );
+    }
+
+    #[test]
+    fn test_parse_wrapped_modified_key_sequence() {
+        assert_eq!(
+            parse_key_sequence("<Ctrl-c>").unwrap(),
+            vec![KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)]
+        );
     }
 
     #[test]

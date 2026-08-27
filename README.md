@@ -14,6 +14,10 @@ you inspect standings and game results in an interactive terminal UI.
 - Step through individual game counts with keyboard controls
 - Support English and Japanese UI text through Fluent locale files
 
+## Screenshots
+
+<img src="docs/images/game_result_sample.png" width="50%">
+
 ## Requirements
 
 - Rust toolchain with Cargo

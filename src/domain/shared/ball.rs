@@ -215,10 +215,8 @@ impl BallLocation {
         }
     }
 
-    pub fn target_zone(&self) -> TargetZone {
-        TargetZone::iter()
-            .find(|target_zone| target_zone.zone().is_in_zone(*self))
-            .unwrap_or_else(|| panic!("ball location is outside all target zones: {self:?}"))
+    pub fn target_zone(&self) -> Option<TargetZone> {
+        TargetZone::iter().find(|target_zone| target_zone.zone().is_in_zone(*self))
     }
 
     // Physical ball distance from the strike zone center (degree of deviation)
@@ -407,19 +405,19 @@ mod tests {
     fn target_zone_returns_matching_zone() {
         assert_eq!(
             BallLocation { x: -0.75, y: -0.75 }.target_zone(),
-            TargetZone::LowInside
+            Some(TargetZone::LowInside)
         );
         assert_eq!(
             BallLocation { x: 0.75, y: -0.75 }.target_zone(),
-            TargetZone::LowOutside
+            Some(TargetZone::LowOutside)
         );
         assert_eq!(
             BallLocation { x: -0.75, y: 0.75 }.target_zone(),
-            TargetZone::HighInside
+            Some(TargetZone::HighInside)
         );
         assert_eq!(
             BallLocation { x: 0.75, y: 0.75 }.target_zone(),
-            TargetZone::HighOutside
+            Some(TargetZone::HighOutside)
         );
     }
 
@@ -427,7 +425,19 @@ mod tests {
     fn target_zone_prefers_center_when_zones_overlap() {
         assert_eq!(
             BallLocation { x: 0.0, y: 0.0 }.target_zone(),
-            TargetZone::Center
+            Some(TargetZone::Center)
+        );
+    }
+
+    #[test]
+    fn target_zone_returns_none_outside_all_zones() {
+        assert_eq!(
+            BallLocation {
+                x: -0.7469886858243414,
+                y: 1.3173337509815242
+            }
+            .target_zone(),
+            None
         );
     }
 

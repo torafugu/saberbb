@@ -66,6 +66,7 @@ main_menu = メインメニュー
 middle_infielder = 二遊間
 na = N/A
 next_count = 次のカウント
+no_game_results = 試合結果がありません。
 normal = 通常
 not_initialized = {$struct} は初期化されていません。
 out = アウト

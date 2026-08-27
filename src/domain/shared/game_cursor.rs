@@ -45,17 +45,38 @@ pub struct BatterGameStatView {
 
 impl GameCursor {
     pub fn new(game: GameDetail) -> Self {
+        let (inning_seq, inning_tb, count_seq) =
+            Self::first_count_cursor(&game).unwrap_or((1, TB::Top, 0));
+
         Self {
             game: game.into(),
-            inning_seq: 1,
-            inning_tb: TB::Top,
-            count_seq: 1,
+            inning_seq,
+            inning_tb,
+            count_seq,
             is_last_bottom_inning_skiped: false,
         }
     }
 
+    fn first_count_cursor(game: &GameDetail) -> Option<(u8, TB, u16)> {
+        let mut innings = game
+            .innings
+            .iter()
+            .filter(|inning| !inning.counts.is_empty())
+            .collect::<Vec<_>>();
+        innings.sort_by_key(|inning| (inning.seq, Self::tb_order(inning.tb)));
+
+        let inning = innings.first()?;
+        let count_seq = inning.counts.iter().map(|count| count.seq).min()?;
+
+        Some((inning.seq, inning.tb, count_seq))
+    }
+
     pub fn game_type(&self) -> String {
         self.game.game_type.to_string()
+    }
+
+    pub fn has_counts(&self) -> bool {
+        self.count_seq != 0
     }
 
     pub fn away_team_id(&self) -> u16 {
@@ -562,6 +583,28 @@ mod tests {
             fielder_position: None,
             result: BattingResult::Single,
         }
+    }
+
+    #[test]
+    fn new_starts_at_first_inning_with_counts() {
+        let cursor = GameCursor::new(game_detail(vec![
+            inning(1, TB::Top, &[]),
+            inning(1, TB::Bottom, &[7, 8]),
+            inning(2, TB::Top, &[9]),
+        ]));
+
+        assert_eq!(cursor.inning_seq, 1);
+        assert_eq!(cursor.inning_tb, TB::Bottom);
+        assert_eq!(cursor.count_seq, 7);
+    }
+
+    #[test]
+    fn new_starts_at_lowest_count_seq_in_first_playable_inning() {
+        let cursor = GameCursor::new(game_detail(vec![inning(1, TB::Top, &[3, 1, 2])]));
+
+        assert_eq!(cursor.inning_seq, 1);
+        assert_eq!(cursor.inning_tb, TB::Top);
+        assert_eq!(cursor.count_seq, 1);
     }
 
     #[test]

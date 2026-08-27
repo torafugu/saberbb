@@ -312,6 +312,11 @@ impl GameResultsWidget {
     }
 
     fn draw_season_list(&mut self, frame: &mut Frame, area: Rect) {
+        if self.seasons.is_empty() {
+            frame.render_widget(Paragraph::new(t!("no_game_results")), area);
+            return;
+        }
+
         let seasons: Vec<ListItem> = self
             .seasons
             .iter()
@@ -323,6 +328,11 @@ impl GameResultsWidget {
     }
 
     fn draw_game_list(&mut self, frame: &mut Frame, area: Rect) {
+        if self.games.is_empty() {
+            frame.render_widget(Paragraph::new(t!("no_game_results")), area);
+            return;
+        }
+
         let games: Vec<ListItem> = self
             .games
             .iter()
@@ -368,6 +378,11 @@ impl GameResultsWidget {
             frame.render_widget(Paragraph::new(t!("select_game")), area);
             return Ok(());
         };
+
+        if !cursor.has_counts() {
+            frame.render_widget(Paragraph::new(t!("no_game_results")), area);
+            return Ok(());
+        }
 
         let layout = Layout::default()
             .direction(Direction::Vertical)

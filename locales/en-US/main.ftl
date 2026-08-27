@@ -66,6 +66,7 @@ main_menu = Main Menu
 middle_infielder = Middle Infielder
 na = N/A
 next_count = Next Count
+no_game_results = No game results are available.
 normal = Normal
 not_initialized = {$struct} is not initialized.
 out = Out

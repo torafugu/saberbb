@@ -48,40 +48,36 @@ impl Team {
                 .push(player);
         }
 
-        for (key, vec) in position_map {
+        let mut selected_player_ids = Vec::new();
+
+        for position in Position::ALL
+            .into_iter()
+            .filter(|position| *position != Position::DH)
+        {
+            let vec = position_map.remove(&position).unwrap_or_default();
             if vec.is_empty() {
-                return Err(GameError::NoPlayerFor(key.to_string()));
+                return Err(GameError::NoPlayerFor(position.to_string()));
             }
 
             // TODO: Consider player ability to select the lineup
             let index = rng.gen_range(0, vec.len() - 1);
             let random_player = vec[index];
-            let position = random_player.defense_skills.position;
+            selected_player_ids.push(random_player.info.id);
 
-            let (fielding_position, fielder, polar_position) = if position != Position::DH {
-                // TODO: Move to team pameter
-                let polar_position = match position {
-                    Position::P => PolarPosition::new(MOUND_DISTANCE, 0.0),
-                    Position::C => PolarPosition::new(0.0, 0.0),
-                    Position::FB => PolarPosition::new(35.0, 33.0),
-                    Position::SB => PolarPosition::new(40.0, 18.0),
-                    Position::TB => PolarPosition::new(35.0, -33.0),
-                    Position::SS => PolarPosition::new(40.0, -18.0),
-                    Position::RF => PolarPosition::new(80.0, 26.0),
-                    Position::CF => PolarPosition::new(90.0, 0.0),
-                    Position::LF => PolarPosition::new(80.0, 80.0),
-                    Position::DH => {
-                        return Err(GameError::Lineup("No polar position for DH".to_string()));
-                    }
-                };
-
-                (
-                    Some(position),
-                    Some(random_player.fielder()?),
-                    Some(polar_position),
-                )
-            } else {
-                (None, None, None)
+            // TODO: Move to team pameter
+            let polar_position = match position {
+                Position::P => PolarPosition::new(MOUND_DISTANCE, 0.0),
+                Position::C => PolarPosition::new(0.0, 0.0),
+                Position::FB => PolarPosition::new(35.0, 33.0),
+                Position::SB => PolarPosition::new(40.0, 18.0),
+                Position::TB => PolarPosition::new(35.0, -33.0),
+                Position::SS => PolarPosition::new(40.0, -18.0),
+                Position::RF => PolarPosition::new(80.0, 26.0),
+                Position::CF => PolarPosition::new(90.0, 0.0),
+                Position::LF => PolarPosition::new(80.0, 80.0),
+                Position::DH => {
+                    return Err(GameError::Lineup("No polar position for DH".to_string()));
+                }
             };
 
             players.push(ActivePlayer {
@@ -93,9 +89,9 @@ impl Team {
                     None
                 },
                 runner: random_player.runner(),
-                fielding_position,
-                fielder,
-                polar_position,
+                fielding_position: Some(position),
+                fielder: Some(random_player.fielder()?),
+                polar_position: Some(polar_position),
                 pitcher: if position == Position::P {
                     Some(random_player.pitcher()?)
                 } else {
@@ -108,6 +104,42 @@ impl Team {
                 },
             });
         }
+
+        let dedicated_dh_candidates = self
+            .players
+            .iter()
+            .filter(|player| player.defense_skills.position == Position::DH)
+            .collect::<Vec<_>>();
+        let bench_batter_candidates = self
+            .players
+            .iter()
+            .filter(|player| !selected_player_ids.contains(&player.info.id))
+            .filter(|player| player.defense_skills.position != Position::P)
+            .filter(|player| player.offense_skills.batter.is_some())
+            .collect::<Vec<_>>();
+        let dh_candidates = if dedicated_dh_candidates.is_empty() {
+            bench_batter_candidates
+        } else {
+            dedicated_dh_candidates
+        };
+
+        if dh_candidates.is_empty() {
+            return Err(GameError::NoPlayerFor(Position::DH.to_string()));
+        }
+
+        let index = rng.gen_range(0, dh_candidates.len() - 1);
+        let dh_player = dh_candidates[index];
+        players.push(ActivePlayer {
+            id: dh_player.info.id,
+            batting_order: None,
+            batter: Some(dh_player.batter()?),
+            runner: dh_player.runner(),
+            fielding_position: None,
+            fielder: None,
+            polar_position: None,
+            pitcher: None,
+            catcher: None,
+        });
 
         // TODO: The batting order should be considered by team starategy.
         let mut batter_ids: Vec<(i64, f64)> = players
@@ -217,5 +249,81 @@ impl Lineup {
         self.current_index = (self.current_index + 1) % batters.len();
 
         Ok(active_batter)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::random_provider::FixedRng;
+    use crate::domain::test_support::player;
+
+    fn team_with_positions(positions: Vec<Position>) -> Team {
+        Team {
+            id: 1,
+            name: "Test".into(),
+            players: positions
+                .into_iter()
+                .enumerate()
+                .map(|(index, position)| player(index as i64 + 1, position, None))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn lineup_prefers_dedicated_dh() {
+        let mut team = team_with_positions(vec![
+            Position::P,
+            Position::C,
+            Position::FB,
+            Position::SB,
+            Position::TB,
+            Position::SS,
+            Position::LF,
+            Position::CF,
+            Position::RF,
+            Position::DH,
+            Position::RF,
+        ]);
+        let mut rng = FixedRng::new(0.0);
+
+        let lineup = team.lineup(&mut rng).unwrap();
+        let dh = lineup
+            .players
+            .iter()
+            .find(|player| player.fielding_position.is_none())
+            .unwrap();
+
+        assert_eq!(dh.id, 10);
+        assert_eq!(lineup.batters().len(), 9);
+        assert_eq!(lineup.fielders().len(), 9);
+    }
+
+    #[test]
+    fn lineup_uses_bench_batter_when_dedicated_dh_is_missing() {
+        let mut team = team_with_positions(vec![
+            Position::P,
+            Position::C,
+            Position::FB,
+            Position::SB,
+            Position::TB,
+            Position::SS,
+            Position::LF,
+            Position::CF,
+            Position::RF,
+            Position::RF,
+        ]);
+        let mut rng = FixedRng::new(0.0);
+
+        let lineup = team.lineup(&mut rng).unwrap();
+        let dh = lineup
+            .players
+            .iter()
+            .find(|player| player.fielding_position.is_none())
+            .unwrap();
+
+        assert_eq!(dh.id, 10);
+        assert_eq!(lineup.batters().len(), 9);
+        assert_eq!(lineup.fielders().len(), 9);
     }
 }

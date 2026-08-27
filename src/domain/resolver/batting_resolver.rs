@@ -56,19 +56,20 @@ fn calculate_zone_similarity_factor(
     actual_location: &BallLocation,
     expected_location: &BallLocation,
 ) -> f64 {
-    let actual_target_zone = actual_location.target_zone();
-    let expected_target_zone = expected_location.target_zone();
-    if actual_target_zone == TargetZone::Center && expected_target_zone == TargetZone::Center {
-        0.3
-    } else if actual_target_zone == TargetZone::Center && expected_target_zone != TargetZone::Center
-    {
-        0.1
-    } else {
-        match actual_target_zone.similarity(expected_target_zone) {
-            TargetZoneSimilarity::Same => 0.2,
-            TargetZoneSimilarity::Opposite => -0.2,
-            _ => 0.05,
+    match (
+        actual_location.target_zone(),
+        expected_location.target_zone(),
+    ) {
+        (Some(TargetZone::Center), Some(TargetZone::Center)) => 0.3,
+        (Some(TargetZone::Center), Some(_)) => 0.1,
+        (Some(actual_target_zone), Some(expected_target_zone)) => {
+            match actual_target_zone.similarity(expected_target_zone) {
+                TargetZoneSimilarity::Same => 0.2,
+                TargetZoneSimilarity::Opposite => -0.2,
+                _ => 0.05,
+            }
         }
+        _ => -0.2,
     }
 }
 
@@ -1052,6 +1053,21 @@ mod tests {
             )
             .zone_similarity,
             0.1
+        );
+    }
+
+    #[test]
+    fn calculate_batting_factor_penalizes_locations_outside_target_zones() {
+        assert_eq!(
+            batting_factor_for_locations(
+                BallLocation {
+                    x: -0.7469886858243414,
+                    y: 1.3173337509815242,
+                },
+                BallLocation { x: 0.0, y: 0.0 },
+            )
+            .zone_similarity,
+            -0.2
         );
     }
 
