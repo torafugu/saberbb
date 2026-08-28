@@ -4,7 +4,7 @@
 
 **(飛距離$R$、水平角 $\theta$)**
 
-<img src="../images/en-US/baseball_coordinate.png" width="50%">
+<img src="../images/ja-JP/baseball_coordinate.png" width="50%">
 
 # 打球の物理
 
@@ -232,7 +232,7 @@ $$a_{\text{side}} = a_{\text{magnus}} \cdot \sin(\text{spin\_dir})$$
 | ボールの少し下を叩いた | +15° | 28° | 43° | フライ |
 | ボールの下を叩いた | +30° | 28° | 58° | ポップアップ |
 
+### バットの有効接触半径
 
+<img src="../images/ja-JP/sweet_range.png" width="40%">
 
-# Batting Process Flow
-<img src="../images/batting_diagram.png" width="50%">

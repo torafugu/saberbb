@@ -60,6 +60,21 @@ $$\text{HAA}_{\text{perceived}} = \text{HAA}_{\text{physical}} \times \text{Unfa
 
 # 4. calculate_location_bias
 
+#### タイミングバイアス
+
+- 内角：最大 +12ms
+- 外角：最大 -10ms
+
+#### X軸のバイアス
+
+- 内角：詰まり(-)
+- 外角：バットの先端(+)
+
+#### Y軸のバイアス
+
+- 高め：ボールの上を叩く(-)
+- 低め：ボールの下を叩く(+)
+
 # 5. calculate_pitch_offset
 
 
