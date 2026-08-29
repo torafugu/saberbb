@@ -1,0 +1,43 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="qU1U7xNTvVxIu6QDTUqi">
+    <mxGraphModel dx="2163" dy="1277" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="375" pageHeight="160" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="_VcTSFopWRe8U2qWArLr-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#DBE4EE;strokeWidth=2;arcSize=4;shadow=1;" value="" vertex="1">
+          <mxGeometry height="130" width="350" x="-1487" y="-625" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-1" edge="1" parent="1" source="_VcTSFopWRe8U2qWArLr-2" style="endArrow=none;html=1;rounded=0;strokeWidth=15;strokeColor=light-dark(#000000,#EDEDED);shape=filledEdge;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-1384" y="-575" as="sourcePoint" />
+            <mxPoint x="-1224" y="-575" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-3" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;strokeWidth=14;strokeColor=light-dark(#000000,#EDEDED);" target="_VcTSFopWRe8U2qWArLr-2" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-1384" y="-575" as="sourcePoint" />
+            <mxPoint x="-1224" y="-575" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-2" parent="1" style="ellipse;whiteSpace=wrap;html=1;shapeInside=1;aspect=fixed;strokeWidth=7;" value="" vertex="1">
+          <mxGeometry height="40" width="40" x="-1324" y="-595" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-4" edge="1" parent="1" style="endArrow=classic;startArrow=classic;html=1;rounded=0;strokeWidth=3;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-1194" y="-535" as="sourcePoint" />
+            <mxPoint x="-1194" y="-615" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-5" parent="1" style="text;whiteSpace=wrap;html=1;" value="Z Direction (High/Low)" vertex="1">
+          <mxGeometry height="30" width="70" x="-1225" y="-538" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-6" parent="1" style="text;whiteSpace=wrap;html=1;fontSize=14;align=center;" value="Bat Axis" vertex="1">
+          <mxGeometry height="40" width="90" x="-1479" y="-590" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-7" parent="1" style="text;whiteSpace=wrap;html=1;fontSize=14;align=center;" value="Ball" vertex="1">
+          <mxGeometry height="30" width="70" x="-1339" y="-550" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

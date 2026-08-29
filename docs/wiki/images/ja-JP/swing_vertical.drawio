@@ -1,0 +1,46 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="qU1U7xNTvVxIu6QDTUqi">
+    <mxGraphModel dx="2973" dy="1797" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="210" pageHeight="290" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="_VcTSFopWRe8U2qWArLr-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#DBE4EE;strokeWidth=2;arcSize=4;shadow=1;" value="" vertex="1">
+          <mxGeometry height="270" width="190" x="-2300" y="-1150" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-4" edge="1" parent="1" style="endArrow=classic;startArrow=classic;html=1;rounded=0;strokeWidth=3;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-2247" y="-930" as="sourcePoint" />
+            <mxPoint x="-2167" y="-930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-5" parent="1" style="text;whiteSpace=wrap;html=1;" value="X方向(左右)" vertex="1">
+          <mxGeometry height="30" width="70" x="-2242" y="-919" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-6" parent="1" style="text;whiteSpace=wrap;html=1;fontSize=14;align=center;" value="バット軸線" vertex="1">
+          <mxGeometry height="40" width="90" x="-2290" y="-1140" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-7" parent="1" style="text;whiteSpace=wrap;html=1;fontSize=14;align=center;" value="ボール" vertex="1">
+          <mxGeometry height="30" width="70" x="-2180" y="-1045" as="geometry" />
+        </mxCell>
+        <mxCell id="TWWR8PVxUW3jDF_0Q-2N-1" connectable="0" parent="1" style="group;rotation=70;" value="" vertex="1">
+          <mxGeometry height="40" width="160" x="-2290" y="-1050" as="geometry" />
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-1" edge="1" parent="TWWR8PVxUW3jDF_0Q-2N-1" source="_VcTSFopWRe8U2qWArLr-2" style="endArrow=none;html=1;rounded=0;strokeWidth=15;strokeColor=light-dark(#000000,#EDEDED);shape=filledEdge;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="53" y="-55" as="sourcePoint" />
+            <mxPoint x="107" y="95" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-3" edge="1" parent="TWWR8PVxUW3jDF_0Q-2N-1" style="endArrow=none;html=1;rounded=0;strokeWidth=14;strokeColor=light-dark(#000000,#EDEDED);" target="_VcTSFopWRe8U2qWArLr-2" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="53" y="-55" as="sourcePoint" />
+            <mxPoint x="107" y="95" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_VcTSFopWRe8U2qWArLr-2" parent="TWWR8PVxUW3jDF_0Q-2N-1" style="ellipse;whiteSpace=wrap;html=1;shapeInside=1;aspect=fixed;strokeWidth=7;direction=east;rotation=70;" value="" vertex="1">
+          <mxGeometry height="40" width="40" x="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

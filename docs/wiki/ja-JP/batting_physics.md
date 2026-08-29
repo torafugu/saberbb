@@ -236,3 +236,94 @@ $$a_{\text{side}} = a_{\text{magnus}} \cdot \sin(\text{spin\_dir})$$
 
 <img src="../images/ja-JP/sweet_range.png" width="40%">
 
+### バットの角度による物理的挙動の違い
+
+- バットの角度を$\theta_{\text{bat}}$と定義する。
+  - 水平： $0^\circ$
+  - グリップを下・ヘッドを上にした垂直方向： $90^\circ$
+
+#### 1. 水平に近いスイング ($\theta_{\text{bat}} ≈ 0^\circ$)
+
+<img src="../images/ja-JP/swing_horizontal.png">
+
+- 特徴：バットは $X$ 方向に伸び、バットの直径は $Z$ 方向に向く。
+- 物理的挙動： $X$ 方向にはバットの長さで広くカバーできるが、$Z$ 方向はバットの直径（約6.6cm）を外れると空振りになる。
+
+#### 2. 垂直に近いスイング ($\theta_{\text{bat}} ≈ 60^\circ 〜 80^\circ$)
+
+<img src="../images/ja-JP/swing_vertical.png">
+
+- 特徴： バットは $Z$ 方向に伸び、バットの直径は $X$ 方向に向く。
+- 物理的挙動： バットの長さの一部が $Z$ 方向をカバーするように投影される。 逆に、$X$ 方向に対するカバーが短くなる。
+
+### バットの芯からの距離の算出
+
+空間のズレ $(X, Z)$ を、距離 $N$（$\text{m}$）に変換する。
+
+$$N = -X \cdot \sin(\theta_{\text{bat}}) + Z \cdot \cos(\theta_{\text{bat}})$$
+
+- $\theta_{\text{bat}} = 0^\circ$の場合：
+  - $N = Z$ 高低のズレ$Z$がそのままバットの太さ方向のズレになる
+- $\theta_{\text{bat}} = 90^\circ$の場合：
+  - $N = -X$ 内角/外角のズレ$X$がそのままバットの太さ方向のズレになる
+
+### コース別のバットの角度の違い
+
+- 内角：$\theta_{\text{bat}}$ が大きくなる
+- 内角：$\theta_{\text{bat}}$ が小さくなる
+- 高め：$\theta_{\text{bat}}$ が小さくなる
+- 低め：$\theta_{\text{bat}}$ が大きくなる
+
+### 垂直打ち出し角の物理計算モデル
+
+ベースとなるスイング進入角に、バットの円筒曲面に対する縦ズレ$z_m$による跳ね返り角度の偏向を加えて求める。
+
+- 有効衝突半径（$R_{\text{eff}}$）：
+  - バットの半径 $R_{\text{bat}} \approx 0.033\text{m}$（$3.3\text{cm}$）＋ ボールの半径 $R_{\text{ball}} \approx 0.037\text{m}$（$3.7\text{cm}$）$= \mathbf{0.070\text{m}}$（$7.0\text{cm}$）。
+- 法線衝突角（$\phi_z$）：
+$$\phi_z = \arcsin\left( \frac{z_m}{R_{\text{eff}}} \right) \quad (\text{ただし } \vert{}z_m\vert{} \le R_{\text{eff}})$$
+  - $z_m$：バット中心とボール中心の縦方向のズレ
+
+- 垂直打ち出し角（VLA）の算出式：
+$$\text{VLA} = \theta_{\text{attack}} + \text{degrees}(\phi_z) \cdot k_{\text{vla\_rebound}}$$
+  - $\theta_{\text{attack}}$：打者のスイング進入角
+    - アッパースイングの場合、$+10^\circ \sim +15^\circ$
+    - レベルスイングの場合、$0^\circ \sim +5^\circ$
+  - $k_{\text{vla\_rebound}}$：バットの弾性・摩擦による反発偏向係数（$0.5 \sim 0.7$ 程度）
+    - 剛体衝突ではなくボールが潰れるため、完全な法線方向よりスイング軌道側に引っ張られる
+
+### 水平打ち出し角の物理計算モデル
+
+スイング回転運動におけるバットの面角度と バット横断面の曲面による反発を加えて求める。
+
+#### バットの面角度の傾き（$\phi_{\text{face}}$）：
+$$\phi_{\text{face}} = \arcsin\left( \frac{x_m}{L_{\text{arm}}} \right)$$
+- $x_m$：タイミング遅れ/早振りと内角/外角の空間ズレを統合したバットのインパクト位置
+  - $x_m < 0$（インパクトのポイントが前）
+    - バットの面が左（右打者の引っ張り方向）を向く
+  - $x_m > 0$（インパクトのポイントが後）
+    - バットの面が右（右打者の流し方向）を向く
+- $\phi_{\text{face}}$：ミート位置が前後に$x_m$ズレた際のバットの向き
+- 打者の体幹/肩を中心としたスイング回転半径：$L_{\text{arm}} \approx 1.1\text{m}$
+
+#### 横方向の曲面反発（$\phi_{\text{rebound}}$）：
+
+縦方向と同様に、バットの横方向の円筒曲面に対する横ズレ$x_m$による跳ね返り角度の偏向も加わる。
+
+$$\phi_{\text{rebound}} = \arcsin\left( \frac{x_m}{R_{\text{eff}}} \right)$$
+
+- 水平打ち出し角（HLA）の算出式：
+$$\text{HLA} = \text{BaseSprayAngle} + \text{degrees}(\phi_{\text{face}}) \cdot k_{\text{face}} + \text{degrees}(\phi_{\text{rebound}}) \cdot k_{\text{rebound}}$$
+
+- $k_{\text{face}}$：面角度の寄与度（$0.8 \sim 1.0$。タイミングのズレが打出角に与える主要因）
+- $k_{\text{rebound}}$：横曲面反発の寄与度（$0.2 \sim 0.3$。バット先や根元に当たった場合の外側への反発）
+
+### 物理計算モデルによる挙動
+
+- バットの真芯で捕らえた場合（$x_m=0.0$, $z_m=0.0$）：
+  - $\text{VLA} = \theta_{\text{attack}}$：スイング進入角そのままの理想的なライナー
+  - $\text{HLA} = 0^\circ$：センター返し
+- ボールの下側を叩いた場合（$z_m+0.035m$）：
+  - $\arcsin(0.035 / 0.070) = 30^\circ \times 0.6 = +18^\circ$ 加算され、打球は垂直打ち出し角は約$+28^\circ$のフライとなる
+- 振り遅れた場合（$x_m+0.05m$）：
+  - バットの面が約$2.6^\circ$開く（$\times 0.85$） ＋ 曲面反発約 $45.5^\circ$（$\times 0.25$） $\approx +13.8^\circ$ により、打球は右方向へ流される
