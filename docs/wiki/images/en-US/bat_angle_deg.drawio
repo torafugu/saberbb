@@ -1,0 +1,46 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="VW0qvWUjg9OtJeKglutN" name="Page-1">
+    <mxGraphModel dx="457" dy="439" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="190" pageHeight="180" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="EvcfJK91NeUUbtZs-nkf-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#DBE4EE;strokeWidth=2;arcSize=4;shadow=1;" value="" vertex="1">
+          <mxGeometry height="163" width="170" x="10" y="9" as="geometry" />
+        </mxCell>
+        <mxCell id="head" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;strokeColor=#000000;fillColor=#ffffff;" value="" vertex="1">
+          <mxGeometry height="20" width="20" x="45" y="34" as="geometry" />
+        </mxCell>
+        <mxCell id="body" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;strokeColor=#000000;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="56" y="54" as="sourcePoint" />
+            <mxPoint x="56" y="115" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="bat" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;strokeWidth=6;strokeColor=#222222;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="78" y="59" as="sourcePoint" />
+            <mxPoint x="111" y="26" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="angle-line" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;strokeColor=#000000;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="56" y="68" as="sourcePoint" />
+            <mxPoint x="74" y="58" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="angle-label" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#000000;" value="Bat angle&lt;br&gt;(ex: 45&amp;deg;)" vertex="1">
+          <mxGeometry height="34" width="74" x="95" y="73.5" as="geometry" />
+        </mxCell>
+        <mxCell id="batter-label" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#000000;" value="Batter&lt;br&gt;(left-handed)" vertex="1">
+          <mxGeometry height="34" width="92" x="12" y="119" as="geometry" />
+        </mxCell>
+        <mxCell id="EvcfJK91NeUUbtZs-nkf-3" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="120" y="70" as="sourcePoint" />
+            <mxPoint x="100" y="50" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

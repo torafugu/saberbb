@@ -51,7 +51,11 @@
 
 ## 6.4 calculate_effective_c_swing
 
+$$C_{\text{swing}} = \begin{cases} C_{\text{swing}} \cdot (1.0 + \frac{X_m}{0.2} \cdot 0.05) & (X_m < 0.0) \\ C_{\text{swing}} \cdot (1.0 - \frac{X_m}{0.2} \cdot 0.15) & (X_m \ge 0.0) \end{cases}$$
+
 ## 6.5 calculate_launch_speed_with_power
+
+- $C_{\text{SWING}} = 1.12 + (0.16 \cdot BatterInfo.swing\_power)$
 
 ## 6.6 calculate_launch_angles
 
