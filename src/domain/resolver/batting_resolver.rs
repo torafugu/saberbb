@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumString};
 
-// Standard reference swing speed (km/h)
-const REF_SWING_SPEED: f64 = 120.0;
+// Standard reference swing speed (m/s)
+const REF_SWING_SPEED: f64 = 33.333;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
 const MAX_COLLISION_SPIN_AT_REF_SPEED: f64 = 4000.0;
 
@@ -460,13 +460,13 @@ pub fn calculate_launch_speed_with_power(
             .powi(2)
     };
 
-    // 4. Length-direction energy decay rate (E_len: 0.0 ~ 1.0)
+    // 3. Length-direction energy decay rate (E_len: 0.0 ~ 1.0)
     // Decays as distance from the sweet spot approaches 35cm (handle/tip)
     const MAX_LENGTH_OFFSET_M: f64 = 0.35;
     let e_len =
         (1.0 - (contact_result.length_offset_m / MAX_LENGTH_OFFSET_M).powi(2)).clamp(0.0, 1.0);
 
-    // 5. Calculate final batted ball exit velocity
+    // 4. Calculate final batted ball exit velocity
     let launch_speed_ms = max_launch_speed * e_thick * e_len;
 
     launch_speed_ms
@@ -832,7 +832,6 @@ pub fn calculate_batted_ball(
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
     let (batted_spin_rate, batted_spin_angle) =
         calculate_collision_spin(ball, batter.swing_speed, contact);
-    // let trajectory = classify_trajectory_type(angles.vla_deg, batted_spin_rate, batted_spin_angle);
 
     calculate_trajectory(
         launch_speed_ms,
