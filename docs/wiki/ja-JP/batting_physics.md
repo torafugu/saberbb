@@ -484,3 +484,56 @@ $$\text{effective\_spatial\_gap} = \text{raw\_spatial\_gap} \times (1.0 - \text{
 
 $$\text{effective\_timing\_gap} = \text{raw\_timing\_gap} \times (1.0 - \text{batter\_adaptability})$$
 $$\text{effective\_swing\_speed} = \text{raw\_swing\_speed} \times (1.0 - \text{batter\_adaptability})$$
+
+### 打球の最終的な位置の計算
+
+#### ワンバウンドになるまでの時間計算
+
+初速度 $v_z = v \cdot \sin(\text{VLA})$、打点高度 $z_0$（約 $0.9\text{m}$）とすると、着地高度 $z(t) = 0$ になる時間 $t$は次の運動方程式で求められる。
+
+$$z_0 + v_z \cdot t - \frac{1}{2} g_{\text{eff}} \cdot t^2 = 0$$
+
+- $g_{\text{eff}}$（実効重力）：重力加速度9.81(m/s^2) - 縦マグヌス加速度 (m/s^2)
+
+ワンバウンドになるまでの時間 $\text{flight\_time}$ は、 $t > 0$ について解いた二次方程式の解の公式で求める。
+
+$$\text{flight\_time} = \frac{v_z + \sqrt{v_z^2 + 2 \cdot g_{\text{eff}} \cdot z_0}}{g_{\text{eff}}}$$
+
+#### ワンバウンド時の物理
+
+1. 垂直方向（Z軸）：反発係数による跳ね返り
+- 入力速度 $v_{z,\text{in}}$ に対し、芝・土の反発係数 $e \approx 0.3 \sim 0.5$ を掛けた速度で跳ね返りが発生。
+$$v_{z,\text{out}} = -e \cdot v_{z,\text{in}}$$
+
+2. 水平方向（X/Y軸）：摩擦係数による減速
+- 土や芝の抵抗 $\mu \approx 0.4 \sim 0.6$ により、水平速度 $v_x, v_y$ が減速する。
+$$v_{\text{horiz,out}} = v_{\text{horiz,in}} \cdot (1 - \mu_{\text{friction}})$$
+
+3. トップスピンへのエネルギー変換
+- ゴロと地面との摩擦によってトップスピンがかかり、2回目のバウンド以降はバウンドが低くなり、前へ転がるようになる。
+
+##### 複数回のバウンドのループ構造
+
+ワンバウンド後は、滞空 $\rightarrow$ 着地・跳ね返り $\rightarrow$ 滞空 $\rightarrow$ 転がり（完全停止）のループとなる。
+
+### 風の影響
+
+- 風向
+  - 0° = 追い風（バッターからセンター方向）
+  - 180° = 向かい風（センターからバッター方向）
+  - 90° = 横風（三塁から一塁方向）
+  - 270° = 横風（一塁から三塁方向）
+- 計算方法
+1. 風ベクトル $\vec{V}_{\text{wind}} = (V_{\text{wind\_x}}, V_{\text{wind\_y}})$ を求める。
+2. 打球の対地速度から対気相対速度を算出してボールの空気抵抗の計算に入れる
+
+### スタンドイン / フェンス跳ね返り判定
+
+- ノーバウンドでスタンドイン
+  - ホームラン
+- 1バウンド以上でスタンドイン
+  - エンタイトルツーベース
+  - ボールはフェンスの位置で停止
+- フェンス跳ね返り
+  - $Y$方向の速度を反転（$v_y \rightarrow -e \cdot v_y$） させてボールをグラウンド側へ跳ね返す。
+

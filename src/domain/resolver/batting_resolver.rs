@@ -758,7 +758,7 @@ fn calculate_trajectory(
             }
         }
 
-        // 7. Ground bounce processing
+        // 3. Ground bounce processing
         if pos_z <= 0.0 {
             pos_z = 0.0;
             bounce_count += 1;

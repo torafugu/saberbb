@@ -95,6 +95,10 @@ $$\text{swing\_factor} = \text{count\_status\_factor} + \text{fastball\_factor} 
 - バット傾斜角の決定
 - スイング進入角の決定
 - 追加空間オフセット値の決定
+  - 投球の物理ギャップ（$gap$）と、打者のフォーム崩れによるスイング誤差（$execution_error$）を加算する。
+
+$$\text{Final } x_m = \text{gap.spatial\_x\_m} + \text{timing\_impact\_x\_m} + \text{execution\_error.additional\_x\_m}$$
+$$\text{Final } z_m = \text{gap.spatial\_z\_m} + \text{execution\_error.additional\_z\_m}$$
 
 ## 5.1 calculate_bat_angle
 
@@ -123,7 +127,7 @@ $$\text{attack\_angle\_deg} = \text{BatterInfo.attack\_angle} + ((\text{bat\_ang
 
 # 7. calculate_batted_ball
 
-打球の計算
+打球の計算結果をBattedBallにまとめる
 
 ## 7.1 calculate_collision_spin
 
@@ -184,5 +188,21 @@ $$\text{hla\_deg} = (\text{face\_angle\_rad} * \text{HLA\_FACE\_FACTOR}) + (\tex
 - $\text{rebound\_angle\_x}$（バットとボールの反発によって生じる角度）
 - $\text{HLA\_REBOUND\_FACTOR}$（$\text{rebound\_angle\_x}$の水平打ち出し角への寄与率）
 
-
 ## 7.6 calculate_trajectory
+
+1. スピン回転数が10未満、または打球の速度が $0.1m/s^2$ 未満になるまでループして マグヌス加速度を計算する
+$$a_{\text{magnus}} = \text{MAGNUS\_COEFF} \cdot v_{\text{rel}} \cdot S_{\text{rpm}}$$
+- $\text{MAGNUS\_COEFF} = 0.0000336$：ボールのスピードが150km/h、スピン回転数が2500rpmとした場合のマグヌス効果の係数
+- $v_{\text{rel}}$：打球の対気相対速度
+- $S_{\text{rpm}}$：打球のスピン回転数
+2. スタンドイン / フェンス跳ね返り判定
+- 加速度の修正
+  - $v_x = -v_x \cdot \text{WALL\_RESTITUTION}$
+    - $\text{WALL\_RESTITUTION} = 0.6$：フェンスの反発係数
+1. ゴロの場合、水平方向の速度が$0.2m/s^2$ 未満になるまでループして、バウンド処理を続ける
+- 加速度の修正
+  - $v_z = -v_z \cdot \text{RESTITUTION\_COEFF}$
+    - $\text{RESTITUTION\_COEFF}$：地面の反発係数
+  - $v_x = v_x \cdot (1.0 - \text{GROUND\_FRICTION})$
+  - $v_y = v_y \cdot (1.0 - \text{GROUND\_FRICTION})$
+    - $\text{GROUND\_FRICTION}$：地面の摩擦係数 
