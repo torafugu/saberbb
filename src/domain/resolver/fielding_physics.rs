@@ -104,9 +104,7 @@ pub fn evaluate_fielder_interception<'a>(
             if fielder_needed_time <= t {
                 let waiting_time = t - fielder_needed_time;
 
-                // ---------------------------------------------------------
                 // 1. No-bounce catch avoidance judgment based on FielderRiskTolerance
-                // ---------------------------------------------------------
                 if is_direct {
                     let is_acceptable_risk = match fielder.risk_tolerance {
                         FielderRiskTolerance::Aggressive => {

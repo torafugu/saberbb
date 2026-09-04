@@ -38,9 +38,7 @@ pub fn create_pitch(
         rng.normal_factor_std_1_percent()
     };
 
-    // delivery form
     let base_spin_angle = pitcher.base_spin_angle();
-
     let pitch_call = pitcher.sample_pitch_calling(rng)?;
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
     let pitch_spin_angle = (pitch_skill.spin_angle * pitch_effect).clamp(-180.0, 180.0);
