@@ -32,7 +32,7 @@ impl ScheduleRepository for SqlScheduleRepository {
 
     #[tracing::instrument(skip(self), err)]
     fn load_all_leagues(&self) -> Result<Vec<League>, AppError> {
-        let leagues_query = "SELECT id, name FROM league ORDER BY id";
+        let leagues_query = "SELECT * FROM league ORDER BY id";
         let mut leagues = self
             .db_client
             .query_rows::<League>(leagues_query, params![])?;
@@ -121,7 +121,10 @@ mod tests {
 
             CREATE TABLE league (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL
+                name TEXT NOT NULL,
+                number_of_games INTEGER,
+                max_inning INTEGER,
+                base_four_seam_speed REAL
             );
 
             CREATE TABLE team (
@@ -194,7 +197,9 @@ mod tests {
     fn seed_league(repo: &SqlScheduleRepository, id: u16, name: &str) {
         conn(repo)
             .execute(
-                "INSERT INTO league (id, name) VALUES (?1, ?2)",
+                "INSERT INTO league (
+                    id, name, number_of_games, max_inning, base_four_seam_speed
+                ) VALUES (?1, ?2, 140, 12, 40.833)",
                 params![id, name],
             )
             .unwrap();
@@ -220,6 +225,8 @@ mod tests {
             home_team: Team::min(2, "Home"),
             stadium: Stadium::default(),
             game_type: GameType::Regular,
+            max_inning: 12,
+            base_four_seam_speed: 40.833,
         }
     }
 
@@ -259,6 +266,9 @@ mod tests {
         assert_eq!(leagues.iter().map(|l| l.id).collect::<Vec<_>>(), vec![1, 2]);
         assert_eq!(leagues[0].name.as_ref(), "First");
         assert_eq!(leagues[1].name.as_ref(), "Second");
+        assert_eq!(leagues[0].number_of_games, Some(140));
+        assert_eq!(leagues[0].max_inning, Some(12));
+        assert_eq!(leagues[0].base_four_seam_speed, Some(40.833));
         std::fs::remove_file(path).ok();
     }
 

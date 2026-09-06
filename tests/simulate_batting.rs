@@ -5,6 +5,7 @@ use rusqlite::params;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::pitching_resolver::*;
+use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::strategy::batting_strategy::*;
 use saberbb::repositories::db::*;
@@ -17,13 +18,28 @@ fn test_batted_ball() {
     let stadium = generate_stadium();
     let pitcher = generate_pitcher();
     let batter = generate_batter();
+    let base_four_seam_speed = ScheduleService::<
+        saberbb::repositories::schedule_repository::SqlScheduleRepository,
+    >::DEFAULT_BASE_FOUR_SEAM_SPEED;
 
     let mut rng = RealRng::new();
 
     for _ in 0..1000 {
         let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
-        let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
-        let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
+        let pitched_ball = create_pitch(
+            &mut rng,
+            &pitcher,
+            hanging_pitch_effect,
+            base_four_seam_speed,
+        )
+        .unwrap();
+        let expected_ball = create_pitch(
+            &mut rng,
+            &pitcher,
+            hanging_pitch_effect,
+            base_four_seam_speed,
+        )
+        .unwrap();
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -39,6 +55,7 @@ fn test_batted_ball() {
             &matchup,
             &location_bias,
             batter.batting_eye,
+            base_four_seam_speed,
         );
 
         let count_status = CountStatus::C01;

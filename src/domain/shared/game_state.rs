@@ -33,8 +33,6 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
-// TODO: Move MAX_INNING to league
-pub const MAX_INNING: u8 = 9;
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
 pub const MAX_STRIKE: u8 = 3;
@@ -301,6 +299,8 @@ pub struct GameState {
     pub inning: Inning,
     pub game_result: GameResult,
     pub stadium: Stadium,
+    pub max_inning: u8,
+    pub base_four_seam_speed: f64,
 }
 impl GameState {
     pub fn new(
@@ -328,6 +328,8 @@ impl GameState {
             away_lineup: away_lineup,
             home_lineup: home_lineup,
             stadium: game_schedule.stadium,
+            max_inning: game_schedule.max_inning,
+            base_four_seam_speed: game_schedule.base_four_seam_speed,
         })
     }
 
@@ -356,13 +358,13 @@ impl GameState {
     }
 
     fn is_walk_off_condition(&self) -> bool {
-        self.inning_seq >= MAX_INNING
+        self.inning_seq >= self.max_inning
             && self.is_bottom()
             && self.home_total_point > self.away_total_point
     }
 
     fn is_game_set_condition(&self) -> bool {
-        self.inning_seq >= MAX_INNING
+        self.inning_seq >= self.max_inning
             && ((self.is_top() && self.away_total_point < self.home_total_point)
                 || self.is_bottom())
     }
@@ -754,9 +756,19 @@ impl GameState {
 
         let hanging_pitch_effect = calculate_hanging_pitch_effect(self.rng.as_mut(), &pitcher);
 
-        let pitched_ball = create_pitch(self.rng.as_mut(), &pitcher, hanging_pitch_effect)?;
+        let pitched_ball = create_pitch(
+            self.rng.as_mut(),
+            &pitcher,
+            hanging_pitch_effect,
+            self.base_four_seam_speed,
+        )?;
         // TODO: expected_pitched_ball should be created by better logic.
-        let expected_ball = create_pitch(self.rng.as_mut(), &pitcher, hanging_pitch_effect)?;
+        let expected_ball = create_pitch(
+            self.rng.as_mut(),
+            &pitcher,
+            hanging_pitch_effect,
+            self.base_four_seam_speed,
+        )?;
 
         let _absolute_location = calculate_ball_movement(&pitched_ball);
 
@@ -774,6 +786,7 @@ impl GameState {
             &matchup,
             &location_bias,
             batter.batting_eye,
+            self.base_four_seam_speed,
         );
 
         let batting_factor = calculate_batting_factor(
@@ -1216,7 +1229,8 @@ impl InningState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::test_support::{active_runner as runner, game_state};
+    use crate::domain::random_provider::FixedRng;
+    use crate::domain::test_support::{active_runner as runner, game_schedule, game_state};
 
     fn assert_no_runners(inning_state: &InningState) {
         assert!(inning_state.runners.batter_runner.is_none());
@@ -1537,7 +1551,7 @@ mod tests {
     #[test]
     fn progress_is_ongoing_before_ninth_inning_regardless_of_score() {
         let mut game = game_state();
-        game.inning_seq = MAX_INNING - 1;
+        game.inning_seq = game.max_inning - 1;
         game.inning_tb = TB::Bottom;
         game.home_total_point = 10;
 
@@ -1547,7 +1561,7 @@ mod tests {
     #[test]
     fn progress_is_game_set_at_top_of_ninth_when_home_leads() {
         let mut game = game_state();
-        game.inning_seq = MAX_INNING;
+        game.inning_seq = game.max_inning;
         game.inning_tb = TB::Top;
         game.home_total_point = 1;
 
@@ -1557,7 +1571,7 @@ mod tests {
     #[test]
     fn progress_is_ongoing_at_top_of_ninth_when_home_does_not_lead() {
         let mut game = game_state();
-        game.inning_seq = MAX_INNING;
+        game.inning_seq = game.max_inning;
         game.inning_tb = TB::Top;
 
         assert_eq!(game.progress(), GameProgress::Ongoing);
@@ -1569,11 +1583,24 @@ mod tests {
     #[test]
     fn progress_is_walk_off_at_bottom_of_ninth_when_home_takes_lead() {
         let mut game = game_state();
-        game.inning_seq = MAX_INNING;
+        game.inning_seq = game.max_inning;
         game.inning_tb = TB::Bottom;
         game.home_total_point = 1;
 
         assert_eq!(game.progress(), GameProgress::WalkOff);
+    }
+
+    #[test]
+    fn progress_uses_schedule_max_inning() {
+        let mut schedule = game_schedule();
+        schedule.max_inning = 7;
+        let mut game = GameState::new(Box::new(FixedRng::new(0.5)), schedule)
+            .expect("test game schedule should produce valid lineups");
+
+        game.inning_seq = 7;
+        game.inning_tb = TB::Bottom;
+
+        assert_eq!(game.progress(), GameProgress::GameSet);
     }
 
     #[test]

@@ -19,6 +19,9 @@ pub struct League {
     pub id: u16,
     pub name: Arc<str>,
     pub teams: Vec<Team>,
+    pub number_of_games: Option<u16>,
+    pub max_inning: Option<u8>,
+    pub base_four_seam_speed: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Validate)]

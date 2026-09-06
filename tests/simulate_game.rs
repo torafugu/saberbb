@@ -5,6 +5,7 @@ use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::batting_resolver::*;
 use saberbb::domain::resolver::fielding_resolver::*;
 use saberbb::domain::resolver::pitching_resolver::*;
+use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::domain::shared::ball::*;
 use saberbb::domain::shared::game::*;
 use saberbb::domain::shared::game_state::*;
@@ -25,14 +26,27 @@ fn test_through_half_inning() -> Result<(), GameError> {
     let mut scores = 0;
     let mut inning_state = InningState::new();
     let mut rng = RealRng::new();
+    let base_four_seam_speed = ScheduleService::<
+        saberbb::repositories::schedule_repository::SqlScheduleRepository,
+    >::DEFAULT_BASE_FOUR_SEAM_SPEED;
 
     while let InningProgress::Ongoing = inning_state.inning_progress() {
         println!("\n--- New count ---");
         inning_state.runners.batter_runner = Some(batter_runner);
 
         let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
-        let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect)?;
-        let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect)?;
+        let pitched_ball = create_pitch(
+            &mut rng,
+            &pitcher,
+            hanging_pitch_effect,
+            base_four_seam_speed,
+        )?;
+        let expected_ball = create_pitch(
+            &mut rng,
+            &pitcher,
+            hanging_pitch_effect,
+            base_four_seam_speed,
+        )?;
 
         let _absolute_location = calculate_ball_movement(&pitched_ball);
 
@@ -50,6 +64,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
             &matchup,
             &location_bias,
             batter.batting_eye,
+            base_four_seam_speed,
         );
 
         let count_status = CountStatus::C01;

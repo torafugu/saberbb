@@ -4,6 +4,7 @@ use common::*;
 use rusqlite::params;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::pitching_resolver::*;
+use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::repositories::db::*;
 
 #[test]
@@ -15,11 +16,26 @@ fn test_pitched_ball() {
 
     let pitcher = generate_pitcher();
     let batter = generate_batter();
+    let base_four_seam_speed = ScheduleService::<
+        saberbb::repositories::schedule_repository::SqlScheduleRepository,
+    >::DEFAULT_BASE_FOUR_SEAM_SPEED;
 
     for _ in 0..1000 {
         let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
-        let pitched_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
-        let expected_ball = create_pitch(&mut rng, &pitcher, hanging_pitch_effect).unwrap();
+        let pitched_ball = create_pitch(
+            &mut rng,
+            &pitcher,
+            hanging_pitch_effect,
+            base_four_seam_speed,
+        )
+        .unwrap();
+        let expected_ball = create_pitch(
+            &mut rng,
+            &pitcher,
+            hanging_pitch_effect,
+            base_four_seam_speed,
+        )
+        .unwrap();
 
         let ball_movement = calculate_ball_movement(&pitched_ball);
 
@@ -37,6 +53,7 @@ fn test_pitched_ball() {
             &matchup,
             &location_bias,
             batter.batting_eye,
+            base_four_seam_speed,
         );
 
         conn.execute(

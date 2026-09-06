@@ -273,6 +273,8 @@ mod tests {
             home_team: team(2, "BBB", 101),
             stadium: Stadium::default(),
             game_type: GameType::Regular,
+            max_inning: 9,
+            base_four_seam_speed: 40.833,
         }
     }
 

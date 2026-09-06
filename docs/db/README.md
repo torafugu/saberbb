@@ -7,7 +7,7 @@
 | [first_names](first_names.md)                   | 5       |         | table |
 | [last_names](last_names.md)                     | 4       |         | table |
 | [inning](inning.md)                             | 3       |         | table |
-| [league](league.md)                             | 2       |         | table |
+| [league](league.md)                             | 5       |         | table |
 | [team](team.md)                                 | 3       |         | table |
 | [game_season](game_season.md)                   | 4       |         | table |
 | [sqlite_stat1](sqlite_stat1.md)                 | 3       |         | table |

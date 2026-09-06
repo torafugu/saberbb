@@ -169,6 +169,21 @@
           "name": "name",
           "type": "TEXT",
           "nullable": false
+        },
+        {
+          "name": "number_of_games",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "max_inning",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "base_four_seam_speed",
+          "type": "REAL",
+          "nullable": true
         }
       ],
       "constraints": [
@@ -182,7 +197,7 @@
           ]
         }
       ],
-      "def": "CREATE TABLE league (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL\n)"
+      "def": "CREATE TABLE league (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    number_of_games INTEGER,\n    max_inning INTEGER,\n    base_four_seam_speed REAL\n)"
     },
     {
       "name": "team",

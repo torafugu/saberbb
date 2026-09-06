@@ -214,6 +214,8 @@ impl FromRow for GameSchedule {
             ),
             game_type: row.get::<_, GameType>("game_type")?,
             stadium,
+            max_inning: row.get("max_inning")?,
+            base_four_seam_speed: row.get("base_four_seam_speed")?,
         };
 
         game_scheduler.validate()?;

@@ -1,4 +1,4 @@
-use super::shared::game::{GameSchedule, GameType, TOTAL_GAMES};
+use super::shared::game::{GameSchedule, GameType};
 use super::shared::stadium::Stadium;
 use crate::repositories::schedule_repository::ScheduleRepository;
 use crate::t;
@@ -12,6 +12,10 @@ pub struct ScheduleService<R: ScheduleRepository> {
 }
 
 impl<R: ScheduleRepository> ScheduleService<R> {
+    pub const DEFAULT_NUMBER_OF_GAMES: u16 = 140;
+    pub const DEFAULT_MAX_INNING: u8 = 12;
+    pub const DEFAULT_BASE_FOUR_SEAM_SPEED: f64 = 40.833;
+
     pub fn schedule_season(&mut self) -> Result<()> {
         // 1. load the scheduled game season
         let game_season = self
@@ -44,8 +48,15 @@ impl<R: ScheduleRepository> ScheduleService<R> {
             let first_team_id = league.teams[0].id;
             let mut round_seq = 1;
             let mut game_schedules = Vec::new();
+            let number_of_games = league
+                .number_of_games
+                .unwrap_or(Self::DEFAULT_NUMBER_OF_GAMES);
+            let max_inning = league.max_inning.unwrap_or(Self::DEFAULT_MAX_INNING);
+            let base_four_seam_speed = league
+                .base_four_seam_speed
+                .unwrap_or(Self::DEFAULT_BASE_FOUR_SEAM_SPEED);
 
-            while *games_played.get(&first_team_id).unwrap_or(&0) < TOTAL_GAMES {
+            while *games_played.get(&first_team_id).unwrap_or(&0) < number_of_games {
                 current_date = next_playable_date(current_date);
 
                 let mut temp_teams = dequed_teams.clone();
@@ -73,7 +84,7 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                             (t_b, t_a)
                         };
 
-                        if *games_played.get(&home.id).unwrap_or(&0) < TOTAL_GAMES {
+                        if *games_played.get(&home.id).unwrap_or(&0) < number_of_games {
                             // last_game_id += 1;
                             game_schedules.push(GameSchedule {
                                 id: 0, // Dummy
@@ -85,6 +96,8 @@ impl<R: ScheduleRepository> ScheduleService<R> {
                                 away_team: away.clone(),
                                 stadium: Stadium::default(),
                                 game_type: GameType::Regular,
+                                max_inning,
+                                base_four_seam_speed,
                             });
                         }
                     }
@@ -186,11 +199,64 @@ mod tests {
         service.schedule_season().unwrap();
 
         let schedules = &service.repo.saved_batches[0];
+        let default_number_of_games = ScheduleService::<RecordingRepo>::DEFAULT_NUMBER_OF_GAMES;
         for team_id in 1..=6 {
             let count = team_game_count(schedules, team_id);
-            assert!(count >= TOTAL_GAMES as usize);
-            assert!(count <= TOTAL_GAMES as usize + 2);
+            assert!(count >= default_number_of_games as usize);
+            assert!(count <= default_number_of_games as usize + 2);
         }
+    }
+
+    #[test]
+    fn schedule_season_uses_league_number_of_games() {
+        let mut league = league(1, 1);
+        league.number_of_games = Some(12);
+        let mut service = ScheduleService {
+            repo: RecordingRepo::new(vec![league]),
+        };
+
+        service.schedule_season().unwrap();
+
+        let schedules = &service.repo.saved_batches[0];
+        for team_id in 1..=6 {
+            let count = team_game_count(schedules, team_id);
+            assert!(count >= 12);
+            assert!(count <= 14);
+        }
+    }
+
+    #[test]
+    fn schedule_season_uses_league_max_inning() {
+        let mut league = league(1, 1);
+        league.max_inning = Some(7);
+        let mut service = ScheduleService {
+            repo: RecordingRepo::new(vec![league]),
+        };
+
+        service.schedule_season().unwrap();
+
+        assert!(
+            service.repo.saved_batches[0]
+                .iter()
+                .all(|schedule| schedule.max_inning == 7)
+        );
+    }
+
+    #[test]
+    fn schedule_season_uses_league_base_four_seam_speed() {
+        let mut league = league(1, 1);
+        league.base_four_seam_speed = Some(42.0);
+        let mut service = ScheduleService {
+            repo: RecordingRepo::new(vec![league]),
+        };
+
+        service.schedule_season().unwrap();
+
+        assert!(
+            service.repo.saved_batches[0]
+                .iter()
+                .all(|schedule| schedule.base_four_seam_speed == 42.0)
+        );
     }
 
     #[test]
@@ -345,6 +411,9 @@ mod tests {
             id: 1,
             name: "Empty".into(),
             teams: Vec::new(),
+            number_of_games: Some(ScheduleService::<RecordingRepo>::DEFAULT_NUMBER_OF_GAMES),
+            max_inning: None,
+            base_four_seam_speed: None,
         };
         let mut service = ScheduleService {
             repo: RecordingRepo::new(vec![empty_league]),

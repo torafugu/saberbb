@@ -8,7 +8,10 @@
 ```sql
 CREATE TABLE league (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    number_of_games INTEGER,
+    max_inning INTEGER,
+    base_four_seam_speed REAL
 )
 ```
 
@@ -16,10 +19,13 @@ CREATE TABLE league (
 
 ## Columns
 
-| Name | Type    | Default | Nullable | Children | Parents | Comment |
-| ---- | ------- | ------- | -------- | -------- | ------- | ------- |
-| id   | INTEGER |         | true     |          |         |         |
-| name | TEXT    |         | false    |          |         |         |
+| Name                 | Type    | Default | Nullable | Children | Parents | Comment |
+| -------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| id                   | INTEGER |         | true     |          |         |         |
+| name                 | TEXT    |         | false    |          |         |         |
+| number_of_games      | INTEGER |         | true     |          |         |         |
+| max_inning           | INTEGER |         | true     |          |         |         |
+| base_four_seam_speed | REAL    |         | true     |          |         |         |
 
 ## Constraints
 

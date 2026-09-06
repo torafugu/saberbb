@@ -1,9 +1,9 @@
 INSERT INTO
-    league (name)
+    league (
+        name,
+        number_of_games,
+        max_inning,
+        base_four_seam_speed
+    )
 VALUES
-    ("A-League");
-
-INSERT INTO
-    league (name)
-VALUES
-    ("Z-League");
+    ("A-League", 140, 12, 40.833);

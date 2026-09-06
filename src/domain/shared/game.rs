@@ -22,8 +22,6 @@ use strum_macros::{AsRefStr, EnumString};
 use validator::Validate;
 
 pub const BASE_DISTANCE: f64 = 27.431;
-// TODO: Move to league wise parameter.
-pub const TOTAL_GAMES: u16 = 140;
 
 #[derive(Clone, Serialize, Deserialize, Debug, EnumString, AsRefStr)]
 #[strum(ascii_case_insensitive)]
@@ -74,6 +72,8 @@ pub struct GameSchedule {
     pub home_team: Team,
     pub game_type: GameType,
     pub stadium: Stadium,
+    pub max_inning: u8,
+    pub base_four_seam_speed: f64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]

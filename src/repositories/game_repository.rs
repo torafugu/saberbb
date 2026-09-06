@@ -210,7 +210,9 @@ impl GameScheduleReader for SqlGameRepository {
                             st.foul_pole_distance AS stadium_foul_pole_distance,
                             st.center_fence_distance AS stadium_center_fence_distance,
                             st.fence_height AS stadium_fence_height,
-                            g.game_type
+                            g.game_type,
+                            COALESCE(l.max_inning, 12) AS max_inning,
+                            COALESCE(l.base_four_seam_speed, 40.833) AS base_four_seam_speed
                             FROM game g
                             INNER JOIN game_season s
                     	        ON s.current_season = g.season
@@ -221,6 +223,8 @@ impl GameScheduleReader for SqlGameRepository {
                 		        team t_home ON g.home_team_id = t_home.id
                             LEFT JOIN
                                 stadium st ON g.stadium_id = st.id
+                            LEFT JOIN
+                                league l ON t_away.league_id = l.id
                             WHERE g.actual_date IS NULL
                             ORDER BY round_seq, seq DESC";
         let mut game_schedules = self
@@ -585,6 +589,14 @@ mod tests {
                 current_round_seq INTEGER NOT NULL
             );
 
+            CREATE TABLE league (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                number_of_games INTEGER,
+                max_inning INTEGER,
+                base_four_seam_speed REAL
+            );
+
             CREATE TABLE team (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 league_id INTEGER NOT NULL,
@@ -790,6 +802,13 @@ mod tests {
 
     fn seed_teams(repo: &SqlGameRepository) {
         let conn = conn(repo);
+        conn.execute(
+            "INSERT INTO league (
+                id, name, number_of_games, max_inning, base_four_seam_speed
+            ) VALUES (1, 'League', 140, 12, 40.833)",
+            [],
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO team (id, league_id, name) VALUES (1, 1, 'Away')",
             [],
@@ -1127,6 +1146,8 @@ mod tests {
         assert_eq!(schedules[0].id, 2);
         assert_eq!(schedules[0].season, 2026);
         assert_eq!(schedules[0].round_seq, 2);
+        assert_eq!(schedules[0].max_inning, 12);
+        assert_eq!(schedules[0].base_four_seam_speed, 40.833);
         assert_eq!(schedules[0].away_team.players.len(), 9);
         assert_eq!(schedules[0].home_team.players.len(), 9);
         assert_eq!(schedules[0].away_team.players[0].info.id, 1);

@@ -11,6 +11,9 @@ impl FromRow for League {
             id: row.get("id")?,
             name: row.get("name")?,
             teams: Vec::new(),
+            number_of_games: row.get("number_of_games")?,
+            max_inning: row.get("max_inning")?,
+            base_four_seam_speed: row.get("base_four_seam_speed")?,
         };
 
         league.validate()?;

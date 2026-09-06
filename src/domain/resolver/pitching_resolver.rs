@@ -6,8 +6,6 @@ use crate::domain::util::GRAVITY;
 use crate::domain::util::sigmoid;
 use crate::error::AppError;
 
-// TODO: Move to league pamater
-const BASE_FOUR_SEAM_SPEED: f64 = 40.833; // 147.0 km/h;
 const PITCH_OFFSET_DECISION_RATIO: f64 = 0.6;
 
 // Pitch decelerates by approx. 8–10% from initial velocity due to air resistance by the time it reaches the mitt,
@@ -31,6 +29,7 @@ pub fn create_pitch(
     rng: &mut dyn RandomProvider,
     pitcher: &PitcherInfo,
     hanging_pitch_effect: Option<f64>,
+    base_four_seam_speed: f64,
 ) -> Result<PitchedBall, AppError> {
     let pitch_effect = if let Some(effect) = hanging_pitch_effect {
         effect
@@ -52,7 +51,7 @@ pub fn create_pitch(
     let speed = pitcher.velocity * pitch_skill.velocity * pitch_effect;
 
     // NOTE: Speed-based correction (slower pitches have lower spin rate)
-    let speed_factor = speed / BASE_FOUR_SEAM_SPEED;
+    let speed_factor = speed / base_four_seam_speed;
 
     let raw_spin_rate =
         pitcher.spin_rate * pitch_skill.spin_rate * pitch_effect.max(1.0) * speed_factor;
@@ -140,7 +139,6 @@ pub struct LocationBias {
     pub spatial_bias_y: f64,
 }
 
-// TODO: Reflect each batter's strengths and weaknesses with pitch location
 pub fn calculate_location_bias(location: BallLocation) -> LocationBias {
     // 1. Inside (x < 0) tends to make batter late (+), Outside (x > 0) tends to make batter early (-)
     // Inside pitches jam the batter up to +0.012s (12ms), outside pitches can be waited on -0.010s
@@ -166,6 +164,7 @@ pub fn calculate_pitch_offset(
     matchup: &MatchupContext,
     location_bias: &LocationBias,
     batting_eye: f64,
+    base_four_seam_speed: f64,
 ) -> PitchDisplacement {
     // 1. Point at which the batter commits to the swing (approx. 60% of total flight time)
     let remaining_time = pitched_ball.flight_time * (1.0 - PITCH_OFFSET_DECISION_RATIO);
@@ -192,8 +191,13 @@ pub fn calculate_pitch_offset(
     let enhanced_offset_y = offset_y + location_bias.spatial_bias_y;
 
     // 8. Timing calculation
-    let timing_offset_sec = calculate_timing_offset(rng, pitched_ball, expected_ball, batting_eye)
-        + location_bias.timing_bias_sec;
+    let timing_offset_sec = calculate_timing_offset(
+        rng,
+        pitched_ball,
+        expected_ball,
+        batting_eye,
+        base_four_seam_speed,
+    ) + location_bias.timing_bias_sec;
 
     PitchDisplacement {
         crossfire_multiplier: crossfire_multiplier,
@@ -232,6 +236,7 @@ fn calculate_timing_offset(
     pitched_ball: &PitchedBall,
     expected_ball: &PitchedBall,
     batting_eye: f64,
+    base_four_seam_speed: f64,
 ) -> f64 {
     // 1. Actual flight time (calculated from extension and actual pitch speed)
     let actual_release_point = pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
@@ -244,7 +249,7 @@ fn calculate_timing_offset(
         calculate_flight_time(expected_ball.speed, release_point_seen_from_batter);
 
     // 3. Adjustment based on pitch speed
-    let speed_factor = (pitched_ball.speed / BASE_FOUR_SEAM_SPEED).min(1.0);
+    let speed_factor = (pitched_ball.speed / base_four_seam_speed).min(1.0);
 
     // 4. Flight time difference (pure physical timing offset)
     // Sign convention for why raw_delta_t > 0 means late:
@@ -289,6 +294,7 @@ mod tests {
 
     const EPSILON: f64 = 1e-9;
     const TEST_BATTING_EYE: f64 = 0.0;
+    const TEST_BASE_FOUR_SEAM_SPEED: f64 = 40.833;
 
     fn assert_near(actual: f64, expected: f64) {
         assert!(
@@ -326,9 +332,10 @@ mod tests {
         pitch_skill_velocity: f64,
         pitch_skill_spin_rate: f64,
         pitch_effect: f64,
+        base_four_seam_speed: f64,
     ) -> f64 {
         let speed = pitcher_velocity * pitch_skill_velocity * pitch_effect;
-        2200.0 * pitch_skill_spin_rate * pitch_effect * (speed / BASE_FOUR_SEAM_SPEED)
+        2200.0 * pitch_skill_spin_rate * pitch_effect * (speed / base_four_seam_speed)
     }
 
     fn pitcher(throw_side: RL, pitch_skills: Vec<PitchSkill>) -> PitcherInfo {
@@ -406,7 +413,8 @@ mod tests {
         );
         let pitch_skill = pitcher.pitch_skills[0];
 
-        let ball = create_pitch(&mut rng, &pitcher, None).expect("pitch should be created");
+        let ball = create_pitch(&mut rng, &pitcher, None, TEST_BASE_FOUR_SEAM_SPEED)
+            .expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::FourSeamFastball);
         assert_near(ball.speed, 150.0);
@@ -417,6 +425,7 @@ mod tests {
                 pitch_skill.velocity,
                 pitch_skill.spin_rate,
                 1.0,
+                TEST_BASE_FOUR_SEAM_SPEED,
             ),
         );
         assert_near(ball.spin_angle, 75.0);
@@ -435,7 +444,8 @@ mod tests {
         let pitcher = pitcher(RL::Left, vec![pitch_skill(PitchType::Slider, 20.0, 2300.0)]);
         let pitch_skill = pitcher.pitch_skills[0];
 
-        let ball = create_pitch(&mut rng, &pitcher, None).expect("pitch should be created");
+        let ball = create_pitch(&mut rng, &pitcher, None, TEST_BASE_FOUR_SEAM_SPEED)
+            .expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::Slider);
         assert_near(ball.speed, 132.0);
@@ -446,10 +456,36 @@ mod tests {
                 pitch_skill.velocity,
                 pitch_skill.spin_rate,
                 1.0,
+                TEST_BASE_FOUR_SEAM_SPEED,
             ),
         );
         assert_near(ball.spin_angle, 285.0);
         assert_near(ball.release_point.x, -0.55);
+    }
+
+    #[test]
+    fn create_pitch_uses_base_four_seam_speed_for_spin_factor() {
+        let mut rng = FixedRng::new(0.0);
+        let pitcher = pitcher(
+            RL::Right,
+            vec![pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0)],
+        );
+        let pitch_skill = pitcher.pitch_skills[0];
+        let base_four_seam_speed = TEST_BASE_FOUR_SEAM_SPEED * 2.0;
+
+        let ball = create_pitch(&mut rng, &pitcher, None, base_four_seam_speed)
+            .expect("pitch should be created");
+
+        assert_near(
+            ball.spin_rate,
+            expected_raw_spin_rate(
+                pitcher.velocity,
+                pitch_skill.velocity,
+                pitch_skill.spin_rate,
+                1.0,
+                base_four_seam_speed,
+            ),
+        );
     }
 
     #[test]
@@ -486,7 +522,8 @@ mod tests {
         );
         let pitch_skill = pitcher.pitch_skills[0];
 
-        let ball = create_pitch(&mut rng, &pitcher, Some(0.9)).expect("pitch should be created");
+        let ball = create_pitch(&mut rng, &pitcher, Some(0.9), TEST_BASE_FOUR_SEAM_SPEED)
+            .expect("pitch should be created");
 
         assert_near(ball.speed, 135.0);
         assert_near(
@@ -496,6 +533,7 @@ mod tests {
                 pitch_skill.velocity,
                 pitch_skill.spin_rate,
                 0.9,
+                TEST_BASE_FOUR_SEAM_SPEED,
             ),
         );
         assert_near(ball.spin_angle, 73.0);
@@ -565,6 +603,7 @@ mod tests {
             },
             &zero_location_bias(),
             TEST_BATTING_EYE,
+            TEST_BASE_FOUR_SEAM_SPEED,
         );
 
         assert_near(displacement.horizontal_offset_m, expected_horizontal);
@@ -617,6 +656,7 @@ mod tests {
             },
             &zero_location_bias(),
             TEST_BATTING_EYE,
+            TEST_BASE_FOUR_SEAM_SPEED,
         );
         let crossfire = calculate_pitch_offset(
             &mut rng,
@@ -628,6 +668,7 @@ mod tests {
             },
             &zero_location_bias(),
             TEST_BATTING_EYE,
+            TEST_BASE_FOUR_SEAM_SPEED,
         );
 
         assert!(crossfire.horizontal_offset_m > same_side.horizontal_offset_m);
@@ -664,6 +705,7 @@ mod tests {
             },
             &location_bias,
             TEST_BATTING_EYE,
+            TEST_BASE_FOUR_SEAM_SPEED,
         );
 
         assert_near(
@@ -683,7 +725,15 @@ mod tests {
         let ball = pitched_ball(135.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
-        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE) > 0.0);
+        assert!(
+            calculate_timing_offset(
+                &mut rng,
+                &ball,
+                &expected_ball,
+                TEST_BATTING_EYE,
+                TEST_BASE_FOUR_SEAM_SPEED,
+            ) > 0.0
+        );
     }
 
     #[test]
@@ -692,6 +742,14 @@ mod tests {
         let ball = pitched_ball(160.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
-        assert!(calculate_timing_offset(&mut rng, &ball, &expected_ball, TEST_BATTING_EYE) < 0.0);
+        assert!(
+            calculate_timing_offset(
+                &mut rng,
+                &ball,
+                &expected_ball,
+                TEST_BATTING_EYE,
+                TEST_BASE_FOUR_SEAM_SPEED,
+            ) < 0.0
+        );
     }
 }
