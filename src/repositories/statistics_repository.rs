@@ -1,3 +1,4 @@
+use crate::domain::shared::stat::BattingStats;
 use crate::domain::shared::stat::Standing;
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
@@ -6,7 +7,7 @@ use rusqlite::params;
 
 pub trait StatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
-    // fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
+    fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
 }
 
 #[derive(Clone)]
@@ -69,30 +70,27 @@ impl StatRepository for SqlStatRepository {
         self.db_client.query_rows::<Standing>(query, params![])
     }
 
-    // fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError> {
-    //     let query = "SELECT
-    //                         player_id,
-    //                         p.first_name AS player_first_name,
-    //                         p.last_name AS player_last_name,
-    //                         p.age AS player_last_age,
-    //                         p.throw AS player_throw,
-    //                         p.bat AS player_bat,
-    //                         p.mod_ba AS player_mod_ba,
-    //                         p.mod_slg AS player_mod_slg,
-    //                         SUM(1) AS AB,
-    //                         SUM(CASE WHEN result = 'Single' THEN 1 ELSE 0 END) AS single,
-    //                         SUM(CASE WHEN result = 'Double' THEN 1 ELSE 0 END) AS double,
-    //                         SUM(CASE WHEN result = 'Triple' THEN 1 ELSE 0 END) AS triple,
-    //                         SUM(CASE WHEN result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
-    //                         COALESCE(ROUND(CAST(SUM(CASE WHEN result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
-    //                         SUM(point) AS rbi
-    //                         FROM count
-    //                         LEFT JOIN
-    //                             Player p ON count.player_id = p.id
-    //                         GROUP BY player_id
-    //                         ORDER BY player_id";
-    //     self.db_client.query_rows::<BattingStats>(query, params![])
-    // }
+    fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError> {
+        let query = "SELECT
+                            pgb.batter_id AS player_id,
+                            pi.first_name AS batter_first_name,
+                            pi.last_name AS batter_last_name,
+                            SUM(1) AS AB,
+                            SUM(CASE WHEN pgb.result = 'Single' THEN 1 ELSE 0 END) AS single,
+                            SUM(CASE WHEN pgb.result = 'Double' THEN 1 ELSE 0 END) AS double,
+                            SUM(CASE WHEN pgb.result = 'Triple' THEN 1 ELSE 0 END) AS triple,
+                            SUM(CASE WHEN pgb.result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
+                            COALESCE(ROUND(CAST(SUM(CASE WHEN pgb.result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
+                            SUM(c.point) AS rbi
+                            FROM player_game_batting pgb
+                            LEFT JOIN
+                                count c ON pgb.game_id = c.game_id AND pgb.count_seq = c.seq
+                            LEFT JOIN
+                                player_info pi ON pgb.batter_id = pi.id
+                            GROUP BY pgb.batter_id
+                            ORDER BY pgb.batter_id";
+        self.db_client.query_rows::<BattingStats>(query, params![])
+    }
 }
 
 #[cfg(test)]

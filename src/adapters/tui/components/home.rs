@@ -1,5 +1,6 @@
 use super::super::app::Mode;
 use super::Component;
+use super::batting_stats::BattingStatsWidget;
 use super::game_results::GameResultsWidget;
 use super::standings::StandingsWidget;
 use crate::adapters::tui::action::{Action, MenuOption};
@@ -19,6 +20,7 @@ pub struct Home {
     menu_state: ListState,
     selected_item: Option<MenuOption>,
     game_results: GameResultsWidget,
+    batting_stats: BattingStatsWidget,
 }
 
 impl Home {
@@ -32,6 +34,7 @@ impl Home {
             menu_items: MenuOption::iter().collect(),
             menu_state,
             game_results: GameResultsWidget::new(),
+            batting_stats: BattingStatsWidget::new(),
             ..Default::default()
         }
     }
@@ -66,18 +69,21 @@ impl Home {
 impl Component for Home {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
         self.command_tx = Some(tx.clone());
-        self.game_results.register_action_handler(tx)?;
+        self.game_results.register_action_handler(tx.clone())?;
+        self.batting_stats.register_action_handler(tx)?;
         Ok(())
     }
 
     fn register_config_handler(&mut self, config: Config) -> color_eyre::Result<()> {
         self.config = config.clone();
-        self.game_results.register_config_handler(config)?;
+        self.game_results.register_config_handler(config.clone())?;
+        self.batting_stats.register_config_handler(config)?;
         Ok(())
     }
 
     fn init(&mut self, area: Size) -> color_eyre::Result<()> {
         self.game_results.init(area)?;
+        self.batting_stats.init(area)?;
         Ok(())
     }
 
@@ -94,6 +100,20 @@ impl Component for Home {
             }
 
             return self.game_results.handle_key_event(key);
+        }
+
+        if matches!(self.selected_item, Some(MenuOption::ViewBattingStat)) {
+            if self
+                .config
+                .keybindings
+                .0
+                .get(&Mode::Home)
+                .is_some_and(|keymap| keymap.contains_key(&vec![key]))
+            {
+                return Ok(None);
+            }
+
+            return self.batting_stats.handle_key_event(key);
         }
 
         Ok(None)
@@ -115,6 +135,15 @@ impl Component for Home {
             return self.game_results.update(action);
         }
 
+        if matches!(self.selected_item, Some(MenuOption::ViewBattingStat))
+            && matches!(
+                action,
+                Action::SelectNext | Action::SelectPrevious | Action::SelectGameDetailTab(_)
+            )
+        {
+            return self.batting_stats.update(action);
+        }
+
         match action {
             Action::Render => {
                 // add any logic here that should run on every render
@@ -129,6 +158,10 @@ impl Component for Home {
                 Ok(Some(Action::Render))
             }
             Action::ConfirmSelection => Ok(self.selected_menu_item().map(Action::MenuItemSelected)),
+            Action::Back if matches!(self.selected_item, Some(MenuOption::ViewBattingStat)) => {
+                self.selected_item = None;
+                Ok(Some(Action::Render))
+            }
             Action::MenuItemSelected(item) => {
                 self.selected_item = Some(item);
                 Ok(Some(Action::Render))
@@ -164,6 +197,7 @@ impl Component for Home {
         match self.selected_item {
             Some(MenuOption::ViewStandings) => frame.render_widget(StandingsWidget, layout[1]),
             Some(MenuOption::ViewGameResults) => self.game_results.draw(frame, layout[1])?,
+            Some(MenuOption::ViewBattingStat) => self.batting_stats.draw(frame, layout[1])?,
             _ => {
                 let details = self.detail_text();
                 frame.render_widget(
