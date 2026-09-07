@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const GRAVITY: f64 = 9.81;
 
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Vector3D {
     pub x: f64,
     pub y: f64,

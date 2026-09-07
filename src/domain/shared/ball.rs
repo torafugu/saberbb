@@ -181,7 +181,7 @@ impl BattedBall {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BallLocation {
     // x: -1.0 (inside/right-handed batter) ~ +1.0 (outside/right-handed batter)
     pub x: f64,
@@ -227,7 +227,7 @@ impl BallLocation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BallMovement {
     pub x_m: f64,
     pub z_m: f64,
@@ -258,6 +258,7 @@ impl BallZone {
     }
 }
 
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct PitchedBall {
     pub pitch_type: PitchType,
     pub speed: f64,      // NOTE: (e.g., 41.67 m/s = 150.0 km/h)

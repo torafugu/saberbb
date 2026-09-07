@@ -13,7 +13,6 @@ impl<R: GameRoundRepository> GameService<R> {
     pub fn process_game_round(&mut self) -> Result<()> {
         info!("process_game_round() started");
 
-        // TODO: move stadium to GameSchedule
         let game_schedules = self
             .repo
             .load_game_schedules_to_process()
@@ -31,8 +30,6 @@ impl<R: GameRoundRepository> GameService<R> {
                 game_state.advance_half_inning();
 
                 while let InningProgress::Ongoing = game_state.inning_state.inning_progress() {
-                    // TODO: Consider ball updated
-                    // TODO: Consider strike updated
                     game_state.process_count()?;
 
                     if let GameProgress::WalkOff = game_state.progress() {

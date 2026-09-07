@@ -1,12 +1,11 @@
 use super::game::BattingResult;
 use crate::domain::resolver::fielding_resolver::PlayType;
+use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::RunningEvent;
+use crate::domain::shared::ball::{BallMovement, BattedBall, PitchedBall};
 use crate::domain::shared::game_state::Ruling;
+use crate::domain::shared::player::{PlayerInfo, Position};
 use crate::domain::shared::stadium::Base;
-use crate::domain::shared::{
-    ball::BattedBall,
-    player::{PlayerInfo, Position},
-};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -95,6 +94,10 @@ impl PlayerGameEntry {
 pub struct PlayerGamePitching {
     pub count_seq: u16,
     pub pitcher_id: i64,
+    pub ball: PitchedBall,
+    pub ball_movement: BallMovement,
+    pub location_bias: LocationBias,
+    pub pitch_displacement: PitchDisplacement,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]

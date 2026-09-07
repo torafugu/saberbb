@@ -1,0 +1,32 @@
+DROP TABLE player_game_pitching;
+
+CREATE TABLE player_game_pitching (
+    game_id INTEGER,
+    count_seq INTEGER,
+    pitcher_id INTEGER NOT NULL,
+    pitch_type TEXT NOT NULL,
+    speed REAL NOT NULL,
+    spin_rate REAL NOT NULL,
+    spin_angle REAL NOT NULL,
+    spin_efficiency REAL NOT NULL,
+    release_point_x REAL NOT NULL,
+    release_point_y REAL NOT NULL,
+    release_point_z REAL NOT NULL,
+    flight_time REAL NOT NULL,
+    aim_zone TEXT NOT NULL,
+    aim_location_x REAL NOT NULL,
+    aim_location_y REAL NOT NULL,
+    actual_location_x REAL NOT NULL,
+    actual_location_y REAL NOT NULL,
+    ball_movement_x_m REAL NOT NULL,
+    ball_movement_z_m REAL NOT NULL,
+    timing_bias_sec REAL NOT NULL,
+    spatial_bias_x REAL NOT NULL,
+    spatial_bias_y REAL NOT NULL,
+    crossfire_multiplier REAL NOT NULL,
+    release_x_factor REAL NOT NULL,
+    horizontal_offset_m REAL NOT NULL,
+    vertical_offset_m REAL NOT NULL,
+    timing_offset_sec REAL NOT NULL,
+    PRIMARY KEY (game_id, count_seq)
+);

@@ -67,7 +67,7 @@ impl Team {
             let random_player = vec[index];
             selected_player_ids.push(random_player.info.id);
 
-            // TODO: Move to team pameter
+            // TODO: Move to team pameter. (It should be set in FieldingStrategy, originally.)
             let polar_position = match position {
                 Position::P => PolarPosition::new(MOUND_DISTANCE, 0.0),
                 Position::C => PolarPosition::new(0.0, 0.0),

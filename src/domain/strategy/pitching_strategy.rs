@@ -2,6 +2,7 @@ use crate::domain::shared::ball::BallLocation;
 use crate::domain::shared::ball::BallZone;
 use crate::domain::shared::player::PitchType;
 use crate::domain::shared::prob::ItemWeighted;
+use serde::{Deserialize, Serialize};
 use strum_macros::{AsRefStr, EnumIter};
 
 const WIDE_AIM_FACTOR: f64 = 3.0;
@@ -32,7 +33,7 @@ pub enum TargetZoneSimilarity {
     Opposite,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash, AsRefStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash, AsRefStr, Serialize, Deserialize)]
 pub enum TargetZone {
     Center,
     LowInside,

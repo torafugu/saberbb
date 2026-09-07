@@ -7,11 +7,12 @@ use super::team::Team;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, DoublePlayDefensePlayResult, PlayType,
 };
+use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::{
     DoublePlayRunnerAdvanceResult, RunnerAdvanceResult, RunnersUnsaved, RunningEvent,
     StealRunnerAdvanceResult,
 };
-use crate::domain::shared::ball::BattedBall;
+use crate::domain::shared::ball::{BallMovement, BattedBall, PitchedBall};
 use crate::domain::shared::player::Position;
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::t;
@@ -158,6 +159,26 @@ impl GameResult {
                 player_entry.end_count_seq = Some(end_count_seq);
             }
         }
+    }
+
+    pub fn add_player_pitching(
+        &mut self,
+        count_seq: u16,
+        pitcher_id: i64,
+        ball: PitchedBall,
+        ball_movement: BallMovement,
+        location_bias: LocationBias,
+        pitch_displacement: PitchDisplacement,
+    ) {
+        let player_pitching = PlayerGamePitching {
+            count_seq,
+            pitcher_id,
+            ball,
+            ball_movement,
+            location_bias,
+            pitch_displacement,
+        };
+        self.player_pitchings.push(player_pitching);
     }
 
     pub fn add_player_batting(

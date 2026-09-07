@@ -5,6 +5,7 @@ use crate::domain::shared::player::RL;
 use crate::domain::util::GRAVITY;
 use crate::domain::util::sigmoid;
 use crate::error::AppError;
+use serde::{Deserialize, Serialize};
 
 const PITCH_OFFSET_DECISION_RATIO: f64 = 0.6;
 
@@ -111,7 +112,7 @@ pub fn calculate_flight_time(speed: f64, release_point_y: f64) -> f64 {
     flight_time
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct PitchDisplacement {
     pub crossfire_multiplier: f64,
     pub release_x_factor: f64,
@@ -133,6 +134,7 @@ pub fn calculate_ball_movement(ball: &PitchedBall) -> BallMovement {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct LocationBias {
     pub timing_bias_sec: f64,
     pub spatial_bias_x: f64,

@@ -15,7 +15,7 @@ use crate::repositories::sql_helper::game_helper::{
 };
 use crate::repositories::sql_helper::game_stat_helper::{
     insert_player_game_batting, insert_player_game_entry, insert_player_game_fielding,
-    insert_player_game_running,
+    insert_player_game_pitching, insert_player_game_running,
 };
 use anyhow::Result;
 use rusqlite::params;
@@ -122,6 +122,10 @@ impl GameResultWriter for SqlGameRepository {
 
             for player_game_entry in &game.player_entries {
                 insert_player_game_entry(&self.db_client, tx, game.id, player_game_entry)?;
+            }
+
+            for player_game_pitching in &game.player_pitchings {
+                insert_player_game_pitching(&self.db_client, tx, game.id, player_game_pitching)?;
             }
 
             for player_game_batting in &game.player_battings {

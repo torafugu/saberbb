@@ -629,8 +629,12 @@ impl GameResultsWidget {
     }
 
     fn format_count(count: &Count) -> String {
-        let mut formatted_count = format!("{}: {}\n", "B", Self::display_count_number(0));
-        formatted_count.push_str(&format!("{}: {}\n", "S", Self::display_count_number(0)));
+        let mut formatted_count = format!("{}: {}\n", "B", Self::display_count_number(count.ball));
+        formatted_count.push_str(&format!(
+            "{}: {}\n",
+            "S",
+            Self::display_count_number(count.strike)
+        ));
         formatted_count.push_str(&format!(
             "{}: {}\n",
             "O",

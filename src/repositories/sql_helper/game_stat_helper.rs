@@ -5,7 +5,7 @@ use crate::domain::shared::game::{BattingResult, FieldingResult};
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGameRunning, PlayerGameRunningView,
+    PlayerGameFielding, PlayerGamePitching, PlayerGameRunning, PlayerGameRunningView,
 };
 use crate::domain::shared::player::PlayerInfo;
 use crate::domain::shared::stadium::Base;
@@ -23,6 +23,18 @@ const INSERT_PLAYER_GAME_ENTRY_SQL: &str = "INSERT INTO player_game_entry (
         game_id, start_count_seq, end_count_seq, position, batting_order, player_id
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6
+    )";
+
+const INSERT_PLAYER_GAME_PITCHING_SQL: &str = "INSERT INTO player_game_pitching (
+        game_id, count_seq, pitcher_id, pitch_type, speed, spin_rate, spin_angle,
+        spin_efficiency, release_point_x, release_point_y, release_point_z, flight_time,
+        aim_zone, aim_location_x, aim_location_y, actual_location_x, actual_location_y,
+        ball_movement_x_m, ball_movement_z_m, timing_bias_sec, spatial_bias_x, spatial_bias_y,
+        crossfire_multiplier, release_x_factor, horizontal_offset_m, vertical_offset_m,
+        timing_offset_sec
+    ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+        ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27
     )";
 
 const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
@@ -69,6 +81,50 @@ pub fn insert_player_game_entry(
             player_game_entry.position,
             player_game_entry.batting_order,
             player_game_entry.player_id
+        ],
+    )
+}
+
+#[tracing::instrument(skip(db_client, tx, player_game_pitching), fields(game_id = %game_id, count_seq = %player_game_pitching.count_seq), err)]
+pub fn insert_player_game_pitching(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game_id: u32,
+    player_game_pitching: &PlayerGamePitching,
+) -> Result<usize, AppError> {
+    info!("insert_player_game_pitching() started");
+
+    db_client.execute_tx(
+        tx,
+        INSERT_PLAYER_GAME_PITCHING_SQL,
+        params![
+            game_id,
+            player_game_pitching.count_seq,
+            player_game_pitching.pitcher_id,
+            player_game_pitching.ball.pitch_type.as_ref(),
+            player_game_pitching.ball.speed,
+            player_game_pitching.ball.spin_rate,
+            player_game_pitching.ball.spin_angle,
+            player_game_pitching.ball.spin_efficiency,
+            player_game_pitching.ball.release_point.x,
+            player_game_pitching.ball.release_point.y,
+            player_game_pitching.ball.release_point.z,
+            player_game_pitching.ball.flight_time,
+            player_game_pitching.ball.aim_zone.as_ref(),
+            player_game_pitching.ball.aim_location.x,
+            player_game_pitching.ball.aim_location.y,
+            player_game_pitching.ball.actual_location.x,
+            player_game_pitching.ball.actual_location.y,
+            player_game_pitching.ball_movement.x_m,
+            player_game_pitching.ball_movement.z_m,
+            player_game_pitching.location_bias.timing_bias_sec,
+            player_game_pitching.location_bias.spatial_bias_x,
+            player_game_pitching.location_bias.spatial_bias_y,
+            player_game_pitching.pitch_displacement.crossfire_multiplier,
+            player_game_pitching.pitch_displacement.release_x_factor,
+            player_game_pitching.pitch_displacement.horizontal_offset_m,
+            player_game_pitching.pitch_displacement.vertical_offset_m,
+            player_game_pitching.pitch_displacement.timing_offset_sec
         ],
     )
 }

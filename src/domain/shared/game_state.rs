@@ -740,9 +740,6 @@ impl GameState {
     pub fn process_count(&mut self) -> Result<(), GameError> {
         info!("new count started");
 
-        // TODO: stadium should move to Game.
-        let stadium = Stadium::new(1, "AAA".to_string(), 98.0, 120.0, 2.0);
-
         let active_pitcher = self.current_pitcher()?;
         let pitcher_id = active_pitcher.id;
         let pitcher = active_pitcher.pitcher.clone();
@@ -770,7 +767,7 @@ impl GameState {
             self.base_four_seam_speed,
         )?;
 
-        let _absolute_location = calculate_ball_movement(&pitched_ball);
+        let ball_movement = calculate_ball_movement(&pitched_ball);
 
         let matchup = MatchupContext {
             throw_side: pitcher.throw_side,
@@ -787,6 +784,15 @@ impl GameState {
             &location_bias,
             batter.batting_eye,
             self.base_four_seam_speed,
+        );
+
+        self.game_result.add_player_pitching(
+            self.count_seq,
+            pitcher_id,
+            pitched_ball,
+            ball_movement,
+            location_bias,
+            pitch_displacement,
         );
 
         let batting_factor = calculate_batting_factor(
@@ -827,7 +833,6 @@ impl GameState {
                     batting_side,
                     pitched_ball,
                     &swing_contact,
-                    &stadium,
                 )?;
             };
         };
@@ -925,9 +930,9 @@ impl GameState {
         batting_side: RL,
         pitched_ball: PitchedBall,
         swing_contact: &SwingContactResult,
-        stadium: &Stadium,
     ) -> Result<(), GameError> {
-        let batted_ball = calculate_batted_ball(batter, pitched_ball, swing_contact, stadium)?;
+        let batted_ball =
+            calculate_batted_ball(batter, pitched_ball, swing_contact, &self.stadium)?;
 
         info!("Batted Ball: {:#?}", batted_ball);
 
