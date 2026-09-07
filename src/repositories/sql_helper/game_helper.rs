@@ -244,6 +244,7 @@ impl FromRow for GameDetail {
             away_points: row.get("away_points")?,
             home_points: row.get("home_points")?,
             player_entries: Vec::new(),
+            player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_runnings: Vec::new(),
         };

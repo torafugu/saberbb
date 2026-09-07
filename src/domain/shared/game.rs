@@ -366,6 +366,7 @@ pub struct GameDetail {
     pub away_points: u8,
     pub home_points: u8,
     pub player_entries: Vec<PlayerGameEntryView>,
+    pub player_pitchings: Vec<PlayerGamePitching>,
     pub player_battings: Vec<PlayerGameBattingView>,
     pub player_runnings: Vec<PlayerGameRunningView>,
 }

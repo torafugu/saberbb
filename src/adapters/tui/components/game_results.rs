@@ -1,6 +1,7 @@
 use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
+use crate::domain::shared::ball::BallLocation;
 use crate::domain::shared::game::{Count, GameHeader};
 use crate::domain::shared::game_cursor::{BatterGameStatView, GameCursor, ScoreBoard};
 use crate::repositories::game_repository::{GameDetailReader, ProcessedGameReader};
@@ -28,6 +29,12 @@ enum GameDetailTab {
     GameResult,
     BattingStats,
     PitchingStats,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PitchZoneSection {
+    Ball(u8),
+    Strike(u8),
 }
 impl GameDetailTab {
     fn from_index(index: usize) -> Option<Self> {
@@ -445,13 +452,14 @@ impl GameResultsWidget {
         );
 
         let strike_zone_and_batter_areas =
-            Layout::vertical([Constraint::Percentage(48), Constraint::Percentage(52)])
+            Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
                 .split(strike_zone_and_batter_area);
 
         let strike_zone_area = strike_zone_and_batter_areas[0];
         let batter_area = strike_zone_and_batter_areas[1];
 
-        Self::draw_strike_zone(frame, strike_zone_area);
+        let actual_location = cursor.current_pitching()?.ball.actual_location;
+        Self::draw_strike_zone(frame, strike_zone_area, actual_location);
         frame.render_widget(
             Paragraph::new(Self::format_batter_and_pitcher(cursor)?).block(Block::new().padding(
                 Padding {
@@ -652,13 +660,14 @@ impl GameResultsWidget {
         )
     }
 
-    fn draw_strike_zone(frame: &mut Frame, area: Rect) {
+    fn draw_strike_zone(frame: &mut Frame, area: Rect, actual_location: BallLocation) {
         // println!("width:{}, height:{}", area.width, area.height);
         let canvas = Canvas::default()
             .marker(Marker::Braille)
             .x_bounds([0.0, area.width as f64])
             .y_bounds([0.0, area.height as f64])
             .paint(|ctx| {
+                let active_zone = Self::ball_location_section(actual_location);
                 ctx.draw(&Rectangle {
                     x: 3.0,
                     y: 3.0,
@@ -667,110 +676,87 @@ impl GameResultsWidget {
                     color: Color::Gray,
                 });
 
-                ctx.print(
-                    1.0,
-                    10.0,
-                    Span::styled("[1]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    10.0,
-                    10.0,
-                    Span::styled("[2]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    19.0,
-                    10.0,
-                    Span::styled("[3]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    1.0,
-                    6.0,
-                    Span::styled("[4]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    19.0,
-                    6.0,
-                    Span::styled("[5]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    1.0,
-                    2.0,
-                    Span::styled("[6]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    10.0,
-                    2.0,
-                    Span::styled("[7]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    19.0,
-                    2.0,
-                    Span::styled("[8]", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    6.0,
-                    8.0,
-                    Span::styled("<1>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    10.0,
-                    8.0,
-                    Span::styled("<2>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    14.0,
-                    8.0,
-                    Span::styled("<3>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    6.0,
-                    6.0,
-                    Span::styled("<4>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    10.0,
-                    6.0,
-                    Span::styled("<5>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    14.0,
-                    6.0,
-                    Span::styled("<6>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    6.0,
-                    4.0,
-                    Span::styled("<7>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    10.0,
-                    4.0,
-                    Span::styled("<8>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
-
-                ctx.print(
-                    14.0,
-                    4.0,
-                    Span::styled("<9>", Color::White).add_modifier(ratatui::style::Modifier::BOLD),
-                );
+                for (zone, x, y, label) in [
+                    (PitchZoneSection::Ball(1), 1.0, 10.0, "[1]"),
+                    (PitchZoneSection::Ball(2), 10.0, 10.0, "[2]"),
+                    (PitchZoneSection::Ball(3), 19.0, 10.0, "[3]"),
+                    (PitchZoneSection::Ball(4), 1.0, 6.0, "[4]"),
+                    (PitchZoneSection::Ball(5), 19.0, 6.0, "[5]"),
+                    (PitchZoneSection::Ball(6), 1.0, 2.0, "[6]"),
+                    (PitchZoneSection::Ball(7), 10.0, 2.0, "[7]"),
+                    (PitchZoneSection::Ball(8), 19.0, 2.0, "[8]"),
+                    (PitchZoneSection::Strike(1), 6.0, 8.0, "<1>"),
+                    (PitchZoneSection::Strike(2), 10.0, 8.0, "<2>"),
+                    (PitchZoneSection::Strike(3), 14.0, 8.0, "<3>"),
+                    (PitchZoneSection::Strike(4), 6.0, 6.0, "<4>"),
+                    (PitchZoneSection::Strike(5), 10.0, 6.0, "<5>"),
+                    (PitchZoneSection::Strike(6), 14.0, 6.0, "<6>"),
+                    (PitchZoneSection::Strike(7), 6.0, 4.0, "<7>"),
+                    (PitchZoneSection::Strike(8), 10.0, 4.0, "<8>"),
+                    (PitchZoneSection::Strike(9), 14.0, 4.0, "<9>"),
+                ] {
+                    let color = if zone == active_zone {
+                        Color::Yellow
+                    } else {
+                        Color::DarkGray
+                    };
+                    ctx.print(
+                        x,
+                        y,
+                        Span::styled(label, color).add_modifier(ratatui::style::Modifier::BOLD),
+                    );
+                }
             });
 
         frame.render_widget(canvas, area);
+    }
+
+    fn ball_location_section(location: BallLocation) -> PitchZoneSection {
+        if location.x.abs() <= 1.0 && location.y.abs() <= 1.0 {
+            let col = Self::zone_index(location.x, -1.0 / 3.0, 1.0 / 3.0);
+            let row = Self::zone_index(-location.y, -1.0 / 3.0, 1.0 / 3.0);
+
+            PitchZoneSection::Strike((row * 3 + col + 1) as u8)
+        } else {
+            let col = if location.x < -1.0 {
+                0
+            } else if location.x > 1.0 {
+                2
+            } else {
+                1
+            };
+            let row = if location.y > 1.0 {
+                0
+            } else if location.y < -1.0 {
+                2
+            } else {
+                1
+            };
+
+            let section = match (row, col) {
+                (0, 0) => 1,
+                (0, 1) => 2,
+                (0, 2) => 3,
+                (1, 0) => 4,
+                (1, 2) => 5,
+                (2, 0) => 6,
+                (2, 1) => 7,
+                (2, 2) => 8,
+                _ => unreachable!("locations inside the strike zone are handled first"),
+            };
+
+            PitchZoneSection::Ball(section)
+        }
+    }
+
+    fn zone_index(value: f64, low: f64, high: f64) -> usize {
+        if value < low {
+            0
+        } else if value > high {
+            2
+        } else {
+            1
+        }
     }
 
     fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
@@ -793,21 +779,21 @@ impl GameResultsWidget {
             ));
 
             let ball = &batting_view.ball;
-            formatted_batter_and_pitcher.push_str(&format!(
-                "\n{}: {:.0}km/h\n",
-                t!("launch_speed"),
-                ball.launch_speed
-            ));
+            // formatted_batter_and_pitcher.push_str(&format!(
+            //     "\n{}: {:.0}km/h\n",
+            //     t!("launch_speed"),
+            //     ball.launch_speed
+            // ));
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {:.0}m\n",
                 t!("distance"),
                 ball.final_position.distance
             ));
-            formatted_batter_and_pitcher.push_str(&format!(
-                "{}: {:.1}s\n",
-                t!("hang_time"),
-                ball.total_time
-            ));
+            // formatted_batter_and_pitcher.push_str(&format!(
+            //     "{}: {:.1}s\n",
+            //     t!("hang_time"),
+            //     ball.total_time
+            // ));
             let point_trajectory = if let Some(fielder_pos) = batting_view.fielder_position {
                 format!("{} {}", fielder_pos.short(), ball.trajectory())
             } else {
@@ -995,5 +981,46 @@ impl Component for GameResultsWidget {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ball_location_section_maps_strike_zone_to_nine_sections() {
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: -0.8, y: 0.8 }),
+            PitchZoneSection::Strike(1)
+        );
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: 0.0 }),
+            PitchZoneSection::Strike(5)
+        );
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: 0.8, y: -0.8 }),
+            PitchZoneSection::Strike(9)
+        );
+    }
+
+    #[test]
+    fn ball_location_section_maps_ball_zone_to_eight_sections() {
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: -1.2, y: 1.2 }),
+            PitchZoneSection::Ball(1)
+        );
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: 1.2 }),
+            PitchZoneSection::Ball(2)
+        );
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: 1.2, y: 0.0 }),
+            PitchZoneSection::Ball(5)
+        );
+        assert_eq!(
+            GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: -1.2 }),
+            PitchZoneSection::Ball(7)
+        );
     }
 }

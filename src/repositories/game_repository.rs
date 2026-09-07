@@ -2,7 +2,7 @@ use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB,
 };
 use crate::domain::shared::game_stats::{
-    PlayerGameBattingView, PlayerGameEntryView, PlayerGameRunningView,
+    PlayerGameBattingView, PlayerGameEntryView, PlayerGamePitching, PlayerGameRunningView,
 };
 use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
@@ -52,6 +52,8 @@ pub trait GamePlayByPlayReader {
         &self,
         game_id: u32,
     ) -> Result<Vec<PlayerGameBattingView>, AppError>;
+    fn load_player_game_pitchings(&self, game_id: u32)
+    -> Result<Vec<PlayerGamePitching>, AppError>;
     fn load_player_game_running_views(
         &self,
         game_id: u32,
@@ -276,6 +278,7 @@ impl GameDetailReader for SqlGameRepository {
         game.home_team.players = self.load_team_players(game.home_team.id)?;
 
         game.player_entries = self.load_player_game_entry_views(game.id)?;
+        game.player_pitchings = self.load_player_game_pitchings(game.id)?;
         game.player_battings = self.load_player_game_batting_views(game.id)?;
         game.player_runnings = self.load_player_game_running_views(game.id)?;
 
@@ -494,6 +497,54 @@ impl GamePlayByPlayReader for SqlGameRepository {
             WHERE pgb.game_id = ?1";
         self.db_client
             .query_rows::<PlayerGameBattingView>(query, params![game_id])
+    }
+
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
+    fn load_player_game_pitchings(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<PlayerGamePitching>, AppError> {
+        info!("load_player_game_pitchings() started");
+        let table_count = self.db_client.query_row::<i64>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'player_game_pitching'",
+            params![],
+        )?;
+        if table_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let query = "SELECT
+                count_seq,
+                pitcher_id,
+                pitch_type,
+                speed,
+                spin_rate,
+                spin_angle,
+                spin_efficiency,
+                release_point_x,
+                release_point_y,
+                release_point_z,
+                flight_time,
+                aim_zone,
+                aim_location_x,
+                aim_location_y,
+                actual_location_x,
+                actual_location_y,
+                ball_movement_x_m,
+                ball_movement_z_m,
+                timing_bias_sec,
+                spatial_bias_x,
+                spatial_bias_y,
+                crossfire_multiplier,
+                release_x_factor,
+                horizontal_offset_m,
+                vertical_offset_m,
+                timing_offset_sec
+            FROM player_game_pitching
+            WHERE game_id = ?1
+            ORDER BY count_seq";
+        self.db_client
+            .query_rows::<PlayerGamePitching>(query, params![game_id])
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]

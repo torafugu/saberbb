@@ -1,5 +1,5 @@
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
-use super::game_stats::{PlayerGameBattingView, PlayerGameRunningView};
+use super::game_stats::{PlayerGameBattingView, PlayerGamePitching, PlayerGameRunningView};
 use super::player::{Player, PlayerInfo, Position};
 use super::team::Team;
 use std::collections::HashMap;
@@ -18,6 +18,9 @@ pub enum GameViewError {
 
     #[error("Failed to retrieve current batting result")]
     CurrentBattingResult,
+
+    #[error("Failed to retrieve current pitching result")]
+    CurrentPitching,
 }
 
 #[derive(Debug)]
@@ -266,6 +269,15 @@ impl GameCursor {
             .filter(|running| running.count_seq == self.count_seq)
             .max_by_key(|running| running.seq)
             .cloned()
+    }
+
+    pub fn current_pitching(&self) -> Result<PlayerGamePitching, GameViewError> {
+        self.game
+            .player_pitchings
+            .iter()
+            .find(|pitching| pitching.count_seq == self.count_seq)
+            .copied()
+            .ok_or(GameViewError::CurrentPitching)
     }
 
     pub fn current_scoreboard(&mut self) -> ScoreBoard {
@@ -525,6 +537,7 @@ mod tests {
             away_points: 0,
             home_points: 0,
             player_entries: Vec::new(),
+            player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_runnings: Vec::new(),
         }

@@ -1,15 +1,18 @@
 use crate::domain::resolver::fielding_resolver::PlayType;
+use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::RunningEvent;
-use crate::domain::shared::ball::BattedBall;
+use crate::domain::shared::ball::{BallLocation, BallMovement, BattedBall, PitchedBall};
 use crate::domain::shared::game::{BattingResult, FieldingResult};
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
     PlayerGameFielding, PlayerGamePitching, PlayerGameRunning, PlayerGameRunningView,
 };
-use crate::domain::shared::player::PlayerInfo;
+use crate::domain::shared::player::{PitchType, PlayerInfo};
 use crate::domain::shared::stadium::Base;
+use crate::domain::strategy::pitching_strategy::TargetZone;
 use crate::domain::util::PolarPosition;
+use crate::domain::util::Vector3D;
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, FromRow};
 use rusqlite::{
@@ -291,6 +294,24 @@ impl FromSql for RunningEvent {
     }
 }
 
+impl FromSql for TargetZone {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        match gt {
+            "Center" => Ok(TargetZone::Center),
+            "LowInside" => Ok(TargetZone::LowInside),
+            "LowOutside" => Ok(TargetZone::LowOutside),
+            "HighInside" => Ok(TargetZone::HighInside),
+            "HighOutside" => Ok(TargetZone::HighOutside),
+            _ => {
+                eprintln!("{} {}", "Parse error at ", gt);
+                Err(rusqlite::types::FromSqlError::InvalidType)
+            }
+        }
+    }
+}
+
 impl ToSql for PlayType {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::from(self.as_ref()))
@@ -349,6 +370,59 @@ impl FromRow for PlayerGameEntryView {
         active_fielder_view.validate()?;
 
         Ok(active_fielder_view)
+    }
+}
+
+impl FromRow for PlayerGamePitching {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let player_game_pitching = PlayerGamePitching {
+            count_seq: row.get("count_seq")?,
+            pitcher_id: row.get("pitcher_id")?,
+            ball: PitchedBall {
+                pitch_type: row.get::<_, PitchType>("pitch_type")?,
+                speed: row.get("speed")?,
+                spin_rate: row.get("spin_rate")?,
+                spin_angle: row.get("spin_angle")?,
+                spin_efficiency: row.get("spin_efficiency")?,
+                release_point: Vector3D {
+                    x: row.get("release_point_x")?,
+                    y: row.get("release_point_y")?,
+                    z: row.get("release_point_z")?,
+                },
+                flight_time: row.get("flight_time")?,
+                aim_zone: row.get::<_, TargetZone>("aim_zone")?,
+                aim_location: BallLocation {
+                    x: row.get("aim_location_x")?,
+                    y: row.get("aim_location_y")?,
+                },
+                actual_location: BallLocation {
+                    x: row.get("actual_location_x")?,
+                    y: row.get("actual_location_y")?,
+                },
+            },
+            ball_movement: BallMovement {
+                x_m: row.get("ball_movement_x_m")?,
+                z_m: row.get("ball_movement_z_m")?,
+            },
+            location_bias: LocationBias {
+                timing_bias_sec: row.get("timing_bias_sec")?,
+                spatial_bias_x: row.get("spatial_bias_x")?,
+                spatial_bias_y: row.get("spatial_bias_y")?,
+            },
+            pitch_displacement: PitchDisplacement {
+                crossfire_multiplier: row.get("crossfire_multiplier")?,
+                release_x_factor: row.get("release_x_factor")?,
+                horizontal_offset_m: row.get("horizontal_offset_m")?,
+                vertical_offset_m: row.get("vertical_offset_m")?,
+                timing_offset_sec: row.get("timing_offset_sec")?,
+            },
+        };
+
+        player_game_pitching.validate()?;
+
+        Ok(player_game_pitching)
     }
 }
 
