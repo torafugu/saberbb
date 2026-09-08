@@ -124,6 +124,9 @@ impl PitchingStatsWidget {
 
         let row_count = pitching_stats.len();
         self.clamp_scroll_offset(row_count, area);
+        let layout = Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).split(area);
+        let table_area = layout[0];
+        let scrollbar_area = layout[1];
 
         let rows = pitching_stats.into_iter().map(|stat| {
             Row::new(vec![
@@ -151,29 +154,29 @@ impl PitchingStatsWidget {
         .style(Style::default().add_modifier(Modifier::BOLD));
 
         let widths = [
-            Constraint::Min(10),
+            Constraint::Min(9),
             Constraint::Length(6),
             Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Length(6),
+            Constraint::Length(8),
             Constraint::Length(6),
             Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Length(7),
         ];
 
         let mut table_state = TableState::new().with_offset(self.scroll_offset);
         frame.render_stateful_widget(
             Table::new(rows, widths).header(header).column_spacing(1),
-            area,
+            table_area,
             &mut table_state,
         );
 
         let mut scrollbar_state = ScrollbarState::new(row_count)
-            .viewport_content_length(usize::from(area.height.saturating_sub(1)))
+            .viewport_content_length(usize::from(table_area.height.saturating_sub(1)))
             .position(table_state.offset());
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
-            area.inner(Margin {
+            scrollbar_area.inner(Margin {
                 vertical: 1,
                 horizontal: 0,
             }),
@@ -181,6 +184,79 @@ impl PitchingStatsWidget {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::player::{Player, PlayerInfo};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn pitching_stat(id: i64, first_name: &str, last_name: &str, innings: u16) -> PitchingStats {
+        PitchingStats {
+            batter: Player::from_player_info(PlayerInfo::new_min(
+                id,
+                first_name.to_string(),
+                last_name.to_string(),
+            )),
+            games: 1,
+            innings,
+            wins: 0,
+            losses: 0,
+            saves: 0,
+            holds: 0,
+            era: 0,
+            so: 0,
+            bb: 0,
+        }
+    }
+
+    fn buffer_lines(buffer: &Buffer) -> Vec<String> {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()).unwrap_or(" "))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn draw_table_keeps_innings_visible_next_to_scrollbar() {
+        let backend = TestBackend::new(72, 6);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut widget = PitchingStatsWidget::new();
+        let stats = vec![
+            pitching_stat(1, "Two", "Digits", 18),
+            pitching_stat(2, "One", "Digit", 9),
+            pitching_stat(3, "Other", "Digit", 8),
+        ];
+
+        terminal
+            .draw(|frame| {
+                widget
+                    .draw_table(frame, frame.area(), stats)
+                    .expect("pitching stats table should render");
+            })
+            .unwrap();
+
+        let lines = buffer_lines(terminal.backend().buffer());
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Two Digits") && line.contains("18"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("One Digit") && line.contains("9"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Other Digit") && line.contains("8"))
+        );
     }
 }
 
