@@ -2,7 +2,7 @@ use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB,
 };
 use crate::domain::shared::game_stats::{
-    PlayerGameBattingView, PlayerGameEntryView, PlayerGamePitching, PlayerGameRunningView,
+    PlayerGameBattingView, PlayerGameEntryView, PlayerGamePitchingView, PlayerGameRunningView,
 };
 use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
@@ -53,8 +53,10 @@ pub trait GamePlayByPlayReader {
         &self,
         game_id: u32,
     ) -> Result<Vec<PlayerGameBattingView>, AppError>;
-    fn load_player_game_pitchings(&self, game_id: u32)
-    -> Result<Vec<PlayerGamePitching>, AppError>;
+    fn load_player_game_pitching_views(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<PlayerGamePitchingView>, AppError>;
     fn load_player_game_running_views(
         &self,
         game_id: u32,
@@ -281,7 +283,7 @@ impl GameDetailReader for SqlGameRepository {
         game.home_team.players = self.load_team_players(game.home_team.id)?;
 
         game.player_entries = self.load_player_game_entry_views(game.id)?;
-        game.player_pitchings = self.load_player_game_pitchings(game.id)?;
+        game.player_pitchings = self.load_player_game_pitching_views(game.id)?;
         game.player_battings = self.load_player_game_batting_views(game.id)?;
         game.player_runnings = self.load_player_game_running_views(game.id)?;
 
@@ -469,10 +471,6 @@ impl GamePlayByPlayReader for SqlGameRepository {
         let query = "SELECT 
                 pgb.count_seq,
                 pgb.pitcher_id,
-                pi.first_name AS pitcher_first_name,
-                pi.last_name AS pitcher_last_name,
-                pi.age AS pitcher_age,
-                pi.uniform_number AS pitcher_uniform_number,
                 pgb.batter_id,
                 bi.first_name AS batter_first_name,
                 bi.last_name AS batter_last_name,
@@ -494,8 +492,6 @@ impl GamePlayByPlayReader for SqlGameRepository {
                 pgb.result
             FROM player_game_batting pgb
             LEFT JOIN 
-                player_info pi ON pgb.pitcher_id = pi.id
-            LEFT JOIN 
                 player_info bi ON pgb.batter_id = bi.id
             WHERE pgb.game_id = ?1";
         self.db_client
@@ -503,11 +499,11 @@ impl GamePlayByPlayReader for SqlGameRepository {
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
-    fn load_player_game_pitchings(
+    fn load_player_game_pitching_views(
         &self,
         game_id: u32,
-    ) -> Result<Vec<PlayerGamePitching>, AppError> {
-        info!("load_player_game_pitchings() started");
+    ) -> Result<Vec<PlayerGamePitchingView>, AppError> {
+        info!("load_player_game_pitching_views() started");
         let table_count = self.db_client.query_row::<i64>(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'player_game_pitching'",
             params![],
@@ -532,22 +528,12 @@ impl GamePlayByPlayReader for SqlGameRepository {
                 aim_location_x,
                 aim_location_y,
                 actual_location_x,
-                actual_location_y,
-                ball_movement_x_m,
-                ball_movement_z_m,
-                timing_bias_sec,
-                spatial_bias_x,
-                spatial_bias_y,
-                crossfire_multiplier,
-                release_x_factor,
-                horizontal_offset_m,
-                vertical_offset_m,
-                timing_offset_sec
+                actual_location_y
             FROM player_game_pitching
             WHERE game_id = ?1
             ORDER BY count_seq";
         self.db_client
-            .query_rows::<PlayerGamePitching>(query, params![game_id])
+            .query_rows::<PlayerGamePitchingView>(query, params![game_id])
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
@@ -1146,6 +1132,31 @@ mod tests {
             .unwrap();
     }
 
+    fn seed_player_game_pitching(
+        repo: &SqlGameRepository,
+        game_id: u32,
+        count_seq: u8,
+        pitcher_id: u32,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player_game_pitching (
+                    game_id, count_seq, pitcher_id, pitch_type, speed, spin_rate, spin_angle,
+                    spin_efficiency, release_point_x, release_point_y, release_point_z, flight_time,
+                    aim_zone, aim_location_x, aim_location_y, actual_location_x, actual_location_y,
+                    ball_movement_x_m, ball_movement_z_m, timing_bias_sec, spatial_bias_x,
+                    spatial_bias_y, crossfire_multiplier, release_x_factor, horizontal_offset_m,
+                    vertical_offset_m, timing_offset_sec
+                ) VALUES (
+                    ?1, ?2, ?3, 'FourSeamFastball', 42.0, 2200.0, 180.0,
+                    1.0, 0.0, 18.0, 1.8, 0.45, 'Center', 0.0, 0.0, 0.1, -0.1,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0
+                )",
+                params![game_id, count_seq, pitcher_id],
+            )
+            .unwrap();
+    }
+
     fn batted_ball() -> BattedBall {
         BattedBall {
             launch_speed: 95.0,
@@ -1386,9 +1397,33 @@ mod tests {
         assert_eq!(histories.len(), 1);
         let history = &histories[0];
         assert_eq!(history.count_seq, 1);
-        assert_eq!(history.pitcher.id, 10);
+        assert_eq!(history.pitcher_id, 10);
         assert_eq!(history.batter.id, 1);
         assert!(matches!(history.result, BattingResult::Double));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_player_game_pitching_views_returns_pitchings_for_game() {
+        let (repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
+        seed_game(&repo, 2, 2026, 1, 2, Some("2026-04-02"));
+        seed_player_game_pitching(&repo, 1, 1, 10);
+        seed_player_game_pitching(&repo, 2, 1, 11);
+
+        let histories = repo.load_player_game_pitching_views(1).unwrap();
+
+        assert_eq!(histories.len(), 1);
+        let history = &histories[0];
+        assert_eq!(history.count_seq, 1);
+        assert_eq!(history.pitcher_id, 10);
+        assert!(matches!(
+            history.ball.pitch_type,
+            crate::domain::shared::player::PitchType::FourSeamFastball
+        ));
+        assert_eq!(history.ball.actual_location.x, 0.1);
         std::fs::remove_file(path).ok();
     }
 

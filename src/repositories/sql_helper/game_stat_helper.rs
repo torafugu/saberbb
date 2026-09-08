@@ -6,7 +6,8 @@ use crate::domain::shared::game::{BattingResult, FieldingResult};
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGamePitching, PlayerGameRunning, PlayerGameRunningView,
+    PlayerGameFielding, PlayerGamePitching, PlayerGamePitchingView, PlayerGameRunning,
+    PlayerGameRunningView,
 };
 use crate::domain::shared::player::{PitchType, PlayerInfo};
 use crate::domain::shared::stadium::Base;
@@ -658,18 +659,47 @@ impl FromRow for PlayerGamePitching {
     }
 }
 
+impl FromRow for PlayerGamePitchingView {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let player_game_pitching_view = PlayerGamePitchingView {
+            count_seq: row.get("count_seq")?,
+            pitcher_id: row.get("pitcher_id")?,
+            ball: PitchedBall {
+                pitch_type: row.get::<_, PitchType>("pitch_type")?,
+                speed: row.get("speed")?,
+                spin_rate: row.get("spin_rate")?,
+                spin_angle: row.get("spin_angle")?,
+                spin_efficiency: row.get("spin_efficiency")?,
+                release_point: Vector3D {
+                    x: row.get("release_point_x")?,
+                    y: row.get("release_point_y")?,
+                    z: row.get("release_point_z")?,
+                },
+                flight_time: row.get("flight_time")?,
+                aim_zone: row.get::<_, TargetZone>("aim_zone")?,
+                aim_location: BallLocation {
+                    x: row.get("aim_location_x")?,
+                    y: row.get("aim_location_y")?,
+                },
+                actual_location: BallLocation {
+                    x: row.get("actual_location_x")?,
+                    y: row.get("actual_location_y")?,
+                },
+            },
+        };
+
+        player_game_pitching_view.validate()?;
+
+        Ok(player_game_pitching_view)
+    }
+}
+
 impl FromRow for PlayerGameBattingView {
     type Error = AppError;
 
     fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
-        let pitcher_info = PlayerInfo {
-            id: row.get("pitcher_id")?,
-            first_name: row.get("pitcher_first_name")?,
-            last_name: row.get("pitcher_last_name")?,
-            age: row.get("pitcher_age")?,
-            uniform_number: row.get("pitcher_uniform_number")?,
-        };
-
         let batter_info = PlayerInfo {
             id: row.get("batter_id")?,
             first_name: row.get("batter_first_name")?,
@@ -692,7 +722,7 @@ impl FromRow for PlayerGameBattingView {
 
         let batting_result_view = PlayerGameBattingView {
             count_seq: row.get("count_seq")?,
-            pitcher: pitcher_info,
+            pitcher_id: row.get("pitcher_id")?,
             batter: batter_info,
             ball: BattedBall::new(
                 row.get("launch_speed")?,

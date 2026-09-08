@@ -3,7 +3,7 @@ use crate::domain::resolver::fielding_resolver::PlayType;
 use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::RunningEvent;
 use crate::domain::shared::ball::{BallMovement, BattedBall, PitchedBall};
-use crate::domain::shared::game_state::Ruling;
+use crate::domain::shared::game_state::{GameError, Ruling};
 use crate::domain::shared::player::{PlayerInfo, Position};
 use crate::domain::shared::stadium::Base;
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ impl PlayerGameEntryView {
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingView {
     pub count_seq: u16,
-    pub pitcher: PlayerInfo,
+    pub pitcher_id: i64,
     pub batter: PlayerInfo,
     pub ball: BattedBall,
     pub fielder_position: Option<Position>,
@@ -40,6 +40,29 @@ impl PlayerGameBattingView {
     pub fn is(&self, count_seq: u16) -> bool {
         self.count_seq == count_seq
     }
+
+    pub fn outcome(&self) -> Result<String, GameError> {
+        match self.result {
+            BattingResult::Out => {
+                if let Some(position) = self.fielder_position {
+                    let mut outcome = position.short().to_string();
+                    outcome.push_str(" ");
+                    outcome.push_str(&self.ball.trajectory().to_string());
+                    Ok(outcome)
+                } else {
+                    return Err(GameError::FielderInfo);
+                }
+            }
+            _ => Ok(self.result.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
+pub struct PlayerGamePitchingView {
+    pub count_seq: u16,
+    pub pitcher_id: i64,
+    pub ball: PitchedBall,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]

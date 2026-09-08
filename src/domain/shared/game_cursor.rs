@@ -1,5 +1,5 @@
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
-use super::game_stats::{PlayerGameBattingView, PlayerGamePitching, PlayerGameRunningView};
+use super::game_stats::{PlayerGameBattingView, PlayerGamePitchingView, PlayerGameRunningView};
 use super::player::{Player, PlayerInfo, Position};
 use super::team::Team;
 use std::collections::{HashMap, HashSet};
@@ -286,7 +286,7 @@ impl GameCursor {
             .cloned()
     }
 
-    pub fn current_pitching(&self) -> Result<PlayerGamePitching, GameViewError> {
+    pub fn current_pitching_view(&self) -> Result<PlayerGamePitchingView, GameViewError> {
         self.game
             .player_pitchings
             .iter()
@@ -604,7 +604,7 @@ impl GameCursor {
             .iter()
             .filter(|batting| batting.count_seq <= self.count_seq)
         {
-            let Some(stat) = stats.get_mut(&batting.pitcher.id) else {
+            let Some(stat) = stats.get_mut(&batting.pitcher_id) else {
                 continue;
             };
 
@@ -682,8 +682,7 @@ pub struct ScoreBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
-    use crate::domain::shared::ball::{BallLocation, BallMovement, BattedBall, PitchedBall};
+    use crate::domain::shared::ball::{BallLocation, BattedBall, PitchedBall};
     use crate::domain::shared::game::GameType;
     use crate::domain::shared::game_stats::PlayerGameEntryView;
     use crate::domain::shared::player::{PitchType, PlayerInfo};
@@ -766,7 +765,7 @@ mod tests {
     fn batting_view(count_seq: u16, batter_id: i64) -> PlayerGameBattingView {
         PlayerGameBattingView {
             count_seq,
-            pitcher: PlayerInfo::new_min(1, "Pitcher".to_string(), "One".to_string()),
+            pitcher_id: 1,
             batter: PlayerInfo::new_min(
                 batter_id,
                 format!("First{batter_id}"),
@@ -786,11 +785,7 @@ mod tests {
     ) -> PlayerGameBattingView {
         PlayerGameBattingView {
             count_seq,
-            pitcher: PlayerInfo::new_min(
-                pitcher_id,
-                format!("First{pitcher_id}"),
-                format!("Last{pitcher_id}"),
-            ),
+            pitcher_id,
             batter: PlayerInfo::new_min(
                 batter_id,
                 format!("First{batter_id}"),
@@ -802,8 +797,8 @@ mod tests {
         }
     }
 
-    fn pitching_view(count_seq: u16, pitcher_id: i64) -> PlayerGamePitching {
-        PlayerGamePitching {
+    fn pitching_view(count_seq: u16, pitcher_id: i64) -> PlayerGamePitchingView {
+        PlayerGamePitchingView {
             count_seq,
             pitcher_id,
             ball: PitchedBall {
@@ -822,13 +817,6 @@ mod tests {
                 aim_location: BallLocation { x: 0.0, y: 0.0 },
                 actual_location: BallLocation { x: 0.0, y: 0.0 },
             },
-            ball_movement: BallMovement { x_m: 0.0, z_m: 0.0 },
-            location_bias: LocationBias {
-                timing_bias_sec: 0.0,
-                spatial_bias_x: 0.0,
-                spatial_bias_y: 0.0,
-            },
-            pitch_displacement: PitchDisplacement::default(),
         }
     }
 

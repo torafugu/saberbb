@@ -1,7 +1,8 @@
 use super::game_state::ActivePlayer;
 use super::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGamePitching, PlayerGameRunning, PlayerGameRunningView,
+    PlayerGameFielding, PlayerGamePitching, PlayerGamePitchingView, PlayerGameRunning,
+    PlayerGameRunningView,
 };
 use super::team::Team;
 use crate::domain::resolver::fielding_resolver::{
@@ -366,7 +367,7 @@ pub struct GameDetail {
     pub away_points: u8,
     pub home_points: u8,
     pub player_entries: Vec<PlayerGameEntryView>,
-    pub player_pitchings: Vec<PlayerGamePitching>,
+    pub player_pitchings: Vec<PlayerGamePitchingView>,
     pub player_battings: Vec<PlayerGameBattingView>,
     pub player_runnings: Vec<PlayerGameRunningView>,
 }
@@ -430,7 +431,7 @@ impl std::fmt::Display for BattingResult {
             BattingResult::Strikeout => write!(f, "{}", t!("strikeout")),
             BattingResult::Walk => write!(f, "{}", t!("walk")),
             BattingResult::WildPitch => write!(f, "{}", t!("wild_pitch")),
-            BattingResult::HitByPitch => write!(f, "{}", t!("HitByPitch")),
+            BattingResult::HitByPitch => write!(f, "{}", t!("hit_by_pitch")),
             BattingResult::Single => write!(f, "{}", t!("single")),
             BattingResult::Double => write!(f, "{}", t!("double")),
             BattingResult::Triple => write!(f, "{}", t!("triple")),

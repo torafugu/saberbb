@@ -6,6 +6,7 @@ use crate::domain::shared::game::{Count, GameHeader};
 use crate::domain::shared::game_cursor::{
     BatterGameStatView, GameCursor, PitcherGameStatView, ScoreBoard,
 };
+use crate::domain::util::ms_to_kmh;
 use crate::repositories::game_repository::{GameDetailReader, ProcessedGameReader};
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
@@ -464,7 +465,7 @@ impl GameResultsWidget {
         let strike_zone_area = strike_zone_and_batter_areas[0];
         let batter_area = strike_zone_and_batter_areas[1];
 
-        let actual_location = cursor.current_pitching()?.ball.actual_location;
+        let actual_location = cursor.current_pitching_view()?.ball.actual_location;
         Self::draw_strike_zone(frame, strike_zone_area, actual_location);
         frame.render_widget(
             Paragraph::new(Self::format_batter_and_pitcher(cursor)?).block(Block::new().padding(
@@ -839,46 +840,27 @@ impl GameResultsWidget {
     }
 
     fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
-        let pitcher = game_cursor.current_pitcher()?;
-        let batter = game_cursor.current_batter()?;
+        let pitching_view = game_cursor.current_pitching_view()?;
 
-        let mut formatted_batter_and_pitcher =
-            format!("{}: {}\n", t!("pitcher2"), pitcher.full_name());
-        formatted_batter_and_pitcher.push_str(&format!(
-            "{}: {}\n",
-            t!("batter"),
-            batter.full_name()
-        ));
+        let mut formatted_batter_and_pitcher = format!(
+            "{}km/h\n{}\n\n",
+            ms_to_kmh(pitching_view.ball.speed),
+            pitching_view.ball.pitch_type
+        );
 
         if let Some(batting_view) = game_cursor.current_batting_view() {
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {}\n",
                 t!("result"),
-                batting_view.result
+                batting_view.outcome()?
             ));
 
             let ball = &batting_view.ball;
-            // formatted_batter_and_pitcher.push_str(&format!(
-            //     "\n{}: {:.0}km/h\n",
-            //     t!("launch_speed"),
-            //     ball.launch_speed
-            // ));
             formatted_batter_and_pitcher.push_str(&format!(
                 "{}: {:.0}m\n",
                 t!("distance"),
                 ball.final_position.distance
             ));
-            // formatted_batter_and_pitcher.push_str(&format!(
-            //     "{}: {:.1}s\n",
-            //     t!("hang_time"),
-            //     ball.total_time
-            // ));
-            let point_trajectory = if let Some(fielder_pos) = batting_view.fielder_position {
-                format!("{} {}", fielder_pos.short(), ball.trajectory())
-            } else {
-                ball.trajectory().to_string()
-            };
-            formatted_batter_and_pitcher.push_str(&format!("{}\n", point_trajectory));
         } else if let Some(running_view) = game_cursor.current_running_view() {
             formatted_batter_and_pitcher.push_str(&format!(
                 "\n{}: {}\n",
