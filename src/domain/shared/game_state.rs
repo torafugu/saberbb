@@ -303,6 +303,8 @@ pub struct GameState {
     pub base_four_seam_speed: f64,
 }
 impl GameState {
+    const REGULATION_INNING: u8 = 9;
+
     pub fn new(
         mut rng: Box<dyn RandomProvider>,
         mut game_schedule: GameSchedule,
@@ -358,15 +360,20 @@ impl GameState {
     }
 
     fn is_walk_off_condition(&self) -> bool {
-        self.inning_seq >= self.max_inning
+        self.inning_seq >= Self::REGULATION_INNING
             && self.is_bottom()
             && self.home_total_point > self.away_total_point
     }
 
     fn is_game_set_condition(&self) -> bool {
-        self.inning_seq >= self.max_inning
+        let score_is_decided = self.away_total_point != self.home_total_point;
+        let reached_regulation = self.inning_seq >= Self::REGULATION_INNING;
+        let reached_extra_inning_limit = self.inning_seq >= self.max_inning;
+
+        (reached_regulation
             && ((self.is_top() && self.away_total_point < self.home_total_point)
-                || self.is_bottom())
+                || (self.is_bottom() && score_is_decided)))
+            || (self.is_bottom() && reached_extra_inning_limit)
     }
 
     fn is_postponed(&self) -> bool {
@@ -1234,8 +1241,7 @@ impl InningState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::random_provider::FixedRng;
-    use crate::domain::test_support::{active_runner as runner, game_schedule, game_state};
+    use crate::domain::test_support::{active_runner as runner, game_state};
 
     fn assert_no_runners(inning_state: &InningState) {
         assert!(inning_state.runners.batter_runner.is_none());
@@ -1556,7 +1562,7 @@ mod tests {
     #[test]
     fn progress_is_ongoing_before_ninth_inning_regardless_of_score() {
         let mut game = game_state();
-        game.inning_seq = game.max_inning - 1;
+        game.inning_seq = 8;
         game.inning_tb = TB::Bottom;
         game.home_total_point = 10;
 
@@ -1566,7 +1572,7 @@ mod tests {
     #[test]
     fn progress_is_game_set_at_top_of_ninth_when_home_leads() {
         let mut game = game_state();
-        game.inning_seq = game.max_inning;
+        game.inning_seq = 9;
         game.inning_tb = TB::Top;
         game.home_total_point = 1;
 
@@ -1576,7 +1582,7 @@ mod tests {
     #[test]
     fn progress_is_ongoing_at_top_of_ninth_when_home_does_not_lead() {
         let mut game = game_state();
-        game.inning_seq = game.max_inning;
+        game.inning_seq = 9;
         game.inning_tb = TB::Top;
 
         assert_eq!(game.progress(), GameProgress::Ongoing);
@@ -1588,7 +1594,7 @@ mod tests {
     #[test]
     fn progress_is_walk_off_at_bottom_of_ninth_when_home_takes_lead() {
         let mut game = game_state();
-        game.inning_seq = game.max_inning;
+        game.inning_seq = 9;
         game.inning_tb = TB::Bottom;
         game.home_total_point = 1;
 
@@ -1596,13 +1602,34 @@ mod tests {
     }
 
     #[test]
-    fn progress_uses_schedule_max_inning() {
-        let mut schedule = game_schedule();
-        schedule.max_inning = 7;
-        let mut game = GameState::new(Box::new(FixedRng::new(0.5)), schedule)
-            .expect("test game schedule should produce valid lineups");
+    fn progress_is_game_set_at_bottom_of_ninth_when_score_is_decided() {
+        let mut game = game_state();
+        game.inning_seq = 9;
+        game.inning_tb = TB::Bottom;
+        game.away_total_point = 1;
 
-        game.inning_seq = 7;
+        assert_eq!(game.progress(), GameProgress::GameSet);
+    }
+
+    #[test]
+    fn progress_continues_after_ninth_when_score_is_tied() {
+        let mut game = game_state();
+        game.inning_seq = 9;
+        game.inning_tb = TB::Bottom;
+
+        assert_eq!(game.progress(), GameProgress::Ongoing);
+    }
+
+    #[test]
+    fn progress_uses_schedule_max_inning_for_tied_extra_innings() {
+        let mut game = game_state();
+
+        game.inning_seq = game.max_inning - 1;
+        game.inning_tb = TB::Bottom;
+
+        assert_eq!(game.progress(), GameProgress::Ongoing);
+
+        game.inning_seq = game.max_inning;
         game.inning_tb = TB::Bottom;
 
         assert_eq!(game.progress(), GameProgress::GameSet);
