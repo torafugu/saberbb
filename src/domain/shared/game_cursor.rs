@@ -2,7 +2,7 @@ use super::game::{BattingResult, Count, GameDetail, Inning, TB};
 use super::game_stats::{PlayerGameBattingView, PlayerGamePitching, PlayerGameRunningView};
 use super::player::{Player, PlayerInfo, Position};
 use super::team::Team;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
@@ -44,6 +44,21 @@ pub struct BatterGameStatView {
     pub doubles: u16,
     pub triples: u16,
     pub home_runs: u16,
+}
+
+#[derive(Clone, Debug)]
+pub struct PitcherGameStatView {
+    pub team_id: u16,
+    pub player: PlayerInfo,
+    pub pitch_count: u16,
+    pub at_bats: u16,
+    pub hits: u16,
+    pub runs: u16,
+    pub innings: u16,
+    pub strikeouts: u16,
+    pub walks: u16,
+    pub era: f32,
+    pub whip: f32,
 }
 
 impl GameCursor {
@@ -503,6 +518,153 @@ impl GameCursor {
         rows.sort_by_key(|row| row.batting_order);
         rows
     }
+
+    pub fn current_pitching_stats_for_team(&self, team_id: u16) -> Vec<PitcherGameStatView> {
+        #[derive(Debug)]
+        struct PitcherAccumulator {
+            team_id: u16,
+            player: PlayerInfo,
+            first_count_seq: u16,
+            inning_keys: HashSet<(u8, TB)>,
+            pitch_count: u16,
+            at_bats: u16,
+            hits: u16,
+            strikeouts: u16,
+            walks: u16,
+            runs_allowed: u16,
+        }
+
+        let inning_by_count = self
+            .game
+            .innings
+            .iter()
+            .flat_map(|inning| {
+                inning
+                    .counts
+                    .iter()
+                    .map(|count| (count.seq, (inning.seq, inning.tb)))
+            })
+            .collect::<HashMap<_, _>>();
+        let points_by_count = self
+            .game
+            .innings
+            .iter()
+            .flat_map(|inning| inning.counts.iter().map(|count| (count.seq, count.point)))
+            .collect::<HashMap<_, _>>();
+        let pitcher_entries = self
+            .game
+            .player_entries
+            .iter()
+            .filter(|entry| entry.team_id == team_id)
+            .filter(|entry| entry.position == Position::P)
+            .filter(|entry| entry.start_count_seq <= self.count_seq)
+            .collect::<Vec<_>>();
+
+        let mut stats = HashMap::<i64, PitcherAccumulator>::new();
+        for entry in pitcher_entries {
+            stats
+                .entry(entry.player.id)
+                .and_modify(|stat| {
+                    stat.first_count_seq = stat.first_count_seq.min(entry.start_count_seq);
+                })
+                .or_insert_with(|| PitcherAccumulator {
+                    team_id,
+                    player: entry.player.clone(),
+                    first_count_seq: entry.start_count_seq,
+                    inning_keys: HashSet::new(),
+                    pitch_count: 0,
+                    at_bats: 0,
+                    hits: 0,
+                    strikeouts: 0,
+                    walks: 0,
+                    runs_allowed: 0,
+                });
+        }
+
+        for pitching in self
+            .game
+            .player_pitchings
+            .iter()
+            .filter(|pitching| pitching.count_seq <= self.count_seq)
+        {
+            let Some(stat) = stats.get_mut(&pitching.pitcher_id) else {
+                continue;
+            };
+
+            if let Some(inning_key) = inning_by_count.get(&pitching.count_seq) {
+                stat.inning_keys.insert(*inning_key);
+            }
+            stat.pitch_count += 1;
+            stat.runs_allowed += u16::from(*points_by_count.get(&pitching.count_seq).unwrap_or(&0));
+        }
+
+        for batting in self
+            .game
+            .player_battings
+            .iter()
+            .filter(|batting| batting.count_seq <= self.count_seq)
+        {
+            let Some(stat) = stats.get_mut(&batting.pitcher.id) else {
+                continue;
+            };
+
+            match batting.result {
+                BattingResult::Single
+                | BattingResult::Double
+                | BattingResult::Triple
+                | BattingResult::HomeRun => {
+                    stat.at_bats += 1;
+                    stat.hits += 1;
+                }
+                BattingResult::FieldersChoice | BattingResult::Out | BattingResult::DoublePlay => {
+                    stat.at_bats += 1;
+                }
+                BattingResult::Strikeout => {
+                    stat.at_bats += 1;
+                    stat.strikeouts += 1;
+                }
+                BattingResult::Walk | BattingResult::HitByPitch => stat.walks += 1,
+                _ => {}
+            }
+        }
+
+        let mut rows = stats
+            .into_values()
+            .map(|stat| {
+                let innings = stat.inning_keys.len() as u16;
+                let era = if innings == 0 {
+                    0.0
+                } else {
+                    f32::from(stat.runs_allowed) * 9.0 / f32::from(innings)
+                };
+                let whip = if innings == 0 {
+                    0.0
+                } else {
+                    f32::from(stat.walks + stat.hits) / f32::from(innings)
+                };
+
+                (
+                    stat.first_count_seq,
+                    PitcherGameStatView {
+                        team_id: stat.team_id,
+                        player: stat.player,
+                        pitch_count: stat.pitch_count,
+                        at_bats: stat.at_bats,
+                        hits: stat.hits,
+                        runs: stat.runs_allowed,
+                        innings,
+                        strikeouts: stat.strikeouts,
+                        walks: stat.walks,
+                        era,
+                        whip,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        rows.sort_by_key(|(first_count_seq, _)| *first_count_seq);
+        rows.into_iter().map(|(_, row)| row).collect()
+    }
 }
 
 #[derive(Debug)]
@@ -520,10 +682,13 @@ pub struct ScoreBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::shared::ball::BattedBall;
+    use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
+    use crate::domain::shared::ball::{BallLocation, BallMovement, BattedBall, PitchedBall};
     use crate::domain::shared::game::GameType;
     use crate::domain::shared::game_stats::PlayerGameEntryView;
-    use crate::domain::shared::player::PlayerInfo;
+    use crate::domain::shared::player::{PitchType, PlayerInfo};
+    use crate::domain::strategy::pitching_strategy::TargetZone;
+    use crate::domain::util::Vector3D;
     use chrono::NaiveDate;
 
     fn game_detail(innings: Vec<Inning>) -> GameDetail {
@@ -583,6 +748,21 @@ mod tests {
         }
     }
 
+    fn pitching_entry(team_id: u16, start_count_seq: u16, player_id: i64) -> PlayerGameEntryView {
+        PlayerGameEntryView {
+            start_count_seq,
+            end_count_seq: 6,
+            team_id,
+            position: Position::P,
+            batting_order: 0,
+            player: PlayerInfo::new_min(
+                player_id,
+                format!("First{player_id}"),
+                format!("Last{player_id}"),
+            ),
+        }
+    }
+
     fn batting_view(count_seq: u16, batter_id: i64) -> PlayerGameBattingView {
         PlayerGameBattingView {
             count_seq,
@@ -595,6 +775,70 @@ mod tests {
             ball: BattedBall::default(),
             fielder_position: None,
             result: BattingResult::Single,
+        }
+    }
+
+    fn batting_view_with_result(
+        count_seq: u16,
+        pitcher_id: i64,
+        batter_id: i64,
+        result: BattingResult,
+    ) -> PlayerGameBattingView {
+        PlayerGameBattingView {
+            count_seq,
+            pitcher: PlayerInfo::new_min(
+                pitcher_id,
+                format!("First{pitcher_id}"),
+                format!("Last{pitcher_id}"),
+            ),
+            batter: PlayerInfo::new_min(
+                batter_id,
+                format!("First{batter_id}"),
+                format!("Last{batter_id}"),
+            ),
+            ball: BattedBall::default(),
+            fielder_position: None,
+            result,
+        }
+    }
+
+    fn pitching_view(count_seq: u16, pitcher_id: i64) -> PlayerGamePitching {
+        PlayerGamePitching {
+            count_seq,
+            pitcher_id,
+            ball: PitchedBall {
+                pitch_type: PitchType::FourSeamFastball,
+                speed: 40.0,
+                spin_rate: 2200.0,
+                spin_angle: 180.0,
+                spin_efficiency: 1.0,
+                release_point: Vector3D {
+                    x: 0.0,
+                    y: 18.0,
+                    z: 1.8,
+                },
+                flight_time: 0.45,
+                aim_zone: TargetZone::Center,
+                aim_location: BallLocation { x: 0.0, y: 0.0 },
+                actual_location: BallLocation { x: 0.0, y: 0.0 },
+            },
+            ball_movement: BallMovement { x_m: 0.0, z_m: 0.0 },
+            location_bias: LocationBias {
+                timing_bias_sec: 0.0,
+                spatial_bias_x: 0.0,
+                spatial_bias_y: 0.0,
+            },
+            pitch_displacement: PitchDisplacement::default(),
+        }
+    }
+
+    fn count(seq: u16, point: u8) -> Count {
+        Count {
+            seq,
+            point,
+            ball: 0,
+            strike: 0,
+            out: 0,
         }
     }
 
@@ -758,5 +1002,66 @@ mod tests {
 
         assert_eq!(stats[1].plate_appearances, 1);
         assert_eq!(stats[1].hits, 1);
+    }
+
+    #[test]
+    fn current_pitching_stats_for_team_updates_by_count() {
+        let mut game = game_detail(vec![Inning {
+            seq: 1,
+            tb: TB::Top,
+            counts: vec![count(1, 0), count(2, 1), count(3, 0)],
+        }]);
+        game.player_entries = vec![pitching_entry(2, 1, 20)];
+        game.player_pitchings = vec![
+            pitching_view(1, 20),
+            pitching_view(2, 20),
+            pitching_view(3, 20),
+        ];
+        game.player_battings = vec![
+            batting_view_with_result(1, 20, 10, BattingResult::Strikeout),
+            batting_view_with_result(2, 20, 11, BattingResult::Single),
+            batting_view_with_result(3, 20, 12, BattingResult::Walk),
+        ];
+        let mut cursor = GameCursor::new(game);
+        cursor.count_seq = 2;
+
+        let stats = cursor.current_pitching_stats_for_team(2);
+
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].team_id, 2);
+        assert_eq!(stats[0].player.id, 20);
+        assert_eq!(stats[0].pitch_count, 2);
+        assert_eq!(stats[0].at_bats, 2);
+        assert_eq!(stats[0].hits, 1);
+        assert_eq!(stats[0].runs, 1);
+        assert_eq!(stats[0].innings, 1);
+        assert_eq!(stats[0].strikeouts, 1);
+        assert_eq!(stats[0].walks, 0);
+        assert_eq!(stats[0].era, 9.0);
+        assert_eq!(stats[0].whip, 1.0);
+
+        cursor.count_seq = 3;
+        let stats = cursor.current_pitching_stats_for_team(2);
+
+        assert_eq!(stats[0].pitch_count, 3);
+        assert_eq!(stats[0].at_bats, 2);
+        assert_eq!(stats[0].hits, 1);
+        assert_eq!(stats[0].walks, 1);
+        assert_eq!(stats[0].whip, 2.0);
+    }
+
+    #[test]
+    fn current_pitching_stats_for_team_sorts_pitchers_by_appearance() {
+        let mut game = game_detail(vec![inning(1, TB::Bottom, &[1, 2])]);
+        game.player_entries = vec![pitching_entry(1, 2, 21), pitching_entry(1, 1, 20)];
+        game.player_pitchings = vec![pitching_view(1, 20), pitching_view(2, 21)];
+        let mut cursor = GameCursor::new(game);
+        cursor.count_seq = 2;
+
+        let stats = cursor.current_pitching_stats_for_team(1);
+
+        assert_eq!(stats.len(), 2);
+        assert_eq!(stats[0].player.id, 20);
+        assert_eq!(stats[1].player.id, 21);
     }
 }

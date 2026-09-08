@@ -3,7 +3,9 @@ use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::ball::BallLocation;
 use crate::domain::shared::game::{Count, GameHeader};
-use crate::domain::shared::game_cursor::{BatterGameStatView, GameCursor, ScoreBoard};
+use crate::domain::shared::game_cursor::{
+    BatterGameStatView, GameCursor, PitcherGameStatView, ScoreBoard,
+};
 use crate::repositories::game_repository::{GameDetailReader, ProcessedGameReader};
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
@@ -378,7 +380,7 @@ impl GameResultsWidget {
         match self.selected_tab {
             GameDetailTab::GameResult => self.draw_game_result_tab(frame, layout[1])?,
             GameDetailTab::BattingStats => self.draw_batting_stats_tab(frame, layout[1])?,
-            GameDetailTab::PitchingStats => self.draw_pitching_stats_tab(frame, layout[1]),
+            GameDetailTab::PitchingStats => self.draw_pitching_stats_tab(frame, layout[1])?,
         }
 
         Ok(())
@@ -555,8 +557,81 @@ impl GameResultsWidget {
         Cell::from(Line::from(value.to_string()).alignment(Alignment::Right))
     }
 
-    fn draw_pitching_stats_tab(&self, frame: &mut Frame, area: Rect) {
-        frame.render_widget(Paragraph::new(t!("pitching_stats")), area);
+    fn draw_pitching_stats_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
+        let Some(cursor) = &mut self.game_cursor else {
+            frame.render_widget(Paragraph::new(t!("select_game")), area);
+            return Ok(());
+        };
+
+        let table_areas =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
+
+        Self::draw_pitching_stats_table(
+            frame,
+            table_areas[0],
+            cursor.away_team_name(),
+            cursor.current_pitching_stats_for_team(cursor.away_team_id()),
+        );
+        Self::draw_pitching_stats_table(
+            frame,
+            table_areas[1],
+            cursor.home_team_name(),
+            cursor.current_pitching_stats_for_team(cursor.home_team_id()),
+        );
+
+        Ok(())
+    }
+
+    fn draw_pitching_stats_table(
+        frame: &mut Frame,
+        area: Rect,
+        team_name: String,
+        pitching_stats: Vec<PitcherGameStatView>,
+    ) {
+        let header = Row::new([
+            Cell::from(t!("pitcher")),
+            Self::right_aligned_cell(t!("pitch_count")),
+            Self::right_aligned_cell(t!("innings")),
+            Self::right_aligned_cell(t!("ab")),
+            Self::right_aligned_cell(t!("h")),
+            Self::right_aligned_cell(t!("ra")),
+            Self::right_aligned_cell(t!("so")),
+            Self::right_aligned_cell(t!("bb")),
+            Self::right_aligned_cell(t!("era")),
+            Self::right_aligned_cell(t!("whip")),
+        ]);
+        let rows = pitching_stats.into_iter().map(|stat| {
+            Row::new([
+                Cell::from(stat.player.full_name()),
+                Self::right_aligned_cell(stat.pitch_count),
+                Self::right_aligned_cell(stat.innings),
+                Self::right_aligned_cell(stat.at_bats),
+                Self::right_aligned_cell(stat.hits),
+                Self::right_aligned_cell(stat.runs),
+                Self::right_aligned_cell(stat.strikeouts),
+                Self::right_aligned_cell(stat.walks),
+                Self::right_aligned_cell(format!("{:.2}", stat.era)),
+                Self::right_aligned_cell(format!("{:.2}", stat.whip)),
+            ])
+        });
+        let widths = [
+            Constraint::Min(8),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(6),
+            Constraint::Length(5),
+        ];
+        let table = Table::new(rows, widths)
+            .header(header)
+            .column_spacing(1)
+            .block(Block::bordered().title(team_name));
+
+        frame.render_widget(table, area);
     }
 
     fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
