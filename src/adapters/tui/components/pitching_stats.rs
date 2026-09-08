@@ -1,7 +1,7 @@
 use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
-use crate::domain::shared::stats::BattingStats;
+use crate::domain::shared::stats::PitchingStats;
 use crate::domain::statistics_service::StatService;
 use crate::{APP_CONTEXT, t};
 use anyhow::{Context, Result};
@@ -10,41 +10,41 @@ use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Default, Debug, Clone, Copy)]
-enum BattingStatsTab {
+enum PitchingStatsTab {
     #[default]
-    AtBats,
-    HomeRuns,
-    RunsBattedIn,
+    Games,
+    Innings,
+    EarnedRunAverage,
 }
 
-impl BattingStatsTab {
+impl PitchingStatsTab {
     fn from_index(index: usize) -> Option<Self> {
         match index {
-            0 => Some(Self::AtBats),
-            1 => Some(Self::HomeRuns),
-            2 => Some(Self::RunsBattedIn),
+            0 => Some(Self::Games),
+            1 => Some(Self::Innings),
+            2 => Some(Self::EarnedRunAverage),
             _ => None,
         }
     }
 
     fn selected_index(self) -> usize {
         match self {
-            Self::AtBats => 0,
-            Self::HomeRuns => 1,
-            Self::RunsBattedIn => 2,
+            Self::Games => 0,
+            Self::Innings => 1,
+            Self::EarnedRunAverage => 2,
         }
     }
 }
 
 #[derive(Default)]
-pub struct BattingStatsWidget {
+pub struct PitchingStatsWidget {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
-    selected_tab: BattingStatsTab,
+    selected_tab: PitchingStatsTab,
     scroll_offset: usize,
 }
 
-impl BattingStatsWidget {
+impl PitchingStatsWidget {
     pub fn new() -> Self {
         Self::default()
     }
@@ -53,7 +53,7 @@ impl BattingStatsWidget {
         Cell::from(Text::from(content).right_aligned())
     }
 
-    fn load_batting_stats() -> Result<Vec<BattingStats>> {
+    fn load_pitching_stats() -> Result<Vec<PitchingStats>> {
         let app_context = APP_CONTEXT
             .get()
             .context("App context is not initialized")?;
@@ -61,34 +61,35 @@ impl BattingStatsWidget {
             repo: app_context.statistics_repository.clone(),
         };
 
-        stat_service.show_batting_stats()
+        stat_service.show_pitching_stats()
     }
 
-    fn sorted_batting_stats(&self) -> Result<Vec<BattingStats>> {
-        let mut batting_stats = Self::load_batting_stats()?;
+    fn sorted_pitching_stats(&self) -> Result<Vec<PitchingStats>> {
+        let mut pitching_stats = Self::load_pitching_stats()?;
         match self.selected_tab {
-            BattingStatsTab::AtBats => batting_stats.sort_by(|a, b| {
-                b.ab.cmp(&a.ab)
-                    .then_with(|| b.homerun.cmp(&a.homerun))
-                    .then_with(|| b.rbi.total_cmp(&a.rbi))
+            PitchingStatsTab::Games => pitching_stats.sort_by(|a, b| {
+                b.games
+                    .cmp(&a.games)
+                    .then_with(|| b.innings.cmp(&a.innings))
+                    .then_with(|| a.era.cmp(&b.era))
                     .then_with(|| a.batter.full_name().cmp(&b.batter.full_name()))
             }),
-            BattingStatsTab::HomeRuns => batting_stats.sort_by(|a, b| {
-                b.homerun
-                    .cmp(&a.homerun)
-                    .then_with(|| b.rbi.total_cmp(&a.rbi))
-                    .then_with(|| b.ab.cmp(&a.ab))
+            PitchingStatsTab::Innings => pitching_stats.sort_by(|a, b| {
+                b.innings
+                    .cmp(&a.innings)
+                    .then_with(|| b.games.cmp(&a.games))
+                    .then_with(|| a.era.cmp(&b.era))
                     .then_with(|| a.batter.full_name().cmp(&b.batter.full_name()))
             }),
-            BattingStatsTab::RunsBattedIn => batting_stats.sort_by(|a, b| {
-                b.rbi
-                    .total_cmp(&a.rbi)
-                    .then_with(|| b.homerun.cmp(&a.homerun))
-                    .then_with(|| b.ab.cmp(&a.ab))
+            PitchingStatsTab::EarnedRunAverage => pitching_stats.sort_by(|a, b| {
+                a.era
+                    .cmp(&b.era)
+                    .then_with(|| b.innings.cmp(&a.innings))
+                    .then_with(|| b.games.cmp(&a.games))
                     .then_with(|| a.batter.full_name().cmp(&b.batter.full_name()))
             }),
         }
-        Ok(batting_stats)
+        Ok(pitching_stats)
     }
 
     fn max_scroll_offset(&self, row_count: usize, table_area: Rect) -> usize {
@@ -114,54 +115,50 @@ impl BattingStatsWidget {
         &mut self,
         frame: &mut Frame,
         area: Rect,
-        batting_stats: Vec<BattingStats>,
+        pitching_stats: Vec<PitchingStats>,
     ) -> color_eyre::Result<()> {
-        if batting_stats.is_empty() {
-            frame.render_widget(Paragraph::new(t!("no_batting_stats")), area);
+        if pitching_stats.is_empty() {
+            frame.render_widget(Paragraph::new(t!("no_pitching_stats")), area);
             return Ok(());
         }
 
-        let row_count = batting_stats.len();
+        let row_count = pitching_stats.len();
         self.clamp_scroll_offset(row_count, area);
 
-        let rows = batting_stats.into_iter().map(|stat| {
-            let hits = stat.single + stat.double + stat.triple + stat.homerun;
+        let rows = pitching_stats.into_iter().map(|stat| {
             Row::new(vec![
                 Cell::from(stat.batter.full_name()),
-                Self::right_cell(stat.ab.to_string()),
-                Self::right_cell(hits.to_string()),
-                Self::right_cell(stat.single.to_string()),
-                Self::right_cell(stat.double.to_string()),
-                Self::right_cell(stat.triple.to_string()),
-                Self::right_cell(stat.homerun.to_string()),
-                Self::right_cell(format!("{:.3}", stat.ba).replace("0.", ".")),
-                Self::right_cell(format!("{:.0}", stat.rbi)),
+                Self::right_cell(stat.games.to_string()),
+                Self::right_cell(stat.wins.to_string()),
+                Self::right_cell(stat.losses.to_string()),
+                Self::right_cell(stat.saves.to_string()),
+                Self::right_cell(stat.holds.to_string()),
+                Self::right_cell(stat.era.to_string()),
+                Self::right_cell(stat.innings.to_string()),
             ])
         });
 
         let header = Row::new(vec![
-            Cell::from(t!("player")),
-            Self::right_cell(t!("ab")),
-            Self::right_cell(t!("h")),
-            Self::right_cell(t!("single")),
-            Self::right_cell(t!("double")),
-            Self::right_cell(t!("triple")),
-            Self::right_cell(t!("hr")),
-            Self::right_cell(t!("ba")),
-            Self::right_cell(t!("rbi")),
+            Cell::from(t!("pitcher")),
+            Self::right_cell(t!("games")),
+            Self::right_cell(t!("wins")),
+            Self::right_cell(t!("losses")),
+            Self::right_cell(t!("saves")),
+            Self::right_cell(t!("holds")),
+            Self::right_cell(t!("era")),
+            Self::right_cell(t!("innings")),
         ])
         .style(Style::default().add_modifier(Modifier::BOLD));
 
         let widths = [
             Constraint::Min(10),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(8),
+            Constraint::Length(6),
+            Constraint::Length(5),
             Constraint::Length(6),
             Constraint::Length(6),
             Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(7),
         ];
 
         let mut table_state = TableState::new().with_offset(self.scroll_offset);
@@ -187,7 +184,7 @@ impl BattingStatsWidget {
     }
 }
 
-impl Component for BattingStatsWidget {
+impl Component for PitchingStatsWidget {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
         self.command_tx = Some(tx);
         Ok(())
@@ -210,7 +207,7 @@ impl Component for BattingStatsWidget {
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
         match action {
             Action::SelectGameDetailTab(index) => {
-                if let Some(tab) = BattingStatsTab::from_index(index) {
+                if let Some(tab) = PitchingStatsTab::from_index(index) {
                     self.selected_tab = tab;
                     self.scroll_offset = 0;
                 }
@@ -230,7 +227,7 @@ impl Component for BattingStatsWidget {
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
         let block = Block::new()
-            .title(t!("batting_stats"))
+            .title(t!("pitching_stats"))
             .borders(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -238,9 +235,9 @@ impl Component for BattingStatsWidget {
         let layout = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
 
         let tabs = Tabs::new(vec![
-            Line::from(format!("{}(1)", t!("ab"))),
-            Line::from(format!("{}(2)", t!("hr"))),
-            Line::from(format!("{}(3)", t!("rbi"))),
+            Line::from(format!("{}(1)", t!("games"))),
+            Line::from(format!("{}(2)", t!("innings"))),
+            Line::from(format!("{}(3)", t!("era"))),
         ])
         .select(self.selected_tab.selected_index())
         .highlight_style(
@@ -252,8 +249,8 @@ impl Component for BattingStatsWidget {
 
         frame.render_widget(tabs, layout[0]);
 
-        match self.sorted_batting_stats() {
-            Ok(batting_stats) => self.draw_table(frame, layout[1], batting_stats)?,
+        match self.sorted_pitching_stats() {
+            Ok(pitching_stats) => self.draw_table(frame, layout[1], pitching_stats)?,
             Err(err) => frame.render_widget(Paragraph::new(format!("Error: {err}")), layout[1]),
         };
 

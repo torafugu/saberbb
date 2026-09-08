@@ -1,5 +1,6 @@
-use crate::domain::shared::stat::BattingStats;
-use crate::domain::shared::stat::Standing;
+use crate::domain::shared::stats::BattingStats;
+use crate::domain::shared::stats::PitchingStats;
+use crate::domain::shared::stats::Standing;
 use crate::repositories::statistics_repository::StatRepository;
 use crate::t;
 use anyhow::{Context, Result};
@@ -39,5 +40,14 @@ impl<R: StatRepository> StatService<R> {
             .context(t!("error", "function" => "load_batting_stats"))?;
 
         Ok(batting_stats)
+    }
+
+    pub fn show_pitching_stats(&self) -> Result<Vec<PitchingStats>> {
+        let pitching_stats = self
+            .repo
+            .load_pitching_stats()
+            .context(t!("error", "function" => "load_pitching_stats"))?;
+
+        Ok(pitching_stats)
     }
 }

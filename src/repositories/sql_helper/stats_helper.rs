@@ -1,5 +1,5 @@
 use crate::domain::shared::player::{Player, PlayerInfo};
-use crate::domain::shared::stat::{BattingStats, Standing};
+use crate::domain::shared::stats::{BattingStats, PitchingStats, Standing};
 use crate::domain::shared::team::Team;
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -59,5 +59,38 @@ impl FromRow for BattingStats {
         batting_stats.validate()?;
 
         Ok(batting_stats)
+    }
+}
+
+impl FromRow for PitchingStats {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let first_name: String = row
+            .get("pitcher_first_name")
+            .map_err(|e| AppError::Database(e))?;
+        let last_name: String = row
+            .get("pitcher_last_name")
+            .map_err(|e| AppError::Database(e))?;
+        let pitching_stats = PitchingStats {
+            batter: Player::from_player_info(PlayerInfo::new_min(
+                row.get("player_id").map_err(|e| AppError::Database(e))?,
+                first_name,
+                last_name,
+            )),
+            games: row.get("games").map_err(|e| AppError::Database(e))?,
+            innings: row.get("innings").map_err(|e| AppError::Database(e))?,
+            wins: row.get("wins").map_err(|e| AppError::Database(e))?,
+            losses: row.get("losses").map_err(|e| AppError::Database(e))?,
+            saves: row.get("saves").map_err(|e| AppError::Database(e))?,
+            holds: row.get("holds").map_err(|e| AppError::Database(e))?,
+            era: row.get("era").map_err(|e| AppError::Database(e))?,
+            so: row.get("so").map_err(|e| AppError::Database(e))?,
+            bb: row.get("bb").map_err(|e| AppError::Database(e))?,
+        };
+
+        pitching_stats.validate()?;
+
+        Ok(pitching_stats)
     }
 }

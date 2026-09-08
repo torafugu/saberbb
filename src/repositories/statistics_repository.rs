@@ -1,5 +1,5 @@
-use crate::domain::shared::stat::BattingStats;
-use crate::domain::shared::stat::Standing;
+use crate::domain::shared::stats::Standing;
+use crate::domain::shared::stats::{BattingStats, PitchingStats};
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
@@ -8,6 +8,7 @@ use rusqlite::params;
 pub trait StatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
+    fn load_pitching_stats(&self) -> Result<Vec<PitchingStats>, AppError>;
 }
 
 #[derive(Clone)]
@@ -90,6 +91,66 @@ impl StatRepository for SqlStatRepository {
                             GROUP BY pgb.batter_id
                             ORDER BY pgb.batter_id";
         self.db_client.query_rows::<BattingStats>(query, params![])
+    }
+
+    fn load_pitching_stats(&self) -> Result<Vec<PitchingStats>, AppError> {
+        let query = "WITH pitcher_ids AS (
+                            SELECT pitcher_id FROM player_game_pitching
+                            UNION
+                            SELECT pitcher_id FROM player_game_batting
+                        ),
+                        game_counts AS (
+                            SELECT
+                                pitcher_id,
+                                COUNT(DISTINCT game_id) AS games
+                            FROM player_game_pitching
+                            GROUP BY pitcher_id
+                        ),
+                        inning_counts AS (
+                            SELECT
+                                pgp.pitcher_id,
+                                COUNT(DISTINCT CASE
+                                    WHEN c.inning_seq IS NOT NULL AND c.inning_tb IS NOT NULL
+                                        THEN pgp.game_id || '-' || c.inning_seq || '-' || c.inning_tb
+                                    ELSE pgp.game_id || '-' || pgp.count_seq
+                                END) AS innings
+                            FROM player_game_pitching pgp
+                            LEFT JOIN
+                                count c ON pgp.game_id = c.game_id AND pgp.count_seq = c.seq
+                            GROUP BY pgp.pitcher_id
+                        ),
+                        result_counts AS (
+                            SELECT
+                                pitcher_id,
+                                SUM(CASE WHEN result = 'Strikeout' THEN 1 ELSE 0 END) AS so,
+                                SUM(CASE WHEN result IN ('Walk', 'HitByPitch') THEN 1 ELSE 0 END) AS bb
+                            FROM player_game_batting
+                            GROUP BY pitcher_id
+                        )
+                        SELECT
+                            pitcher_ids.pitcher_id AS player_id,
+                            pi.first_name AS pitcher_first_name,
+                            pi.last_name AS pitcher_last_name,
+                            COALESCE(game_counts.games, 0) AS games,
+                            COALESCE(inning_counts.innings, 0) AS innings,
+                            0 AS wins,
+                            0 AS losses,
+                            0 AS saves,
+                            0 AS holds,
+                            0 AS era,
+                            COALESCE(result_counts.so, 0) AS so,
+                            COALESCE(result_counts.bb, 0) AS bb
+                        FROM pitcher_ids
+                        LEFT JOIN
+                            player_info pi ON pitcher_ids.pitcher_id = pi.id
+                        LEFT JOIN
+                            game_counts ON pitcher_ids.pitcher_id = game_counts.pitcher_id
+                        LEFT JOIN
+                            inning_counts ON pitcher_ids.pitcher_id = inning_counts.pitcher_id
+                        LEFT JOIN
+                            result_counts ON pitcher_ids.pitcher_id = result_counts.pitcher_id
+                        ORDER BY pitcher_ids.pitcher_id";
+        self.db_client.query_rows::<PitchingStats>(query, params![])
     }
 }
 
@@ -178,6 +239,68 @@ mod tests {
                 out INTEGER NOT NULL,
                 PRIMARY KEY (game_id, inning_seq, inning_tb, seq)
             );
+
+            CREATE TABLE player_info (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                age INTEGER NOT NULL,
+                uniform_number INTEGER NOT NULL
+            );
+
+            CREATE TABLE player_game_pitching (
+                game_id INTEGER,
+                count_seq INTEGER,
+                pitcher_id INTEGER NOT NULL,
+                pitch_type TEXT NOT NULL,
+                speed REAL NOT NULL,
+                spin_rate REAL NOT NULL,
+                spin_angle REAL NOT NULL,
+                spin_efficiency REAL NOT NULL,
+                release_point_x REAL NOT NULL,
+                release_point_y REAL NOT NULL,
+                release_point_z REAL NOT NULL,
+                flight_time REAL NOT NULL,
+                aim_zone TEXT NOT NULL,
+                aim_location_x REAL NOT NULL,
+                aim_location_y REAL NOT NULL,
+                actual_location_x REAL NOT NULL,
+                actual_location_y REAL NOT NULL,
+                ball_movement_x_m REAL NOT NULL,
+                ball_movement_z_m REAL NOT NULL,
+                timing_bias_sec REAL NOT NULL,
+                spatial_bias_x REAL NOT NULL,
+                spatial_bias_y REAL NOT NULL,
+                crossfire_multiplier REAL NOT NULL,
+                release_x_factor REAL NOT NULL,
+                horizontal_offset_m REAL NOT NULL,
+                vertical_offset_m REAL NOT NULL,
+                timing_offset_sec REAL NOT NULL,
+                PRIMARY KEY (game_id, count_seq)
+            );
+
+            CREATE TABLE player_game_batting (
+                game_id INTEGER,
+                count_seq INTEGER,
+                pitcher_id INTEGER NOT NULL,
+                batter_id INTEGER NOT NULL,
+                launch_speed REAL NOT NULL,
+                launch_angle REAL NOT NULL,
+                polar_distance REAL NOT NULL,
+                polar_angle REAL NOT NULL,
+                total_time REAL NOT NULL,
+                first_bounce_distance REAL,
+                first_bounce_angle REAL,
+                first_bounce_time REAL,
+                fence_impact_distance REAL,
+                fence_impact_angle REAL,
+                fence_impact_time REAL,
+                outbound_result TEXT NOT NULL,
+                fielder_position TEXT,
+                result TEXT NOT NULL,
+                PRIMARY KEY (game_id, count_seq)
+            );
             ",
         )
         .unwrap();
@@ -231,6 +354,86 @@ mod tests {
                     away_points,
                     home_points
                 ],
+            )
+            .unwrap();
+    }
+
+    fn seed_count(
+        repo: &SqlStatRepository,
+        game_id: u32,
+        inning_seq: u8,
+        inning_tb: &str,
+        count_seq: u16,
+        point: u8,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO count (
+                    game_id, inning_seq, inning_tb, seq, result, point, out
+                ) VALUES (?1, ?2, ?3, ?4, 'Out', ?5, 1)",
+                params![game_id, inning_seq, inning_tb, count_seq, point],
+            )
+            .unwrap();
+    }
+
+    fn seed_player_info(repo: &SqlStatRepository, id: i64, first_name: &str, last_name: &str) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player_info (
+                    id, team_id, first_name, last_name, age, uniform_number
+                ) VALUES (?1, 1, ?2, ?3, 25, 11)",
+                params![id, first_name, last_name],
+            )
+            .unwrap();
+    }
+
+    fn seed_player_game_pitching(
+        repo: &SqlStatRepository,
+        game_id: u32,
+        count_seq: u16,
+        pitcher_id: i64,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player_game_pitching (
+                    game_id, count_seq, pitcher_id, pitch_type, speed, spin_rate, spin_angle,
+                    spin_efficiency, release_point_x, release_point_y, release_point_z,
+                    flight_time, aim_zone, aim_location_x, aim_location_y, actual_location_x,
+                    actual_location_y, ball_movement_x_m, ball_movement_z_m, timing_bias_sec,
+                    spatial_bias_x, spatial_bias_y, crossfire_multiplier, release_x_factor,
+                    horizontal_offset_m, vertical_offset_m, timing_offset_sec
+                ) VALUES (
+                    ?1, ?2, ?3, 'FourSeamFastball', 150.0, 2200.0, 0.0,
+                    0.9, 0.0, 18.0, 6.0, 0.4, 'Center', 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+                    0.0, 0.0, 0.0
+                )",
+                params![game_id, count_seq, pitcher_id],
+            )
+            .unwrap();
+    }
+
+    fn seed_player_game_batting(
+        repo: &SqlStatRepository,
+        game_id: u32,
+        count_seq: u16,
+        pitcher_id: i64,
+        batter_id: i64,
+        result: &str,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player_game_batting (
+                    game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle,
+                    polar_distance, polar_angle, total_time, first_bounce_distance,
+                    first_bounce_angle, first_bounce_time, fence_impact_distance,
+                    fence_impact_angle, fence_impact_time, outbound_result, fielder_position,
+                    result
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, 0.0, 0.0, 0.0, 0.0, 0.0, NULL,
+                    NULL, NULL, NULL, NULL, NULL, 'InField', NULL, ?5
+                )",
+                params![game_id, count_seq, pitcher_id, batter_id, result],
             )
             .unwrap();
     }
@@ -320,81 +523,36 @@ mod tests {
         std::fs::remove_file(path).ok();
     }
 
-    // #[test]
-    // fn load_batting_stats_aggregates_results_by_batter() {
-    //     let (repo, path) = setup_repo();
-    //     seed_player(&repo, 10, "Shohei", "Ohtani");
-    //     seed_count(&repo, 1, 1, 10, "Single", 1);
-    //     seed_count(&repo, 1, 2, 10, "Double", 2);
-    //     seed_count(&repo, 1, 3, 10, "Triple", 3);
-    //     seed_count(&repo, 1, 4, 10, "HomeRun", 4);
-    //     seed_count(&repo, 1, 5, 10, "Out", 0);
+    #[test]
+    fn load_pitching_stats_returns_games_strikeouts_and_walks() {
+        let (repo, path) = setup_repo();
+        seed_player_info(&repo, 10, "Shohei", "Ohtani");
+        seed_player_info(&repo, 20, "Mike", "Trout");
+        seed_count(&repo, 1, 1, "Top", 1, 0);
+        seed_count(&repo, 1, 1, "Top", 2, 0);
+        seed_count(&repo, 2, 1, "Bottom", 1, 0);
+        seed_player_game_pitching(&repo, 1, 1, 10);
+        seed_player_game_pitching(&repo, 1, 2, 10);
+        seed_player_game_pitching(&repo, 2, 1, 10);
+        seed_player_game_batting(&repo, 1, 1, 10, 20, "Strikeout");
+        seed_player_game_batting(&repo, 1, 2, 10, 20, "Walk");
+        seed_player_game_batting(&repo, 2, 1, 10, 20, "HitByPitch");
 
-    //     let stats = repo.load_batting_stats().unwrap();
+        let stats = repo.load_pitching_stats().unwrap();
 
-    //     assert_eq!(stats.len(), 1);
-    //     assert_eq!(stats[0].batter.id, 10);
-    //     assert_eq!(stats[0].batter.first_name.as_ref(), "Shohei");
-    //     assert_eq!(stats[0].batter.last_name.as_ref(), "Ohtani");
-    //     assert_eq!(stats[0].ab, 5);
-    //     assert_eq!(stats[0].single, 1);
-    //     assert_eq!(stats[0].double, 1);
-    //     assert_eq!(stats[0].triple, 1);
-    //     assert_eq!(stats[0].homerun, 1);
-    //     assert_eq!(stats[0].ba, 0.8);
-    //     assert_eq!(stats[0].rbi, 10.0);
-    //     std::fs::remove_file(path).ok();
-    // }
-
-    // #[test]
-    // fn load_batting_stats_calculates_ba_including_homeruns() {
-    //     let (repo, path) = setup_repo();
-    //     seed_player(&repo, 10, "Shohei", "Ohtani");
-    //     seed_count(&repo, 1, 1, 10, "Single", 0);
-    //     seed_count(&repo, 1, 2, 10, "HomeRun", 1);
-    //     seed_count(&repo, 1, 3, 10, "Out", 0);
-    //     seed_count(&repo, 1, 4, 10, "Out", 0);
-
-    //     let stats = repo.load_batting_stats().unwrap();
-
-    //     assert_eq!(stats.len(), 1);
-    //     assert_eq!(stats[0].ab, 4);
-    //     assert_eq!(stats[0].homerun, 1);
-    //     assert_eq!(stats[0].ba, 0.5);
-    //     std::fs::remove_file(path).ok();
-    // }
-
-    // #[test]
-    // fn load_batting_stats_groups_multiple_batters_ordered_by_batter_id() {
-    //     let (repo, path) = setup_repo();
-    //     seed_player(&repo, 10, "First10", "Last10");
-    //     seed_player(&repo, 20, "First20", "Last20");
-    //     seed_count(&repo, 1, 1, 20, "Double", 2);
-    //     seed_count(&repo, 1, 2, 10, "Out", 0);
-    //     seed_count(&repo, 1, 3, 10, "Single", 1);
-
-    //     let stats = repo.load_batting_stats().unwrap();
-
-    //     assert_eq!(stats.len(), 2);
-    //     assert_eq!(stats[0].batter.id, 10);
-    //     assert_eq!(stats[0].ab, 2);
-    //     assert_eq!(stats[0].single, 1);
-    //     assert_eq!(stats[0].ba, 0.5);
-    //     assert_eq!(stats[1].batter.id, 20);
-    //     assert_eq!(stats[1].ab, 1);
-    //     assert_eq!(stats[1].double, 1);
-    //     assert_eq!(stats[1].ba, 1.0);
-    //     std::fs::remove_file(path).ok();
-    // }
-
-    // #[test]
-    // fn load_batting_stats_returns_empty_when_no_counts() {
-    //     let (repo, path) = setup_repo();
-    //     seed_player(&repo, 10, "Shohei", "Ohtani");
-
-    //     let stats = repo.load_batting_stats().unwrap();
-
-    //     assert!(stats.is_empty());
-    //     std::fs::remove_file(path).ok();
-    // }
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].batter.info.id, 10);
+        assert_eq!(stats[0].batter.info.first_name.as_str(), "Shohei");
+        assert_eq!(stats[0].batter.info.last_name.as_str(), "Ohtani");
+        assert_eq!(stats[0].games, 2);
+        assert_eq!(stats[0].innings, 2);
+        assert_eq!(stats[0].wins, 0);
+        assert_eq!(stats[0].losses, 0);
+        assert_eq!(stats[0].saves, 0);
+        assert_eq!(stats[0].holds, 0);
+        assert_eq!(stats[0].era, 0);
+        assert_eq!(stats[0].so, 1);
+        assert_eq!(stats[0].bb, 2);
+        std::fs::remove_file(path).ok();
+    }
 }

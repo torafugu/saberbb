@@ -26,3 +26,17 @@ pub struct BattingStats {
     pub ba: f32,
     pub rbi: f32,
 }
+
+#[derive(Debug, Validate)]
+pub struct PitchingStats {
+    pub batter: Player,
+    pub games: u16,
+    pub innings: u16,
+    pub wins: u16,
+    pub losses: u16,
+    pub saves: u16,
+    pub holds: u16,
+    pub era: u16,
+    pub so: u16,
+    pub bb: u16,
+}

@@ -9,6 +9,7 @@ pub enum MenuOption {
     ViewStandings,
     ViewGameResults,
     ViewBattingStat,
+    ViewPitchingStat,
 }
 
 impl fmt::Display for MenuOption {
@@ -17,6 +18,7 @@ impl fmt::Display for MenuOption {
             Self::ViewStandings => t!("standings"),
             Self::ViewGameResults => t!("game_results"),
             Self::ViewBattingStat => t!("batting_stats"),
+            Self::ViewPitchingStat => t!("pitching_stats"),
         };
         write!(f, "{label}")
     }
