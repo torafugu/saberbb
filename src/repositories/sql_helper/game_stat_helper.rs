@@ -63,6 +63,218 @@ const INSERT_PLAYER_GAME_RUNNING_SQL: &str = "INSERT INTO player_game_running (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
     )";
 
+const DELETE_PLAYER_GAME_PITCHING_DECISION_SQL: &str =
+    "DELETE FROM player_game_pitching_decision WHERE game_id = ?1";
+
+const INSERT_PLAYER_GAME_PITCHING_DECISION_SQL: &str = "
+    WITH
+    game_info AS (
+        SELECT
+            id AS game_id,
+            away_team_id,
+            home_team_id,
+            away_points,
+            home_points,
+            CASE
+                WHEN away_points > home_points THEN away_team_id
+                WHEN home_points > away_points THEN home_team_id
+            END AS winner_team_id,
+            CASE
+                WHEN away_points > home_points THEN home_team_id
+                WHEN home_points > away_points THEN away_team_id
+            END AS loser_team_id,
+            ABS(away_points - home_points) AS final_margin
+        FROM game
+        WHERE id = ?1
+            AND actual_date IS NOT NULL
+            AND away_points IS NOT NULL
+            AND home_points IS NOT NULL
+            AND away_points <> home_points
+    ),
+    score_timeline AS (
+        SELECT
+            c.game_id,
+            c.seq,
+            c.inning_tb,
+            c.point,
+            SUM(CASE WHEN c.inning_tb = 'Top' THEN c.point ELSE 0 END)
+                OVER (PARTITION BY c.game_id ORDER BY c.seq) AS away_after,
+            SUM(CASE WHEN c.inning_tb = 'Bottom' THEN c.point ELSE 0 END)
+                OVER (PARTITION BY c.game_id ORDER BY c.seq) AS home_after
+        FROM count c
+        WHERE c.game_id = ?1
+    ),
+    score_timeline_with_before AS (
+        SELECT
+            game_id,
+            seq,
+            inning_tb,
+            point,
+            away_after,
+            home_after,
+            away_after - CASE WHEN inning_tb = 'Top' THEN point ELSE 0 END AS away_before,
+            home_after - CASE WHEN inning_tb = 'Bottom' THEN point ELSE 0 END AS home_before
+        FROM score_timeline
+    ),
+    final_count AS (
+        SELECT game_id, MAX(seq) AS seq
+        FROM score_timeline
+        GROUP BY game_id
+    ),
+    go_ahead AS (
+        SELECT
+            st.game_id,
+            MAX(st.seq) AS seq
+        FROM score_timeline_with_before st
+        JOIN game_info g ON g.game_id = st.game_id
+        WHERE
+            CASE
+                WHEN g.winner_team_id = g.away_team_id
+                    THEN st.away_after > st.home_after AND st.away_before <= st.home_before
+                ELSE st.home_after > st.away_after AND st.home_before <= st.away_before
+            END
+        GROUP BY st.game_id
+    ),
+    pitcher_appearances AS (
+        SELECT
+            pge.game_id,
+            pge.player_id AS pitcher_id,
+            pi.team_id,
+            pge.start_count_seq,
+            CASE
+                WHEN pge.end_count_seq IS NULL OR pge.end_count_seq = 0 THEN fc.seq
+                ELSE pge.end_count_seq
+            END AS end_count_seq
+        FROM player_game_entry pge
+        JOIN player_info pi ON pi.id = pge.player_id
+        JOIN final_count fc ON fc.game_id = pge.game_id
+        WHERE pge.game_id = ?1
+            AND pge.position = 'P'
+    ),
+    win_decision AS (
+        SELECT
+            g.game_id,
+            pa.pitcher_id,
+            pa.team_id,
+            'Win' AS decision
+        FROM game_info g
+        JOIN go_ahead ga ON ga.game_id = g.game_id
+        JOIN pitcher_appearances pa
+            ON pa.game_id = g.game_id
+            AND pa.team_id = g.winner_team_id
+            AND pa.start_count_seq <= ga.seq
+            AND pa.end_count_seq >= ga.seq
+        ORDER BY pa.start_count_seq DESC
+        LIMIT 1
+    ),
+    loss_decision AS (
+        SELECT
+            g.game_id,
+            COALESCE(pgb.pitcher_id, pgp.pitcher_id) AS pitcher_id,
+            pi.team_id,
+            'Loss' AS decision
+        FROM game_info g
+        JOIN go_ahead ga ON ga.game_id = g.game_id
+        LEFT JOIN player_game_batting pgb
+            ON pgb.game_id = ga.game_id
+            AND pgb.count_seq = ga.seq
+        LEFT JOIN player_game_pitching pgp
+            ON pgp.game_id = ga.game_id
+            AND pgp.count_seq = ga.seq
+        JOIN player_info pi ON pi.id = COALESCE(pgb.pitcher_id, pgp.pitcher_id)
+        LIMIT 1
+    ),
+    final_pitcher AS (
+        SELECT
+            pa.game_id,
+            pa.pitcher_id,
+            pa.team_id,
+            pa.start_count_seq,
+            pa.end_count_seq
+        FROM pitcher_appearances pa
+        JOIN game_info g
+            ON g.game_id = pa.game_id
+            AND g.winner_team_id = pa.team_id
+        JOIN final_count fc
+            ON fc.game_id = pa.game_id
+            AND pa.end_count_seq >= fc.seq
+        ORDER BY pa.start_count_seq DESC
+        LIMIT 1
+    ),
+    save_decision AS (
+        SELECT
+            fp.game_id,
+            fp.pitcher_id,
+            fp.team_id,
+            'Save' AS decision
+        FROM final_pitcher fp
+        JOIN game_info g ON g.game_id = fp.game_id
+        LEFT JOIN win_decision w ON w.game_id = fp.game_id
+        WHERE fp.start_count_seq > 1
+            AND g.final_margin BETWEEN 1 AND 3
+            AND (w.pitcher_id IS NULL OR w.pitcher_id <> fp.pitcher_id)
+    ),
+    hold_candidates AS (
+        SELECT
+            pa.game_id,
+            pa.pitcher_id,
+            pa.team_id,
+            pa.start_count_seq,
+            pa.end_count_seq,
+            CASE
+                WHEN g.winner_team_id = g.away_team_id THEN
+                    COALESCE((SELECT SUM(CASE WHEN c.inning_tb = 'Top' THEN c.point ELSE -c.point END)
+                        FROM count c
+                        WHERE c.game_id = pa.game_id AND c.seq < pa.start_count_seq), 0)
+                ELSE
+                    COALESCE((SELECT SUM(CASE WHEN c.inning_tb = 'Bottom' THEN c.point ELSE -c.point END)
+                        FROM count c
+                        WHERE c.game_id = pa.game_id AND c.seq < pa.start_count_seq), 0)
+            END AS margin_at_entry,
+            CASE
+                WHEN g.winner_team_id = g.away_team_id THEN
+                    COALESCE((SELECT SUM(CASE WHEN c.inning_tb = 'Top' THEN c.point ELSE -c.point END)
+                        FROM count c
+                        WHERE c.game_id = pa.game_id AND c.seq <= pa.end_count_seq), 0)
+                ELSE
+                    COALESCE((SELECT SUM(CASE WHEN c.inning_tb = 'Bottom' THEN c.point ELSE -c.point END)
+                        FROM count c
+                        WHERE c.game_id = pa.game_id AND c.seq <= pa.end_count_seq), 0)
+            END AS margin_at_exit
+        FROM pitcher_appearances pa
+        JOIN game_info g
+            ON g.game_id = pa.game_id
+            AND g.winner_team_id = pa.team_id
+        LEFT JOIN final_pitcher fp
+            ON fp.game_id = pa.game_id
+            AND fp.pitcher_id = pa.pitcher_id
+        LEFT JOIN win_decision w
+            ON w.game_id = pa.game_id
+            AND w.pitcher_id = pa.pitcher_id
+        WHERE pa.start_count_seq > 1
+            AND fp.pitcher_id IS NULL
+            AND w.pitcher_id IS NULL
+    ),
+    hold_decisions AS (
+        SELECT
+            game_id,
+            pitcher_id,
+            team_id,
+            'Hold' AS decision
+        FROM hold_candidates
+        WHERE margin_at_entry BETWEEN 1 AND 3
+            AND margin_at_exit > 0
+        GROUP BY game_id, pitcher_id, team_id
+    )
+    INSERT INTO player_game_pitching_decision (game_id, pitcher_id, decision)
+    SELECT game_id, pitcher_id, decision FROM win_decision
+    UNION ALL
+    SELECT game_id, pitcher_id, decision FROM loss_decision
+    UNION ALL
+    SELECT game_id, pitcher_id, decision FROM save_decision
+    UNION ALL
+    SELECT game_id, pitcher_id, decision FROM hold_decisions";
+
 #[tracing::instrument(skip(db_client, tx, player_game_entry), fields(game_id = %game_id, count_seq = %player_game_entry.start_count_seq, player_id = %player_game_entry.player_id), err)]
 pub fn insert_player_game_entry(
     db_client: &DbClient,
@@ -240,6 +452,26 @@ pub fn insert_player_game_running(
             player_game_running.runner_2nd_id,
             player_game_running.runner_3rd_id
         ],
+    )
+}
+
+#[tracing::instrument(skip(db_client, tx), fields(game_id = %game_id), err)]
+pub fn refresh_player_game_pitching_decisions(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game_id: u32,
+) -> Result<usize, AppError> {
+    info!("refresh_player_game_pitching_decisions() started");
+
+    db_client.execute_tx(
+        tx,
+        DELETE_PLAYER_GAME_PITCHING_DECISION_SQL,
+        params![game_id],
+    )?;
+    db_client.execute_tx(
+        tx,
+        INSERT_PLAYER_GAME_PITCHING_DECISION_SQL,
+        params![game_id],
     )
 }
 

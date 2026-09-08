@@ -126,6 +126,16 @@ impl StatRepository for SqlStatRepository {
                                 SUM(CASE WHEN result IN ('Walk', 'HitByPitch') THEN 1 ELSE 0 END) AS bb
                             FROM player_game_batting
                             GROUP BY pitcher_id
+                        ),
+                        decision_counts AS (
+                            SELECT
+                                pitcher_id,
+                                SUM(CASE WHEN decision = 'Win' THEN 1 ELSE 0 END) AS wins,
+                                SUM(CASE WHEN decision = 'Loss' THEN 1 ELSE 0 END) AS losses,
+                                SUM(CASE WHEN decision = 'Save' THEN 1 ELSE 0 END) AS saves,
+                                SUM(CASE WHEN decision = 'Hold' THEN 1 ELSE 0 END) AS holds
+                            FROM player_game_pitching_decision
+                            GROUP BY pitcher_id
                         )
                         SELECT
                             pitcher_ids.pitcher_id AS player_id,
@@ -133,10 +143,10 @@ impl StatRepository for SqlStatRepository {
                             pi.last_name AS pitcher_last_name,
                             COALESCE(game_counts.games, 0) AS games,
                             COALESCE(inning_counts.innings, 0) AS innings,
-                            0 AS wins,
-                            0 AS losses,
-                            0 AS saves,
-                            0 AS holds,
+                            COALESCE(decision_counts.wins, 0) AS wins,
+                            COALESCE(decision_counts.losses, 0) AS losses,
+                            COALESCE(decision_counts.saves, 0) AS saves,
+                            COALESCE(decision_counts.holds, 0) AS holds,
                             0 AS era,
                             COALESCE(result_counts.so, 0) AS so,
                             COALESCE(result_counts.bb, 0) AS bb
@@ -149,6 +159,8 @@ impl StatRepository for SqlStatRepository {
                             inning_counts ON pitcher_ids.pitcher_id = inning_counts.pitcher_id
                         LEFT JOIN
                             result_counts ON pitcher_ids.pitcher_id = result_counts.pitcher_id
+                        LEFT JOIN
+                            decision_counts ON pitcher_ids.pitcher_id = decision_counts.pitcher_id
                         ORDER BY pitcher_ids.pitcher_id";
         self.db_client.query_rows::<PitchingStats>(query, params![])
     }
@@ -301,6 +313,13 @@ mod tests {
                 result TEXT NOT NULL,
                 PRIMARY KEY (game_id, count_seq)
             );
+
+            CREATE TABLE player_game_pitching_decision (
+                game_id INTEGER NOT NULL,
+                pitcher_id INTEGER NOT NULL,
+                decision TEXT NOT NULL,
+                PRIMARY KEY (game_id, pitcher_id, decision)
+            );
             ",
         )
         .unwrap();
@@ -438,6 +457,22 @@ mod tests {
             .unwrap();
     }
 
+    fn seed_player_game_pitching_decision(
+        repo: &SqlStatRepository,
+        game_id: u32,
+        pitcher_id: i64,
+        decision: &str,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player_game_pitching_decision (
+                    game_id, pitcher_id, decision
+                ) VALUES (?1, ?2, ?3)",
+                params![game_id, pitcher_id, decision],
+            )
+            .unwrap();
+    }
+
     #[test]
     fn load_standings_returns_team_records_ordered_by_pct_then_wins() {
         let (repo, path) = setup_repo();
@@ -553,6 +588,32 @@ mod tests {
         assert_eq!(stats[0].era, 0);
         assert_eq!(stats[0].so, 1);
         assert_eq!(stats[0].bb, 2);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_pitching_stats_counts_pitcher_decisions() {
+        let (repo, path) = setup_repo();
+        seed_player_info(&repo, 10, "Shohei", "Ohtani");
+        seed_player_info(&repo, 20, "Mike", "Trout");
+        seed_count(&repo, 1, 1, "Top", 1, 0);
+        seed_count(&repo, 2, 1, "Top", 1, 0);
+        seed_player_game_pitching(&repo, 1, 1, 10);
+        seed_player_game_pitching(&repo, 2, 1, 10);
+        seed_player_game_batting(&repo, 1, 1, 10, 20, "Strikeout");
+        seed_player_game_batting(&repo, 2, 1, 10, 20, "Out");
+        seed_player_game_pitching_decision(&repo, 1, 10, "Win");
+        seed_player_game_pitching_decision(&repo, 2, 10, "Save");
+        seed_player_game_pitching_decision(&repo, 3, 10, "Hold");
+        seed_player_game_pitching_decision(&repo, 4, 10, "Loss");
+
+        let stats = repo.load_pitching_stats().unwrap();
+
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].wins, 1);
+        assert_eq!(stats[0].losses, 1);
+        assert_eq!(stats[0].saves, 1);
+        assert_eq!(stats[0].holds, 1);
         std::fs::remove_file(path).ok();
     }
 }

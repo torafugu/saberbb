@@ -16,6 +16,7 @@ use crate::repositories::sql_helper::game_helper::{
 use crate::repositories::sql_helper::game_stat_helper::{
     insert_player_game_batting, insert_player_game_entry, insert_player_game_fielding,
     insert_player_game_pitching, insert_player_game_running,
+    refresh_player_game_pitching_decisions,
 };
 use anyhow::Result;
 use rusqlite::params;
@@ -141,6 +142,8 @@ impl GameResultWriter for SqlGameRepository {
             for player_game_running in &game.player_runnings {
                 insert_player_game_running(&self.db_client, tx, game.id, player_game_running)?;
             }
+
+            refresh_player_game_pitching_decisions(&self.db_client, tx, game.id)?;
 
             Ok(())
         })
@@ -606,9 +609,11 @@ impl GamePlayByPlayReader for SqlGameRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::ball::{BattedBall, OutboundResult};
     use crate::domain::shared::game::{BattingResult, GameType, TB};
     use crate::domain::shared::game_stats::PlayerGameEntry;
     use crate::domain::shared::player::{FielderType, Position};
+    use crate::domain::util::PolarPosition;
     use crate::repositories::db::{DbClient, SqliteManager};
     use deadpool::managed::Pool;
     use rusqlite::Connection;
@@ -822,6 +827,44 @@ mod tests {
                     count_seq,
                     batter_id
                 )
+            );
+
+            CREATE TABLE player_game_pitching (
+                game_id INTEGER,
+                count_seq INTEGER,
+                pitcher_id INTEGER NOT NULL,
+                pitch_type TEXT NOT NULL,
+                speed REAL NOT NULL,
+                spin_rate REAL NOT NULL,
+                spin_angle REAL NOT NULL,
+                spin_efficiency REAL NOT NULL,
+                release_point_x REAL NOT NULL,
+                release_point_y REAL NOT NULL,
+                release_point_z REAL NOT NULL,
+                flight_time REAL NOT NULL,
+                aim_zone TEXT NOT NULL,
+                aim_location_x REAL NOT NULL,
+                aim_location_y REAL NOT NULL,
+                actual_location_x REAL NOT NULL,
+                actual_location_y REAL NOT NULL,
+                ball_movement_x_m REAL NOT NULL,
+                ball_movement_z_m REAL NOT NULL,
+                timing_bias_sec REAL NOT NULL,
+                spatial_bias_x REAL NOT NULL,
+                spatial_bias_y REAL NOT NULL,
+                crossfire_multiplier REAL NOT NULL,
+                release_x_factor REAL NOT NULL,
+                horizontal_offset_m REAL NOT NULL,
+                vertical_offset_m REAL NOT NULL,
+                timing_offset_sec REAL NOT NULL,
+                PRIMARY KEY (game_id, count_seq)
+            );
+
+            CREATE TABLE player_game_pitching_decision (
+                game_id INTEGER NOT NULL,
+                pitcher_id INTEGER NOT NULL,
+                decision TEXT NOT NULL,
+                PRIMARY KEY (game_id, pitcher_id, decision)
             );
             ",
         )
@@ -1101,6 +1144,23 @@ mod tests {
                 ],
             )
             .unwrap();
+    }
+
+    fn batted_ball() -> BattedBall {
+        BattedBall {
+            launch_speed: 95.0,
+            launch_angle: 4.0,
+            spin_rate: 0.0,
+            spin_angle: 0.0,
+            final_position: PolarPosition::new(35.0, -25.0),
+            max_height: 0.0,
+            total_time: 1.0,
+            first_bounce_position: Some(PolarPosition::new(0.0, -25.0)),
+            first_bounce_time: Some(0.0),
+            fence_impact_position: None,
+            fence_impact_time: None,
+            outbound_result: OutboundResult::InField,
+        }
     }
 
     #[test]
@@ -1443,6 +1503,109 @@ mod tests {
             vec![
                 (1, 1, 3, "P".to_string(), 0, 1),
                 (1, 1, 1, "C".to_string(), 1, 10),
+            ]
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn save_game_result_inserts_pitching_decisions() {
+        let (mut repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, None);
+        let game = GameResult {
+            id: 1,
+            actual_date: "2026-04-01".parse().unwrap(),
+            away_total_point: 3,
+            home_total_point: 1,
+            innings: vec![
+                Inning {
+                    seq: 1,
+                    tb: TB::Top,
+                    counts: vec![Count {
+                        seq: 1,
+                        ball: 0,
+                        strike: 0,
+                        point: 2,
+                        out: 0,
+                    }],
+                },
+                Inning {
+                    seq: 1,
+                    tb: TB::Bottom,
+                    counts: vec![
+                        Count {
+                            seq: 2,
+                            ball: 0,
+                            strike: 0,
+                            point: 0,
+                            out: 1,
+                        },
+                        Count {
+                            seq: 4,
+                            ball: 0,
+                            strike: 0,
+                            point: 1,
+                            out: 3,
+                        },
+                    ],
+                },
+                Inning {
+                    seq: 2,
+                    tb: TB::Top,
+                    counts: vec![Count {
+                        seq: 3,
+                        ball: 0,
+                        strike: 0,
+                        point: 1,
+                        out: 0,
+                    }],
+                },
+            ],
+            player_entries: vec![
+                PlayerGameEntry::new(1, Some(2), Position::P, 0, 1),
+                PlayerGameEntry::new(3, Some(4), Position::P, 0, 2),
+                PlayerGameEntry::new(1, Some(4), Position::P, 0, 10),
+            ],
+            player_pitchings: Vec::new(),
+            player_battings: vec![crate::domain::shared::game_stats::PlayerGameBatting {
+                count_seq: 1,
+                pitcher_id: 10,
+                batter_id: 1,
+                ball: batted_ball(),
+                fielder_position: None,
+                result: BattingResult::Single,
+            }],
+            player_fieldings: Vec::new(),
+            player_runnings: Vec::new(),
+        };
+
+        repo.update_game_result(&game).unwrap();
+
+        let conn = conn(&repo);
+        let mut stmt = conn
+            .prepare(
+                "SELECT pitcher_id, decision
+                FROM player_game_pitching_decision
+                WHERE game_id = 1
+                ORDER BY decision, pitcher_id",
+            )
+            .unwrap();
+        let decisions = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(
+            decisions,
+            vec![
+                (10, "Loss".to_string()),
+                (2, "Save".to_string()),
+                (1, "Win".to_string()),
             ]
         );
         std::fs::remove_file(path).ok();
