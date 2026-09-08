@@ -92,6 +92,10 @@ impl GameResultsWidget {
         }
     }
 
+    pub fn is_at_root(&self) -> bool {
+        matches!(self.view, GameResultsView::SelectSeason)
+    }
+
     fn load_processed_seasons(&mut self) {
         info!("load_processed_seasons started.");
         let load_processed_seasons_res = APP_CONTEXT

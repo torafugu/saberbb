@@ -140,8 +140,13 @@ impl Component for Home {
     }
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
-        if matches!(self.selected_item, Some(MenuOption::ViewGameResults))
-            && matches!(
+        if matches!(self.selected_item, Some(MenuOption::ViewGameResults)) {
+            if matches!(action, Action::Back) && self.game_results.is_at_root() {
+                self.selected_item = None;
+                return Ok(Some(Action::Render));
+            }
+
+            if matches!(
                 action,
                 Action::SelectNext
                     | Action::SelectPrevious
@@ -150,9 +155,9 @@ impl Component for Home {
                     | Action::SelectGameDetailTab(_)
                     | Action::NextCount
                     | Action::PreviousCount
-            )
-        {
-            return self.game_results.update(action);
+            ) {
+                return self.game_results.update(action);
+            }
         }
 
         if matches!(self.selected_item, Some(MenuOption::ViewBattingStat))
@@ -242,5 +247,21 @@ impl Component for Home {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn back_exits_game_results_when_at_root() {
+        let mut home = Home::new();
+        home.selected_item = Some(MenuOption::ViewGameResults);
+
+        let action = home.update(Action::Back).unwrap();
+
+        assert_eq!(home.selected_item, None);
+        assert_eq!(action, Some(Action::Render));
     }
 }
