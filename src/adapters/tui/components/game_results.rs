@@ -1,30 +1,24 @@
 use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
-use crate::domain::shared::ball::BallLocation;
-use crate::domain::shared::game::{Count, GameHeader};
-use crate::domain::shared::game_cursor::{
-    BatterGameStatView, GameCursor, PitcherGameStatView, ScoreBoard,
-};
-use crate::domain::util::ms_to_kmh;
+use crate::domain::shared::game::GameHeader;
+use crate::domain::shared::game_cursor::GameCursor;
 use crate::repositories::game_repository::{GameDetailReader, ProcessedGameReader};
 use crate::{APP_CONTEXT, t};
 use anyhow::Context;
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::layout::{Constraint, Flex, Layout};
+use ratatui::layout::{Constraint, Layout};
 use ratatui::prelude::*;
 use ratatui::style::Color;
-use ratatui::symbols::Marker;
-use ratatui::widgets::canvas::{Canvas, Rectangle};
-use ratatui::widgets::{
-    Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table, Tabs,
-};
+use ratatui::widgets::{Block, Borders, ListItem, ListState, Padding, Paragraph, Tabs};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
 
-const RUNNER: &str = "R";
-const NO_RUNNER: &str = "-";
-const WALK_OFF: &str = "x";
+mod formatter;
+mod list;
+mod pitch_zone;
+mod scoreboard;
+mod stats_tables;
 
 #[derive(Default, Debug, Clone, Copy)]
 enum GameDetailTab {
@@ -34,11 +28,6 @@ enum GameDetailTab {
     PitchingStats,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PitchZoneSection {
-    Ball(u8),
-    Strike(u8),
-}
 impl GameDetailTab {
     fn from_index(index: usize) -> Option<Self> {
         match index {
@@ -343,7 +332,7 @@ impl GameResultsWidget {
             .map(|season| ListItem::new(season.to_string()))
             .collect();
 
-        let list = Self::selectable_list(seasons, t!("select_season"));
+        let list = list::selectable_list(seasons, t!("select_season"));
         frame.render_stateful_widget(list, area, &mut self.season_state);
     }
 
@@ -356,10 +345,10 @@ impl GameResultsWidget {
         let games: Vec<ListItem> = self
             .games
             .iter()
-            .map(|game| ListItem::new(Self::game_label(game)))
+            .map(|game| ListItem::new(list::game_label(game)))
             .collect();
 
-        let list = Self::selectable_list(games, t!("select_game"));
+        let list = list::selectable_list(games, t!("select_game"));
         frame.render_stateful_widget(list, area, &mut self.game_state);
     }
 
@@ -429,7 +418,7 @@ impl GameResultsWidget {
         frame.render_widget(Paragraph::new(header), layout[0]);
 
         let scoreboard = cursor.current_scoreboard();
-        Self::draw_scoreboard(frame, layout[1], &scoreboard);
+        scoreboard::draw_scoreboard(frame, layout[1], &scoreboard);
 
         let count = cursor.current_count();
         let game_status_areas = Layout::horizontal([
@@ -446,7 +435,7 @@ impl GameResultsWidget {
         let lineup_area = game_status_areas[3];
 
         frame.render_widget(
-            Paragraph::new(Self::format_count(&count)).block(Block::new().padding(Padding {
+            Paragraph::new(formatter::format_count(&count)).block(Block::new().padding(Padding {
                 left: 1,
                 right: 0,
                 top: 0,
@@ -455,7 +444,7 @@ impl GameResultsWidget {
             count_area,
         );
         frame.render_widget(
-            Paragraph::new(Self::format_runner(cursor)).block(Block::new().padding(Padding {
+            Paragraph::new(formatter::format_runner(cursor)).block(Block::new().padding(Padding {
                 left: 1,
                 right: 0,
                 top: 0,
@@ -472,19 +461,22 @@ impl GameResultsWidget {
         let batter_area = strike_zone_and_batter_areas[1];
 
         let actual_location = cursor.current_pitching_view()?.ball.actual_location;
-        Self::draw_strike_zone(frame, strike_zone_area, actual_location);
+        pitch_zone::draw_strike_zone(frame, strike_zone_area, actual_location);
         frame.render_widget(
-            Paragraph::new(Self::format_batter_and_pitcher(cursor)?).block(Block::new().padding(
-                Padding {
+            Paragraph::new(formatter::format_batter_and_pitcher(cursor)?).block(
+                Block::new().padding(Padding {
                     left: 2,
                     right: 0,
                     top: 0,
                     bottom: 0,
-                },
-            )),
+                }),
+            ),
             batter_area,
         );
-        frame.render_widget(Paragraph::new(Self::format_lineup(cursor)?), lineup_area);
+        frame.render_widget(
+            Paragraph::new(formatter::format_lineup(cursor)?),
+            lineup_area,
+        );
 
         Ok(())
     }
@@ -498,13 +490,13 @@ impl GameResultsWidget {
         let table_areas =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
 
-        Self::draw_batting_stats_table(
+        stats_tables::draw_batting_stats_table(
             frame,
             table_areas[0],
             cursor.away_team_name(),
             cursor.current_batting_stats_for_team(cursor.away_team_id()),
         );
-        Self::draw_batting_stats_table(
+        stats_tables::draw_batting_stats_table(
             frame,
             table_areas[1],
             cursor.home_team_name(),
@@ -512,56 +504,6 @@ impl GameResultsWidget {
         );
 
         Ok(())
-    }
-
-    fn draw_batting_stats_table(
-        frame: &mut Frame,
-        area: Rect,
-        team_name: String,
-        batting_stats: Vec<BatterGameStatView>,
-    ) {
-        let header = Row::new([
-            Self::right_aligned_cell("#"),
-            Cell::from(t!("pos")),
-            Cell::from(t!("player")),
-            Self::right_aligned_cell(t!("ab")),
-            Self::right_aligned_cell(t!("h")),
-            Self::right_aligned_cell(t!("double")),
-            Self::right_aligned_cell(t!("triple")),
-            Self::right_aligned_cell(t!("hr")),
-        ]);
-        let rows = batting_stats.into_iter().map(|stat| {
-            Row::new([
-                Self::right_aligned_cell(stat.batting_order),
-                Cell::from(stat.position.to_string()),
-                Cell::from(stat.player.full_name()),
-                Self::right_aligned_cell(stat.at_bats),
-                Self::right_aligned_cell(stat.hits),
-                Self::right_aligned_cell(stat.doubles),
-                Self::right_aligned_cell(stat.triples),
-                Self::right_aligned_cell(stat.home_runs),
-            ])
-        });
-        let widths = [
-            Constraint::Length(2),
-            Constraint::Length(4),
-            Constraint::Min(8),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(6),
-            Constraint::Length(6),
-        ];
-        let table = Table::new(rows, widths)
-            .header(header)
-            .column_spacing(1)
-            .block(Block::bordered().title(team_name));
-
-        frame.render_widget(table, area);
-    }
-
-    fn right_aligned_cell(value: impl ToString) -> Cell<'static> {
-        Cell::from(Line::from(value.to_string()).alignment(Alignment::Right))
     }
 
     fn draw_pitching_stats_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
@@ -573,13 +515,13 @@ impl GameResultsWidget {
         let table_areas =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
 
-        Self::draw_pitching_stats_table(
+        stats_tables::draw_pitching_stats_table(
             frame,
             table_areas[0],
             cursor.away_team_name(),
             cursor.current_pitching_stats_for_team(cursor.away_team_id()),
         );
-        Self::draw_pitching_stats_table(
+        stats_tables::draw_pitching_stats_table(
             frame,
             table_areas[1],
             cursor.home_team_name(),
@@ -587,407 +529,6 @@ impl GameResultsWidget {
         );
 
         Ok(())
-    }
-
-    fn draw_pitching_stats_table(
-        frame: &mut Frame,
-        area: Rect,
-        team_name: String,
-        pitching_stats: Vec<PitcherGameStatView>,
-    ) {
-        let header = Row::new([
-            Cell::from(t!("pitcher")),
-            Self::right_aligned_cell(t!("pitch_count")),
-            Self::right_aligned_cell(t!("innings")),
-            Self::right_aligned_cell(t!("ab")),
-            Self::right_aligned_cell(t!("h")),
-            Self::right_aligned_cell(t!("ra")),
-            Self::right_aligned_cell(t!("so")),
-            Self::right_aligned_cell(t!("bb")),
-            Self::right_aligned_cell(t!("era")),
-            Self::right_aligned_cell(t!("whip")),
-        ]);
-        let rows = pitching_stats.into_iter().map(|stat| {
-            Row::new([
-                Cell::from(stat.player.full_name()),
-                Self::right_aligned_cell(stat.pitch_count),
-                Self::right_aligned_cell(stat.innings),
-                Self::right_aligned_cell(stat.at_bats),
-                Self::right_aligned_cell(stat.hits),
-                Self::right_aligned_cell(stat.runs),
-                Self::right_aligned_cell(stat.strikeouts),
-                Self::right_aligned_cell(stat.walks),
-                Self::right_aligned_cell(format!("{:.2}", stat.era)),
-                Self::right_aligned_cell(format!("{:.2}", stat.whip)),
-            ])
-        });
-        let widths = [
-            Constraint::Min(8),
-            Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(6),
-            Constraint::Length(5),
-        ];
-        let table = Table::new(rows, widths)
-            .header(header)
-            .column_spacing(1)
-            .block(Block::bordered().title(team_name));
-
-        frame.render_widget(table, area);
-    }
-
-    fn draw_scoreboard(frame: &mut Frame, area: Rect, scoreboard: &ScoreBoard) {
-        let mut header_cells = vec![Cell::from(t!("team"))];
-        for inning_seq in 1..=scoreboard.max_inning_num {
-            header_cells.push(Cell::from(
-                Line::from(inning_seq.to_string()).alignment(Alignment::Center),
-            ));
-        }
-        header_cells.push(Cell::from(
-            Line::from(t!("total_score")).alignment(Alignment::Center),
-        ));
-
-        let mut team_name_length = scoreboard.away_team_name.len();
-        if scoreboard.home_team_name.len() > team_name_length {
-            team_name_length = scoreboard.home_team_name.len()
-        }
-
-        let mut away_cells = vec![Cell::from(scoreboard.away_team_name.clone())];
-        let mut home_cells = vec![Cell::from(scoreboard.home_team_name.clone())];
-
-        for inning_index in 0..scoreboard.max_inning_num as usize {
-            away_cells.push(Cell::from(
-                Line::from(
-                    scoreboard
-                        .away_innning_points
-                        .get(inning_index)
-                        .map(u8::to_string)
-                        .unwrap_or_default(),
-                )
-                .alignment(Alignment::Center),
-            ));
-
-            if scoreboard.is_last_bottom_inning_skiped
-                && inning_index + 1 == scoreboard.max_inning_num as usize
-            {
-                home_cells.push(Cell::from(
-                    Line::from(WALK_OFF).alignment(Alignment::Center),
-                ));
-            } else {
-                home_cells.push(Cell::from(
-                    Line::from(
-                        scoreboard
-                            .home_innning_points
-                            .get(inning_index)
-                            .map(u8::to_string)
-                            .unwrap_or_default(),
-                    )
-                    .alignment(Alignment::Center),
-                ));
-            }
-        }
-
-        away_cells.push(Cell::from(
-            Line::from(scoreboard.away_total_point.to_string()).alignment(Alignment::Center),
-        ));
-        home_cells.push(Cell::from(
-            Line::from(scoreboard.home_total_point.to_string()).alignment(Alignment::Center),
-        ));
-
-        let mut widths = vec![Constraint::Min(8)];
-        widths.extend(std::iter::repeat_n(
-            Constraint::Length(3),
-            scoreboard.max_inning_num as usize + 1,
-        ));
-
-        let [table_area, _remaining_area] = Layout::horizontal([
-            Constraint::Length(
-                ((team_name_length as usize + 5) + (scoreboard.max_inning_num as usize * 4) + 4)
-                    as u16,
-            ),
-            Constraint::Min(0),
-        ])
-        .flex(Flex::Start)
-        .areas(area);
-
-        let table = Table::new([Row::new(away_cells), Row::new(home_cells)], widths)
-            .header(Row::new(header_cells).style(Style::default().add_modifier(Modifier::BOLD)))
-            .block(Block::default().borders(Borders::ALL));
-
-        frame.render_widget(table, table_area);
-    }
-
-    fn format_count(count: &Count) -> String {
-        let mut formatted_count = format!("{}: {}\n", "B", Self::display_count_number(count.ball));
-        formatted_count.push_str(&format!(
-            "{}: {}\n",
-            "S",
-            Self::display_count_number(count.strike)
-        ));
-        formatted_count.push_str(&format!(
-            "{}: {}\n",
-            "O",
-            Self::display_count_number(count.out)
-        ));
-        formatted_count
-    }
-
-    fn format_runner(game_cursor: &GameCursor) -> String {
-        format!(
-            "  <{}>\n<{}> <{}>\n  <H>\n",
-            Self::display_runner(game_cursor.has_runner_on_second()),
-            Self::display_runner(game_cursor.has_runner_on_third()),
-            Self::display_runner(game_cursor.has_runner_on_first())
-        )
-    }
-
-    fn draw_strike_zone(frame: &mut Frame, area: Rect, actual_location: BallLocation) {
-        // println!("width:{}, height:{}", area.width, area.height);
-        let canvas = Canvas::default()
-            .marker(Marker::Braille)
-            .x_bounds([0.0, area.width as f64])
-            .y_bounds([0.0, area.height as f64])
-            .paint(|ctx| {
-                let active_zone = Self::ball_location_section(actual_location);
-                ctx.draw(&Rectangle {
-                    x: 3.0,
-                    y: 3.0,
-                    width: 15.0,
-                    height: 7.0,
-                    color: Color::Gray,
-                });
-
-                for (zone, x, y, label) in [
-                    (PitchZoneSection::Ball(1), 1.0, 10.0, "[1]"),
-                    (PitchZoneSection::Ball(2), 10.0, 10.0, "[2]"),
-                    (PitchZoneSection::Ball(3), 19.0, 10.0, "[3]"),
-                    (PitchZoneSection::Ball(4), 1.0, 6.0, "[4]"),
-                    (PitchZoneSection::Ball(5), 19.0, 6.0, "[5]"),
-                    (PitchZoneSection::Ball(6), 1.0, 2.0, "[6]"),
-                    (PitchZoneSection::Ball(7), 10.0, 2.0, "[7]"),
-                    (PitchZoneSection::Ball(8), 19.0, 2.0, "[8]"),
-                    (PitchZoneSection::Strike(1), 6.0, 8.0, "<1>"),
-                    (PitchZoneSection::Strike(2), 10.0, 8.0, "<2>"),
-                    (PitchZoneSection::Strike(3), 14.0, 8.0, "<3>"),
-                    (PitchZoneSection::Strike(4), 6.0, 6.0, "<4>"),
-                    (PitchZoneSection::Strike(5), 10.0, 6.0, "<5>"),
-                    (PitchZoneSection::Strike(6), 14.0, 6.0, "<6>"),
-                    (PitchZoneSection::Strike(7), 6.0, 4.0, "<7>"),
-                    (PitchZoneSection::Strike(8), 10.0, 4.0, "<8>"),
-                    (PitchZoneSection::Strike(9), 14.0, 4.0, "<9>"),
-                ] {
-                    let color = if zone == active_zone {
-                        Color::Yellow
-                    } else {
-                        Color::DarkGray
-                    };
-                    ctx.print(
-                        x,
-                        y,
-                        Span::styled(label, color).add_modifier(ratatui::style::Modifier::BOLD),
-                    );
-                }
-            });
-
-        frame.render_widget(canvas, area);
-    }
-
-    fn ball_location_section(location: BallLocation) -> PitchZoneSection {
-        if location.x.abs() <= 1.0 && location.y.abs() <= 1.0 {
-            let col = Self::zone_index(location.x, -1.0 / 3.0, 1.0 / 3.0);
-            let row = Self::zone_index(-location.y, -1.0 / 3.0, 1.0 / 3.0);
-
-            PitchZoneSection::Strike((row * 3 + col + 1) as u8)
-        } else {
-            let col = if location.x < -1.0 {
-                0
-            } else if location.x > 1.0 {
-                2
-            } else {
-                1
-            };
-            let row = if location.y > 1.0 {
-                0
-            } else if location.y < -1.0 {
-                2
-            } else {
-                1
-            };
-
-            let section = match (row, col) {
-                (0, 0) => 1,
-                (0, 1) => 2,
-                (0, 2) => 3,
-                (1, 0) => 4,
-                (1, 2) => 5,
-                (2, 0) => 6,
-                (2, 1) => 7,
-                (2, 2) => 8,
-                _ => unreachable!("locations inside the strike zone are handled first"),
-            };
-
-            PitchZoneSection::Ball(section)
-        }
-    }
-
-    fn zone_index(value: f64, low: f64, high: f64) -> usize {
-        if value < low {
-            0
-        } else if value > high {
-            2
-        } else {
-            1
-        }
-    }
-
-    fn format_batter_and_pitcher(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
-        let pitching_view = game_cursor.current_pitching_view()?;
-
-        let mut formatted_batter_and_pitcher = format!(
-            "{}km/h\n{}\n\n",
-            ms_to_kmh(pitching_view.ball.speed),
-            pitching_view.ball.pitch_type
-        );
-
-        if let Some(batting_view) = game_cursor.current_batting_view() {
-            formatted_batter_and_pitcher.push_str(&format!(
-                "{}: {}\n",
-                t!("result"),
-                batting_view.outcome()?
-            ));
-
-            let ball = &batting_view.ball;
-            formatted_batter_and_pitcher.push_str(&format!(
-                "{}: {:.0}m\n",
-                t!("distance"),
-                ball.final_position.distance
-            ));
-        } else if let Some(running_view) = game_cursor.current_running_view() {
-            formatted_batter_and_pitcher.push_str(&format!(
-                "\n{}: {}\n",
-                t!("running_event"),
-                running_view.event
-            ));
-            formatted_batter_and_pitcher.push_str(&format!(
-                "{}: {}\n",
-                t!("target_base"),
-                running_view.throw_target_base
-            ));
-            formatted_batter_and_pitcher.push_str(&format!(
-                "{}: {}\n",
-                t!("ruling"),
-                running_view.ruling
-            ));
-
-            if let Some(target_runner) = running_view.target_runner {
-                formatted_batter_and_pitcher.push_str(&format!(
-                    "{}: {}\n",
-                    t!("runner"),
-                    target_runner.full_name()
-                ));
-            }
-        }
-
-        Ok(formatted_batter_and_pitcher)
-    }
-
-    fn format_lineup(game_cursor: &mut GameCursor) -> color_eyre::Result<Text<'static>> {
-        let pitcher = game_cursor.current_pitcher()?;
-        let catcher = game_cursor.current_catcher()?;
-        let fb = game_cursor.current_fb()?;
-        let sb = game_cursor.current_sb()?;
-        let tb = game_cursor.current_tb()?;
-        let ss = game_cursor.current_ss()?;
-        let rf = game_cursor.current_rf()?;
-        let cf = game_cursor.current_cf()?;
-        let lf = game_cursor.current_lf()?;
-
-        let current_batter_id = game_cursor
-            .current_batter()
-            .ok()
-            .map(|batter| batter.info.id);
-
-        let mut formatted_lineup = vec![
-            Line::from(format!("({}) {}", t!("p"), pitcher.full_name())),
-            Line::from(format!("({}) {}", t!("c"), catcher.full_name())),
-            Line::from(format!("({}) {}", t!("fb"), fb.full_name())),
-            Line::from(format!("({}) {}", t!("sb"), sb.full_name())),
-            Line::from(format!("({}) {}", t!("tb"), tb.full_name())),
-            Line::from(format!("({}) {}", t!("ss"), ss.full_name())),
-            Line::from(format!("({}) {}", t!("rf"), rf.full_name())),
-            Line::from(format!("({}) {}", t!("cf"), cf.full_name())),
-            Line::from(format!("({}) {}", t!("lf"), lf.full_name())),
-        ];
-        formatted_lineup.extend(Self::format_batting_order(
-            game_cursor.current_batting_stats_for_team(game_cursor.current_batting_team_id()),
-            current_batter_id,
-        ));
-
-        Ok(Text::from(formatted_lineup))
-    }
-
-    fn format_batting_order(
-        batting_order: Vec<BatterGameStatView>,
-        current_batter_id: Option<i64>,
-    ) -> Vec<Line<'static>> {
-        let mut formatted_batting_order = vec![Line::from(format!(""))];
-
-        for batter in batting_order {
-            let line = Line::from(format!(
-                "{}. {}",
-                batter.batting_order,
-                batter.player.full_name()
-            ));
-
-            if Some(batter.player.id) == current_batter_id {
-                formatted_batting_order.push(line.style(Style::default().fg(Color::Yellow)));
-            } else {
-                formatted_batting_order.push(line);
-            }
-        }
-
-        formatted_batting_order
-    }
-
-    fn display_runner(has_runner: bool) -> &'static str {
-        if has_runner { RUNNER } else { NO_RUNNER }
-    }
-
-    fn display_count_number(number: u8) -> String {
-        let mut count_number = "".to_string();
-        for _ in 0..number {
-            count_number.push_str("●");
-        }
-        count_number
-    }
-
-    fn game_label(game: &GameHeader) -> String {
-        format!(
-            "[{}] {} {} - {} {} ({})",
-            game.actual_date,
-            game.away_team.name,
-            game.away_points,
-            game.home_points,
-            game.home_team.name,
-            game.game_type
-        )
-    }
-
-    fn selectable_list(items: Vec<ListItem>, title: String) -> List {
-        List::new(items)
-            .block(Block::new().title(title))
-            .highlight_style(
-                Style::default()
-                    .bg(Color::Blue)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol("> ")
     }
 }
 
@@ -1088,47 +629,49 @@ impl Component for GameResultsWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::ball::BallLocation;
+    use crate::domain::shared::game_cursor::BatterGameStatView;
     use crate::domain::shared::player::{PlayerInfo, Position};
 
     #[test]
     fn ball_location_section_maps_strike_zone_to_nine_sections() {
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: -0.8, y: 0.8 }),
-            PitchZoneSection::Strike(1)
+            pitch_zone::ball_location_section(BallLocation { x: -0.8, y: 0.8 }),
+            pitch_zone::PitchZoneSection::Strike(1)
         );
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: 0.0 }),
-            PitchZoneSection::Strike(5)
+            pitch_zone::ball_location_section(BallLocation { x: 0.0, y: 0.0 }),
+            pitch_zone::PitchZoneSection::Strike(5)
         );
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: 0.8, y: -0.8 }),
-            PitchZoneSection::Strike(9)
+            pitch_zone::ball_location_section(BallLocation { x: 0.8, y: -0.8 }),
+            pitch_zone::PitchZoneSection::Strike(9)
         );
     }
 
     #[test]
     fn ball_location_section_maps_ball_zone_to_eight_sections() {
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: -1.2, y: 1.2 }),
-            PitchZoneSection::Ball(1)
+            pitch_zone::ball_location_section(BallLocation { x: -1.2, y: 1.2 }),
+            pitch_zone::PitchZoneSection::Ball(1)
         );
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: 1.2 }),
-            PitchZoneSection::Ball(2)
+            pitch_zone::ball_location_section(BallLocation { x: 0.0, y: 1.2 }),
+            pitch_zone::PitchZoneSection::Ball(2)
         );
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: 1.2, y: 0.0 }),
-            PitchZoneSection::Ball(5)
+            pitch_zone::ball_location_section(BallLocation { x: 1.2, y: 0.0 }),
+            pitch_zone::PitchZoneSection::Ball(5)
         );
         assert_eq!(
-            GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: -1.2 }),
-            PitchZoneSection::Ball(7)
+            pitch_zone::ball_location_section(BallLocation { x: 0.0, y: -1.2 }),
+            pitch_zone::PitchZoneSection::Ball(7)
         );
     }
 
     #[test]
     fn format_batting_order_lists_order_position_and_player() {
-        let formatted_batting_order = GameResultsWidget::format_batting_order(
+        let formatted_batting_order = formatter::format_batting_order(
             vec![
                 BatterGameStatView {
                     team_id: 1,
