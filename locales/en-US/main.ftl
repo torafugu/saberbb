@@ -7,6 +7,7 @@ bb = BB
 base_steal = Base Steal
 batter = Batter
 batting_result = Batting Result
+batting_order = Batting Order
 batting_stats = Batting Stats
 c = C
 catch_play = Catch Play

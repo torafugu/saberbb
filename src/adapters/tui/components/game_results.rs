@@ -896,7 +896,7 @@ impl GameResultsWidget {
         Ok(formatted_batter_and_pitcher)
     }
 
-    fn format_lineup(game_cursor: &mut GameCursor) -> color_eyre::Result<String> {
+    fn format_lineup(game_cursor: &mut GameCursor) -> color_eyre::Result<Text<'static>> {
         let pitcher = game_cursor.current_pitcher()?;
         let catcher = game_cursor.current_catcher()?;
         let fb = game_cursor.current_fb()?;
@@ -907,17 +907,51 @@ impl GameResultsWidget {
         let cf = game_cursor.current_cf()?;
         let lf = game_cursor.current_lf()?;
 
-        let mut formatted_lineup = format!("({}) {}\n", t!("p"), pitcher.full_name());
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("c"), catcher.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("fb"), fb.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("sb"), sb.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("tb"), tb.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("ss"), ss.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("rf"), rf.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("cf"), cf.full_name()));
-        formatted_lineup.push_str(&format!("({}) {}\n", t!("lf"), lf.full_name()));
+        let current_batter_id = game_cursor
+            .current_batter()
+            .ok()
+            .map(|batter| batter.info.id);
 
-        Ok(formatted_lineup)
+        let mut formatted_lineup = vec![
+            Line::from(format!("({}) {}", t!("p"), pitcher.full_name())),
+            Line::from(format!("({}) {}", t!("c"), catcher.full_name())),
+            Line::from(format!("({}) {}", t!("fb"), fb.full_name())),
+            Line::from(format!("({}) {}", t!("sb"), sb.full_name())),
+            Line::from(format!("({}) {}", t!("tb"), tb.full_name())),
+            Line::from(format!("({}) {}", t!("ss"), ss.full_name())),
+            Line::from(format!("({}) {}", t!("rf"), rf.full_name())),
+            Line::from(format!("({}) {}", t!("cf"), cf.full_name())),
+            Line::from(format!("({}) {}", t!("lf"), lf.full_name())),
+        ];
+        formatted_lineup.extend(Self::format_batting_order(
+            game_cursor.current_batting_stats_for_team(game_cursor.current_batting_team_id()),
+            current_batter_id,
+        ));
+
+        Ok(Text::from(formatted_lineup))
+    }
+
+    fn format_batting_order(
+        batting_order: Vec<BatterGameStatView>,
+        current_batter_id: Option<i64>,
+    ) -> Vec<Line<'static>> {
+        let mut formatted_batting_order = vec![Line::from(format!(""))];
+
+        for batter in batting_order {
+            let line = Line::from(format!(
+                "{}. {}",
+                batter.batting_order,
+                batter.player.full_name()
+            ));
+
+            if Some(batter.player.id) == current_batter_id {
+                formatted_batting_order.push(line.style(Style::default().fg(Color::Yellow)));
+            } else {
+                formatted_batting_order.push(line);
+            }
+        }
+
+        formatted_batting_order
     }
 
     fn display_runner(has_runner: bool) -> &'static str {
@@ -1054,6 +1088,7 @@ impl Component for GameResultsWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::player::{PlayerInfo, Position};
 
     #[test]
     fn ball_location_section_maps_strike_zone_to_nine_sections() {
@@ -1089,5 +1124,53 @@ mod tests {
             GameResultsWidget::ball_location_section(BallLocation { x: 0.0, y: -1.2 }),
             PitchZoneSection::Ball(7)
         );
+    }
+
+    #[test]
+    fn format_batting_order_lists_order_position_and_player() {
+        let formatted_batting_order = GameResultsWidget::format_batting_order(
+            vec![
+                BatterGameStatView {
+                    team_id: 1,
+                    batting_order: 1,
+                    position: Position::CF,
+                    player: PlayerInfo::new_min(10, "First10".to_string(), "Last10".to_string()),
+                    plate_appearances: 0,
+                    at_bats: 0,
+                    hits: 0,
+                    doubles: 0,
+                    triples: 0,
+                    home_runs: 0,
+                },
+                BatterGameStatView {
+                    team_id: 1,
+                    batting_order: 2,
+                    position: Position::DH,
+                    player: PlayerInfo::new_min(11, "First11".to_string(), "Last11".to_string()),
+                    plate_appearances: 0,
+                    at_bats: 0,
+                    hits: 0,
+                    doubles: 0,
+                    triples: 0,
+                    home_runs: 0,
+                },
+            ],
+            Some(11),
+        );
+
+        assert_eq!(
+            formatted_batting_order[0].to_string(),
+            format!("{}: away", t!("batting_order"))
+        );
+        assert_eq!(
+            formatted_batting_order[1].to_string(),
+            "1. (CF) First10 Last10"
+        );
+        assert_eq!(formatted_batting_order[1].style.fg, None);
+        assert_eq!(
+            formatted_batting_order[2].to_string(),
+            "2. (DH) First11 Last11"
+        );
+        assert_eq!(formatted_batting_order[2].style.fg, Some(Color::Yellow));
     }
 }

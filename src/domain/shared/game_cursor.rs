@@ -113,6 +113,14 @@ impl GameCursor {
         self.game.home_team.name.to_string()
     }
 
+    pub fn current_batting_team_id(&self) -> u16 {
+        self.current_batting_team().id
+    }
+
+    pub fn current_batting_team_name(&self) -> String {
+        self.current_batting_team().name.to_string()
+    }
+
     pub fn prev(&mut self) {
         if !self.is_first_count() {
             self.prev_count();
@@ -339,6 +347,14 @@ impl GameCursor {
             &self.game.home_team
         } else {
             &self.game.away_team
+        }
+    }
+
+    fn current_batting_team(&self) -> &Team {
+        if self.inning_tb == TB::Top {
+            &self.game.away_team
+        } else {
+            &self.game.home_team
         }
     }
 

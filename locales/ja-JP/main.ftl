@@ -7,6 +7,7 @@ bb = 四球
 base_steal = 盗塁
 batter = 打者
 batting_result = 打撃結果
+batting_order = 打順
 batting_stats = 打撃成績
 c = 捕
 catch_play = 捕球
