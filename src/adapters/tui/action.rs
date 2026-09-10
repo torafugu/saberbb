@@ -6,6 +6,7 @@ use crate::t;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Serialize, Deserialize)]
 pub enum MenuOption {
+    SelectLeague,
     ViewStandings,
     ViewGameResults,
     ViewBattingStat,
@@ -15,6 +16,7 @@ pub enum MenuOption {
 impl fmt::Display for MenuOption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
+            Self::SelectLeague => t!("select_league"),
             Self::ViewStandings => t!("standings"),
             Self::ViewGameResults => t!("game_results"),
             Self::ViewBattingStat => t!("batting_stats"),

@@ -40,13 +40,21 @@ impl PitchingStatsTab {
 pub struct PitchingStatsWidget {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
+    title: String,
     selected_tab: PitchingStatsTab,
     scroll_offset: usize,
 }
 
 impl PitchingStatsWidget {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            title: t!("pitching_stats"),
+            ..Default::default()
+        }
+    }
+
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
     }
 
     fn right_cell(content: String) -> Cell<'static> {
@@ -302,9 +310,7 @@ impl Component for PitchingStatsWidget {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        let block = Block::new()
-            .title(t!("pitching_stats"))
-            .borders(Borders::ALL);
+        let block = Block::new().title(self.title.clone()).borders(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 

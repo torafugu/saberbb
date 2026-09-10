@@ -3,9 +3,15 @@ use crate::{APP_CONTEXT, t};
 use anyhow::{Context, Result};
 use ratatui::{prelude::*, widgets::*};
 
-pub struct StandingsWidget;
+pub struct StandingsWidget {
+    title: String,
+}
 
 impl StandingsWidget {
+    pub fn new(title: String) -> Self {
+        Self { title }
+    }
+
     fn left_cell(content: String) -> Cell<'static> {
         Cell::from(Text::from(content).left_aligned())
     }
@@ -44,7 +50,7 @@ impl StandingsWidget {
 
 impl Widget for StandingsWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let block = Block::new().title(t!("standings")).borders(Borders::ALL);
+        let block = Block::new().title(self.title).borders(Borders::ALL);
         let inner = block.inner(area);
         block.render(area, buf);
 

@@ -71,6 +71,7 @@ pub struct GameResultsWidget {
     view: GameResultsView,
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
+    title: String,
     seasons: Vec<u16>,
     season_state: ListState,
     selected_season: Option<u16>,
@@ -90,9 +91,14 @@ impl GameResultsWidget {
         season_state.select(Some(0));
 
         Self {
+            title: t!("game_results"),
             season_state,
             ..Default::default()
         }
+    }
+
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
     }
 
     pub fn is_at_root(&self) -> bool {
@@ -1026,7 +1032,7 @@ impl Component for GameResultsWidget {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        let block = Block::new().title(t!("game_results")).borders(Borders::ALL);
+        let block = Block::new().title(self.title.clone()).borders(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
