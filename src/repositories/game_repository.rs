@@ -2,7 +2,8 @@ use crate::domain::shared::game::{
     Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB,
 };
 use crate::domain::shared::game_stats::{
-    PlayerGameBattingView, PlayerGameEntryView, PlayerGamePitchingView, PlayerGameRunningView,
+    PlayerGameBattingView, PlayerGameEntryView, PlayerGameHomeRunView,
+    PlayerGamePitchingDecisionView, PlayerGamePitchingView, PlayerGameRunningView,
 };
 use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
@@ -53,10 +54,18 @@ pub trait GamePlayByPlayReader {
         &self,
         game_id: u32,
     ) -> Result<Vec<PlayerGameBattingView>, AppError>;
+    fn load_player_game_home_run_views(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<PlayerGameHomeRunView>, AppError>;
     fn load_player_game_pitching_views(
         &self,
         game_id: u32,
     ) -> Result<Vec<PlayerGamePitchingView>, AppError>;
+    fn load_player_game_pitching_decision_views(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<PlayerGamePitchingDecisionView>, AppError>;
     fn load_player_game_running_views(
         &self,
         game_id: u32,
@@ -284,6 +293,8 @@ impl GameDetailReader for SqlGameRepository {
 
         game.player_entries = self.load_player_game_entry_views(game.id)?;
         game.player_pitchings = self.load_player_game_pitching_views(game.id)?;
+        game.player_pitching_decisions = self.load_player_game_pitching_decision_views(game.id)?;
+        game.player_home_runs = self.load_player_game_home_run_views(game.id)?;
         game.player_battings = self.load_player_game_batting_views(game.id)?;
         game.player_runnings = self.load_player_game_running_views(game.id)?;
 
@@ -499,6 +510,45 @@ impl GamePlayByPlayReader for SqlGameRepository {
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
+    fn load_player_game_home_run_views(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<PlayerGameHomeRunView>, AppError> {
+        info!("load_player_game_home_run_views() started");
+        let query = "SELECT
+                pgb.count_seq,
+                pgb.batter_id,
+                bi.first_name AS batter_first_name,
+                bi.last_name AS batter_last_name,
+                bi.age AS batter_age,
+                bi.uniform_number AS batter_uniform_number,
+                (
+                    SELECT COUNT(*)
+                    FROM player_game_batting season_pgb
+                    INNER JOIN game season_g ON season_g.id = season_pgb.game_id
+                    INNER JOIN game current_g ON current_g.id = pgb.game_id
+                    WHERE season_pgb.batter_id = pgb.batter_id
+                        AND season_pgb.result = 'HomeRun'
+                        AND season_g.season = current_g.season
+                        AND (
+                            season_g.actual_date < current_g.actual_date
+                            OR season_g.round_seq < current_g.round_seq
+                            OR (
+                                season_g.id = current_g.id
+                                AND season_pgb.count_seq <= pgb.count_seq
+                            )
+                        )
+                ) AS season_home_runs
+            FROM player_game_batting pgb
+            LEFT JOIN player_info bi ON pgb.batter_id = bi.id
+            WHERE pgb.game_id = ?1
+                AND pgb.result = 'HomeRun'
+            ORDER BY pgb.count_seq";
+        self.db_client
+            .query_rows::<PlayerGameHomeRunView>(query, params![game_id])
+    }
+
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
     fn load_player_game_pitching_views(
         &self,
         game_id: u32,
@@ -534,6 +584,43 @@ impl GamePlayByPlayReader for SqlGameRepository {
             ORDER BY count_seq";
         self.db_client
             .query_rows::<PlayerGamePitchingView>(query, params![game_id])
+    }
+
+    #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
+    fn load_player_game_pitching_decision_views(
+        &self,
+        game_id: u32,
+    ) -> Result<Vec<PlayerGamePitchingDecisionView>, AppError> {
+        info!("load_player_game_pitching_decision_views() started");
+        let table_count = self.db_client.query_row::<i64>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'player_game_pitching_decision'",
+            params![],
+        )?;
+        if table_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let query = "SELECT
+                pgpd.pitcher_id,
+                pi.first_name AS pitcher_first_name,
+                pi.last_name AS pitcher_last_name,
+                pi.age AS pitcher_age,
+                pi.uniform_number AS pitcher_uniform_number,
+                pgpd.decision
+            FROM player_game_pitching_decision pgpd
+            LEFT JOIN player_info pi ON pgpd.pitcher_id = pi.id
+            WHERE pgpd.game_id = ?1
+            ORDER BY
+                CASE pgpd.decision
+                    WHEN 'Win' THEN 1
+                    WHEN 'Loss' THEN 2
+                    WHEN 'Hold' THEN 3
+                    WHEN 'Save' THEN 4
+                    ELSE 5
+                END,
+                pgpd.pitcher_id";
+        self.db_client
+            .query_rows::<PlayerGamePitchingDecisionView>(query, params![game_id])
     }
 
     #[tracing::instrument(skip(self), fields(game_id = %game_id), err)]
@@ -1157,6 +1244,21 @@ mod tests {
             .unwrap();
     }
 
+    fn seed_player_game_pitching_decision(
+        repo: &SqlGameRepository,
+        game_id: u32,
+        pitcher_id: u32,
+        decision: &str,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO player_game_pitching_decision (game_id, pitcher_id, decision)
+                 VALUES (?1, ?2, ?3)",
+                params![game_id, pitcher_id, decision],
+            )
+            .unwrap();
+    }
+
     fn batted_ball() -> BattedBall {
         BattedBall {
             launch_speed: 95.0,
@@ -1404,6 +1506,31 @@ mod tests {
     }
 
     #[test]
+    fn load_player_game_home_run_views_returns_season_home_run_numbers() {
+        let (repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
+        seed_game(&repo, 2, 2026, 1, 2, Some("2026-04-02"));
+        seed_game(&repo, 3, 2025, 1, 1, Some("2025-04-01"));
+        seed_player_game_batting(&repo, 1, 1, "Top", 1, 1, 10, 1, "HomeRun");
+        seed_player_game_batting(&repo, 2, 1, "Top", 1, 1, 10, 1, "HomeRun");
+        seed_player_game_batting(&repo, 2, 1, "Top", 2, 1, 10, 1, "HomeRun");
+        seed_player_game_batting(&repo, 3, 1, "Top", 1, 1, 10, 1, "HomeRun");
+
+        let home_runs = repo.load_player_game_home_run_views(2).unwrap();
+
+        assert_eq!(home_runs.len(), 2);
+        assert_eq!(home_runs[0].count_seq, 1);
+        assert_eq!(home_runs[0].batter.id, 1);
+        assert_eq!(home_runs[0].batter.full_name(), "First1 Last1");
+        assert_eq!(home_runs[0].season_home_runs, 2);
+        assert_eq!(home_runs[1].count_seq, 2);
+        assert_eq!(home_runs[1].season_home_runs, 3);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn load_player_game_pitching_views_returns_pitchings_for_game() {
         let (repo, path) = setup_repo();
         seed_teams(&repo);
@@ -1424,6 +1551,28 @@ mod tests {
             crate::domain::shared::player::PitchType::FourSeamFastball
         ));
         assert_eq!(history.ball.actual_location.x, 0.1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_player_game_pitching_decision_views_returns_decisions_for_game() {
+        let (repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
+        seed_game(&repo, 2, 2026, 1, 2, Some("2026-04-02"));
+        seed_player_game_pitching_decision(&repo, 1, 1, "Win");
+        seed_player_game_pitching_decision(&repo, 1, 2, "Save");
+        seed_player_game_pitching_decision(&repo, 2, 10, "Loss");
+
+        let decisions = repo.load_player_game_pitching_decision_views(1).unwrap();
+
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(decisions[0].pitcher.id, 1);
+        assert_eq!(decisions[0].pitcher.full_name(), "First1 Last1");
+        assert_eq!(decisions[0].decision, "Win");
+        assert_eq!(decisions[1].pitcher.id, 2);
+        assert_eq!(decisions[1].decision, "Save");
         std::fs::remove_file(path).ok();
     }
 

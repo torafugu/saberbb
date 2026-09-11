@@ -6,8 +6,8 @@ use crate::domain::shared::game::{BattingResult, FieldingResult};
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGamePitching, PlayerGamePitchingView, PlayerGameRunning,
-    PlayerGameRunningView,
+    PlayerGameFielding, PlayerGameHomeRunView, PlayerGamePitching, PlayerGamePitchingDecisionView,
+    PlayerGamePitchingView, PlayerGameRunning, PlayerGameRunningView,
 };
 use crate::domain::shared::player::{PitchType, PlayerInfo};
 use crate::domain::shared::stadium::Base;
@@ -696,6 +696,29 @@ impl FromRow for PlayerGamePitchingView {
     }
 }
 
+impl FromRow for PlayerGamePitchingDecisionView {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let pitcher = PlayerInfo {
+            id: row.get("pitcher_id")?,
+            first_name: row.get("pitcher_first_name")?,
+            last_name: row.get("pitcher_last_name")?,
+            age: row.get("pitcher_age")?,
+            uniform_number: row.get("pitcher_uniform_number")?,
+        };
+
+        let decision = PlayerGamePitchingDecisionView {
+            pitcher,
+            decision: row.get("decision")?,
+        };
+
+        decision.validate()?;
+
+        Ok(decision)
+    }
+}
+
 impl FromRow for PlayerGameBattingView {
     type Error = AppError;
 
@@ -743,6 +766,30 @@ impl FromRow for PlayerGameBattingView {
         batting_result_view.validate()?;
 
         Ok(batting_result_view)
+    }
+}
+
+impl FromRow for PlayerGameHomeRunView {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let batter = PlayerInfo {
+            id: row.get("batter_id")?,
+            first_name: row.get("batter_first_name")?,
+            last_name: row.get("batter_last_name")?,
+            age: row.get("batter_age")?,
+            uniform_number: row.get("batter_uniform_number")?,
+        };
+
+        let home_run = PlayerGameHomeRunView {
+            count_seq: row.get("count_seq")?,
+            batter,
+            season_home_runs: row.get("season_home_runs")?,
+        };
+
+        home_run.validate()?;
+
+        Ok(home_run)
     }
 }
 

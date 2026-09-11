@@ -58,11 +58,24 @@ impl PlayerGameBattingView {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct PlayerGameHomeRunView {
+    pub count_seq: u16,
+    pub batter: PlayerInfo,
+    pub season_home_runs: u16,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGamePitchingView {
     pub count_seq: u16,
     pub pitcher_id: i64,
     pub ball: PitchedBall,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct PlayerGamePitchingDecisionView {
+    pub pitcher: PlayerInfo,
+    pub decision: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]

@@ -1,8 +1,8 @@
 use super::game_state::ActivePlayer;
 use super::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGamePitching, PlayerGamePitchingView, PlayerGameRunning,
-    PlayerGameRunningView,
+    PlayerGameFielding, PlayerGameHomeRunView, PlayerGamePitching, PlayerGamePitchingDecisionView,
+    PlayerGamePitchingView, PlayerGameRunning, PlayerGameRunningView,
 };
 use super::team::Team;
 use crate::domain::resolver::fielding_resolver::{
@@ -368,6 +368,8 @@ pub struct GameDetail {
     pub home_points: u8,
     pub player_entries: Vec<PlayerGameEntryView>,
     pub player_pitchings: Vec<PlayerGamePitchingView>,
+    pub player_pitching_decisions: Vec<PlayerGamePitchingDecisionView>,
+    pub player_home_runs: Vec<PlayerGameHomeRunView>,
     pub player_battings: Vec<PlayerGameBattingView>,
     pub player_runnings: Vec<PlayerGameRunningView>,
 }

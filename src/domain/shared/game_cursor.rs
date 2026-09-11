@@ -1,5 +1,8 @@
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
-use super::game_stats::{PlayerGameBattingView, PlayerGamePitchingView, PlayerGameRunningView};
+use super::game_stats::{
+    PlayerGameBattingView, PlayerGamePitchingDecisionView, PlayerGamePitchingView,
+    PlayerGameRunningView,
+};
 use super::player::{Player, PlayerInfo, Position};
 use super::team::Team;
 use std::collections::{HashMap, HashSet};
@@ -59,6 +62,21 @@ pub struct PitcherGameStatView {
     pub walks: u16,
     pub era: f32,
     pub whip: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct HomeRunSummaryView {
+    pub batter: PlayerInfo,
+    pub season_home_runs: u16,
+    pub inning_seq: u8,
+    pub inning_tb: TB,
+}
+
+#[derive(Clone, Debug)]
+pub struct BatterySummaryView {
+    pub team_name: String,
+    pub pitchers: Vec<PlayerInfo>,
+    pub catchers: Vec<PlayerInfo>,
 }
 
 impl GameCursor {
@@ -340,6 +358,146 @@ impl GameCursor {
         }
 
         scoreboard
+    }
+
+    pub fn final_scoreboard(&self) -> ScoreBoard {
+        let max_inning_num = self.game.innings.iter().map(|i| i.seq).max().unwrap_or(0);
+        let mut scoreboard = ScoreBoard {
+            away_team_name: self.game.away_team.name.to_string(),
+            home_team_name: self.game.home_team.name.to_string(),
+            max_inning_num,
+            away_total_point: self.game.away_points,
+            home_total_point: self.game.home_points,
+            away_innning_points: Vec::new(),
+            home_innning_points: Vec::new(),
+            is_last_bottom_inning_skiped: self.is_final_bottom_inning_skipped(max_inning_num),
+        };
+
+        for inning_seq in 1..=max_inning_num {
+            scoreboard
+                .away_innning_points
+                .push(self.points_for_inning(inning_seq, TB::Top));
+            if self.has_inning(inning_seq, TB::Bottom) {
+                scoreboard
+                    .home_innning_points
+                    .push(self.points_for_inning(inning_seq, TB::Bottom));
+            }
+        }
+
+        scoreboard
+    }
+
+    fn is_final_bottom_inning_skipped(&self, max_inning_num: u8) -> bool {
+        self.game.home_points > self.game.away_points
+            && self.has_inning(max_inning_num, TB::Top)
+            && !self.has_inning(max_inning_num, TB::Bottom)
+    }
+
+    fn points_for_inning(&self, inning_seq: u8, inning_tb: TB) -> u8 {
+        self.game
+            .innings
+            .iter()
+            .find(|inning| inning.is(inning_seq, inning_tb))
+            .map(|inning| inning.counts.iter().map(|count| count.point).sum())
+            .unwrap_or(0)
+    }
+
+    fn has_inning(&self, inning_seq: u8, inning_tb: TB) -> bool {
+        self.game
+            .innings
+            .iter()
+            .any(|inning| inning.is(inning_seq, inning_tb))
+    }
+
+    pub fn pitching_decisions(&self) -> Vec<PlayerGamePitchingDecisionView> {
+        self.game.player_pitching_decisions.clone()
+    }
+
+    pub fn home_run_summaries(&self) -> Vec<HomeRunSummaryView> {
+        let inning_by_count = self
+            .game
+            .innings
+            .iter()
+            .flat_map(|inning| {
+                inning
+                    .counts
+                    .iter()
+                    .map(|count| (count.seq, (inning.seq, inning.tb)))
+            })
+            .collect::<HashMap<_, _>>();
+
+        let mut home_runs = self
+            .game
+            .player_home_runs
+            .iter()
+            .filter_map(|home_run| {
+                let (inning_seq, inning_tb) = inning_by_count.get(&home_run.count_seq)?;
+                Some(HomeRunSummaryView {
+                    batter: home_run.batter.clone(),
+                    season_home_runs: home_run.season_home_runs,
+                    inning_seq: *inning_seq,
+                    inning_tb: *inning_tb,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        home_runs.sort_by_key(|home_run| (home_run.inning_seq, Self::tb_order(home_run.inning_tb)));
+        home_runs
+    }
+
+    pub fn battery_summaries(&self) -> Vec<BatterySummaryView> {
+        vec![
+            self.battery_summary_for_team(
+                self.game.away_team.id,
+                self.game.away_team.name.to_string(),
+            ),
+            self.battery_summary_for_team(
+                self.game.home_team.id,
+                self.game.home_team.name.to_string(),
+            ),
+        ]
+    }
+
+    fn battery_summary_for_team(&self, team_id: u16, team_name: String) -> BatterySummaryView {
+        let mut pitchers = Vec::new();
+        let mut catchers = Vec::new();
+
+        for pitcher_entry in self
+            .game
+            .player_entries
+            .iter()
+            .filter(|entry| entry.team_id == team_id && entry.position == Position::P)
+        {
+            Self::push_unique_player(&mut pitchers, pitcher_entry.player.clone());
+
+            for catcher_entry in self.game.player_entries.iter().filter(|entry| {
+                entry.team_id == team_id
+                    && entry.position == Position::C
+                    && Self::entries_overlap(pitcher_entry, entry)
+            }) {
+                Self::push_unique_player(&mut catchers, catcher_entry.player.clone());
+            }
+        }
+
+        BatterySummaryView {
+            team_name,
+            pitchers,
+            catchers,
+        }
+    }
+
+    fn entries_overlap(
+        first: &super::game_stats::PlayerGameEntryView,
+        second: &super::game_stats::PlayerGameEntryView,
+    ) -> bool {
+        first.start_count_seq <= second.end_count_seq
+            && second.start_count_seq <= first.end_count_seq
+    }
+
+    fn push_unique_player(players: &mut Vec<PlayerInfo>, player: PlayerInfo) {
+        if !players.iter().any(|existing| existing.id == player.id) {
+            players.push(player);
+        }
     }
 
     fn current_fielding_team(&self) -> &Team {
@@ -718,6 +876,8 @@ mod tests {
             home_points: 0,
             player_entries: Vec::new(),
             player_pitchings: Vec::new(),
+            player_pitching_decisions: Vec::new(),
+            player_home_runs: Vec::new(),
             player_battings: Vec::new(),
             player_runnings: Vec::new(),
         }

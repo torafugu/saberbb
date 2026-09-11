@@ -4,13 +4,13 @@ use crate::adapters::tui::config::Config;
 use crate::domain::shared::game::GameHeader;
 use crate::domain::shared::game_cursor::GameCursor;
 use crate::repositories::game_repository::{GameDetailReader, ProcessedGameReader};
-use crate::{APP_CONTEXT, t};
+use crate::{APP_CONTEXT, I18nManager, t};
 use anyhow::Context;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::prelude::*;
 use ratatui::style::Color;
-use ratatui::widgets::{Block, Borders, ListItem, ListState, Padding, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, ListItem, ListState, Padding, Paragraph, Tabs, Wrap};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
 
@@ -23,7 +23,8 @@ mod stats_tables;
 #[derive(Default, Debug, Clone, Copy)]
 enum GameDetailTab {
     #[default]
-    GameResult,
+    GameSummary,
+    GameProgress,
     BattingStats,
     PitchingStats,
 }
@@ -31,18 +32,20 @@ enum GameDetailTab {
 impl GameDetailTab {
     fn from_index(index: usize) -> Option<Self> {
         match index {
-            0 => Some(Self::GameResult),
-            1 => Some(Self::BattingStats),
-            2 => Some(Self::PitchingStats),
+            0 => Some(Self::GameSummary),
+            1 => Some(Self::GameProgress),
+            2 => Some(Self::BattingStats),
+            3 => Some(Self::PitchingStats),
             _ => None,
         }
     }
 
     fn selected_index(self) -> usize {
         match self {
-            Self::GameResult => 0,
-            Self::BattingStats => 1,
-            Self::PitchingStats => 2,
+            Self::GameSummary => 0,
+            Self::GameProgress => 1,
+            Self::BattingStats => 2,
+            Self::PitchingStats => 3,
         }
     }
 }
@@ -80,7 +83,7 @@ impl GameResultsWidget {
         season_state.select(Some(0));
 
         Self {
-            title: t!("game_results"),
+            title: t!("game_progress"),
             season_state,
             ..Default::default()
         }
@@ -180,7 +183,7 @@ impl GameResultsWidget {
                 self.selected_game_id = Some(game_id);
                 self.game_cursor = Some(GameCursor::new(game_row));
                 self.error = None;
-                self.selected_tab = GameDetailTab::GameResult;
+                self.selected_tab = GameDetailTab::GameSummary;
                 self.view = GameResultsView::GameDetail;
             }
             Ok(Err(err)) => {
@@ -286,7 +289,7 @@ impl GameResultsWidget {
             GameResultsView::GameDetail => {
                 self.selected_game_id = None;
                 self.game_cursor = None;
-                self.selected_tab = GameDetailTab::GameResult;
+                self.selected_tab = GameDetailTab::GameSummary;
                 self.view = GameResultsView::SelectGame;
             }
         }
@@ -322,7 +325,7 @@ impl GameResultsWidget {
 
     fn draw_season_list(&mut self, frame: &mut Frame, area: Rect) {
         if self.seasons.is_empty() {
-            frame.render_widget(Paragraph::new(t!("no_game_results")), area);
+            frame.render_widget(Paragraph::new(t!("no_game_progress")), area);
             return;
         }
 
@@ -338,7 +341,7 @@ impl GameResultsWidget {
 
     fn draw_game_list(&mut self, frame: &mut Frame, area: Rect) {
         if self.games.is_empty() {
-            frame.render_widget(Paragraph::new(t!("no_game_results")), area);
+            frame.render_widget(Paragraph::new(t!("no_game_progress")), area);
             return;
         }
 
@@ -355,11 +358,13 @@ impl GameResultsWidget {
     fn draw_game_detail(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
         let layout = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 
-        let game_results_tab_name = format!("{}(1)", t!("game_results"));
-        let batting_stats_tab_name = format!("{}(2)", t!("batting_stats"));
-        let pitching_stats_tab_name = format!("{}(3)", t!("pitching_stats"));
+        let game_summary_tab_name = format!("{}(1)", t!("game_summary"));
+        let game_progress_tab_name = format!("{}(2)", t!("game_progress"));
+        let batting_stats_tab_name = format!("{}(3)", t!("batting_stats"));
+        let pitching_stats_tab_name = format!("{}(4)", t!("pitching_stats"));
         let tabs = Tabs::new(vec![
-            Line::from(game_results_tab_name),
+            Line::from(game_summary_tab_name),
+            Line::from(game_progress_tab_name),
             Line::from(batting_stats_tab_name),
             Line::from(pitching_stats_tab_name),
         ])
@@ -374,7 +379,8 @@ impl GameResultsWidget {
         frame.render_widget(tabs, layout[0]);
 
         match self.selected_tab {
-            GameDetailTab::GameResult => self.draw_game_result_tab(frame, layout[1])?,
+            GameDetailTab::GameSummary => self.draw_game_summary_tab(frame, layout[1])?,
+            GameDetailTab::GameProgress => self.draw_game_progress_tab(frame, layout[1])?,
             GameDetailTab::BattingStats => self.draw_batting_stats_tab(frame, layout[1])?,
             GameDetailTab::PitchingStats => self.draw_pitching_stats_tab(frame, layout[1])?,
         }
@@ -382,14 +388,146 @@ impl GameResultsWidget {
         Ok(())
     }
 
-    fn draw_game_result_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
+    fn draw_game_summary_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
+        let Some(cursor) = &self.game_cursor else {
+            frame.render_widget(Paragraph::new(t!("select_game")), area);
+            return Ok(());
+        };
+
+        let layout = Layout::vertical([
+            Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Length(7),
+            Constraint::Min(6),
+        ])
+        .split(area);
+
+        let scoreboard = cursor.final_scoreboard();
+        scoreboard::draw_scoreboard(frame, layout[0], &scoreboard);
+
+        frame.render_widget(
+            Paragraph::new(self.format_pitching_decisions())
+                .block(Block::bordered().title(t!("pitching_decisions")))
+                .wrap(Wrap { trim: true }),
+            layout[1],
+        );
+
+        frame.render_widget(
+            Paragraph::new(self.format_home_runs())
+                .block(Block::bordered().title(t!("home_runs")))
+                .wrap(Wrap { trim: true }),
+            layout[2],
+        );
+
+        frame.render_widget(
+            Paragraph::new(self.format_batteries())
+                .block(Block::bordered().title(t!("batteries")))
+                .wrap(Wrap { trim: true }),
+            layout[3],
+        );
+
+        Ok(())
+    }
+
+    fn format_pitching_decisions(&self) -> String {
+        let Some(cursor) = &self.game_cursor else {
+            return String::new();
+        };
+
+        let decisions = cursor.pitching_decisions();
+        if decisions.is_empty() {
+            return t!("na").to_string();
+        }
+
+        decisions
+            .into_iter()
+            .map(|decision| {
+                format!(
+                    "{}: {}\n",
+                    Self::pitching_decision_label(&decision.decision),
+                    decision.pitcher.full_name()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("  ")
+    }
+
+    fn pitching_decision_label(decision: &str) -> String {
+        match decision {
+            "Win" => t!("win").to_string(),
+            "Loss" => t!("loss").to_string(),
+            "Hold" => t!("hold").to_string(),
+            "Save" => t!("save").to_string(),
+            _ => decision.to_string(),
+        }
+    }
+
+    fn format_home_runs(&self) -> String {
+        let Some(cursor) = &self.game_cursor else {
+            return String::new();
+        };
+
+        let home_runs = cursor.home_run_summaries();
+        if home_runs.is_empty() {
+            return t!("na").to_string();
+        }
+
+        home_runs
+            .into_iter()
+            .map(|home_run| {
+                format!(
+                    "{}({}) - {}",
+                    home_run.batter.full_name(),
+                    I18nManager::global().homerun(home_run.season_home_runs),
+                    I18nManager::global().inning(home_run.inning_seq, home_run.inning_tb)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn format_batteries(&self) -> String {
+        let Some(cursor) = &self.game_cursor else {
+            return String::new();
+        };
+
+        cursor
+            .battery_summaries()
+            .into_iter()
+            .map(|battery| {
+                format!(
+                    "{}:\n {}: {}\n{}: {}\n",
+                    battery.team_name,
+                    t!("pitcher"),
+                    Self::format_player_list(&battery.pitchers),
+                    t!("catcher"),
+                    Self::format_player_list(&battery.catchers)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn format_player_list(players: &[crate::domain::shared::player::PlayerInfo]) -> String {
+        if players.is_empty() {
+            return t!("na").to_string();
+        }
+
+        players
+            .iter()
+            .map(|player| player.full_name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn draw_game_progress_tab(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
         let Some(cursor) = &mut self.game_cursor else {
             frame.render_widget(Paragraph::new(t!("select_game")), area);
             return Ok(());
         };
 
         if !cursor.has_counts() {
-            frame.render_widget(Paragraph::new(t!("no_game_results")), area);
+            frame.render_widget(Paragraph::new(t!("no_game_progress")), area);
             return Ok(());
         }
 
@@ -559,6 +697,9 @@ impl Component for GameResultsWidget {
             }
             KeyCode::Char('3') if matches!(self.view, GameResultsView::GameDetail) => {
                 Ok(Some(Action::SelectGameDetailTab(2)))
+            }
+            KeyCode::Char('4') if matches!(self.view, GameResultsView::GameDetail) => {
+                Ok(Some(Action::SelectGameDetailTab(3)))
             }
             KeyCode::Left if matches!(self.view, GameResultsView::GameDetail) => {
                 Ok(Some(Action::PreviousCount))
