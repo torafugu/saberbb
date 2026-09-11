@@ -341,7 +341,7 @@ impl GameResultsWidget {
 
     fn draw_game_list(&mut self, frame: &mut Frame, area: Rect) {
         if self.games.is_empty() {
-            frame.render_widget(Paragraph::new(t!("no_game_progress")), area);
+            frame.render_widget(Paragraph::new(t!("no_game_result")), area);
             return;
         }
 

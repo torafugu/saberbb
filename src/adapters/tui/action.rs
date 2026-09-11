@@ -11,6 +11,7 @@ pub enum MenuOption {
     ViewGameResults,
     ViewBattingStat,
     ViewPitchingStat,
+    ViewTeamInfo,
 }
 
 impl fmt::Display for MenuOption {
@@ -21,6 +22,7 @@ impl fmt::Display for MenuOption {
             Self::ViewGameResults => t!("game_results"),
             Self::ViewBattingStat => t!("batting_stats"),
             Self::ViewPitchingStat => t!("pitching_stats"),
+            Self::ViewTeamInfo => t!("team_info"),
         };
         write!(f, "{label}")
     }

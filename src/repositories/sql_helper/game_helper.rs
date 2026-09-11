@@ -1,6 +1,6 @@
 use crate::domain::shared::game::{
     BattingResult, Count, GameDetail, GameHeader, GameResult, GameSchedule, GameSeason, GameType,
-    Inning, TB,
+    Inning, TB, TeamGameScheduleView,
 };
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::shared::team::Team;
@@ -221,6 +221,33 @@ impl FromRow for GameSchedule {
         game_scheduler.validate()?;
 
         Ok(game_scheduler)
+    }
+}
+
+impl FromRow for TeamGameScheduleView {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        let game_schedule = TeamGameScheduleView {
+            id: row.get("id")?,
+            planned_date: row.get("planned_date")?,
+            actual_date: row.get("actual_date")?,
+            away_team: Team::min(
+                row.get("away_team_id")?,
+                &row.get::<_, String>("away_team_name")?,
+            ),
+            home_team: Team::min(
+                row.get("home_team_id")?,
+                &row.get::<_, String>("home_team_name")?,
+            ),
+            game_type: row.get::<_, GameType>("game_type")?,
+            away_points: row.get("away_points")?,
+            home_points: row.get("home_points")?,
+        };
+
+        game_schedule.validate()?;
+
+        Ok(game_schedule)
     }
 }
 

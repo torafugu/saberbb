@@ -139,6 +139,16 @@ mod tests {
 
             Ok(self.schedules.clone())
         }
+
+        fn load_team_game_schedules(
+            &self,
+            _team_id: u16,
+            _start_date: chrono::NaiveDate,
+            _end_date: chrono::NaiveDate,
+        ) -> std::result::Result<Vec<crate::domain::shared::game::TeamGameScheduleView>, AppError>
+        {
+            Ok(Vec::new())
+        }
     }
 
     fn player(id: u32) -> Player {

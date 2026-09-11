@@ -1,5 +1,5 @@
 use crate::domain::shared::game::{
-    Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB,
+    Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB, TeamGameScheduleView,
 };
 use crate::domain::shared::game_stats::{
     PlayerGameBattingView, PlayerGameEntryView, PlayerGameHomeRunView,
@@ -20,6 +20,7 @@ use crate::repositories::sql_helper::game_stat_helper::{
     refresh_player_game_pitching_decisions,
 };
 use anyhow::Result;
+use chrono::NaiveDate;
 use rusqlite::params;
 use tracing::info;
 
@@ -33,6 +34,12 @@ pub trait GameRoundWriter {
 
 pub trait GameScheduleReader {
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError>;
+    fn load_team_game_schedules(
+        &self,
+        team_id: u16,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<TeamGameScheduleView>, AppError>;
 }
 
 pub trait ProcessedGameReader {
@@ -256,6 +263,39 @@ impl GameScheduleReader for SqlGameRepository {
             game_schedule.home_team.players = self.load_team_players(game_schedule.home_team.id)?;
         }
         Ok(game_schedules)
+    }
+
+    #[tracing::instrument(skip(self), fields(team_id = %team_id, start_date = %start_date, end_date = %end_date), err)]
+    fn load_team_game_schedules(
+        &self,
+        team_id: u16,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<TeamGameScheduleView>, AppError> {
+        info!("load_team_game_schedules() started");
+        let query = "SELECT 
+                            g.id,
+                            g.planned_date,
+                            g.actual_date,
+                            g.away_team_id, 
+                            t_away.name AS away_team_name,
+                            g.home_team_id, 
+                            t_home.name AS home_team_name,
+                            g.game_type,
+                            g.away_points,
+                            g.home_points
+                            FROM game g
+                            LEFT JOIN 
+                                team t_away ON g.away_team_id = t_away.id
+                            LEFT JOIN 
+                                team t_home ON g.home_team_id = t_home.id
+                            WHERE (g.away_team_id = ?1 OR g.home_team_id = ?1)
+                                AND g.planned_date >= ?2
+                                AND g.planned_date < ?3
+                            ORDER BY g.planned_date, g.round_seq, g.seq";
+
+        self.db_client
+            .query_rows::<TeamGameScheduleView>(query, params![team_id, start_date, end_date])
     }
 }
 
@@ -1137,6 +1177,24 @@ mod tests {
             .unwrap();
     }
 
+    fn seed_game_with_planned_date(
+        repo: &SqlGameRepository,
+        id: u32,
+        planned_date: &str,
+        away_team_id: u16,
+        home_team_id: u16,
+    ) {
+        conn(repo)
+            .execute(
+                "INSERT INTO game (
+                    id, season, round_seq, seq, planned_date, actual_date,
+                    away_team_id, home_team_id, game_type, away_points, home_points
+                ) VALUES (?1, 2026, ?1, ?1, ?2, NULL, ?3, ?4, 'Regular', NULL, NULL)",
+                params![id, planned_date, away_team_id, home_team_id],
+            )
+            .unwrap();
+    }
+
     fn seed_inning(repo: &SqlGameRepository, game_id: u32, seq: u8, tb: &str) {
         conn(repo)
             .execute(
@@ -1405,6 +1463,51 @@ mod tests {
 
         assert_eq!(schedules.len(), 1);
         assert_eq!(schedules[0].id, 2);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_team_game_schedules_filters_by_team_and_date_range() {
+        let (repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_game_with_planned_date(&repo, 1, "2026-09-01", 1, 2);
+        seed_game_with_planned_date(&repo, 2, "2026-09-30", 2, 1);
+        seed_game_with_planned_date(&repo, 3, "2026-10-01", 1, 2);
+        seed_game_with_planned_date(&repo, 4, "2026-09-15", 2, 2);
+        conn(&repo)
+            .execute(
+                "UPDATE game SET actual_date = '2026-09-02', away_points = 3, home_points = 2
+                 WHERE id = 1",
+                [],
+            )
+            .unwrap();
+
+        let schedules = repo
+            .load_team_game_schedules(
+                1,
+                NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            schedules
+                .iter()
+                .map(|schedule| schedule.id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(schedules[0].away_team.name.as_ref(), "Away");
+        assert_eq!(schedules[0].home_team.name.as_ref(), "Home");
+        assert_eq!(
+            schedules[0].actual_date,
+            Some(NaiveDate::from_ymd_opt(2026, 9, 2).unwrap())
+        );
+        assert_eq!(schedules[0].away_points, Some(3));
+        assert_eq!(schedules[0].home_points, Some(2));
+        assert_eq!(schedules[1].actual_date, None);
+        assert_eq!(schedules[1].away_points, None);
+        assert_eq!(schedules[1].home_points, None);
         std::fs::remove_file(path).ok();
     }
 

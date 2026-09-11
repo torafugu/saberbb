@@ -79,6 +79,18 @@ pub struct GameSchedule {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
+pub struct TeamGameScheduleView {
+    pub id: u32,
+    pub planned_date: NaiveDate,
+    pub actual_date: Option<NaiveDate>,
+    pub away_team: Team,
+    pub home_team: Team,
+    pub game_type: GameType,
+    pub away_points: Option<u8>,
+    pub home_points: Option<u8>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameHeader {
     pub id: u32,
     pub actual_date: NaiveDate,
