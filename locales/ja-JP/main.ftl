@@ -65,6 +65,7 @@ holds = ホールド
 innings = 投球回
 inning_bottom = 裏
 inning_top = 表
+infielder = 内野手
 interrupted = この処理は Ctrl + C で中断されました。
 knuckleball = ナックル
 launch_angle = 鉛直角度

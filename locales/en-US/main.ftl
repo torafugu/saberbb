@@ -65,6 +65,7 @@ holds = Holds
 innings = IP
 inning_bottom = Bottom
 inning_top = Top
+infielder = Infielder
 interrupted = This process was interrupted by Ctrl + C.
 knuckleball = Knuckleball
 launch_angle = Launch Angle
