@@ -67,7 +67,7 @@ impl Position {
         matches!(self, Position::FB | Position::TB)
     }
 
-    pub fn short(&self) -> LongPositionFormatter<'_> {
+    pub fn long(&self) -> LongPositionFormatter<'_> {
         LongPositionFormatter(self)
     }
 }
@@ -500,6 +500,16 @@ impl ArmSlot {
             (360.0 - base_deg) % 360.0 // Left-handed pitcher mirrors horizontally (11, 10, 9 o'clock directions)
         } else {
             base_deg
+        }
+    }
+}
+impl fmt::Display for ArmSlot {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ArmSlot::Overhand => write!(f, "{}", t!("overhand")),
+            ArmSlot::ThreeQuarter => write!(f, "{}", t!("three_quarter")),
+            ArmSlot::Sidearm => write!(f, "{}", t!("sidearm")),
+            ArmSlot::Submarine => write!(f, "{}", t!("submarine")),
         }
     }
 }

@@ -73,7 +73,23 @@ pub fn is_base_occupied(bases_occupied: u8, base: BaseCode) -> bool {
 }
 
 pub fn ms_to_kmh(speed: f64) -> f64 {
-    (speed * 3.6 * 100.0).round() / 100.0
+    (speed * 3.6).round()
+}
+
+pub fn m_to_cm(length: f64) -> f64 {
+    (length * 100.0).round()
+}
+
+pub fn normal_to_rank(value: f64) -> String {
+    match value {
+        v if v > 2.0 => "A+".to_string(),
+        v if v > 1.33 => "A".to_string(),
+        v if v > 0.67 => "B".to_string(),
+        v if v > -0.67 => "C".to_string(),
+        v if v > -1.33 => "D".to_string(),
+        v if v > -2.0 => "E".to_string(),
+        _ => "F".to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]

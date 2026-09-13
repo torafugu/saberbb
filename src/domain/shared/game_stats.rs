@@ -45,7 +45,7 @@ impl PlayerGameBattingView {
         match self.result {
             BattingResult::Out => {
                 if let Some(position) = self.fielder_position {
-                    let mut outcome = position.short().to_string();
+                    let mut outcome = position.long().to_string();
                     outcome.push_str(" ");
                     outcome.push_str(&self.ball.trajectory().to_string());
                     Ok(outcome)

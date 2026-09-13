@@ -2,6 +2,7 @@ use super::Component;
 use crate::adapters::tui::action::Action;
 use crate::adapters::tui::config::Config;
 use crate::domain::shared::player::{Player, Position};
+use crate::domain::util::{m_to_cm, ms_to_kmh, normal_to_rank};
 use crate::repositories::game_repository::GamePlayerReader;
 use crate::{APP_CONTEXT, t};
 use color_eyre::eyre::eyre;
@@ -361,20 +362,38 @@ impl PlayerInfoWidget {
         players
     }
 
-    fn format_f64(label: &str, value: f64) -> String {
-        format!("{label}: {value:.2}")
-    }
-
-    fn format_fielder_info(fielder: &crate::domain::shared::player::FielderInfo) -> Vec<String> {
+    fn format_fielder_info(
+        position: String,
+        fielder: &crate::domain::shared::player::FielderInfo,
+    ) -> Vec<String> {
         vec![
-            format!("{}: {}", t!("fielder_position"), fielder.fielder_type),
-            Self::format_f64("Throw Speed", fielder.throw_speed),
-            Self::format_f64("Running Speed", fielder.running_speed),
-            Self::format_f64("Reaction", fielder.reaction),
-            Self::format_f64("Prep Time", fielder.prep_time),
-            Self::format_f64("Catching", fielder.catching),
-            Self::format_f64("Reach Height", fielder.reach_height),
-            Self::format_f64("Reach Range", fielder.reach_range),
+            format!("{}: {}", t!("fielder_position"), position),
+            format!(
+                "{}: {}km/h",
+                t!("throw_speed"),
+                ms_to_kmh(fielder.throw_speed)
+            ),
+            format!(
+                "{}: {}sec",
+                t!("reaction"),
+                (fielder.reaction * 100.0).round() / 100.0
+            ),
+            format!(
+                "{}: {}sec",
+                t!("prep_time"),
+                (fielder.prep_time * 100.0).round() / 100.0
+            ),
+            format!(
+                "{}: {}%",
+                t!("catching"),
+                (100.0 - (fielder.catching * 10000.0).round() / 10000.0)
+            ),
+            format!(
+                "{}: {}m",
+                t!("reach_height"),
+                (fielder.reach_height * 100.0).round() / 100.0
+            ),
+            format!("{}: {}°", t!("reach_range"), fielder.reach_range),
         ]
     }
 
@@ -393,64 +412,115 @@ impl PlayerInfoWidget {
     fn format_player_detail_sections(player: &Player) -> (String, String) {
         let mut primary_lines = vec![
             format!("{}: {}", t!("player"), player.full_name()),
-            format!("ID: {}", player.info.id),
-            format!("{}: {}", t!("pos"), player.defense_skills.position.short()),
-            format!("Uniform Number: {}", player.info.uniform_number),
-            format!("Age: {}", player.info.age),
+            format!("{}: {}", t!("age"), player.info.age),
+            format!("{}: {}", t!("uniform_number"), player.info.uniform_number),
         ];
         let mut skill_lines = Vec::new();
 
         if let Some(pitcher) = player.defense_skills.pitcher.as_ref() {
             primary_lines.extend([
                 String::new(),
-                t!("pitcher").to_string(),
-                Self::format_f64("Height", pitcher.height),
-                Self::format_f64("Extension", pitcher.extension),
-                format!("Throw Side: {}", pitcher.throw_side),
-                format!("Arm Slot: {:?}", pitcher.arm_slot),
-                format!("Style: {}", pitcher.pitcher_style),
-                Self::format_f64("Velocity", pitcher.velocity),
-                Self::format_f64("Spin Rate", pitcher.spin_rate),
-                Self::format_f64("Control", pitcher.control),
-                Self::format_f64("Stamina", pitcher.stamina),
-                Self::format_f64("Injury Proneness", pitcher.injury_proneness),
-                Self::format_f64("Clutch", pitcher.clutch),
-                Self::format_f64("HPP", pitcher.hpp),
-                Self::format_f64("Platoon Splitting", pitcher.platoon_splitting),
-                Self::format_f64("Delivery Motion Time", pitcher.delivery_motion_time),
-                Self::format_f64("Consistency", pitcher.consistency),
+                format!("{}: {}cm", t!("height"), m_to_cm(pitcher.height)),
+                format!("{}: {}cm", t!("extension"), m_to_cm(pitcher.extension)),
+                format!("{}: {}", t!("throw_side"), pitcher.throw_side),
+                format!("{}: {}", t!("arm_slot"), pitcher.arm_slot.to_string()),
+                format!("{}: {}", t!("pitcher_style"), pitcher.pitcher_style),
+                format!("{}: {}km/h", t!("velocity"), ms_to_kmh(pitcher.velocity)),
+                format!("{}: {}rpm", t!("spin_rate"), pitcher.spin_rate.round()),
+                format!("{}: {}", t!("control"), normal_to_rank(pitcher.control)),
+                format!("{}: {}", t!("stamina"), normal_to_rank(pitcher.stamina)),
+                format!(
+                    "{}: {}",
+                    t!("injury_proneness"),
+                    normal_to_rank(pitcher.injury_proneness)
+                ),
+                format!("{}: {}", t!("clutch"), normal_to_rank(pitcher.clutch)),
+                format!("{}: {}", t!("hpp"), normal_to_rank(pitcher.hpp)),
+                format!(
+                    "{}: {}",
+                    t!("platoon_splitting"),
+                    normal_to_rank(pitcher.platoon_splitting)
+                ),
+                format!(
+                    "{}: {}",
+                    t!("delivery_motion_time"),
+                    normal_to_rank(pitcher.delivery_motion_time)
+                ),
+                format!(
+                    "{}: {}%",
+                    t!("consistency"),
+                    (100.0 - (pitcher.consistency * 10000.0).round() / 10000.0)
+                ),
             ]);
 
-            skill_lines.push(t!("fielders_choice").to_string());
-            skill_lines.extend(Self::format_fielder_info(&pitcher.fielder_info));
+            skill_lines.extend(Self::format_fielder_info(
+                player.defense_skills.position.long().to_string(),
+                &pitcher.fielder_info,
+            ));
         }
 
         if let Some(batter) = player.offense_skills.batter.as_ref() {
             primary_lines.extend([
                 String::new(),
                 t!("batter").to_string(),
-                format!("Batting Side: {}", batter.batting_side),
-                format!("Batter Type: {:?}", batter.batter_type),
-                format!("Zone Aptitude: {:?}", batter.zone_aptitude),
-                Self::format_f64("Hot Zone Scale", batter.hot_zone_scale),
-                Self::format_f64("Batting Eye", batter.batting_eye),
-                Self::format_f64("Swing Speed", batter.swing_speed),
-                Self::format_f64("Swing Power", batter.swing_power),
-                Self::format_f64("Attack Angle", batter.attack_angle),
-                Self::format_f64("Bat Control", batter.bat_control),
-                Self::format_f64("Consistency", batter.consistency),
+                format!("{}: {}", t!("batting_side"), batter.batting_side),
+                format!("{}: {:?}", t!("batter_type"), batter.batter_type),
+                format!("{}: {:?}", t!("zone_aptitude"), batter.zone_aptitude),
+                format!(
+                    "{}: {}",
+                    t!("hot_zone_scale"),
+                    (batter.hot_zone_scale * 100.0).round() / 100.0
+                ),
+                format!(
+                    "{}: {}",
+                    t!("batting_eye"),
+                    normal_to_rank(batter.batting_eye)
+                ),
+                format!(
+                    "{}: {}km/h",
+                    t!("swing_speed"),
+                    ms_to_kmh(batter.swing_speed)
+                ),
+                format!(
+                    "{}: {}",
+                    t!("swing_power"),
+                    normal_to_rank(batter.swing_power)
+                ),
+                format!(
+                    "{}: {}°",
+                    t!("attack_angle"),
+                    (batter.attack_angle * 100.0).round() / 100.0
+                ),
+                format!(
+                    "{}: {}",
+                    t!("bat_control"),
+                    normal_to_rank(batter.bat_control)
+                ),
+                format!(
+                    "{}: {}%",
+                    t!("consistency"),
+                    (100.0 - (batter.consistency * 10000.0).round() / 10000.0)
+                ),
             ]);
 
             if !skill_lines.is_empty() {
                 skill_lines.push(String::new());
             }
             skill_lines.extend([
-                t!("runner").to_string(),
-                Self::format_f64("Speed", player.offense_skills.running.speed),
-                Self::format_f64("Lead Distance", player.offense_skills.running.lead_distance),
-                Self::format_f64(
-                    "Start Reaction",
-                    player.offense_skills.running.start_reaction,
+                format!(
+                    "{}: {}km/h",
+                    t!("running_speed"),
+                    ms_to_kmh(player.offense_skills.running.speed)
+                ),
+                format!(
+                    "{}: {}m",
+                    t!("lead_distance"),
+                    (player.offense_skills.running.lead_distance * 100.0).round() / 100.0
+                ),
+                format!(
+                    "{}: {}sec",
+                    t!("start_reaction"),
+                    (player.offense_skills.running.start_reaction * 100.0).round() / 100.0
                 ),
             ]);
         }
@@ -459,29 +529,37 @@ impl PlayerInfoWidget {
             if !skill_lines.is_empty() {
                 skill_lines.push(String::new());
             }
-            skill_lines.push(t!("catcher").to_string());
-            skill_lines.extend(Self::format_fielder_info(&catcher.fielder_info));
+            skill_lines.extend(Self::format_fielder_info(
+                player.defense_skills.position.long().to_string(),
+                &catcher.fielder_info,
+            ));
         }
         if let Some(fielder) = player.defense_skills.middle_infielder.as_ref() {
             if !skill_lines.is_empty() {
                 skill_lines.push(String::new());
             }
-            skill_lines.push(t!("middle_infielder").to_string());
-            skill_lines.extend(Self::format_fielder_info(fielder));
+            skill_lines.extend(Self::format_fielder_info(
+                player.defense_skills.position.long().to_string(),
+                fielder,
+            ));
         }
         if let Some(fielder) = player.defense_skills.corner_infielder.as_ref() {
             if !skill_lines.is_empty() {
                 skill_lines.push(String::new());
             }
-            skill_lines.push(t!("corner_infielder").to_string());
-            skill_lines.extend(Self::format_fielder_info(fielder));
+            skill_lines.extend(Self::format_fielder_info(
+                player.defense_skills.position.long().to_string(),
+                fielder,
+            ));
         }
         if let Some(fielder) = player.defense_skills.outfielder.as_ref() {
             if !skill_lines.is_empty() {
                 skill_lines.push(String::new());
             }
-            skill_lines.push(t!("outfielder").to_string());
-            skill_lines.extend(Self::format_fielder_info(fielder));
+            skill_lines.extend(Self::format_fielder_info(
+                player.defense_skills.position.long().to_string(),
+                fielder,
+            ));
         }
 
         (
@@ -508,16 +586,24 @@ impl PlayerInfoWidget {
             .iter()
             .map(|skill| {
                 format!(
-                    "{}\n  Velocity: {:.2}\n  Control: {:.2}\n  Stamina: {:.2}\n  Injury Proneness: {:.2}\n  Spin Rate: {:.2}\n  Spin Angle: {:.2}\n  Spin Efficiency: {:.2}\n  Usage: {:.2}",
+                    "{}\n  {}: {}  {}: {}  {}: {}\n  {}: {}  {}: {}  {}: {}\n  {}: {}  {}: {}",
                     skill.pitch_type,
-                    skill.velocity,
-                    skill.control,
-                    skill.stamina,
-                    skill.injury_proneness,
-                    skill.spin_rate,
-                    skill.spin_angle,
-                    skill.spin_efficiency,
-                    skill.usage
+                    t!("velocity"),
+                    normal_to_rank(skill.velocity),
+                    t!("control"),
+                    normal_to_rank(skill.control),
+                    t!("stamina"),
+                    normal_to_rank(skill.stamina),
+                    t!("injury_proneness"),
+                    normal_to_rank(skill.injury_proneness),
+                    t!("spin_rate"),
+                    normal_to_rank(skill.spin_rate),
+                    t!("spin_angle"),
+                    normal_to_rank(skill.spin_angle),
+                    t!("spin_efficiency"),
+                    normal_to_rank(skill.spin_efficiency),
+                    t!("usage"),
+                    normal_to_rank(skill.usage)
                 )
             })
             .collect::<Vec<_>>()
@@ -576,7 +662,7 @@ impl Component for PlayerInfoWidget {
             }
 
             let detail_layout =
-                Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
+                Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
                     .split(area);
             let (primary_detail, skill_detail) = Self::format_player_detail_sections(player);
             let primary_block = Block::new()
