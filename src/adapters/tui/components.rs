@@ -14,6 +14,7 @@ pub mod batting_stats;
 pub mod game_results;
 pub mod home;
 pub mod pitching_stats;
+pub mod player_info;
 pub mod standings;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
