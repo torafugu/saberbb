@@ -361,6 +361,16 @@ pub enum BatterType {
     GameManager,           // NOTE: Adapts to the game situation
     ClutchHunter,          // NOTE: Swings for the fences; a gambler
 }
+impl fmt::Display for BatterType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BatterType::AggressiveFreeSwinger => write!(f, "{}", t!("aggressive_free_swinger")),
+            BatterType::ClassicAnalyst => write!(f, "{}", t!("classic_analyst")),
+            BatterType::GameManager => write!(f, "{}", t!("game_manager")),
+            BatterType::ClutchHunter => write!(f, "{}", t!("clutch_hunter")),
+        }
+    }
+}
 
 // Batter's strengths and weaknesses by pitch location (zone aptitude)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, AsRefStr, EnumString)]
@@ -372,6 +382,18 @@ pub enum ZoneAptitude {
     LowBaller,       // NOTE: Good at low pitches (low-ball hitter)
     HighBaller,      // NOTE: Good at high pitches (high-ball hitter)
     DiagonalCross, // NOTE: Diagonal type (good at specific lines such as inside-high & outside-low)
+}
+impl fmt::Display for ZoneAptitude {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ZoneAptitude::Balanced => write!(f, "{}", t!("zone_balanced")),
+            ZoneAptitude::InsideDominant => write!(f, "{}", t!("inside_dominant")),
+            ZoneAptitude::OutsideDominant => write!(f, "{}", t!("outside_dominant")),
+            ZoneAptitude::LowBaller => write!(f, "{}", t!("low_baller")),
+            ZoneAptitude::HighBaller => write!(f, "{}", t!("high_baller")),
+            ZoneAptitude::DiagonalCross => write!(f, "{}", t!("diagonal_cross")),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
@@ -435,6 +457,26 @@ impl FielderInfo {
             reach_height: 0.0,
             reach_range: 0.0,
         }
+    }
+
+    pub fn coverage_angle(&self) -> f64 {
+        // TODO: Move to player factory pameters.
+        const CATCHER_LATERAL_RANGE: f64 = 3.0; // Catcher has narrow lateral range
+        const PITCHER_LATERAL_RANGE: f64 = 4.0; // Pitcher has narrow lateral range
+        const CORNER_INFIELDER_LATERAL_RANGE: f64 = 6.0;
+        const MIDDLE_INFIELDER_LATERAL_RANGE: f64 = 8.0; // Middle infield has wider range
+        const OUTFIELDER_LATERAL_RANGE: f64 = 8.0; // Outfielders have widest range
+
+        // Set lateral coverage angle width by position
+        let coverage_angle = match self.fielder_type {
+            FielderType::Pitcher => PITCHER_LATERAL_RANGE,
+            FielderType::Catcher => CATCHER_LATERAL_RANGE,
+            FielderType::CornerInfielder => CORNER_INFIELDER_LATERAL_RANGE,
+            FielderType::MiddleInfielder => MIDDLE_INFIELDER_LATERAL_RANGE,
+            FielderType::Outfielder => OUTFIELDER_LATERAL_RANGE,
+        };
+
+        coverage_angle * (1.0 + self.reach_range * 0.05)
     }
 }
 
@@ -654,6 +696,14 @@ impl PitcherInfo {
         items
     }
 
+    pub fn pitch_skill_usage(&self, pitch_skill: &PitchSkill) -> f64 {
+        self.pitch_skill_distribution()
+            .into_iter()
+            .find(|item| item.name.pitch_type == pitch_skill.pitch_type)
+            .map(|item| item.weight * 100.0)
+            .unwrap_or(0.0)
+    }
+
     // TODO: pitch_skill_distribution should be replaced by a fixed pitch_skill.
     // TODO: location_distribution should be replaced by a fixed target_location.
     // TODO: margin must be set separately.
@@ -748,5 +798,55 @@ impl PitchSkill {
 
     pub fn is(&self, pitch_type: PitchType) -> bool {
         self.pitch_type == pitch_type
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pitch_skill(pitch_type: PitchType, usage: f64) -> PitchSkill {
+        PitchSkill::from_prob(pitch_type, 150.0, 0.7, 0.8, 0.1, 2200.0, 180.0, 0.95, usage)
+    }
+
+    fn pitcher_info(pitch_skills: Vec<PitchSkill>) -> PitcherInfo {
+        PitcherInfo::from_prob(
+            1.85,
+            1.8,
+            RL::Right,
+            ArmSlot::ThreeQuarter,
+            PitcherStyle::BalancedPitcher,
+            145.0,
+            2200.0,
+            0.7,
+            90.0,
+            0.1,
+            0.6,
+            0.5,
+            0.2,
+            1.4,
+            0.03,
+            pitch_skills,
+            FielderInfo::new_pitcher(),
+        )
+    }
+
+    #[test]
+    fn pitch_skill_usage_returns_softmax_percentage() {
+        let fastball = pitch_skill(PitchType::FourSeamFastball, 2.0);
+        let curveball = pitch_skill(PitchType::Curveball, 1.0);
+        let pitcher_info = pitcher_info(vec![fastball, curveball]);
+
+        let usage = pitcher_info.pitch_skill_usage(&fastball);
+
+        assert!((usage - 73.10585786300048).abs() < 1e-10);
+    }
+
+    #[test]
+    fn pitch_skill_usage_returns_zero_when_pitch_skill_is_missing() {
+        let pitcher_info = pitcher_info(vec![pitch_skill(PitchType::FourSeamFastball, 2.0)]);
+        let missing_pitch_skill = pitch_skill(PitchType::Curveball, 1.0);
+
+        assert_eq!(pitcher_info.pitch_skill_usage(&missing_pitch_skill), 0.0);
     }
 }

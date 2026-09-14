@@ -373,27 +373,15 @@ impl PlayerInfoWidget {
                 t!("throw_speed"),
                 ms_to_kmh(fielder.throw_speed)
             ),
+            format!("{}: {:.2}{}", t!("reaction"), fielder.reaction, t!("sec")),
+            format!("{}: {:.2}{}", t!("prep_time"), fielder.prep_time, t!("sec")),
             format!(
-                "{}: {}sec",
-                t!("reaction"),
-                (fielder.reaction * 100.0).round() / 100.0
+                "{}: {:.2}%",
+                t!("catching_success_rate"),
+                fielder.catching * 100.0
             ),
-            format!(
-                "{}: {}sec",
-                t!("prep_time"),
-                (fielder.prep_time * 100.0).round() / 100.0
-            ),
-            format!(
-                "{}: {}%",
-                t!("catching"),
-                (100.0 - (fielder.catching * 10000.0).round() / 10000.0)
-            ),
-            format!(
-                "{}: {}m",
-                t!("reach_height"),
-                (fielder.reach_height * 100.0).round() / 100.0
-            ),
-            format!("{}: {}°", t!("reach_range"), fielder.reach_range),
+            format!("{}: {:.2}m", t!("reach_height"), fielder.reach_height),
+            format!("{}: {:.2}°", t!("reach_range"), fielder.coverage_angle()),
         ]
     }
 
@@ -423,7 +411,7 @@ impl PlayerInfoWidget {
                 format!("{}: {}cm", t!("height"), m_to_cm(pitcher.height)),
                 format!("{}: {}cm", t!("extension"), m_to_cm(pitcher.extension)),
                 format!("{}: {}", t!("throw_side"), pitcher.throw_side),
-                format!("{}: {}", t!("arm_slot"), pitcher.arm_slot.to_string()),
+                format!("{}: {}", t!("arm_slot"), pitcher.arm_slot),
                 format!("{}: {}", t!("pitcher_style"), pitcher.pitcher_style),
                 format!("{}: {}km/h", t!("velocity"), ms_to_kmh(pitcher.velocity)),
                 format!("{}: {}rpm", t!("spin_rate"), pitcher.spin_rate.round()),
@@ -448,8 +436,8 @@ impl PlayerInfoWidget {
                 ),
                 format!(
                     "{}: {}%",
-                    t!("consistency"),
-                    (100.0 - (pitcher.consistency * 10000.0).round() / 10000.0)
+                    t!("wild_pitch_rate"),
+                    (pitcher.consistency * 10000.0).round() / 10000.0
                 ),
             ]);
 
@@ -462,15 +450,10 @@ impl PlayerInfoWidget {
         if let Some(batter) = player.offense_skills.batter.as_ref() {
             primary_lines.extend([
                 String::new(),
-                t!("batter").to_string(),
                 format!("{}: {}", t!("batting_side"), batter.batting_side),
-                format!("{}: {:?}", t!("batter_type"), batter.batter_type),
-                format!("{}: {:?}", t!("zone_aptitude"), batter.zone_aptitude),
-                format!(
-                    "{}: {}",
-                    t!("hot_zone_scale"),
-                    (batter.hot_zone_scale * 100.0).round() / 100.0
-                ),
+                format!("{}: {}", t!("batter_type"), batter.batter_type),
+                format!("{}: {}", t!("zone_aptitude"), batter.zone_aptitude),
+                format!("{}: {:.2}", t!("hot_zone_scale"), batter.hot_zone_scale),
                 format!(
                     "{}: {}",
                     t!("batting_eye"),
@@ -496,11 +479,11 @@ impl PlayerInfoWidget {
                     t!("bat_control"),
                     normal_to_rank(batter.bat_control)
                 ),
-                format!(
-                    "{}: {}%",
-                    t!("consistency"),
-                    (100.0 - (batter.consistency * 10000.0).round() / 10000.0)
-                ),
+                // format!(
+                //     "{}: {}%",
+                //     t!("consistency"),
+                //     (100.0 - (batter.consistency * 10000.0).round() / 10000.0)
+                // ),
             ]);
 
             if !skill_lines.is_empty() {
@@ -513,14 +496,15 @@ impl PlayerInfoWidget {
                     ms_to_kmh(player.offense_skills.running.speed)
                 ),
                 format!(
-                    "{}: {}m",
+                    "{}: {:.2}m",
                     t!("lead_distance"),
-                    (player.offense_skills.running.lead_distance * 100.0).round() / 100.0
+                    player.offense_skills.running.lead_distance
                 ),
                 format!(
-                    "{}: {}sec",
+                    "{}: {:.2}{}",
                     t!("start_reaction"),
-                    (player.offense_skills.running.start_reaction * 100.0).round() / 100.0
+                    player.offense_skills.running.start_reaction,
+                    t!("sec")
                 ),
             ]);
         }
@@ -586,10 +570,10 @@ impl PlayerInfoWidget {
             .iter()
             .map(|skill| {
                 format!(
-                    "{}\n  {}: {}  {}: {}  {}: {}\n  {}: {}  {}: {}  {}: {}\n  {}: {}  {}: {}",
+                    "{}\n  {}: {}km/h  {}: {}  {}: {}\n  {}: {}  {}: {}rpm  {}: {:.2}°\n  {}: {:.2}  {}: {:.2}%",
                     skill.pitch_type,
                     t!("velocity"),
-                    normal_to_rank(skill.velocity),
+                    ms_to_kmh(pitcher.velocity * skill.velocity),
                     t!("control"),
                     normal_to_rank(skill.control),
                     t!("stamina"),
@@ -597,13 +581,13 @@ impl PlayerInfoWidget {
                     t!("injury_proneness"),
                     normal_to_rank(skill.injury_proneness),
                     t!("spin_rate"),
-                    normal_to_rank(skill.spin_rate),
+                    (pitcher.spin_rate * skill.spin_rate).round(),
                     t!("spin_angle"),
-                    normal_to_rank(skill.spin_angle),
+                    skill.spin_angle,
                     t!("spin_efficiency"),
-                    normal_to_rank(skill.spin_efficiency),
+                    skill.spin_efficiency,
                     t!("usage"),
-                    normal_to_rank(skill.usage)
+                    pitcher.pitch_skill_usage(skill)
                 )
             })
             .collect::<Vec<_>>()

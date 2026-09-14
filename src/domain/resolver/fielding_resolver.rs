@@ -488,23 +488,8 @@ pub fn evaluate_defense_play(
 
 // Determine whether a fielder is in the ball's trajectory lane (lateral coverage)
 fn is_ball_in_fielder_lane(fielder: &ActiveFielder, ball_angle: f64) -> bool {
-    const PITCHER_LATERAL_RANGE: f64 = 4.0; // Pitcher has narrow lateral range
-    const CORNER_INFIELDER_LATERAL_RANGE: f64 = 6.0;
-    const MIDDLE_INFIELDER_LATERAL_RANGE: f64 = 8.0; // Middle infield has wider range
-    const OUTFIELDER_LATERAL_RANGE: f64 = 8.0; // Outfielders have widest range
-
-    // Set lateral coverage angle width by position
-    let mut coverage_angle = match fielder.position {
-        Position::P => PITCHER_LATERAL_RANGE,
-        Position::FB | Position::TB => CORNER_INFIELDER_LATERAL_RANGE,
-        Position::SB | Position::SS => MIDDLE_INFIELDER_LATERAL_RANGE,
-        _ => OUTFIELDER_LATERAL_RANGE,
-    };
-
-    coverage_angle = coverage_angle * (1.0 + fielder.info.reach_range * 0.05);
-
     // If the angle difference is within coverage range, the fielder is in the lane
-    (fielder.angle() - ball_angle).abs() <= coverage_angle
+    (fielder.angle() - ball_angle).abs() <= fielder.info.coverage_angle()
 }
 
 // Evaluate fielders on the trajectory lane from front to back (revised over-the-head version)
