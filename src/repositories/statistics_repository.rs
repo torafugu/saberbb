@@ -8,7 +8,9 @@ use rusqlite::params;
 pub trait StatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
+    fn load_team_batting_stats(&self, team_id: u16) -> Result<Vec<BattingStats>, AppError>;
     fn load_pitching_stats(&self) -> Result<Vec<PitchingStats>, AppError>;
+    fn load_team_pitching_stats(&self, team_id: u16) -> Result<Vec<PitchingStats>, AppError>;
 }
 
 #[derive(Clone)]
@@ -93,6 +95,30 @@ impl StatRepository for SqlStatRepository {
         self.db_client.query_rows::<BattingStats>(query, params![])
     }
 
+    fn load_team_batting_stats(&self, team_id: u16) -> Result<Vec<BattingStats>, AppError> {
+        let query = "SELECT
+                            pgb.batter_id AS player_id,
+                            pi.first_name AS batter_first_name,
+                            pi.last_name AS batter_last_name,
+                            SUM(1) AS AB,
+                            SUM(CASE WHEN pgb.result = 'Single' THEN 1 ELSE 0 END) AS single,
+                            SUM(CASE WHEN pgb.result = 'Double' THEN 1 ELSE 0 END) AS double,
+                            SUM(CASE WHEN pgb.result = 'Triple' THEN 1 ELSE 0 END) AS triple,
+                            SUM(CASE WHEN pgb.result = 'HomeRun' THEN 1 ELSE 0 END) AS homeRun,
+                            COALESCE(ROUND(CAST(SUM(CASE WHEN pgb.result IN ('Single', 'Double', 'Triple', 'HomeRun') THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(1), 0), 3), 0.0) AS BA,
+                            SUM(c.point) AS rbi
+                            FROM player_game_batting pgb
+                            LEFT JOIN
+                                count c ON pgb.game_id = c.game_id AND pgb.count_seq = c.seq
+                            LEFT JOIN
+                                player_info pi ON pgb.batter_id = pi.id
+                            WHERE pi.team_id = ?1
+                            GROUP BY pgb.batter_id
+                            ORDER BY pgb.batter_id";
+        self.db_client
+            .query_rows::<BattingStats>(query, params![team_id])
+    }
+
     fn load_pitching_stats(&self) -> Result<Vec<PitchingStats>, AppError> {
         let query = "WITH pitcher_ids AS (
                             SELECT pitcher_id FROM player_game_pitching
@@ -114,6 +140,15 @@ impl StatRepository for SqlStatRepository {
                                         THEN pgp.game_id || '-' || c.inning_seq || '-' || c.inning_tb
                                     ELSE pgp.game_id || '-' || pgp.count_seq
                                 END) AS innings
+                            FROM player_game_pitching pgp
+                            LEFT JOIN
+                                count c ON pgp.game_id = c.game_id AND pgp.count_seq = c.seq
+                            GROUP BY pgp.pitcher_id
+                        ),
+                        run_counts AS (
+                            SELECT
+                                pgp.pitcher_id,
+                                SUM(c.point) AS runs
                             FROM player_game_pitching pgp
                             LEFT JOIN
                                 count c ON pgp.game_id = c.game_id AND pgp.count_seq = c.seq
@@ -147,7 +182,14 @@ impl StatRepository for SqlStatRepository {
                             COALESCE(decision_counts.losses, 0) AS losses,
                             COALESCE(decision_counts.saves, 0) AS saves,
                             COALESCE(decision_counts.holds, 0) AS holds,
-                            0 AS era,
+                            COALESCE(
+                                ROUND(
+                                    CAST(run_counts.runs AS REAL) * 9.0
+                                    / NULLIF(inning_counts.innings, 0),
+                                    2
+                                ),
+                                0.0
+                            ) AS era,
                             COALESCE(result_counts.so, 0) AS so,
                             COALESCE(result_counts.bb, 0) AS bb
                         FROM pitcher_ids
@@ -158,11 +200,112 @@ impl StatRepository for SqlStatRepository {
                         LEFT JOIN
                             inning_counts ON pitcher_ids.pitcher_id = inning_counts.pitcher_id
                         LEFT JOIN
+                            run_counts ON pitcher_ids.pitcher_id = run_counts.pitcher_id
+                        LEFT JOIN
                             result_counts ON pitcher_ids.pitcher_id = result_counts.pitcher_id
                         LEFT JOIN
                             decision_counts ON pitcher_ids.pitcher_id = decision_counts.pitcher_id
                         ORDER BY pitcher_ids.pitcher_id";
         self.db_client.query_rows::<PitchingStats>(query, params![])
+    }
+
+    fn load_team_pitching_stats(&self, team_id: u16) -> Result<Vec<PitchingStats>, AppError> {
+        let query = "WITH pitcher_ids AS (
+                            SELECT DISTINCT pi.id AS pitcher_id
+                            FROM player_info pi
+                            LEFT JOIN player_game_pitching pgp ON pi.id = pgp.pitcher_id
+                            LEFT JOIN player_game_batting pgb ON pi.id = pgb.pitcher_id
+                            LEFT JOIN player_game_pitching_decision pgpd ON pi.id = pgpd.pitcher_id
+                            WHERE pi.team_id = ?1
+                              AND (
+                                  pgp.pitcher_id IS NOT NULL
+                                  OR pgb.pitcher_id IS NOT NULL
+                                  OR pgpd.pitcher_id IS NOT NULL
+                              )
+                        ),
+                        game_counts AS (
+                            SELECT
+                                pitcher_id,
+                                COUNT(DISTINCT game_id) AS games
+                            FROM player_game_pitching
+                            GROUP BY pitcher_id
+                        ),
+                        inning_counts AS (
+                            SELECT
+                                pgp.pitcher_id,
+                                COUNT(DISTINCT CASE
+                                    WHEN c.inning_seq IS NOT NULL AND c.inning_tb IS NOT NULL
+                                        THEN pgp.game_id || '-' || c.inning_seq || '-' || c.inning_tb
+                                    ELSE pgp.game_id || '-' || pgp.count_seq
+                                END) AS innings
+                            FROM player_game_pitching pgp
+                            LEFT JOIN
+                                count c ON pgp.game_id = c.game_id AND pgp.count_seq = c.seq
+                            GROUP BY pgp.pitcher_id
+                        ),
+                        run_counts AS (
+                            SELECT
+                                pgp.pitcher_id,
+                                SUM(c.point) AS runs
+                            FROM player_game_pitching pgp
+                            LEFT JOIN
+                                count c ON pgp.game_id = c.game_id AND pgp.count_seq = c.seq
+                            GROUP BY pgp.pitcher_id
+                        ),
+                        result_counts AS (
+                            SELECT
+                                pitcher_id,
+                                SUM(CASE WHEN result = 'Strikeout' THEN 1 ELSE 0 END) AS so,
+                                SUM(CASE WHEN result IN ('Walk', 'HitByPitch') THEN 1 ELSE 0 END) AS bb
+                            FROM player_game_batting
+                            GROUP BY pitcher_id
+                        ),
+                        decision_counts AS (
+                            SELECT
+                                pitcher_id,
+                                SUM(CASE WHEN decision = 'Win' THEN 1 ELSE 0 END) AS wins,
+                                SUM(CASE WHEN decision = 'Loss' THEN 1 ELSE 0 END) AS losses,
+                                SUM(CASE WHEN decision = 'Save' THEN 1 ELSE 0 END) AS saves,
+                                SUM(CASE WHEN decision = 'Hold' THEN 1 ELSE 0 END) AS holds
+                            FROM player_game_pitching_decision
+                            GROUP BY pitcher_id
+                        )
+                        SELECT
+                            pitcher_ids.pitcher_id AS player_id,
+                            pi.first_name AS pitcher_first_name,
+                            pi.last_name AS pitcher_last_name,
+                            COALESCE(game_counts.games, 0) AS games,
+                            COALESCE(inning_counts.innings, 0) AS innings,
+                            COALESCE(decision_counts.wins, 0) AS wins,
+                            COALESCE(decision_counts.losses, 0) AS losses,
+                            COALESCE(decision_counts.saves, 0) AS saves,
+                            COALESCE(decision_counts.holds, 0) AS holds,
+                            COALESCE(
+                                ROUND(
+                                    CAST(run_counts.runs AS REAL) * 9.0
+                                    / NULLIF(inning_counts.innings, 0),
+                                    2
+                                ),
+                                0.0
+                            ) AS era,
+                            COALESCE(result_counts.so, 0) AS so,
+                            COALESCE(result_counts.bb, 0) AS bb
+                        FROM pitcher_ids
+                        LEFT JOIN
+                            player_info pi ON pitcher_ids.pitcher_id = pi.id
+                        LEFT JOIN
+                            game_counts ON pitcher_ids.pitcher_id = game_counts.pitcher_id
+                        LEFT JOIN
+                            inning_counts ON pitcher_ids.pitcher_id = inning_counts.pitcher_id
+                        LEFT JOIN
+                            run_counts ON pitcher_ids.pitcher_id = run_counts.pitcher_id
+                        LEFT JOIN
+                            result_counts ON pitcher_ids.pitcher_id = result_counts.pitcher_id
+                        LEFT JOIN
+                            decision_counts ON pitcher_ids.pitcher_id = decision_counts.pitcher_id
+                        ORDER BY pitcher_ids.pitcher_id";
+        self.db_client
+            .query_rows::<PitchingStats>(query, params![team_id])
     }
 }
 
@@ -396,12 +539,22 @@ mod tests {
     }
 
     fn seed_player_info(repo: &SqlStatRepository, id: i64, first_name: &str, last_name: &str) {
+        seed_team_player_info(repo, id, 1, first_name, last_name);
+    }
+
+    fn seed_team_player_info(
+        repo: &SqlStatRepository,
+        id: i64,
+        team_id: u16,
+        first_name: &str,
+        last_name: &str,
+    ) {
         conn(repo)
             .execute(
                 "INSERT INTO player_info (
                     id, team_id, first_name, last_name, age, uniform_number
-                ) VALUES (?1, 1, ?2, ?3, 25, 11)",
-                params![id, first_name, last_name],
+                ) VALUES (?1, ?2, ?3, ?4, 25, 11)",
+                params![id, team_id, first_name, last_name],
             )
             .unwrap();
     }
@@ -585,9 +738,31 @@ mod tests {
         assert_eq!(stats[0].losses, 0);
         assert_eq!(stats[0].saves, 0);
         assert_eq!(stats[0].holds, 0);
-        assert_eq!(stats[0].era, 0);
+        assert_eq!(stats[0].era, 0.0);
         assert_eq!(stats[0].so, 1);
         assert_eq!(stats[0].bb, 2);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_team_batting_stats_returns_only_selected_team_batters() {
+        let (repo, path) = setup_repo();
+        seed_team_player_info(&repo, 10, 1, "Shohei", "Ohtani");
+        seed_team_player_info(&repo, 20, 2, "Yu", "Darvish");
+        seed_team_player_info(&repo, 30, 1, "Mike", "Trout");
+        seed_count(&repo, 1, 1, "Top", 1, 1);
+        seed_count(&repo, 1, 1, "Top", 2, 0);
+        seed_player_game_batting(&repo, 1, 1, 20, 10, "HomeRun");
+        seed_player_game_batting(&repo, 1, 2, 10, 20, "Single");
+
+        let stats = repo.load_team_batting_stats(1).unwrap();
+
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].batter.info.id, 10);
+        assert_eq!(stats[0].ab, 1);
+        assert_eq!(stats[0].homerun, 1);
+        assert_eq!(stats[0].ba, 1.0);
+        assert_eq!(stats[0].rbi, 1.0);
         std::fs::remove_file(path).ok();
     }
 
@@ -614,6 +789,48 @@ mod tests {
         assert_eq!(stats[0].losses, 1);
         assert_eq!(stats[0].saves, 1);
         assert_eq!(stats[0].holds, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_pitching_stats_calculates_era_from_runs_and_innings() {
+        let (repo, path) = setup_repo();
+        seed_player_info(&repo, 10, "Shohei", "Ohtani");
+        seed_player_info(&repo, 20, "Mike", "Trout");
+        seed_count(&repo, 1, 1, "Top", 1, 1);
+        seed_count(&repo, 1, 2, "Top", 2, 0);
+        seed_player_game_pitching(&repo, 1, 1, 10);
+        seed_player_game_pitching(&repo, 1, 2, 10);
+        seed_player_game_batting(&repo, 1, 1, 10, 20, "Single");
+        seed_player_game_batting(&repo, 1, 2, 10, 20, "Out");
+
+        let stats = repo.load_pitching_stats().unwrap();
+
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].innings, 2);
+        assert_eq!(stats[0].era, 4.5);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn load_team_pitching_stats_returns_only_selected_team_pitchers() {
+        let (repo, path) = setup_repo();
+        seed_team_player_info(&repo, 10, 1, "Shohei", "Ohtani");
+        seed_team_player_info(&repo, 20, 2, "Yu", "Darvish");
+        seed_team_player_info(&repo, 30, 1, "Mike", "Trout");
+        seed_count(&repo, 1, 1, "Top", 1, 1);
+        seed_count(&repo, 1, 1, "Top", 2, 0);
+        seed_player_game_pitching(&repo, 1, 1, 10);
+        seed_player_game_pitching(&repo, 1, 2, 20);
+        seed_player_game_batting(&repo, 1, 1, 10, 30, "Strikeout");
+        seed_player_game_batting(&repo, 1, 2, 20, 30, "Walk");
+
+        let stats = repo.load_team_pitching_stats(1).unwrap();
+
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].batter.info.id, 10);
+        assert_eq!(stats[0].so, 1);
+        assert_eq!(stats[0].era, 9.0);
         std::fs::remove_file(path).ok();
     }
 }

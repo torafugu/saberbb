@@ -284,6 +284,8 @@ impl Home {
         self.team_schedule_month = Self::month_start(Local::now().date_naive());
         self.team_schedule_error = None;
         self.player_info.clear();
+        self.batting_stats.set_team_id(None);
+        self.pitching_stats.set_team_id(None);
     }
 
     fn select_next_team(&mut self) {
@@ -318,6 +320,8 @@ impl Home {
             self.team_schedule_month = Self::month_start(Local::now().date_naive());
             self.load_team_schedule(team.id);
             self.player_info.load_players(team.id);
+            self.batting_stats.set_team_id(Some(team.id));
+            self.pitching_stats.set_team_id(Some(team.id));
             self.selected_team = Some(team);
             self.selected_team_info_tab = TeamInfoTab::default();
             self.player_info.reset_detail();
@@ -570,8 +574,17 @@ impl Home {
         match self.selected_team_info_tab {
             TeamInfoTab::Schedule => self.draw_team_schedule_tab(frame, layout[1]),
             TeamInfoTab::PlayerInfo => self.player_info.draw(frame, layout[1])?,
-            TeamInfoTab::PitcherStats | TeamInfoTab::BatterStats => {
-                frame.render_widget(Paragraph::new(team.name.clone()), layout[1]);
+            TeamInfoTab::PitcherStats => {
+                self.pitching_stats
+                    .set_title(format!("{}: {}", t!("pitcher_stats"), team.name));
+                self.pitching_stats.set_tab_shortcut_start(5);
+                self.pitching_stats.draw(frame, layout[1])?;
+            }
+            TeamInfoTab::BatterStats => {
+                self.batting_stats
+                    .set_title(format!("{}: {}", t!("batter_stats"), team.name));
+                self.batting_stats.set_tab_shortcut_start(5);
+                self.batting_stats.draw(frame, layout[1])?;
             }
         }
 
@@ -696,6 +709,30 @@ impl Component for Home {
                 KeyCode::Char('2') => Ok(Some(Action::SelectGameDetailTab(1))),
                 KeyCode::Char('3') => Ok(Some(Action::SelectGameDetailTab(2))),
                 KeyCode::Char('4') => Ok(Some(Action::SelectGameDetailTab(3))),
+                KeyCode::Char('5')
+                    if matches!(
+                        self.selected_team_info_tab,
+                        TeamInfoTab::PitcherStats | TeamInfoTab::BatterStats
+                    ) =>
+                {
+                    Ok(Some(Action::SelectGameDetailTab(4)))
+                }
+                KeyCode::Char('6')
+                    if matches!(
+                        self.selected_team_info_tab,
+                        TeamInfoTab::PitcherStats | TeamInfoTab::BatterStats
+                    ) =>
+                {
+                    Ok(Some(Action::SelectGameDetailTab(5)))
+                }
+                KeyCode::Char('7')
+                    if matches!(
+                        self.selected_team_info_tab,
+                        TeamInfoTab::PitcherStats | TeamInfoTab::BatterStats
+                    ) =>
+                {
+                    Ok(Some(Action::SelectGameDetailTab(6)))
+                }
                 _ => Ok(None),
             };
         }
@@ -772,6 +809,44 @@ impl Component for Home {
                 return Ok(Some(Action::Render));
             }
 
+            if self.selected_team.is_some()
+                && matches!(self.selected_team_info_tab, TeamInfoTab::PitcherStats)
+                && matches!(action, Action::SelectNext | Action::SelectPrevious)
+            {
+                return self.pitching_stats.update(action);
+            }
+
+            if self.selected_team.is_some()
+                && matches!(self.selected_team_info_tab, TeamInfoTab::BatterStats)
+                && matches!(action, Action::SelectNext | Action::SelectPrevious)
+            {
+                return self.batting_stats.update(action);
+            }
+
+            if self.selected_team.is_some()
+                && matches!(self.selected_team_info_tab, TeamInfoTab::PitcherStats)
+                && matches!(&action, Action::SelectGameDetailTab(4..=6))
+            {
+                let Action::SelectGameDetailTab(index) = &action else {
+                    unreachable!("action was matched as SelectGameDetailTab");
+                };
+                return self
+                    .pitching_stats
+                    .update(Action::SelectGameDetailTab(*index - 4));
+            }
+
+            if self.selected_team.is_some()
+                && matches!(self.selected_team_info_tab, TeamInfoTab::BatterStats)
+                && matches!(&action, Action::SelectGameDetailTab(4..=6))
+            {
+                let Action::SelectGameDetailTab(index) = &action else {
+                    unreachable!("action was matched as SelectGameDetailTab");
+                };
+                return self
+                    .batting_stats
+                    .update(Action::SelectGameDetailTab(*index - 4));
+            }
+
             match action {
                 Action::SelectNext
                     if self.selected_team.is_some()
@@ -820,6 +895,8 @@ impl Component for Home {
                 Action::Back if self.selected_team.is_some() => {
                     self.selected_team = None;
                     self.player_info.reset_detail();
+                    self.batting_stats.set_team_id(None);
+                    self.pitching_stats.set_team_id(None);
                     return Ok(Some(Action::Render));
                 }
                 Action::Back => {
@@ -898,11 +975,13 @@ impl Component for Home {
             Some(MenuOption::ViewBattingStat) => {
                 self.batting_stats
                     .set_title(self.detail_title(t!("batting_stats")));
+                self.batting_stats.set_tab_shortcut_start(1);
                 self.batting_stats.draw(frame, layout[1])?
             }
             Some(MenuOption::ViewPitchingStat) => {
                 self.pitching_stats
                     .set_title(self.detail_title(t!("pitching_stats")));
+                self.pitching_stats.set_tab_shortcut_start(1);
                 self.pitching_stats.draw(frame, layout[1])?
             }
             Some(MenuOption::ViewTeamInfo) => self.draw_team_info(frame, layout[1])?,
@@ -1085,6 +1164,46 @@ mod tests {
         let action = home.update(Action::SelectGameDetailTab(2)).unwrap();
 
         assert_eq!(home.selected_team_info_tab, TeamInfoTab::PitcherStats);
+        assert_eq!(action, Some(Action::Render));
+    }
+
+    #[test]
+    fn pitcher_stats_sort_shortcut_does_not_switch_team_info_tab() {
+        let mut home = Home::new();
+        home.selected_item = Some(MenuOption::ViewTeamInfo);
+        home.selected_team = Some(TeamMenuItem {
+            id: 1,
+            league_id: 1,
+            name: "Lions".to_string(),
+        });
+        home.selected_team_info_tab = TeamInfoTab::PitcherStats;
+
+        let key_action = home
+            .handle_key_event(KeyEvent::from(KeyCode::Char('5')))
+            .unwrap();
+        let action = home.update(key_action.unwrap()).unwrap();
+
+        assert_eq!(home.selected_team_info_tab, TeamInfoTab::PitcherStats);
+        assert_eq!(action, Some(Action::Render));
+    }
+
+    #[test]
+    fn batter_stats_sort_shortcut_does_not_switch_team_info_tab() {
+        let mut home = Home::new();
+        home.selected_item = Some(MenuOption::ViewTeamInfo);
+        home.selected_team = Some(TeamMenuItem {
+            id: 1,
+            league_id: 1,
+            name: "Lions".to_string(),
+        });
+        home.selected_team_info_tab = TeamInfoTab::BatterStats;
+
+        let key_action = home
+            .handle_key_event(KeyEvent::from(KeyCode::Char('5')))
+            .unwrap();
+        let action = home.update(key_action.unwrap()).unwrap();
+
+        assert_eq!(home.selected_team_info_tab, TeamInfoTab::BatterStats);
         assert_eq!(action, Some(Action::Render));
     }
 

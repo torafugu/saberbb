@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 enum BattingStatsTab {
     #[default]
     AtBats,
@@ -41,6 +41,8 @@ pub struct BattingStatsWidget {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     title: String,
+    team_id: Option<u16>,
+    tab_shortcut_start: usize,
     selected_tab: BattingStatsTab,
     scroll_offset: usize,
 }
@@ -49,6 +51,7 @@ impl BattingStatsWidget {
     pub fn new() -> Self {
         Self {
             title: t!("batting_stats"),
+            tab_shortcut_start: 1,
             ..Default::default()
         }
     }
@@ -57,11 +60,26 @@ impl BattingStatsWidget {
         self.title = title;
     }
 
+    pub fn set_team_id(&mut self, team_id: Option<u16>) {
+        if self.team_id != team_id {
+            self.team_id = team_id;
+            self.scroll_offset = 0;
+        }
+    }
+
+    pub fn set_tab_shortcut_start(&mut self, tab_shortcut_start: usize) {
+        self.tab_shortcut_start = tab_shortcut_start;
+    }
+
+    fn tab_shortcut_label(&self, index: usize) -> String {
+        (self.tab_shortcut_start + index).to_string()
+    }
+
     fn right_cell(content: String) -> Cell<'static> {
         Cell::from(Text::from(content).right_aligned())
     }
 
-    fn load_batting_stats() -> Result<Vec<BattingStats>> {
+    fn load_batting_stats(team_id: Option<u16>) -> Result<Vec<BattingStats>> {
         let app_context = APP_CONTEXT
             .get()
             .context("App context is not initialized")?;
@@ -69,11 +87,14 @@ impl BattingStatsWidget {
             repo: app_context.statistics_repository.clone(),
         };
 
-        stat_service.show_batting_stats()
+        match team_id {
+            Some(team_id) => stat_service.show_team_batting_stats(team_id),
+            None => stat_service.show_batting_stats(),
+        }
     }
 
     fn sorted_batting_stats(&self) -> Result<Vec<BattingStats>> {
-        let mut batting_stats = Self::load_batting_stats()?;
+        let mut batting_stats = Self::load_batting_stats(self.team_id)?;
         match self.selected_tab {
             BattingStatsTab::AtBats => batting_stats.sort_by(|a, b| {
                 b.ab.cmp(&a.ab)
@@ -195,6 +216,23 @@ impl BattingStatsWidget {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_start_renumbers_batting_stats_tabs() {
+        let mut widget = BattingStatsWidget::new();
+        widget.set_tab_shortcut_start(5);
+
+        let action = widget
+            .handle_key_event(KeyEvent::from(KeyCode::Char('7')))
+            .unwrap();
+
+        assert_eq!(action, Some(Action::SelectGameDetailTab(2)));
+    }
+}
+
 impl Component for BattingStatsWidget {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
         self.command_tx = Some(tx);
@@ -207,12 +245,18 @@ impl Component for BattingStatsWidget {
     }
 
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-        match key.code {
-            KeyCode::Char('1') => Ok(Some(Action::SelectGameDetailTab(0))),
-            KeyCode::Char('2') => Ok(Some(Action::SelectGameDetailTab(1))),
-            KeyCode::Char('3') => Ok(Some(Action::SelectGameDetailTab(2))),
-            _ => Ok(None),
+        if let KeyCode::Char(c) = key.code {
+            if let Some(digit) = c.to_digit(10).map(|digit| digit as usize) {
+                let selected_index = digit.saturating_sub(self.tab_shortcut_start);
+                if digit >= self.tab_shortcut_start
+                    && BattingStatsTab::from_index(selected_index).is_some()
+                {
+                    return Ok(Some(Action::SelectGameDetailTab(selected_index)));
+                }
+            }
         }
+
+        Ok(None)
     }
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
@@ -244,9 +288,9 @@ impl Component for BattingStatsWidget {
         let layout = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
 
         let tabs = Tabs::new(vec![
-            Line::from(format!("{}(1)", t!("ab"))),
-            Line::from(format!("{}(2)", t!("hr"))),
-            Line::from(format!("{}(3)", t!("rbi"))),
+            Line::from(format!("{}({})", t!("ab"), self.tab_shortcut_label(0))),
+            Line::from(format!("{}({})", t!("hr"), self.tab_shortcut_label(1))),
+            Line::from(format!("{}({})", t!("rbi"), self.tab_shortcut_label(2))),
         ])
         .select(self.selected_tab.selected_index())
         .highlight_style(

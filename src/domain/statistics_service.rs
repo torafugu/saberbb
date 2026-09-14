@@ -42,11 +42,29 @@ impl<R: StatRepository> StatService<R> {
         Ok(batting_stats)
     }
 
+    pub fn show_team_batting_stats(&self, team_id: u16) -> Result<Vec<BattingStats>> {
+        let batting_stats = self
+            .repo
+            .load_team_batting_stats(team_id)
+            .context(t!("error", "function" => "load_team_batting_stats"))?;
+
+        Ok(batting_stats)
+    }
+
     pub fn show_pitching_stats(&self) -> Result<Vec<PitchingStats>> {
         let pitching_stats = self
             .repo
             .load_pitching_stats()
             .context(t!("error", "function" => "load_pitching_stats"))?;
+
+        Ok(pitching_stats)
+    }
+
+    pub fn show_team_pitching_stats(&self, team_id: u16) -> Result<Vec<PitchingStats>> {
+        let pitching_stats = self
+            .repo
+            .load_team_pitching_stats(team_id)
+            .context(t!("error", "function" => "load_team_pitching_stats"))?;
 
         Ok(pitching_stats)
     }

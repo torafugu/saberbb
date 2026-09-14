@@ -36,7 +36,7 @@ pub struct PitchingStats {
     pub losses: u16,
     pub saves: u16,
     pub holds: u16,
-    pub era: u16,
+    pub era: f32,
     pub so: u16,
     pub bb: u16,
 }

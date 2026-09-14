@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 enum PitchingStatsTab {
     #[default]
     Games,
@@ -41,6 +41,8 @@ pub struct PitchingStatsWidget {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     title: String,
+    team_id: Option<u16>,
+    tab_shortcut_start: usize,
     selected_tab: PitchingStatsTab,
     scroll_offset: usize,
 }
@@ -49,6 +51,7 @@ impl PitchingStatsWidget {
     pub fn new() -> Self {
         Self {
             title: t!("pitching_stats"),
+            tab_shortcut_start: 1,
             ..Default::default()
         }
     }
@@ -57,11 +60,26 @@ impl PitchingStatsWidget {
         self.title = title;
     }
 
+    pub fn set_team_id(&mut self, team_id: Option<u16>) {
+        if self.team_id != team_id {
+            self.team_id = team_id;
+            self.scroll_offset = 0;
+        }
+    }
+
+    pub fn set_tab_shortcut_start(&mut self, tab_shortcut_start: usize) {
+        self.tab_shortcut_start = tab_shortcut_start;
+    }
+
+    fn tab_shortcut_label(&self, index: usize) -> String {
+        (self.tab_shortcut_start + index).to_string()
+    }
+
     fn right_cell(content: String) -> Cell<'static> {
         Cell::from(Text::from(content).right_aligned())
     }
 
-    fn load_pitching_stats() -> Result<Vec<PitchingStats>> {
+    fn load_pitching_stats(team_id: Option<u16>) -> Result<Vec<PitchingStats>> {
         let app_context = APP_CONTEXT
             .get()
             .context("App context is not initialized")?;
@@ -69,29 +87,32 @@ impl PitchingStatsWidget {
             repo: app_context.statistics_repository.clone(),
         };
 
-        stat_service.show_pitching_stats()
+        match team_id {
+            Some(team_id) => stat_service.show_team_pitching_stats(team_id),
+            None => stat_service.show_pitching_stats(),
+        }
     }
 
     fn sorted_pitching_stats(&self) -> Result<Vec<PitchingStats>> {
-        let mut pitching_stats = Self::load_pitching_stats()?;
+        let mut pitching_stats = Self::load_pitching_stats(self.team_id)?;
         match self.selected_tab {
             PitchingStatsTab::Games => pitching_stats.sort_by(|a, b| {
                 b.games
                     .cmp(&a.games)
                     .then_with(|| b.innings.cmp(&a.innings))
-                    .then_with(|| a.era.cmp(&b.era))
+                    .then_with(|| a.era.total_cmp(&b.era))
                     .then_with(|| a.batter.full_name().cmp(&b.batter.full_name()))
             }),
             PitchingStatsTab::Innings => pitching_stats.sort_by(|a, b| {
                 b.innings
                     .cmp(&a.innings)
                     .then_with(|| b.games.cmp(&a.games))
-                    .then_with(|| a.era.cmp(&b.era))
+                    .then_with(|| a.era.total_cmp(&b.era))
                     .then_with(|| a.batter.full_name().cmp(&b.batter.full_name()))
             }),
             PitchingStatsTab::EarnedRunAverage => pitching_stats.sort_by(|a, b| {
                 a.era
-                    .cmp(&b.era)
+                    .total_cmp(&b.era)
                     .then_with(|| b.innings.cmp(&a.innings))
                     .then_with(|| b.games.cmp(&a.games))
                     .then_with(|| a.batter.full_name().cmp(&b.batter.full_name()))
@@ -144,7 +165,7 @@ impl PitchingStatsWidget {
                 Self::right_cell(stat.losses.to_string()),
                 Self::right_cell(stat.saves.to_string()),
                 Self::right_cell(stat.holds.to_string()),
-                Self::right_cell(stat.era.to_string()),
+                Self::right_cell(format!("{:.2}", stat.era)),
                 Self::right_cell(stat.innings.to_string()),
             ])
         });
@@ -214,7 +235,7 @@ mod tests {
             losses: 0,
             saves: 0,
             holds: 0,
-            era: 0,
+            era: 0.0,
             so: 0,
             bb: 0,
         }
@@ -266,6 +287,18 @@ mod tests {
                 .any(|line| line.contains("Other Digit") && line.contains("8"))
         );
     }
+
+    #[test]
+    fn shortcut_start_renumbers_pitching_stats_tabs() {
+        let mut widget = PitchingStatsWidget::new();
+        widget.set_tab_shortcut_start(5);
+
+        let action = widget
+            .handle_key_event(KeyEvent::from(KeyCode::Char('6')))
+            .unwrap();
+
+        assert_eq!(action, Some(Action::SelectGameDetailTab(1)));
+    }
 }
 
 impl Component for PitchingStatsWidget {
@@ -280,12 +313,18 @@ impl Component for PitchingStatsWidget {
     }
 
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-        match key.code {
-            KeyCode::Char('1') => Ok(Some(Action::SelectGameDetailTab(0))),
-            KeyCode::Char('2') => Ok(Some(Action::SelectGameDetailTab(1))),
-            KeyCode::Char('3') => Ok(Some(Action::SelectGameDetailTab(2))),
-            _ => Ok(None),
+        if let KeyCode::Char(c) = key.code {
+            if let Some(digit) = c.to_digit(10).map(|digit| digit as usize) {
+                let selected_index = digit.saturating_sub(self.tab_shortcut_start);
+                if digit >= self.tab_shortcut_start
+                    && PitchingStatsTab::from_index(selected_index).is_some()
+                {
+                    return Ok(Some(Action::SelectGameDetailTab(selected_index)));
+                }
+            }
         }
+
+        Ok(None)
     }
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
@@ -317,9 +356,9 @@ impl Component for PitchingStatsWidget {
         let layout = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
 
         let tabs = Tabs::new(vec![
-            Line::from(format!("{}(1)", t!("games"))),
-            Line::from(format!("{}(2)", t!("innings"))),
-            Line::from(format!("{}(3)", t!("era"))),
+            Line::from(format!("{}({})", t!("games"), self.tab_shortcut_label(0))),
+            Line::from(format!("{}({})", t!("innings"), self.tab_shortcut_label(1))),
+            Line::from(format!("{}({})", t!("era"), self.tab_shortcut_label(2))),
         ])
         .select(self.selected_tab.selected_index())
         .highlight_style(
