@@ -831,6 +831,14 @@ mod tests {
         )
     }
 
+    fn fielder_info(fielder_type: FielderType, reach_range: f64) -> FielderInfo {
+        FielderInfo {
+            fielder_type,
+            reach_range,
+            ..FielderInfo::new_pitcher()
+        }
+    }
+
     #[test]
     fn pitch_skill_usage_returns_softmax_percentage() {
         let fastball = pitch_skill(PitchType::FourSeamFastball, 2.0);
@@ -843,10 +851,41 @@ mod tests {
     }
 
     #[test]
+    fn pitch_skill_usage_matches_by_pitch_type() {
+        let fastball = pitch_skill(PitchType::FourSeamFastball, 2.0);
+        let curveball = pitch_skill(PitchType::Curveball, 1.0);
+        let pitcher_info = pitcher_info(vec![fastball, curveball]);
+        let same_pitch_type_with_different_values = pitch_skill(PitchType::FourSeamFastball, -3.0);
+
+        let usage = pitcher_info.pitch_skill_usage(&same_pitch_type_with_different_values);
+
+        assert!((usage - 73.10585786300048).abs() < 1e-10);
+    }
+
+    #[test]
     fn pitch_skill_usage_returns_zero_when_pitch_skill_is_missing() {
         let pitcher_info = pitcher_info(vec![pitch_skill(PitchType::FourSeamFastball, 2.0)]);
         let missing_pitch_skill = pitch_skill(PitchType::Curveball, 1.0);
 
         assert_eq!(pitcher_info.pitch_skill_usage(&missing_pitch_skill), 0.0);
+    }
+
+    #[test]
+    fn coverage_angle_uses_fielder_type_and_reach_range() {
+        let cases = [
+            (FielderType::Catcher, 3.0),
+            (FielderType::Pitcher, 4.0),
+            (FielderType::CornerInfielder, 6.0),
+            (FielderType::MiddleInfielder, 8.0),
+            (FielderType::Outfielder, 8.0),
+        ];
+
+        for (fielder_type, base_angle) in cases {
+            assert_eq!(fielder_info(fielder_type, 0.0).coverage_angle(), base_angle);
+            assert_eq!(
+                fielder_info(fielder_type, 2.0).coverage_angle(),
+                base_angle * 1.1
+            );
+        }
     }
 }

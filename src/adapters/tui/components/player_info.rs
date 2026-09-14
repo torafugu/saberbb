@@ -435,9 +435,9 @@ impl PlayerInfoWidget {
                     normal_to_rank(pitcher.delivery_motion_time)
                 ),
                 format!(
-                    "{}: {}%",
-                    t!("wild_pitch_rate"),
-                    (pitcher.consistency * 10000.0).round() / 10000.0
+                    "{}: {:.2}%",
+                    t!("mistake_pitch_rate"),
+                    pitcher.consistency * 100.0
                 ),
             ]);
 
@@ -479,11 +479,6 @@ impl PlayerInfoWidget {
                     t!("bat_control"),
                     normal_to_rank(batter.bat_control)
                 ),
-                // format!(
-                //     "{}: {}%",
-                //     t!("consistency"),
-                //     (100.0 - (batter.consistency * 10000.0).round() / 10000.0)
-                // ),
             ]);
 
             if !skill_lines.is_empty() {
@@ -570,7 +565,7 @@ impl PlayerInfoWidget {
             .iter()
             .map(|skill| {
                 format!(
-                    "{}\n  {}: {}km/h  {}: {}  {}: {}\n  {}: {}  {}: {}rpm  {}: {:.2}°\n  {}: {:.2}  {}: {:.2}%",
+                    "{}\n  {}: {}km/h  {}: {}  {}: {}\n  {}: {}  {}: {}rpm  {}: {:.2}°\n  {}: {:.2}%  {}: {:.2}%",
                     skill.pitch_type,
                     t!("velocity"),
                     ms_to_kmh(pitcher.velocity * skill.velocity),
@@ -585,7 +580,7 @@ impl PlayerInfoWidget {
                     t!("spin_angle"),
                     skill.spin_angle,
                     t!("spin_efficiency"),
-                    skill.spin_efficiency,
+                    skill.spin_efficiency * 100.0,
                     t!("usage"),
                     pitcher.pitch_skill_usage(skill)
                 )
@@ -762,7 +757,7 @@ mod tests {
             RL::Right,
             ArmSlot::ThreeQuarter,
             PitcherStyle::BalancedPitcher,
-            145.0,
+            41.0,
             2200.0,
             0.7,
             90.0,
@@ -774,7 +769,7 @@ mod tests {
             0.03,
             vec![PitchSkill::from_prob(
                 PitchType::FourSeamFastball,
-                148.0,
+                1.0,
                 0.75,
                 0.8,
                 0.1,
@@ -1000,8 +995,8 @@ mod tests {
         assert!(primary_detail.contains("Swing Speed"));
         assert!(!primary_detail.contains("Runner"));
         assert!(!primary_detail.contains("Middle Infielder"));
-        assert!(skill_detail.contains("Runner"));
-        assert!(skill_detail.contains("Middle Infielder"));
+        assert!(skill_detail.contains("Running Speed"));
+        assert!(skill_detail.contains("Fielder Pos: Shortstop"));
         assert!(skill_detail.contains("Lead Distance"));
         assert!(!primary_detail.contains("Pitch Skills"));
         assert!(!skill_detail.contains("Pitch Skills"));
@@ -1012,9 +1007,9 @@ mod tests {
         let detail = PlayerInfoWidget::format_pitch_skills_detail(&pitcher_player());
 
         assert!(detail.contains("Four Seam Fastball"));
-        assert!(detail.contains("Velocity: 148.00"));
+        assert!(detail.contains("Velocity: 148km/h"));
         assert!(detail.contains("Spin Efficiency: 0.95"));
-        assert!(detail.contains("Usage: 0.60"));
+        assert!(detail.contains("Usage: 100.00%"));
     }
 
     #[test]
