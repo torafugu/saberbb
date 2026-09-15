@@ -77,7 +77,7 @@ impl Team {
                 Position::SS => PolarPosition::new(40.0, -18.0),
                 Position::RF => PolarPosition::new(80.0, 26.0),
                 Position::CF => PolarPosition::new(90.0, 0.0),
-                Position::LF => PolarPosition::new(80.0, 80.0),
+                Position::LF => PolarPosition::new(80.0, -26.0),
                 Position::DH => {
                     return Err(GameError::Lineup("No polar position for DH".to_string()));
                 }

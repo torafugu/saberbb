@@ -545,7 +545,7 @@ pub fn process_fielding<'a>(
     // 3. Extra-base hit / ball got by (no one caught it mid-flight)
     // Calculate final processing time limited to outfielders!
     // -------------------------------------------------------------------------
-    let mut final_pickups: Vec<FielderInterception> = lane_fielders
+    let mut final_pickups: Vec<FielderInterception> = fielders
         .iter()
         .map(|f| evaluate_final_pickup(rng, ball, f))
         .collect();
