@@ -474,6 +474,11 @@ impl GameState {
             None,
             BattingResult::Foul,
         );
+
+        if self.inning_state.strike < 2 {
+            self.add_strike();
+        };
+
         self.add_count(0);
     }
 
