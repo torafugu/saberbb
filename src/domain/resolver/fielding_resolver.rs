@@ -529,10 +529,10 @@ pub fn process_fielding<'a>(
             });
         }
 
-        // [Ball got by]: record the infielder's error and have an outfielder cover!
+        // [Ball got by]: record the infielder's error and have a cover!
+        // In this case, all the fielders should be comapred for the final pickup time.
         let covering = fielders
             .iter()
-            .filter(|f| f.position.is_outfielder())
             .map(|f| evaluate_final_pickup(rng, ball, f))
             .min_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
 
@@ -545,9 +545,8 @@ pub fn process_fielding<'a>(
     // 3. Extra-base hit / ball got by (no one caught it mid-flight)
     // Calculate final processing time limited to outfielders!
     // -------------------------------------------------------------------------
-    let mut final_pickups: Vec<FielderInterception> = fielders
+    let mut final_pickups: Vec<FielderInterception> = lane_fielders
         .iter()
-        .filter(|f| f.position.is_outfielder()) // Pre-filter to outfielders only!
         .map(|f| evaluate_final_pickup(rng, ball, f))
         .collect();
 
