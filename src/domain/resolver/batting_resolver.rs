@@ -453,7 +453,7 @@ pub fn calculate_launch_speed_with_power(
         0.0
     } else {
         // Smoothly decay between 2cm ~ 7cm using Smoothstep / Cosine
-        let normalized_dist = (contact_result.length_offset_m - SWEET_SPOT_RADIUS_M)
+        let normalized_dist = (contact_result.thickness_offset_m - SWEET_SPOT_RADIUS_M)
             / (MAX_CONTACT_RADIUS_M - SWEET_SPOT_RADIUS_M);
         (normalized_dist * std::f64::consts::FRAC_PI_2)
             .cos()
@@ -566,10 +566,10 @@ fn calculate_collision_spin(
 
     // 5. Combine with pitch spin
     let (combined_spin_rate, combined_spin_angle) = combine_batted_spin(
-        ball.spin_rate,
-        ball.spin_angle,
         raw_spin_rate,
         spin_angle_deg,
+        ball.spin_rate,
+        ball.spin_angle,
     );
 
     (combined_spin_rate, combined_spin_angle)
