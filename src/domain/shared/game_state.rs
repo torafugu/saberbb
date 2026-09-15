@@ -1046,8 +1046,11 @@ impl GameState {
         )?;
         point += runner_advance_result.runs_scored;
 
-        self.game_result
-            .add_player_fielding(self.count_seq, &defense_play_result);
+        self.game_result.add_player_fielding(
+            self.count_seq,
+            ctx.try_catch_fielder.position,
+            &defense_play_result,
+        );
         self.game_result.add_player_running(
             self.count_seq,
             running_seq,

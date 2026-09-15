@@ -235,12 +235,17 @@ impl GameResult {
         self.player_fieldings.push(player_fielding);
     }
 
-    pub fn add_player_fielding(&mut self, count_seq: u16, result: &DefensePlayResult) {
+    pub fn add_player_fielding(
+        &mut self,
+        count_seq: u16,
+        catch_fielder_position: Position,
+        result: &DefensePlayResult,
+    ) {
         let player_fielding = PlayerGameFielding {
             count_seq: count_seq,
             seq: 1,
             catch_fielder_id: result.final_fielder_id,
-            catch_fielder_position: result.final_fielder_position,
+            catch_fielder_position: catch_fielder_position,
             cutoff_fielder_id: result.cutoff_fielder_id,
             cutoff_fielder_position: result.cutoff_fielder_position,
             final_fielder_id: Some(result.final_fielder_id),
