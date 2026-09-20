@@ -42,12 +42,14 @@ const INSERT_PLAYER_GAME_PITCHING_SQL: &str = "INSERT INTO player_game_pitching 
     )";
 
 const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
-        game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle, polar_distance, polar_angle,
+        game_id, count_seq, pitcher_id, batter_id, timing_error, bat_speed, angular_velocity,
+        timing_angle_error, base_hla_deg, final_hla_deg, launch_speed, launch_angle, polar_distance, polar_angle,
         total_time, first_bounce_distance, first_bounce_angle, first_bounce_time,
         fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
         fielder_position, result
     ) VALUES (
-        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+        ?19, ?20, ?21, ?22, ?23, ?24
     )";
 
 const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding (
@@ -367,6 +369,12 @@ pub fn insert_player_game_batting(
             player_game_batting.count_seq,
             player_game_batting.pitcher_id,
             player_game_batting.batter_id,
+            player_game_batting.timing_error,
+            player_game_batting.bat_speed,
+            player_game_batting.angular_velocity,
+            player_game_batting.timing_angle_error,
+            player_game_batting.base_hla_deg,
+            player_game_batting.final_hla_deg,
             player_game_batting.ball.launch_speed,
             player_game_batting.ball.launch_angle,
             player_game_batting.ball.final_position.distance,

@@ -806,7 +806,7 @@ mod tests {
     use super::*;
 
     fn pitch_skill(pitch_type: PitchType, usage: f64) -> PitchSkill {
-        PitchSkill::from_prob(pitch_type, 150.0, 0.7, 0.8, 0.1, 2200.0, 180.0, 0.95, usage)
+        PitchSkill::from_prob(pitch_type, 41.67, 0.7, 0.8, 0.1, 2200.0, 180.0, 0.95, usage)
     }
 
     fn pitcher_info(pitch_skills: Vec<PitchSkill>) -> PitcherInfo {

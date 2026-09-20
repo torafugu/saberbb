@@ -1677,7 +1677,7 @@
           ]
         }
       ],
-      "def": "CREATE TABLE player_game_batting (\n    game_id INTEGER,\n    count_seq INTEGER,\n    pitcher_id INTEGER NOT NULL,\n    batter_id INTEGER NOT NULL,\n    launch_speed REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    polar_distance REAL NOT NULL,\n    polar_angle REAL NOT NULL,\n    total_time REAL NOT NULL,\n    first_bounce_distance REAL,\n    first_bounce_angle REAL,\n    first_bounce_time REAL,\n    fence_impact_distance REAL,\n    fence_impact_angle REAL,\n    fence_impact_time REAL,\n    outbound_result TEXT NOT NULL,\n    fielder_position TEXT,\n    result TEXT NOT NULL,\n    PRIMARY KEY (game_id, count_seq)\n)"
+      "def": "CREATE TABLE player_game_batting (\n    game_id INTEGER,\n    count_seq INTEGER,\n    pitcher_id INTEGER NOT NULL,\n    batter_id INTEGER NOT NULL,\n    timing_error REAL NOT NULL,\n    bat_speed REAL NOT NULL,\n    angular_velocity REAL NOT NULL,\n    timing_angle_error REAL NOT NULL,\n    base_hla_deg REAL NOT NULL,\n    final_hla_deg REAL NOT NULL,\n    launch_speed REAL NOT NULL,\n    launch_angle REAL NOT NULL,\n    polar_distance REAL NOT NULL,\n    polar_angle REAL NOT NULL,\n    total_time REAL NOT NULL,\n    first_bounce_distance REAL,\n    first_bounce_angle REAL,\n    first_bounce_time REAL,\n    fence_impact_distance REAL,\n    fence_impact_angle REAL,\n    fence_impact_time REAL,\n    outbound_result TEXT NOT NULL,\n    fielder_position TEXT,\n    result TEXT NOT NULL,\n    PRIMARY KEY (game_id, count_seq)\n)"
     },
     {
       "name": "fielder_info",

@@ -44,7 +44,7 @@ pub(crate) fn batter_info(batting_side: RL) -> BatterInfo {
         zone_aptitude: ZoneAptitude::Balanced,
         hot_zone_scale: 0.1,
         batting_eye: 0.5,
-        swing_speed: 150.0,
+        swing_speed: 41.67,
         swing_power: 1.0,
         attack_angle: 28.0,
         bat_control: 0.8,
@@ -74,7 +74,7 @@ pub(crate) fn catcher_info() -> CatcherInfo {
 pub(crate) fn pitch_skill(pitch_type: PitchType) -> PitchSkill {
     PitchSkill {
         pitch_type,
-        velocity: 150.0,
+        velocity: 41.67,
         control: 0.5,
         stamina: 0.5,
         injury_proneness: 0.5,
@@ -92,7 +92,7 @@ pub(crate) fn pitcher_info() -> PitcherInfo {
         throw_side: RL::Right,
         arm_slot: ArmSlot::ThreeQuarter,
         pitcher_style: PitcherStyle::BalancedPitcher,
-        velocity: 150.0,
+        velocity: 41.67,
         spin_rate: 2400.0,
         control: 0.5,
         stamina: 0.5,

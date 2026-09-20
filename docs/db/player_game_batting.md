@@ -11,6 +11,12 @@ CREATE TABLE player_game_batting (
     count_seq INTEGER,
     pitcher_id INTEGER NOT NULL,
     batter_id INTEGER NOT NULL,
+    timing_error REAL NOT NULL,
+    bat_speed REAL NOT NULL,
+    angular_velocity REAL NOT NULL,
+    timing_angle_error REAL NOT NULL,
+    base_hla_deg REAL NOT NULL,
+    final_hla_deg REAL NOT NULL,
     launch_speed REAL NOT NULL,
     launch_angle REAL NOT NULL,
     polar_distance REAL NOT NULL,
@@ -39,6 +45,12 @@ CREATE TABLE player_game_batting (
 | count_seq             | INTEGER |         | true     |          |         |         |
 | pitcher_id            | INTEGER |         | false    |          |         |         |
 | batter_id             | INTEGER |         | false    |          |         |         |
+| timing_error          | REAL    |         | false    |          |         |         |
+| bat_speed             | REAL    |         | false    |          |         |         |
+| angular_velocity      | REAL    |         | false    |          |         |         |
+| timing_angle_error    | REAL    |         | false    |          |         |         |
+| base_hla_deg          | REAL    |         | false    |          |         |         |
+| final_hla_deg         | REAL    |         | false    |          |         |         |
 | launch_speed          | REAL    |         | false    |          |         |         |
 | launch_angle          | REAL    |         | false    |          |         |         |
 | polar_distance        | REAL    |         | false    |          |         |         |

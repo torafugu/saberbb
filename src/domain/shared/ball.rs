@@ -1,9 +1,11 @@
+use crate::domain::resolver::pitching_resolver::StrikeZoneDimensions;
 use crate::domain::shared::game::PitchResult;
 use crate::domain::shared::player::RL;
 use crate::domain::shared::player::{PitchType, Position};
 use crate::domain::strategy::pitching_strategy::TargetZone;
-use crate::domain::util::{PolarPosition, Vector3D};
+use crate::domain::util::{GRAVITY, PolarPosition, Vector3D};
 use crate::t;
+use glam::DVec3;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use std::fmt;
@@ -306,6 +308,42 @@ impl PitchedBall {
         // 4. Lateral acceleration (m/s²)
         total_magnus_accel * vertical_factor
     }
+
+    pub fn velocity_at_plate(&self, strike_zone: &StrikeZoneDimensions) -> Option<DVec3> {
+        let t = self.flight_time;
+
+        if !t.is_finite() || t <= 0.0 {
+            return None;
+        }
+
+        // actual_location はストライクゾーン基準の正規化座標。
+        // world座標では x=左右、y=本塁→外野、z=高さ。
+        let target = DVec3::new(
+            self.actual_location.x * strike_zone.half_width_m,
+            0.0,
+            strike_zone.center_height_m + self.actual_location.y * strike_zone.half_height_m,
+        );
+
+        let release = DVec3::new(
+            self.release_point.x,
+            self.release_point.y,
+            self.release_point.z,
+        );
+
+        // 現在の投球軌道計算と同じ一定加速度モデル
+        let acceleration = DVec3::new(
+            self.get_side_accel(),
+            0.0,
+            self.get_vertical_accel() - GRAVITY,
+        );
+
+        // target = release + v0 * t + 1/2 * a * t^2
+        let release_velocity = (target - release - 0.5 * acceleration * t * t) / t;
+
+        let impact_velocity = release_velocity + acceleration * t;
+
+        Some(impact_velocity)
+    }
 }
 
 #[cfg(test)]
@@ -539,7 +577,7 @@ mod tests {
 
     #[test]
     fn get_side_accel_extracts_lateral_spin_component() {
-        let speed = 150.0 / 3.6;
+        let speed = 41.67 / 3.6;
         let ball = pitched_ball(speed, 2500.0, 90.0, 1.0);
         let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * speed;
 
@@ -549,7 +587,7 @@ mod tests {
 
     #[test]
     fn get_side_accel_preserves_lateral_direction() {
-        let speed = 150.0 / 3.6;
+        let speed = 41.67 / 3.6;
         let ball = pitched_ball(speed, 2500.0, 270.0, 1.0);
         let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * speed;
 
@@ -559,7 +597,7 @@ mod tests {
 
     #[test]
     fn get_vertical_accel_extracts_vertical_spin_component() {
-        let speed = 150.0 / 3.6;
+        let speed = 41.67 / 3.6;
         let backspin = pitched_ball(speed, 2500.0, 0.0, 1.0);
         let topspin = pitched_ball(speed, 2500.0, 180.0, 1.0);
         let expected_total_magnus_accel = MAGNUS_COEFF * 2500.0 * speed;

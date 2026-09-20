@@ -137,10 +137,38 @@ pub struct PlayerGamePitching {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
+pub struct PlayerGameBattingMetrics {
+    pub timing_error: f64,
+    pub bat_speed: f64,
+    pub angular_velocity: f64,
+    pub timing_angle_error: f64,
+    pub base_hla_deg: f64,
+    pub final_hla_deg: f64,
+}
+impl Default for PlayerGameBattingMetrics {
+    fn default() -> Self {
+        Self {
+            timing_error: 0.0,
+            bat_speed: 0.0,
+            angular_velocity: 0.0,
+            timing_angle_error: 0.0,
+            base_hla_deg: 0.0,
+            final_hla_deg: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBatting {
     pub count_seq: u16,
     pub pitcher_id: i64,
     pub batter_id: i64,
+    pub timing_error: f64,
+    pub bat_speed: f64,
+    pub angular_velocity: f64,
+    pub timing_angle_error: f64,
+    pub base_hla_deg: f64,
+    pub final_hla_deg: f64,
     pub ball: BattedBall,
     pub fielder_position: Option<Position>,
     pub result: BattingResult,

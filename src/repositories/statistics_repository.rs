@@ -440,6 +440,12 @@ mod tests {
                 count_seq INTEGER,
                 pitcher_id INTEGER NOT NULL,
                 batter_id INTEGER NOT NULL,
+                timing_error REAL NOT NULL,
+                bat_speed REAL NOT NULL,
+                angular_velocity REAL NOT NULL,
+                timing_angle_error REAL NOT NULL,
+                base_hla_deg REAL NOT NULL,
+                final_hla_deg REAL NOT NULL,
                 launch_speed REAL NOT NULL,
                 launch_angle REAL NOT NULL,
                 polar_distance REAL NOT NULL,
@@ -575,7 +581,7 @@ mod tests {
                     spatial_bias_x, spatial_bias_y, crossfire_multiplier, release_x_factor,
                     horizontal_offset_m, vertical_offset_m, timing_offset_sec
                 ) VALUES (
-                    ?1, ?2, ?3, 'FourSeamFastball', 150.0, 2200.0, 0.0,
+                    ?1, ?2, ?3, 'FourSeamFastball', 41.67, 2200.0, 0.0,
                     0.9, 0.0, 18.0, 6.0, 0.4, 'Center', 0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
                     0.0, 0.0, 0.0
@@ -596,14 +602,16 @@ mod tests {
         conn(repo)
             .execute(
                 "INSERT INTO player_game_batting (
-                    game_id, count_seq, pitcher_id, batter_id, launch_speed, launch_angle,
-                    polar_distance, polar_angle, total_time, first_bounce_distance,
-                    first_bounce_angle, first_bounce_time, fence_impact_distance,
-                    fence_impact_angle, fence_impact_time, outbound_result, fielder_position,
-                    result
+                    game_id, count_seq, pitcher_id, batter_id, timing_error, bat_speed,
+                    angular_velocity, timing_angle_error, base_hla_deg, final_hla_deg,
+                    launch_speed, launch_angle, polar_distance, polar_angle, total_time,
+                    first_bounce_distance, first_bounce_angle, first_bounce_time,
+                    fence_impact_distance, fence_impact_angle, fence_impact_time,
+                    outbound_result, fielder_position, result
                 ) VALUES (
-                    ?1, ?2, ?3, ?4, 0.0, 0.0, 0.0, 0.0, 0.0, NULL,
-                    NULL, NULL, NULL, NULL, NULL, 'InField', NULL, ?5
+                    ?1, ?2, ?3, ?4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, NULL, NULL, NULL, NULL,
+                    NULL, NULL, 'InField', NULL, ?5
                 )",
                 params![game_id, count_seq, pitcher_id, batter_id, result],
             )

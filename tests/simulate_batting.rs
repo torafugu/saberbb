@@ -103,7 +103,8 @@ fn test_batted_ball() {
         {
             BattedBall::default()
         } else {
-            calculate_batted_ball(&batter, pitched_ball, &swing_contact, &stadium).unwrap()
+            let angles = calculate_launch_angles(&swing_contact, &batter);
+            calculate_batted_ball(&batter, pitched_ball, &swing_contact, &angles, &stadium).unwrap()
         };
 
         conn.execute(

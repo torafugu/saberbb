@@ -6,7 +6,7 @@ use super::team::Lineup;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
     BattingFactor, CountStatus, SwingContactResult, SwingContactType, adapt_to_pitch,
-    calculate_batted_ball, calculate_batting_factor, calculate_swing_execution_error,
+    calculate_batted_ball_with_metrics, calculate_batting_factor, calculate_swing_execution_error,
     calculate_swing_factor, evaluate_swing_contact, select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
@@ -23,6 +23,7 @@ use crate::domain::resolver::running_resolver::{
 };
 use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall};
 use crate::domain::shared::game::{GameResult, GameSchedule};
+use crate::domain::shared::game_stats::PlayerGameBattingMetrics;
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::SwingExecution;
 use crate::domain::util::PolarPosition;
@@ -463,13 +464,20 @@ impl GameState {
         self.inning_state.runners.batter_runner = None;
     }
 
-    fn resolve_foul(&mut self, pitcher_id: i64, batter_id: i64, ball: &BattedBall) {
+    fn resolve_foul(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        metrics: PlayerGameBattingMetrics,
+        ball: &BattedBall,
+    ) {
         info!("Foul");
 
         self.game_result.add_player_batting(
             self.count_seq,
             pitcher_id,
             batter_id,
+            metrics,
             *ball,
             None,
             BattingResult::Foul,
@@ -482,7 +490,13 @@ impl GameState {
         self.add_count(0);
     }
 
-    fn resolve_homerun(&mut self, pitcher_id: i64, batter_id: i64, ball: &BattedBall) {
+    fn resolve_homerun(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        metrics: PlayerGameBattingMetrics,
+        ball: &BattedBall,
+    ) {
         info!("Homerun");
 
         let point = self.inning_state.runners.after_homerun();
@@ -490,6 +504,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
+            metrics,
             *ball,
             None,
             BattingResult::HomeRun,
@@ -498,7 +513,13 @@ impl GameState {
         self.finish_plate_appearance();
     }
 
-    fn resolve_ground_rule_double(&mut self, pitcher_id: i64, batter_id: i64, ball: &BattedBall) {
+    fn resolve_ground_rule_double(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        metrics: PlayerGameBattingMetrics,
+        ball: &BattedBall,
+    ) {
         info!("Ground Rule Double");
 
         let point = self.inning_state.runners.after_ground_rule_double();
@@ -506,6 +527,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
+            metrics,
             *ball,
             None,
             BattingResult::Double,
@@ -545,6 +567,7 @@ impl GameState {
         &mut self,
         pitcher_id: i64,
         batter_id: i64,
+        metrics: PlayerGameBattingMetrics,
         ctx: &PlayContext,
     ) -> Result<(), GameError> {
         self.inning_state.add_out();
@@ -590,6 +613,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
+            metrics,
             ctx.fielded_ball.ball,
             Some(ctx.fielded_ball.fielded_by),
             BattingResult::Out,
@@ -668,6 +692,7 @@ impl GameState {
         batter_id: i64,
         ctx: &PlayContext,
         running_seq: u8,
+        metrics: PlayerGameBattingMetrics,
         defense_play_result: &DefensePlayResult,
         runner_advance_result: &RunnerAdvanceResult,
         batting_side: RL,
@@ -706,6 +731,7 @@ impl GameState {
                 pitcher_id,
                 batter_id,
                 &ctx,
+                metrics,
                 double_play_runner_advance_result.batting_result,
                 runner_advance_result.runs_scored,
                 double_play_runner_advance_result.unsaved_runners,
@@ -726,6 +752,7 @@ impl GameState {
         pitcher_id: i64,
         batter_id: i64,
         ctx: &PlayContext,
+        metrics: PlayerGameBattingMetrics,
         batting_result: BattingResult,
         point: u8,
         unsaved_runners: RunnersUnsaved,
@@ -738,6 +765,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
+            metrics,
             ctx.fielded_ball.ball,
             Some(ctx.fielded_ball.fielded_by),
             batting_result,
@@ -878,6 +906,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
+            PlayerGameBattingMetrics::default(),
             BattedBall::default(),
             None,
             batting_result,
@@ -926,6 +955,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
+            PlayerGameBattingMetrics::default(),
             BattedBall::default(),
             None,
             batting_result,
@@ -943,28 +973,28 @@ impl GameState {
         pitched_ball: PitchedBall,
         swing_contact: &SwingContactResult,
     ) -> Result<(), GameError> {
-        let batted_ball =
-            calculate_batted_ball(batter, pitched_ball, swing_contact, &self.stadium)?;
+        let (batted_ball, metrics) =
+            calculate_batted_ball_with_metrics(batter, pitched_ball, swing_contact, &self.stadium)?;
 
         info!("Batted Ball: {:#?}", batted_ball);
 
         match batted_ball.outbound_result {
             OutboundResult::Foul => {
-                self.resolve_foul(pitcher_id, batter_id, &batted_ball);
+                self.resolve_foul(pitcher_id, batter_id, metrics, &batted_ball);
                 return Ok(());
             }
             OutboundResult::HomeRun => {
-                self.resolve_homerun(pitcher_id, batter_id, &batted_ball);
+                self.resolve_homerun(pitcher_id, batter_id, metrics, &batted_ball);
                 return Ok(());
             }
             OutboundResult::GroundRuleDouble => {
-                self.resolve_ground_rule_double(pitcher_id, batter_id, &batted_ball);
+                self.resolve_ground_rule_double(pitcher_id, batter_id, metrics, &batted_ball);
                 return Ok(());
             }
             OutboundResult::InField => {}
         }
 
-        self.resolve_ball_fielded(pitcher_id, batter_id, batting_side, batted_ball)
+        self.resolve_ball_fielded(pitcher_id, batter_id, batting_side, metrics, batted_ball)
     }
 
     fn resolve_ball_fielded(
@@ -972,6 +1002,7 @@ impl GameState {
         pitcher_id: i64,
         batter_id: i64,
         batting_side: RL,
+        metrics: PlayerGameBattingMetrics,
         batted_ball: BattedBall,
     ) -> Result<(), GameError> {
         let mut running_seq = 1;
@@ -992,7 +1023,7 @@ impl GameState {
         };
 
         if fielded_ball.is_fly_catch {
-            self.resolve_fly_catch(pitcher_id, batter_id, &ctx)?;
+            self.resolve_fly_catch(pitcher_id, batter_id, metrics, &ctx)?;
             return Ok(());
         }
 
@@ -1003,6 +1034,7 @@ impl GameState {
                 self.count_seq,
                 pitcher_id,
                 batter_id,
+                metrics,
                 batted_ball,
                 None,
                 BattingResult::Foul,
@@ -1072,6 +1104,7 @@ impl GameState {
                     pitcher_id,
                     batter_id,
                     &ctx,
+                    metrics,
                     runner_advance_result.batting_result,
                     point,
                     runner_advance_result.unsaved_runners,
@@ -1089,6 +1122,7 @@ impl GameState {
                 batter_id,
                 &ctx,
                 running_seq,
+                metrics,
                 &defense_play_result,
                 &runner_advance_result,
                 batting_side,
@@ -1103,6 +1137,7 @@ impl GameState {
             pitcher_id,
             batter_id,
             &ctx,
+            metrics,
             runner_advance_result.batting_result,
             point,
             runner_advance_result.unsaved_runners,

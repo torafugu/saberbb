@@ -1,8 +1,9 @@
 use super::game_state::ActivePlayer;
 use super::game_stats::{
-    PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGameHomeRunView, PlayerGamePitching, PlayerGamePitchingDecisionView,
-    PlayerGamePitchingView, PlayerGameRunning, PlayerGameRunningView,
+    PlayerGameBatting, PlayerGameBattingMetrics, PlayerGameBattingView, PlayerGameEntry,
+    PlayerGameEntryView, PlayerGameFielding, PlayerGameHomeRunView, PlayerGamePitching,
+    PlayerGamePitchingDecisionView, PlayerGamePitchingView, PlayerGameRunning,
+    PlayerGameRunningView,
 };
 use super::team::Team;
 use crate::domain::resolver::fielding_resolver::{
@@ -199,6 +200,7 @@ impl GameResult {
         count_seq: u16,
         pitcher_id: i64,
         batter_id: i64,
+        metrics: PlayerGameBattingMetrics,
         ball: BattedBall,
         fielder_position: Option<Position>,
         batting_result: BattingResult,
@@ -207,6 +209,12 @@ impl GameResult {
             count_seq: count_seq,
             pitcher_id: pitcher_id,
             batter_id: batter_id,
+            timing_error: metrics.timing_error,
+            bat_speed: metrics.bat_speed,
+            angular_velocity: metrics.angular_velocity,
+            timing_angle_error: metrics.timing_angle_error,
+            base_hla_deg: metrics.base_hla_deg,
+            final_hla_deg: metrics.final_hla_deg,
             ball: ball,
             fielder_position: fielder_position,
             result: batting_result,

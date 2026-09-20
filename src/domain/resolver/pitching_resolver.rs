@@ -347,7 +347,7 @@ mod tests {
             throw_side,
             ArmSlot::ThreeQuarter,
             PitcherStyle::BalancedPitcher,
-            150.0,
+            41.67,
             2200.0,
             0.5,
             0.5,
@@ -419,7 +419,7 @@ mod tests {
             .expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::FourSeamFastball);
-        assert_near(ball.speed, 150.0);
+        assert_near(ball.speed, 41.67);
         assert_near(
             ball.spin_rate,
             expected_raw_spin_rate(
@@ -435,7 +435,7 @@ mod tests {
         assert_near(ball.release_point.x, 0.55);
         assert_near(ball.release_point.y, 16.64);
         assert_near(ball.release_point.z, 1.71);
-        assert_near(ball.flight_time, 16.64 / (150.0 * 0.95));
+        assert_near(ball.flight_time, 16.64 / (41.67 * 0.95));
         assert_near(ball.aim_location.x, 0.75);
         assert_near(ball.aim_location.y, -0.75);
     }
@@ -543,9 +543,9 @@ mod tests {
 
     #[test]
     fn calculate_pitch_displacement_extracts_horizontal_spin_direction() {
-        let right_break = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.0, 16.64, 0.42);
-        let left_break = pitched_ball(150.0, 2300.0, 270.0, 1.0, 0.0, 16.64, 0.42);
-        let flight_time = calculate_flight_time(150.0, 16.64);
+        let right_break = pitched_ball(41.67, 2300.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let left_break = pitched_ball(41.67, 2300.0, 270.0, 1.0, 0.0, 16.64, 0.42);
+        let flight_time = calculate_flight_time(41.67, 16.64);
         let expected_right_horizontal = 0.5 * right_break.get_side_accel() * flight_time.powi(2);
         let expected_right_vertical = 0.5 * right_break.get_vertical_accel() * flight_time.powi(2);
         let expected_left_horizontal = 0.5 * left_break.get_side_accel() * flight_time.powi(2);
@@ -568,9 +568,9 @@ mod tests {
 
     #[test]
     fn calculate_pitch_displacement_returns_raw_physical_movement_for_extreme_spin() {
-        let extreme_side_spin = pitched_ball(150.0, 9200.0, 90.0, 1.0, 0.0, 16.64, 0.42);
-        let extreme_topspin = pitched_ball(150.0, 9200.0, 180.0, 1.0, 0.0, 16.64, 0.42);
-        let flight_time = calculate_flight_time(150.0, 16.64);
+        let extreme_side_spin = pitched_ball(41.67, 9200.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let extreme_topspin = pitched_ball(41.67, 9200.0, 180.0, 1.0, 0.0, 16.64, 0.42);
+        let flight_time = calculate_flight_time(41.67, 16.64);
         let expected_horizontal = 0.5 * extreme_side_spin.get_side_accel() * flight_time.powi(2);
         let expected_vertical = 0.5 * extreme_topspin.get_vertical_accel() * flight_time.powi(2);
 
@@ -587,8 +587,8 @@ mod tests {
     #[test]
     fn calculate_late_break_displacement_uses_remaining_acceleration_after_decision() {
         let mut rng = FixedRng::new(0.0);
-        let ball = pitched_ball(150.0, 2500.0, 90.0, 1.0, 0.0, 16.64, 0.42);
-        let expected_ball = pitched_ball(150.0, 2500.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+        let ball = pitched_ball(41.67, 2500.0, 90.0, 1.0, 0.0, 16.64, 0.42);
+        let expected_ball = pitched_ball(41.67, 2500.0, 0.0, 1.0, 0.0, 16.64, 0.42);
         let side_accel = ball.get_side_accel();
         let vertical_accel = ball.get_vertical_accel() - expected_ball.get_vertical_accel();
         let remaining_time = 0.42_f64 * 0.4;
@@ -645,8 +645,8 @@ mod tests {
     #[test]
     fn calculate_pitch_offset_enhances_horizontal_late_break_by_matchup_and_release_width() {
         let mut rng = FixedRng::new(0.0);
-        let ball = pitched_ball(150.0, 2300.0, 90.0, 1.0, 0.80, 16.64, 0.42);
-        let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+        let ball = pitched_ball(41.67, 2300.0, 90.0, 1.0, 0.80, 16.64, 0.42);
+        let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
 
         let same_side = calculate_pitch_offset(
             &mut rng,
@@ -693,8 +693,8 @@ mod tests {
     #[test]
     fn calculate_pitch_offset_adds_location_bias_to_displacement() {
         let mut rng = FixedRng::new(0.0);
-        let ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
-        let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+        let ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
+        let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
         let location_bias = calculate_location_bias(BallLocation { x: 0.5, y: -0.4 });
 
         let displacement = calculate_pitch_offset(
@@ -724,8 +724,8 @@ mod tests {
     #[test]
     fn calculate_timing_offset_is_positive_for_slower_than_expected_pitch() {
         let mut rng = FixedRng::new(0.0);
-        let ball = pitched_ball(135.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
-        let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
+        let ball = pitched_ball(37.5, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
+        let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
         assert!(
             calculate_timing_offset(
@@ -741,8 +741,8 @@ mod tests {
     #[test]
     fn calculate_timing_offset_is_negative_for_faster_than_expected_pitch() {
         let mut rng = FixedRng::new(0.0);
-        let ball = pitched_ball(160.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
-        let expected_ball = pitched_ball(150.0, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
+        let ball = pitched_ball(44.44, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
+        let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
 
         assert!(
             calculate_timing_offset(
