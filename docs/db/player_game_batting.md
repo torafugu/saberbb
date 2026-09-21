@@ -14,8 +14,9 @@ CREATE TABLE player_game_batting (
     timing_error REAL NOT NULL,
     bat_speed REAL NOT NULL,
     angular_velocity REAL NOT NULL,
+    approach_variation_deg REAL NOT NULL,
+    pull_bias_deg REAL NOT NULL,
     timing_angle_error REAL NOT NULL,
-    base_hla_deg REAL NOT NULL,
     final_hla_deg REAL NOT NULL,
     launch_speed REAL NOT NULL,
     launch_angle REAL NOT NULL,
@@ -39,32 +40,33 @@ CREATE TABLE player_game_batting (
 
 ## Columns
 
-| Name                  | Type    | Default | Nullable | Children | Parents | Comment |
-| --------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
-| game_id               | INTEGER |         | true     |          |         |         |
-| count_seq             | INTEGER |         | true     |          |         |         |
-| pitcher_id            | INTEGER |         | false    |          |         |         |
-| batter_id             | INTEGER |         | false    |          |         |         |
-| timing_error          | REAL    |         | false    |          |         |         |
-| bat_speed             | REAL    |         | false    |          |         |         |
-| angular_velocity      | REAL    |         | false    |          |         |         |
-| timing_angle_error    | REAL    |         | false    |          |         |         |
-| base_hla_deg          | REAL    |         | false    |          |         |         |
-| final_hla_deg         | REAL    |         | false    |          |         |         |
-| launch_speed          | REAL    |         | false    |          |         |         |
-| launch_angle          | REAL    |         | false    |          |         |         |
-| polar_distance        | REAL    |         | false    |          |         |         |
-| polar_angle           | REAL    |         | false    |          |         |         |
-| total_time            | REAL    |         | false    |          |         |         |
-| first_bounce_distance | REAL    |         | true     |          |         |         |
-| first_bounce_angle    | REAL    |         | true     |          |         |         |
-| first_bounce_time     | REAL    |         | true     |          |         |         |
-| fence_impact_distance | REAL    |         | true     |          |         |         |
-| fence_impact_angle    | REAL    |         | true     |          |         |         |
-| fence_impact_time     | REAL    |         | true     |          |         |         |
-| outbound_result       | TEXT    |         | false    |          |         |         |
-| fielder_position      | TEXT    |         | true     |          |         |         |
-| result                | TEXT    |         | false    |          |         |         |
+| Name                   | Type    | Default | Nullable | Children | Parents | Comment |
+| ---------------------- | ------- | ------- | -------- | -------- | ------- | ------- |
+| game_id                | INTEGER |         | true     |          |         |         |
+| count_seq              | INTEGER |         | true     |          |         |         |
+| pitcher_id             | INTEGER |         | false    |          |         |         |
+| batter_id              | INTEGER |         | false    |          |         |         |
+| timing_error           | REAL    |         | false    |          |         |         |
+| bat_speed              | REAL    |         | false    |          |         |         |
+| angular_velocity       | REAL    |         | false    |          |         |         |
+| approach_variation_deg | REAL    |         | false    |          |         |         |
+| pull_bias_deg          | REAL    |         | false    |          |         |         |
+| timing_angle_error     | REAL    |         | false    |          |         |         |
+| final_hla_deg          | REAL    |         | false    |          |         |         |
+| launch_speed           | REAL    |         | false    |          |         |         |
+| launch_angle           | REAL    |         | false    |          |         |         |
+| polar_distance         | REAL    |         | false    |          |         |         |
+| polar_angle            | REAL    |         | false    |          |         |         |
+| total_time             | REAL    |         | false    |          |         |         |
+| first_bounce_distance  | REAL    |         | true     |          |         |         |
+| first_bounce_angle     | REAL    |         | true     |          |         |         |
+| first_bounce_time      | REAL    |         | true     |          |         |         |
+| fence_impact_distance  | REAL    |         | true     |          |         |         |
+| fence_impact_angle     | REAL    |         | true     |          |         |         |
+| fence_impact_time      | REAL    |         | true     |          |         |         |
+| outbound_result        | TEXT    |         | false    |          |         |         |
+| fielder_position       | TEXT    |         | true     |          |         |         |
+| result                 | TEXT    |         | false    |          |         |         |
 
 ## Constraints
 

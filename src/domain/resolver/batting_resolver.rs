@@ -5,7 +5,7 @@ use crate::domain::shared::ball::{
 };
 use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::game_stats::PlayerGameBattingMetrics;
-use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, RL};
+use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo};
 use crate::domain::shared::stadium::Stadium;
 use crate::domain::strategy::batting_strategy::{SwingExecution, calculate_attack_angle_modifier};
 use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
@@ -391,7 +391,8 @@ pub fn evaluate_swing_contact(
 pub struct BattedBallAngles {
     pub vla_deg: f64, // Vertical launch angle (deg): + upward pop / - grounder
     pub hla_deg: f64, // Horizontal launch angle (deg): - pull / + opposite (right-handed batter reference)
-    pub base_hla_deg: f64,
+    pub approach_variation_deg: f64,
+    pub pull_bias_deg: f64,
     pub timing_angle_error_deg: f64,
     pub angular_velocity_rad_s: f64,
 }
@@ -450,8 +451,14 @@ pub fn calculate_launch_angles(
         ContactTimingQuality::Marginal => sample_marginal_timing_error(rng),
     };
 
-    // TODO: intended_face_angle_rad should be considered.
-    let intended_face_angle_rad = 0.0;
+    // TODO: bat control should impact the variation range.
+    let approach_variation_rad = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians();
+    // TODO: pull_bias_rad should be impacted by batter type and batter strategy.
+    let pull_bias_rad = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians()
+        * batter.batting_side.handedness_sign()
+        * -1.0;
+
+    let intended_face_angle_rad = approach_variation_rad + pull_bias_rad;
     let timing_angle_error_rad =
         calculate_timing_angle_error(timing_error_sec, batter.swing_speed, SWING_PATH_RADIUS_M);
     let angular_velocity_rad_s = if timing_error_sec.abs() > f64::EPSILON {
@@ -475,16 +482,13 @@ pub fn calculate_launch_angles(
         + (rebound_angle_x_rad.to_degrees() * HLA_REBOUND_FACTOR);
 
     // Flip the pull/opposite sign for left-handed batters
-    let hla_deg = if batter.batting_side == RL::Right {
-        raw_hla_deg
-    } else {
-        -raw_hla_deg
-    };
+    let hla_deg = raw_hla_deg * batter.batting_side.handedness_sign();
 
     Ok(BattedBallAngles {
         vla_deg,
         hla_deg,
-        base_hla_deg: face_angle_rad.to_degrees(),
+        approach_variation_deg: approach_variation_rad.to_degrees(),
+        pull_bias_deg: pull_bias_rad.to_degrees(),
         timing_angle_error_deg: timing_angle_error_rad.to_degrees(),
         angular_velocity_rad_s,
     })
@@ -931,8 +935,9 @@ pub fn calculate_batted_ball_with_metrics(
         timing_error: contact.timing_offset_sec,
         bat_speed: batter.swing_speed,
         angular_velocity: angles.angular_velocity_rad_s,
+        approach_variation_deg: angles.approach_variation_deg,
+        pull_bias_deg: angles.pull_bias_deg,
         timing_angle_error: angles.timing_angle_error_deg,
-        base_hla_deg: angles.base_hla_deg,
         final_hla_deg: angles.hla_deg,
     };
 
@@ -1096,7 +1101,8 @@ mod tests {
             let angles = calculate_launch_angles(&mut rng, &contact, &batter(batting_side))?;
             assert!((angles.vla_deg - expected_vla).abs() < 0.1);
             assert!((angles.hla_deg - expected_hla).abs() < 0.1);
-            assert!(angles.base_hla_deg.abs() < f64::EPSILON);
+            assert!(angles.approach_variation_deg.abs() < f64::EPSILON);
+            assert!(angles.pull_bias_deg.abs() < f64::EPSILON);
             assert!(angles.angular_velocity_rad_s.is_finite());
         }
 
@@ -1119,7 +1125,8 @@ mod tests {
                 .abs()
                 < f64::EPSILON
         );
-        assert!((angles.base_hla_deg - angles.timing_angle_error_deg).abs() < f64::EPSILON);
+        assert!(angles.approach_variation_deg.abs() < f64::EPSILON);
+        assert!(angles.pull_bias_deg.abs() < f64::EPSILON);
 
         Ok(())
     }

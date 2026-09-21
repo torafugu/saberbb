@@ -139,6 +139,14 @@ pub enum RL {
     Right,
     Left,
 }
+impl RL {
+    pub fn handedness_sign(&self) -> f64 {
+        match *self {
+            RL::Right => 1.0,
+            RL::Left => -1.0,
+        }
+    }
+}
 impl fmt::Display for RL {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {

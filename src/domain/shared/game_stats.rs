@@ -141,8 +141,9 @@ pub struct PlayerGameBattingMetrics {
     pub timing_error: f64,
     pub bat_speed: f64,
     pub angular_velocity: f64,
+    pub approach_variation_deg: f64,
+    pub pull_bias_deg: f64,
     pub timing_angle_error: f64,
-    pub base_hla_deg: f64,
     pub final_hla_deg: f64,
 }
 impl Default for PlayerGameBattingMetrics {
@@ -151,8 +152,9 @@ impl Default for PlayerGameBattingMetrics {
             timing_error: 0.0,
             bat_speed: 0.0,
             angular_velocity: 0.0,
+            approach_variation_deg: 0.0,
+            pull_bias_deg: 0.0,
             timing_angle_error: 0.0,
-            base_hla_deg: 0.0,
             final_hla_deg: 0.0,
         }
     }
@@ -166,8 +168,9 @@ pub struct PlayerGameBatting {
     pub timing_error: f64,
     pub bat_speed: f64,
     pub angular_velocity: f64,
+    pub approach_variation_deg: f64,
+    pub pull_bias_deg: f64,
     pub timing_angle_error: f64,
-    pub base_hla_deg: f64,
     pub final_hla_deg: f64,
     pub ball: BattedBall,
     pub fielder_position: Option<Position>,
