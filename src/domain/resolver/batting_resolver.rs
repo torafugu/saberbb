@@ -287,6 +287,13 @@ pub fn calculate_swing_execution_error(
     }
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
+#[strum(ascii_case_insensitive)]
+pub enum ContactTimingQuality {
+    Solid,
+    Marginal,
+}
+
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
@@ -298,6 +305,7 @@ pub struct SwingContactResult {
     pub thickness_offset_m: f64,
     pub length_offset_m: f64,
     pub contact_type: SwingContactType,
+    pub contact_quality: Option<ContactTimingQuality>,
     pub attack_angle_deg: f64,
 }
 
@@ -340,18 +348,30 @@ pub fn evaluate_swing_contact(
     let length_offset_m = (offset_x_m * rad.cos() + offset_z_m * rad.sin()).abs();
 
     // 1. Bat length limit (e.g. miss if more than 35cm from the sweet spot toward the end)
-    let contact_type = if length_offset_m > 0.350 {
-        SwingContactType::SwungAndMiss
+    let (contact_type, contact_quality) = if length_offset_m > 0.350 {
+        (SwingContactType::SwungAndMiss, None)
 
     // 2. Bat thickness direction (bat radius 3.3cm + ball radius 3.7cm = 7.0cm limit)
     } else if thickness_offset_m > 0.070 {
-        SwingContactType::SwungAndMiss
+        (
+            SwingContactType::SwungAndMiss,
+            Some(ContactTimingQuality::Marginal),
+        )
     } else if thickness_offset_m > 0.055 {
-        SwingContactType::FoulTip
+        (
+            SwingContactType::FoulTip,
+            Some(ContactTimingQuality::Marginal),
+        )
     } else if thickness_offset_m > 0.025 {
-        SwingContactType::WeakContact
+        (
+            SwingContactType::WeakContact,
+            Some(ContactTimingQuality::Solid),
+        )
     } else {
-        SwingContactType::SolidContact
+        (
+            SwingContactType::SolidContact,
+            Some(ContactTimingQuality::Solid),
+        )
     };
 
     SwingContactResult {
@@ -362,6 +382,7 @@ pub fn evaluate_swing_contact(
         thickness_offset_m: thickness_offset_m,
         length_offset_m: length_offset_m,
         contact_type: contact_type,
+        contact_quality: contact_quality,
         attack_angle_deg: swing_execution_error.actual_attack_angle_deg,
     }
 }
@@ -375,6 +396,16 @@ pub struct BattedBallAngles {
     pub angular_velocity_rad_s: f64,
 }
 
+fn sample_marginal_timing_error(rng: &mut dyn RandomProvider) -> f64 {
+    loop {
+        let value = rng.normal_std(1.0);
+
+        if (0.015..=0.030).contains(&value.abs()) {
+            return value;
+        }
+    }
+}
+
 fn calculate_timing_angle_error(
     timing_error_s: f64,
     bat_speed_mps: f64,
@@ -386,9 +417,10 @@ fn calculate_timing_angle_error(
 }
 
 pub fn calculate_launch_angles(
+    rng: &mut dyn RandomProvider,
     contact: &SwingContactResult,
     batter: &BatterInfo,
-) -> BattedBallAngles {
+) -> Result<BattedBallAngles, GameError> {
     // Sum of the bat and ball radii, used for contact checks on the cylindrical cross-section.
     const COLLISION_RADIUS_M: f64 = 0.070; // Bat radius (3.3cm) + ball radius (3.7cm)
     // Approximate distance from the swing's center of rotation to the standard contact point.
@@ -407,21 +439,23 @@ pub fn calculate_launch_angles(
     let vla_deg = contact.attack_angle_deg + (normal_angle_z_rad.to_degrees() * VLA_REBOUND_FACTOR);
 
     // 2. Calculate HLA (horizontal launch angle)
-    // (A) Bat face tilt from swing rotation (Face Angle)
-    // let clamped_x_arm = contact
-    //     .offset_x_m
-    //     .clamp(-SWING_PATH_RADIUS_M, SWING_PATH_RADIUS_M);
-    // let face_angle_rad = (clamped_x_arm / SWING_PATH_RADIUS_M).asin();
+    let contact_quality = if let Some(quality) = contact.contact_quality {
+        quality
+    } else {
+        return Err(GameError::ContactTimingQuality);
+    };
+
+    let timing_error_sec = match contact_quality {
+        ContactTimingQuality::Solid => contact.timing_offset_sec,
+        ContactTimingQuality::Marginal => sample_marginal_timing_error(rng),
+    };
 
     // TODO: intended_face_angle_rad should be considered.
     let intended_face_angle_rad = 0.0;
-    let timing_angle_error_rad = calculate_timing_angle_error(
-        contact.timing_offset_sec,
-        batter.swing_speed,
-        SWING_PATH_RADIUS_M,
-    );
-    let angular_velocity_rad_s = if contact.timing_offset_sec.abs() > f64::EPSILON {
-        timing_angle_error_rad / contact.timing_offset_sec
+    let timing_angle_error_rad =
+        calculate_timing_angle_error(timing_error_sec, batter.swing_speed, SWING_PATH_RADIUS_M);
+    let angular_velocity_rad_s = if timing_error_sec.abs() > f64::EPSILON {
+        timing_angle_error_rad / timing_error_sec
     } else {
         batter.swing_speed / SWING_PATH_RADIUS_M
     };
@@ -447,13 +481,13 @@ pub fn calculate_launch_angles(
         -raw_hla_deg
     };
 
-    BattedBallAngles {
+    Ok(BattedBallAngles {
         vla_deg,
         hla_deg,
         base_hla_deg: face_angle_rad.to_degrees(),
         timing_angle_error_deg: timing_angle_error_rad.to_degrees(),
         angular_velocity_rad_s,
-    }
+    })
 }
 
 fn calculate_effective_c_swing(
@@ -885,12 +919,13 @@ pub fn calculate_batted_ball(
 }
 
 pub fn calculate_batted_ball_with_metrics(
+    rng: &mut dyn RandomProvider,
     batter: &BatterInfo,
     ball: PitchedBall,
     contact: &SwingContactResult,
     stadium: &Stadium,
 ) -> Result<(BattedBall, PlayerGameBattingMetrics), GameError> {
-    let angles = calculate_launch_angles(contact, batter);
+    let angles = calculate_launch_angles(rng, contact, batter)?;
     let batted_ball = calculate_batted_ball(batter, ball, contact, &angles, stadium)?;
     let metrics = PlayerGameBattingMetrics {
         timing_error: contact.timing_offset_sec,
@@ -906,6 +941,7 @@ pub fn calculate_batted_ball_with_metrics(
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::random_provider::FixedRng;
     use crate::domain::resolver::batting_resolver::*;
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::game_state::GameError;
@@ -1012,12 +1048,13 @@ mod tests {
             thickness_offset_m: 0.0,
             length_offset_m: 0.0,
             contact_type: SwingContactType::SolidContact,
+            contact_quality: Some(ContactTimingQuality::Solid),
             attack_angle_deg,
         }
     }
 
     #[test]
-    fn calculate_launch_angles_uses_contact_offsets_and_batting_side() {
+    fn calculate_launch_angles_uses_contact_offsets_and_batting_side() -> TestResult {
         let cases = [
             (
                 SwingContactResult {
@@ -1028,6 +1065,7 @@ mod tests {
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
                     contact_type: SwingContactType::SolidContact,
+                    contact_quality: Some(ContactTimingQuality::Solid),
                     attack_angle_deg: 5.0,
                 },
                 RL::Right,
@@ -1043,6 +1081,7 @@ mod tests {
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
                     contact_type: SwingContactType::SolidContact,
+                    contact_quality: Some(ContactTimingQuality::Solid),
                     attack_angle_deg: 5.0,
                 },
                 RL::Left,
@@ -1053,22 +1092,26 @@ mod tests {
         ];
 
         for (contact, batting_side, expected_vla, expected_hla) in cases {
-            let angles = calculate_launch_angles(&contact, &batter(batting_side));
+            let mut rng = FixedRng::new(0.5);
+            let angles = calculate_launch_angles(&mut rng, &contact, &batter(batting_side))?;
             assert!((angles.vla_deg - expected_vla).abs() < 0.1);
             assert!((angles.hla_deg - expected_hla).abs() < 0.1);
             assert!(angles.base_hla_deg.abs() < f64::EPSILON);
             assert!(angles.angular_velocity_rad_s.is_finite());
         }
+
+        Ok(())
     }
 
     #[test]
-    fn calculate_launch_angles_derives_angular_velocity_from_timing_error() {
+    fn calculate_launch_angles_derives_angular_velocity_from_timing_error() -> TestResult {
         let contact = SwingContactResult {
             timing_offset_sec: 0.01,
             ..centered_contact(5.0)
         };
 
-        let angles = calculate_launch_angles(&contact, &batter(RL::Right));
+        let mut rng = FixedRng::new(0.5);
+        let angles = calculate_launch_angles(&mut rng, &contact, &batter(RL::Right))?;
         let timing_angle_error_rad = angles.timing_angle_error_deg.to_radians();
 
         assert!(
@@ -1077,6 +1120,8 @@ mod tests {
                 < f64::EPSILON
         );
         assert!((angles.base_hla_deg - angles.timing_angle_error_deg).abs() < f64::EPSILON);
+
+        Ok(())
     }
 
     #[test]
@@ -1161,7 +1206,8 @@ mod tests {
 
         for _ in 0..50 {
             let contact = centered_contact(right_pull_hitter.attack_angle);
-            let angles = calculate_launch_angles(&contact, &right_pull_hitter);
+            let mut rng = FixedRng::new(0.5);
+            let angles = calculate_launch_angles(&mut rng, &contact, &right_pull_hitter)?;
             let ball = calculate_batted_ball(
                 &right_pull_hitter,
                 PitchedBall {

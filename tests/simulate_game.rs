@@ -101,7 +101,7 @@ fn test_through_half_inning() -> Result<(), GameError> {
             if swing_contact.contact_type == SwingContactType::SwungAndMiss {
                 println!("SwungAndMiss");
             } else {
-                let angles = calculate_launch_angles(&swing_contact, &batter);
+                let angles = calculate_launch_angles(&mut rng, &swing_contact, &batter).unwrap();
                 let ball = calculate_batted_ball(
                     &batter,
                     pitched_ball,

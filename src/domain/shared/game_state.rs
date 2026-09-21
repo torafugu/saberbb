@@ -102,6 +102,9 @@ pub enum GameError {
 
     #[error("Failed to create pitch: {0}")]
     PitchCreation(#[from] AppError),
+
+    #[error("Failed to determine contact timing quality")]
+    ContactTimingQuality,
 }
 
 pub struct WindCondition {
@@ -973,8 +976,13 @@ impl GameState {
         pitched_ball: PitchedBall,
         swing_contact: &SwingContactResult,
     ) -> Result<(), GameError> {
-        let (batted_ball, metrics) =
-            calculate_batted_ball_with_metrics(batter, pitched_ball, swing_contact, &self.stadium)?;
+        let (batted_ball, metrics) = calculate_batted_ball_with_metrics(
+            self.rng.as_mut(),
+            batter,
+            pitched_ball,
+            swing_contact,
+            &self.stadium,
+        )?;
 
         info!("Batted Ball: {:#?}", batted_ball);
 
