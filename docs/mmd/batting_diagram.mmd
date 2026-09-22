@@ -13,7 +13,7 @@ flowchart TD
     calculate_swing_factor --> select_swing_execution
     select_swing_execution --> |Swing|adapt_to_pitch --> evaluate_swing_contact
     select_swing_execution --> |Swing|calculate_swing_execution_error --> evaluate_swing_contact
-    marginal_probability_from_length_offset --> evaluate_swing_contact
+    marginal_probability_from_tip_offset --> evaluate_swing_contact
     outer_tip_factor --> evaluate_swing_contact
     evaluate_swing_contact --> calculate_batted_ball
 

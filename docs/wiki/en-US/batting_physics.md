@@ -294,14 +294,20 @@ $$\text{VLA} = \theta_{\text{attack}} + \text{degrees}(\phi_z) \cdot k_{\text{vl
 Calculate this by combining the bat face angle in swing rotation with rebound from the curved cross-section of the bat.
 
 #### Bat Face Angle Tilt ($\phi_{\text{face}}$):
-$$\phi_{\text{face}} = \arcsin\left( \frac{x_m}{L_{\text{arm}}} \right)$$
-- $x_m$: bat impact position combining timing delay/early swing and spatial inside/outside offset
-  - $x_m < 0$ (impact point is out front)
+
+$$ω=\frac{v_\text{bat}}{r_\text{swing}}$$
+$$\phi_{\text{face}} = ωΔt + \text{approach\_variation\_rad} + \text{pull\_bias\_rad}$$
+
+- $ωΔt$: bat impact position combining timing delay/early swing and spatial inside/outside offset
+  - $ωΔt < 0$ (impact point is out front)
     - The bat face points left, toward the pull side for a right-handed batter.
-  - $x_m > 0$ (impact point is deeper)
+  - $ωΔt > 0$ (impact point is deeper)
     - The bat face points right, toward the opposite field for a right-handed batter.
-- $\phi_{\text{face}}$: bat orientation when the contact point is offset forward/backward by $x_m$
-- Swing rotation radius around the batter's torso/shoulders: $L_{\text{arm}} \approx 1.1\text{m}$
+- $\phi_{\text{face}}$: bat orientation when the contact point is offset forward/backward by $ωΔt$
+- $v_\text{bat}$: bat swing velocity
+- Swing rotation radius around the batter's torso/shoulders: $r_\text{swing} \approx 1.1\text{m}$
+- $\text{approach\_variation\_rad}$: per-plate-appearance variation in the batter's approach
+- $\text{pull\_bias\_rad}$: the batter's pull tendency
 
 #### Lateral Curved-Surface Rebound ($\phi_{\text{rebound}}$):
 
@@ -310,7 +316,7 @@ As with the vertical direction, rebound-angle deflection from the horizontal off
 $$\phi_{\text{rebound}} = \arcsin\left( \frac{x_m}{R_{\text{eff}}} \right)$$
 
 - Formula for horizontal launch angle (HLA):
-$$\text{HLA} = \text{BaseSprayAngle} + \text{degrees}(\phi_{\text{face}}) \cdot k_{\text{face}} + \text{degrees}(\phi_{\text{rebound}}) \cdot k_{\text{rebound}}$$
+$$\text{HLA} = \text{degrees}(\phi_{\text{face}}) \cdot k_{\text{face}} + \text{degrees}(\phi_{\text{rebound}}) \cdot k_{\text{rebound}}$$
 
 - $k_{\text{face}}$: contribution of face angle ($0.8 \sim 1.0$; timing gap is the main factor in launch direction)
 - $k_{\text{rebound}}$: contribution of lateral curved-surface rebound ($0.2 \sim 0.3$; outward rebound when contact is near the barrel end or handle)

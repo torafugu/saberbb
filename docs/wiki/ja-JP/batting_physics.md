@@ -291,17 +291,23 @@ $$\text{VLA} = \theta_{\text{attack}} + \text{degrees}(\phi_z) \cdot k_{\text{vl
 
 ### 水平打ち出し角の物理計算モデル
 
-スイング回転運動におけるバットの面角度と バット横断面の曲面による反発を加えて求める。
+接触時のバットの面角度と バット横断面の曲面による反発を加えて求める。
 
 #### バットの面角度の傾き（$\phi_{\text{face}}$）：
-$$\phi_{\text{face}} = \arcsin\left( \frac{x_m}{L_{\text{arm}}} \right)$$
-- $x_m$：タイミング遅れ/早振りと内角/外角の空間ズレを統合したバットのインパクト位置
-  - $x_m < 0$（インパクトのポイントが前）
+
+$$ω=\frac{v_\text{bat}}{r_\text{swing}}$$
+$$\phi_{\text{face}} = ωΔt + \text{approach\_variation\_rad} + \text{pull\_bias\_rad}$$
+
+- $ωΔt$：タイミング遅れ/早振りと内角/外角の空間ズレを統合したバットのインパクト位置
+  - $ωΔt < 0$（インパクトのポイントが前）
     - バットの面が左（右打者の引っ張り方向）を向く
-  - $x_m > 0$（インパクトのポイントが後）
+  - $ωΔt > 0$（インパクトのポイントが後）
     - バットの面が右（右打者の流し方向）を向く
-- $\phi_{\text{face}}$：ミート位置が前後に$x_m$ズレた際のバットの向き
-- 打者の体幹/肩を中心としたスイング回転半径：$L_{\text{arm}} \approx 1.1\text{m}$
+- $\phi_{\text{face}}$：ミート位置が前後に$ωΔt$ズレた際のバットの向き
+- $v_\text{bat}$:バットスイング速度
+- 打者の体幹/肩を中心としたスイング回転半径：$r_\text{swing} \approx 1.1\text{m}$
+- $\text{approach\_variation\_rad}$:打席ごとのアプローチのばらつき
+- $\text{pull\_bias\_rad}$:打者の引っ張り傾向
 
 #### 横方向の曲面反発（$\phi_{\text{rebound}}$）：
 
@@ -310,7 +316,7 @@ $$\phi_{\text{face}} = \arcsin\left( \frac{x_m}{L_{\text{arm}}} \right)$$
 $$\phi_{\text{rebound}} = \arcsin\left( \frac{x_m}{R_{\text{eff}}} \right)$$
 
 - 水平打ち出し角（HLA）の算出式：
-$$\text{HLA} = \text{BaseSprayAngle} + \text{degrees}(\phi_{\text{face}}) \cdot k_{\text{face}} + \text{degrees}(\phi_{\text{rebound}}) \cdot k_{\text{rebound}}$$
+$$\text{HLA} = \text{degrees}(\phi_{\text{face}}) \cdot k_{\text{face}} + \text{degrees}(\phi_{\text{rebound}}) \cdot k_{\text{rebound}}$$
 
 - $k_{\text{face}}$：面角度の寄与度（$0.8 \sim 1.0$。タイミングのズレが打出角に与える主要因）
 - $k_{\text{rebound}}$：横曲面反発の寄与度（$0.2 \sim 0.3$。バット先や根元に当たった場合の外側への反発）

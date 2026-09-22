@@ -102,7 +102,7 @@ $$\text{Final } z_m = \text{gap.spatial\_z\_m} + \text{execution\_error.addition
 
 ## 5.1 calculate_bat_angle
 
-$$\text{bat\_angle\_deg} = \text{CENTER\_ANGLE\_DEG} - (\text{ball\_location\_y} * \text{HIGH\_LOW\_RANGE\_DEG})$$
+$$\text{bat\_angle\_deg} = \text{CENTER\_ANGLE\_DEG} - (\text{ball\_location\_y} \cdot \text{HIGH\_LOW\_RANGE\_DEG})$$
 
 - $\text{CENTER\_ANGLE\_DEG} = 30^\circ$ (standard bat tilt angle for the center of the strike zone)
 - $\text{ball\_location\_y} = +1.0 ~ -1.0$ (ball height)
@@ -112,18 +112,49 @@ $$\text{bat\_angle\_deg} = \text{CENTER\_ANGLE\_DEG} - (\text{ball\_location\_y}
 
 ## 5.2 calculate_dynamic_attack_angle
 
-$$\text{attack\_angle\_deg} = \text{BatterInfo.attack\_angle} + ((\text{bat\_angle\_deg} - \text{BASE\_BAT\_ANGLE\_DEG}) * \text{COUPLING\_FACTOR})$$
+$$\text{attack\_angle\_deg} = \text{BatterInfo.attack\_angle} + ((\text{bat\_angle\_deg} - \text{BASE\_BAT\_ANGLE\_DEG}) \cdot \text{COUPLING\_FACTOR})$$
 
 - $\text{BASE\_BAT\_ANGLE\_DEG} = 30^\circ$ (standard bat tilt angle)
 - $\text{COUPLING\_FACTOR} = 0.35$ (correlation coefficient between bat tilt angle and swing attack angle)
 
 # 6. evaluate_swing_contact
 
-- If the contact point exceeds the bat length (distance from the sweet spot to the end of the bat along the length direction: 0.35 m), SwungAndMiss.
-- If the contact point exceeds the bat thickness (distance from the sweet spot to the edge of the bat along the thickness direction: 0.07 m), SwungAndMiss.
-- If the thickness-direction distance from the sweet spot to the edge of the bat is greater than 0.055 m, FoulTip.
-- If the thickness-direction distance from the sweet spot to the edge of the bat is greater than 0.025 m, WeakContact.
-- If the thickness-direction distance from the sweet spot to the edge of the bat is greater than 0.025 m, SolidContact.
+### ContactType Values
+
+| ContactType       | Meaning                                             |
+| ----------------- | --------------------------------------------------- |
+| `Take`            | Not swinging                                        |
+| `SwungAndMiss`    | The bat and ball did not make contact               |
+| `MarginalContact` | A graze, a brush, or contact close to a foul tip    |
+| `WeakContact`     | The ball met the bat, but with poor contact quality |
+| `SolidContact`    | Relatively solid contact                            |
+
+### ContactType Classification
+
+- If the offset exceeds the bat length (distance along the length direction from the sweet spot to the end of the bat: 16cm), SwungAndMiss
+- If the offset exceeds the bat thickness (distance along the thickness direction from the sweet spot to the end of the bat: 7cm), SwungAndMiss
+- If the thickness-direction distance from the sweet spot to the end of the bat is 7cm to 5.5cm, MarginalContact
+- If the thickness-direction distance from the sweet spot to the end of the bat is 5.5cm to 2.5cm, WeakContact
+  - If the contact point is close to the tip of the bat, change to MarginalContact
+- If the thickness-direction distance from the sweet spot to the end of the bat < 2.5cm, SolidContact
+  - If the contact point is close to the tip of the bat, change to WeakContact
+
+## 6.1 outer_tip_factor
+
+The closer the contact point is to the tip of the bat (the outer 15%), the more the ContactType quality is degraded probabilistically.
+
+$$t = \frac{\text{normalized\_tip\_offset} - 0.85}{1.0 - 0.85}$$
+$$\text{outer\_tip\_factor} = t^2 \cdot (3.0 - 2.0 \cdot t)$$
+
+### 6.2 marginal_probability_from_tip_offset
+
+Calculates the probability of downgrading ContactType by one level according to the distance from the center of the bat's sweet spot toward the tip of the bat.
+
+$$\text{marginal\_probability} = \frac{\text{MAX\_PROBABILITY}}{(1.0 + e^(-STEEPNESS \cdot (\text{normalized\_tip\_offset} - MIDPOINT)))}$$
+
+- $\text{MAX\_PROBABILITY}$:0.7
+- $MIDPOINT$:0.8
+- $STEEPNESS$:12.0
 
 # 7. calculate_batted_ball
 
@@ -134,7 +165,7 @@ Collects the batted-ball calculation results into BattedBall.
 1. Calculate the bat-ball collision point and the distance from the bat's sweet spot.
 2. Calculate the spin angle from the collision-point angle.
 3. Calculate the spin rate.
-$$\text{raw\_spin\_rate} = \text{MAX\_COLLISION\_SPIN\_AT\_REF\_SPEED} * \frac{\text{swing\_speed}}{\text{REF\_SWING\_SPEED}}$$
+$$\text{raw\_spin\_rate} = \text{MAX\_COLLISION\_SPIN\_AT\_REF\_SPEED} \cdot \frac{\text{swing\_speed}}{\text{REF\_SWING\_SPEED}}$$
 - $\text{REF\_SWING\_SPEED} = 33.333$ (standard swing speed in m/s)
 - $\text{MAX\_COLLISION\_SPIN\_AT\_REF\_SPEED} = 4000$ (maximum spin rate at the standard swing speed)
 1. Combine with the pitch vector in combine_batted_spin.
@@ -155,7 +186,7 @@ $$\text{effective\_}C_{\text{swing}} = \begin{cases} C_{\text{swing}} \cdot (1.0
 1. Calculate the maximum acceleration when the ball is hit perfectly on the bat's sweet spot.
 $$\text{c\_swing} = 1.12 + (0.16 \cdot power)$$
 - $power$ (batter power value from calculate_effective_c_swing)
-$$\text{max\_launch\_speed} = (\text{C\_PITCH} * \text{ball\_speed}) + (\text{c\_swing} * \text{swing\_speed})$$
+$$\text{max\_launch\_speed} = (\text{C\_PITCH} \cdot \text{ball\_speed}) + (\text{c\_swing} \cdot \text{swing\_speed})$$
 - $\text{C\_PITCH}$ (contribution rate of pitch speed to batted-ball speed)
 
 2. Calculate the attenuation rate based on the thickness-direction distance from the bat's sweet spot.
@@ -175,13 +206,13 @@ $$\text{launch\_speed} = \text{max\_launch\_speed} \cdot \text{e\_thick} \cdot \
 ## 7.5 calculate_launch_angles
 
 1. Calculate the vertical launch angle.
-$$\text{vla\_deg} = \text{attack\_angle\_deg} + (\text{normal\_angle\_z} * \text{VLA\_REBOUND\_FACTOR})$$
+$$\text{vla\_deg} = \text{attack\_angle\_deg} + (\text{normal\_angle\_z} \cdot \text{VLA\_REBOUND\_FACTOR})$$
 - $\text{attack\_angle\_deg}$ (swing attack angle)
 - $\text{normal\_angle\_z}$ (coefficient based on deviation from the bat's sweet spot)
 - $\text{VLA\_REBOUND\_FACTOR}$ (coefficient based on ball deformation at collision)
 
 2. Calculate the horizontal launch angle.
-$$\text{hla\_deg} = (\text{face\_angle\_rad} * \text{HLA\_FACE\_FACTOR}) + (\text{rebound\_angle\_x} * \text{HLA\_REBOUND\_FACTOR})$$
+$$\text{hla\_deg} = (\text{face\_angle\_rad} \cdot \text{HLA\_FACE\_FACTOR}) + (\text{rebound\_angle\_x} \cdot \text{HLA\_REBOUND\_FACTOR})$$
 
 - $\text{face\_angle\_rad}$ (angle caused by bat rotation)
 - $\text{HLA\_FACE\_FACTOR}$ (contribution rate of $\text{face\_angle\_rad}$ to the horizontal launch angle)

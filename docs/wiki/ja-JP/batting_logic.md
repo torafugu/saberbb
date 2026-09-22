@@ -102,7 +102,7 @@ $$\text{Final } z_m = \text{gap.spatial\_z\_m} + \text{execution\_error.addition
 
 ## 5.1 calculate_bat_angle
 
-$$\text{bat\_angle\_deg} = \text{CENTER\_ANGLE\_DEG} - (\text{ball\_location\_y} * \text{HIGH\_LOW\_RANGE\_DEG})$$
+$$\text{bat\_angle\_deg} = \text{CENTER\_ANGLE\_DEG} - (\text{ball\_location\_y} \cdot \text{HIGH\_LOW\_RANGE\_DEG})$$
 
 - $\text{CENTER\_ANGLE\_DEG} = 30^\circ$（ストライクゾーンの真ん中における標準のバット傾斜角）
 - $\text{ball\_location\_y} = +1.0 	~ -1.0$（ボールの高さ）
@@ -112,18 +112,50 @@ $$\text{bat\_angle\_deg} = \text{CENTER\_ANGLE\_DEG} - (\text{ball\_location\_y}
 
 ## 5.2 calculate_dynamic_attack_angle
 
-$$\text{attack\_angle\_deg} = \text{BatterInfo.attack\_angle} + ((\text{bat\_angle\_deg} - \text{BASE\_BAT\_ANGLE\_DEG}) * \text{COUPLING\_FACTOR})$$
+$$\text{attack\_angle\_deg} = \text{BatterInfo.attack\_angle} + ((\text{bat\_angle\_deg} - \text{BASE\_BAT\_ANGLE\_DEG}) \cdot \text{COUPLING\_FACTOR})$$
 
 - $\text{BASE\_BAT\_ANGLE\_DEG} = 30^\circ$（バット傾斜角の標準値）
 - $\text{COUPLING\_FACTOR} = 0.35$（バット傾斜角とスイング進入角の相関係数）
 
 # 6. evaluate_swing_contact
 
-- バットの長さを越えている場合（芯からバットの端までの長さ方向の距離：0.35m）、SwungAndMiss
-- バットの太さを越えている場合（芯からバットの端までの太さ方向の距離：0.07m）、SwungAndMiss
-- 芯からバットの端までの太さ方向の距離 > 0.055mの場合、FoulTip
-- 芯からバットの端までの太さ方向の距離 > 0.025mの場合、WeakContact
-- 芯からバットの端までの太さ方向の距離 > 0.025mの場合、SolidContact
+### ContactTypeの種類
+
+| ContactType       | 意味                    |
+| ----------------- | --------------------- |
+| `Take`            | スイングしていない             |
+| `SwungAndMiss`    | バットとボールが接触していない       |
+| `MarginalContact` | 擦った、かすった、FoulTipに近い接触 |
+| `WeakContact`     | バットには当たったが質の低い接触      |
+| `SolidContact`    | 比較的良好な接触              |
+
+### ContactTypeの判別
+
+- バットの長さを越えている場合（芯からバットの端までの長さ方向の距離：16cm）、SwungAndMiss
+- バットの太さを越えている場合（芯からバットの端までの太さ方向の距離：7cm）、SwungAndMiss
+- 芯からバットの端までの太さ方向の距離が 7cm ~ 5.5cmの場合、MarginalContact
+- 芯からバットの端までの太さ方向の距離が 5.5cm ~ 2.5cmの場合、WeakContact
+  - ボールが接触した場所がバットの先端に近い場合、MarginalContactに変更
+- 芯からバットの端までの太さ方向の距離 < 2.5cmの場合、SolidContact
+  - ボールが接触した場所がバットの先端に近い場合、WeakContactに変更
+
+## 6.1 outer_tip_factor
+
+バット先端(15%)へ近づくほど、ContactTypeの品質を確率的に低下させる
+
+$$t = \frac{\text{normalized\_tip\_offset} - 0.85}{1.0 - 0.85}$$
+$$\text{outer\_tip\_factor} = t^2 \cdot (3.0 - 2.0 \cdot t)$$
+
+### 6.2 marginal_probability_from_tip_offset
+
+バットの芯の中心からバットの先端方向への距離に応じて、ContactTypeを一段降格する確率を計算する
+
+$$\text{marginal\_probability} = \frac{\text{MAX\_PROBABILITY}}{(1.0 + e^(-STEEPNESS \cdot (\text{normalized\_tip\_offset} - MIDPOINT)))}$$
+
+- $\text{MAX\_PROBABILITY}$:0.7
+- $MIDPOINT$:0.8
+- $STEEPNESS$:12.0
+
 
 # 7. calculate_batted_ball
 
@@ -134,7 +166,7 @@ $$\text{attack\_angle\_deg} = \text{BatterInfo.attack\_angle} + ((\text{bat\_ang
 1. バットとボールの衝突地点とバットの芯からの距離を計算
 2. 衝突地点の角度からスピン角度を計算
 3. スピン回転数を計算
-$$\text{raw\_spin\_rate} = \text{MAX\_COLLISION\_SPIN\_AT\_REF\_SPEED} * \frac{\text{swing\_speed}}{\text{REF\_SWING\_SPEED}}$$
+$$\text{raw\_spin\_rate} = \text{MAX\_COLLISION\_SPIN\_AT\_REF\_SPEED} \cdot \frac{\text{swing\_speed}}{\text{REF\_SWING\_SPEED}}$$
 - $\text{REF\_SWING\_SPEED} = 33.333$（標準スイング速度 m/s）
 - $\text{MAX\_COLLISION\_SPIN\_AT\_REF\_SPEED} = 4000$（標準スイング速度におけるスピン回転数の最大値）
 1. combine_batted_spinで投球ベクトルと合算
@@ -155,7 +187,7 @@ $$\text{effective\_}C_{\text{swing}} = \begin{cases} C_{\text{swing}} \cdot (1.0
 1. バットの芯を完全に捉えた場合の最大加速度の計算
 $$\text{c\_swing} = 1.12 + (0.16 \cdot power)$$
 - $power$（calculate_effective_c_swingで打者のパワー値）
-$$\text{max\_launch\_speed} = (\text{C\_PITCH} * \text{ball\_speed}) + (\text{c\_swing} * \text{swing\_speed})$$
+$$\text{max\_launch\_speed} = (\text{C\_PITCH} \cdot \text{ball\_speed}) + (\text{c\_swing} \cdot \text{swing\_speed})$$
 - $\text{C\_PITCH}$（投球スピードの打球スピードへの寄与率）
 
 2. バットの芯からの太さ方向の距離による減衰率の計算
@@ -175,13 +207,13 @@ $$\text{launch\_speed} = \text{max\_launch\_speed} \cdot \text{e\_thick} \cdot \
 ## 7.5 calculate_launch_angles
 
 1. 垂直打出し角の計算
-$$\text{vla\_deg} = \text{attack\_angle\_deg} + (\text{normal\_angle\_z} * \text{VLA\_REBOUND\_FACTOR})$$
+$$\text{vla\_deg} = \text{attack\_angle\_deg} + (\text{normal\_angle\_z} \cdot \text{VLA\_REBOUND\_FACTOR})$$
 - $\text{attack\_angle\_deg}$（スイング進入角）
 - $\text{normal\_angle\_z}$（バットの芯からのズレによる係数）
 - $\text{VLA\_REBOUND\_FACTOR}$（衝突時のボールのたわみによる係数）
 
 2. 水平打ち出し角の計算
-$$\text{hla\_deg} = (\text{face\_angle\_rad} * \text{HLA\_FACE\_FACTOR}) + (\text{rebound\_angle\_x} * \text{HLA\_REBOUND\_FACTOR})$$
+$$\text{hla\_deg} = (\text{face\_angle\_rad} \cdot \text{HLA\_FACE\_FACTOR}) + (\text{rebound\_angle\_x} \cdot \text{HLA\_REBOUND\_FACTOR})$$
 
 - $\text{face\_angle\_rad}$（バットの回転によって生じる角度）
 - $\text{HLA\_FACE\_FACTOR}$（$\text{face\_angle\_rad}$の水平打ち出し角への寄与率）

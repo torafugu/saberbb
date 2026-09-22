@@ -330,7 +330,7 @@ fn outer_tip_factor(normalized_tip_offset: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
-fn marginal_probability_from_length_offset(normalized_tip_offset: f64) -> f64 {
+fn marginal_probability_from_tip_offset(normalized_tip_offset: f64) -> f64 {
     const MAX_PROBABILITY: f64 = 0.70;
     const MIDPOINT: f64 = 0.80;
     const STEEPNESS: f64 = 12.0;
@@ -362,7 +362,7 @@ pub fn evaluate_swing_contact(
     let normalized_tip_offset = (length_offset_m / MAX_LENGTH_OFFSET_M).clamp(0.0, 1.0);
     let outer_tip = outer_tip_factor(normalized_tip_offset);
 
-    let marginal_base_prob = marginal_probability_from_length_offset(normalized_tip_offset);
+    let marginal_base_prob = marginal_probability_from_tip_offset(normalized_tip_offset);
 
     // TODO: Bat length should be passed in as a parameter to allow for different bat lengths (e.g. youth vs adult)
     // 1. Bat length limit (e.g. miss if more than 35cm from the sweet spot toward the end)
