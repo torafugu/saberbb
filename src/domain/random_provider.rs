@@ -6,6 +6,7 @@ use rand_distr::{Distribution, Gamma};
 
 pub trait RandomProvider: std::fmt::Debug {
     fn random(&mut self) -> f64;
+    fn random_bool(&mut self, probability: f64) -> bool;
     fn gen_range(&mut self, low: usize, high: usize) -> usize;
     fn range_f64(&mut self, low: f64, high: f64) -> f64;
     fn normal(&mut self, normal: NormalParam) -> f64;
@@ -44,6 +45,10 @@ impl RealRng {
 impl RandomProvider for RealRng {
     fn random(&mut self) -> f64 {
         self.0.random()
+    }
+
+    fn random_bool(&mut self, probability: f64) -> bool {
+        self.0.random::<f64>() < probability
     }
 
     fn gen_range(&mut self, low: usize, high: usize) -> usize {
@@ -154,6 +159,10 @@ impl FixedRng {
 impl RandomProvider for FixedRng {
     fn random(&mut self) -> f64 {
         self.value
+    }
+
+    fn random_bool(&mut self, probability: f64) -> bool {
+        self.value < probability
     }
 
     fn gen_range(&mut self, low: usize, high: usize) -> usize {

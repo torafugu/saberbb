@@ -13,6 +13,8 @@ flowchart TD
     calculate_swing_factor --> select_swing_execution
     select_swing_execution --> |Swing|adapt_to_pitch --> evaluate_swing_contact
     select_swing_execution --> |Swing|calculate_swing_execution_error --> evaluate_swing_contact
+    marginal_probability_from_length_offset --> evaluate_swing_contact
+    outer_tip_factor --> evaluate_swing_contact
     evaluate_swing_contact --> calculate_batted_ball
 
     subgraph calculate_swing_execution_error
@@ -24,5 +26,7 @@ flowchart TD
         direction TB
         calculate_collision_spin --> combine_batted_spin --> calculate_trajectory
         calculate_effective_c_swing --> calculate_launch_speed_with_power --> calculate_trajectory
-        calculate_timing_angle_error --> calculate_launch_angles --> calculate_trajectory
+        sample_marginal_timing_error --> calculate_launch_angles
+        calculate_timing_angle_error --> calculate_launch_angles
+        calculate_launch_angles --> calculate_trajectory
     end

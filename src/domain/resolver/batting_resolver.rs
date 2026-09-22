@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumString};
 
+// 16cm from the sweet spot toward the end of the bat
+const MAX_LENGTH_OFFSET_M: f64 = 0.16;
 // Standard reference swing speed (m/s)
 const REF_SWING_SPEED: f64 = 33.333;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
@@ -287,13 +289,6 @@ pub fn calculate_swing_execution_error(
     }
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, EnumString, Serialize, Deserialize, AsRefStr)]
-#[strum(ascii_case_insensitive)]
-pub enum ContactTimingQuality {
-    Solid,
-    Marginal,
-}
-
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
@@ -304,8 +299,8 @@ pub struct SwingContactResult {
     // NOTE: Spatial sweet-spot offset (0.0: perfectly centered ~ 1.0: completely missing the zone)
     pub thickness_offset_m: f64,
     pub length_offset_m: f64,
-    pub contact_type: SwingContactType,
-    pub contact_quality: Option<ContactTimingQuality>,
+    pub original_contact_type: SwingContactType,
+    pub adjusted_contact_type: SwingContactType,
     pub attack_angle_deg: f64,
 }
 
@@ -319,14 +314,32 @@ pub enum SwingContactType {
     // NOTE: Missed the sweet spot (likely grounder / fly / foul)
     WeakContact,
     // NOTE: Barely grazed it (tip foul)
-    FoulTip,
+    MarginalContact,
     // NOTE: Bat swung through air completely (swing and miss)
     SwungAndMiss,
     #[default]
     Take,
 }
 
+fn outer_tip_factor(normalized_tip_offset: f64) -> f64 {
+    const START: f64 = 0.85;
+
+    let t = ((normalized_tip_offset - START) / (1.0 - START)).clamp(0.0, 1.0);
+
+    // Change smoothly from 0 to 1.
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn marginal_probability_from_length_offset(normalized_tip_offset: f64) -> f64 {
+    const MAX_PROBABILITY: f64 = 0.70;
+    const MIDPOINT: f64 = 0.80;
+    const STEEPNESS: f64 = 12.0;
+
+    MAX_PROBABILITY / (1.0 + (-STEEPNESS * (normalized_tip_offset - MIDPOINT)).exp())
+}
+
 pub fn evaluate_swing_contact(
+    rng: &mut dyn RandomProvider,
     batter: &BatterInfo,
     offset: &PitchDisplacement,
     swing_execution_error: &SwingExecutionError,
@@ -346,32 +359,49 @@ pub fn evaluate_swing_contact(
     // Offset projected onto the bat's length direction (m) using bat angle (bat_angle_deg)
     // Project X/Z spatial offsets onto the bat's length direction
     let length_offset_m = (offset_x_m * rad.cos() + offset_z_m * rad.sin()).abs();
+    let normalized_tip_offset = (length_offset_m / MAX_LENGTH_OFFSET_M).clamp(0.0, 1.0);
+    let outer_tip = outer_tip_factor(normalized_tip_offset);
 
+    let marginal_base_prob = marginal_probability_from_length_offset(normalized_tip_offset);
+
+    // TODO: Bat length should be passed in as a parameter to allow for different bat lengths (e.g. youth vs adult)
     // 1. Bat length limit (e.g. miss if more than 35cm from the sweet spot toward the end)
-    let (contact_type, contact_quality) = if length_offset_m > 0.350 {
-        (SwingContactType::SwungAndMiss, None)
+    let (original_contact_type, adjusted_contact_type) = if length_offset_m > MAX_LENGTH_OFFSET_M {
+        (
+            SwingContactType::SwungAndMiss,
+            SwingContactType::SwungAndMiss,
+        )
 
     // 2. Bat thickness direction (bat radius 3.3cm + ball radius 3.7cm = 7.0cm limit)
     } else if thickness_offset_m > 0.070 {
         (
             SwingContactType::SwungAndMiss,
-            Some(ContactTimingQuality::Marginal),
+            SwingContactType::SwungAndMiss,
         )
     } else if thickness_offset_m > 0.055 {
         (
-            SwingContactType::FoulTip,
-            Some(ContactTimingQuality::Marginal),
+            SwingContactType::MarginalContact,
+            SwingContactType::MarginalContact,
         )
     } else if thickness_offset_m > 0.025 {
-        (
-            SwingContactType::WeakContact,
-            Some(ContactTimingQuality::Solid),
-        )
+        let weak_to_marginal_probability = (marginal_base_prob + 0.15 * outer_tip).clamp(0.0, 1.0);
+        let adjusted = if rng.random_bool(weak_to_marginal_probability) {
+            SwingContactType::MarginalContact
+        } else {
+            SwingContactType::WeakContact
+        };
+
+        (SwingContactType::WeakContact, adjusted)
     } else {
-        (
-            SwingContactType::SolidContact,
-            Some(ContactTimingQuality::Solid),
-        )
+        let solid_to_weak_probability =
+            (marginal_base_prob * 0.5 + 0.10 * outer_tip).clamp(0.0, 1.0);
+        let adjusted = if rng.random_bool(solid_to_weak_probability) {
+            SwingContactType::WeakContact
+        } else {
+            SwingContactType::SolidContact
+        };
+
+        (SwingContactType::SolidContact, adjusted)
     };
 
     SwingContactResult {
@@ -381,8 +411,8 @@ pub fn evaluate_swing_contact(
         offset_z_m: offset_z_m,
         thickness_offset_m: thickness_offset_m,
         length_offset_m: length_offset_m,
-        contact_type: contact_type,
-        contact_quality: contact_quality,
+        original_contact_type: original_contact_type,
+        adjusted_contact_type: adjusted_contact_type,
         attack_angle_deg: swing_execution_error.actual_attack_angle_deg,
     }
 }
@@ -440,15 +470,9 @@ pub fn calculate_launch_angles(
     let vla_deg = contact.attack_angle_deg + (normal_angle_z_rad.to_degrees() * VLA_REBOUND_FACTOR);
 
     // 2. Calculate HLA (horizontal launch angle)
-    let contact_quality = if let Some(quality) = contact.contact_quality {
-        quality
-    } else {
-        return Err(GameError::ContactTimingQuality);
-    };
-
-    let timing_error_sec = match contact_quality {
-        ContactTimingQuality::Solid => contact.timing_offset_sec,
-        ContactTimingQuality::Marginal => sample_marginal_timing_error(rng),
+    let timing_error_sec = match contact.adjusted_contact_type {
+        SwingContactType::MarginalContact => sample_marginal_timing_error(rng),
+        _ => contact.timing_offset_sec,
     };
 
     // TODO: bat control should impact the variation range.
@@ -932,6 +956,9 @@ pub fn calculate_batted_ball_with_metrics(
     let angles = calculate_launch_angles(rng, contact, batter)?;
     let batted_ball = calculate_batted_ball(batter, ball, contact, &angles, stadium)?;
     let metrics = PlayerGameBattingMetrics {
+        length_offset_m: contact.length_offset_m,
+        original_contact_type: contact.original_contact_type,
+        adjusted_contact_type: contact.adjusted_contact_type,
         timing_error: contact.timing_offset_sec,
         bat_speed: batter.swing_speed,
         angular_velocity: angles.angular_velocity_rad_s,
@@ -1052,8 +1079,8 @@ mod tests {
             offset_z_m: 0.0,
             thickness_offset_m: 0.0,
             length_offset_m: 0.0,
-            contact_type: SwingContactType::SolidContact,
-            contact_quality: Some(ContactTimingQuality::Solid),
+            original_contact_type: SwingContactType::SolidContact,
+            adjusted_contact_type: SwingContactType::SolidContact,
             attack_angle_deg,
         }
     }
@@ -1069,8 +1096,8 @@ mod tests {
                     offset_z_m: 0.07,
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
-                    contact_type: SwingContactType::SolidContact,
-                    contact_quality: Some(ContactTimingQuality::Solid),
+                    original_contact_type: SwingContactType::SolidContact,
+                    adjusted_contact_type: SwingContactType::SolidContact,
                     attack_angle_deg: 5.0,
                 },
                 RL::Right,
@@ -1085,8 +1112,8 @@ mod tests {
                     offset_z_m: -0.07,
                     thickness_offset_m: 0.0,
                     length_offset_m: 0.0,
-                    contact_type: SwingContactType::SolidContact,
-                    contact_quality: Some(ContactTimingQuality::Solid),
+                    original_contact_type: SwingContactType::SolidContact,
+                    adjusted_contact_type: SwingContactType::SolidContact,
                     attack_angle_deg: 5.0,
                 },
                 RL::Left,

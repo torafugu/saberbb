@@ -18,6 +18,9 @@ CREATE TABLE player_game_batting (
     pull_bias_deg REAL NOT NULL,
     timing_angle_error REAL NOT NULL,
     final_hla_deg REAL NOT NULL,
+    length_offset_m REAL NOT NULL,
+    original_contact_type TEXT NOT NULL,
+    adjusted_contact_type TEXT NOT NULL,
     launch_speed REAL NOT NULL,
     launch_angle REAL NOT NULL,
     polar_distance REAL NOT NULL,
@@ -53,6 +56,9 @@ CREATE TABLE player_game_batting (
 | pull_bias_deg          | REAL    |         | false    |          |         |         |
 | timing_angle_error     | REAL    |         | false    |          |         |         |
 | final_hla_deg          | REAL    |         | false    |          |         |         |
+| length_offset_m        | REAL    |         | false    |          |         |         |
+| original_contact_type  | TEXT    |         | false    |          |         |         |
+| adjusted_contact_type  | TEXT    |         | false    |          |         |         |
 | launch_speed           | REAL    |         | false    |          |         |         |
 | launch_angle           | REAL    |         | false    |          |         |         |
 | polar_distance         | REAL    |         | false    |          |         |         |

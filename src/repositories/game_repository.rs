@@ -928,6 +928,9 @@ mod tests {
                 pull_bias_deg REAL NOT NULL DEFAULT 0.0,
                 timing_angle_error REAL NOT NULL DEFAULT 0.0,
                 final_hla_deg REAL NOT NULL DEFAULT 0.0,
+                length_offset_m REAL NOT NULL DEFAULT 0.0,
+                original_contact_type TEXT NOT NULL DEFAULT 'Take',
+                adjusted_contact_type TEXT NOT NULL DEFAULT 'Take',
                 launch_speed REAL NOT NULL DEFAULT 0.0,
                 launch_angle REAL NOT NULL DEFAULT 0.0,
                 polar_distance REAL NOT NULL DEFAULT 0.0,
@@ -1874,6 +1877,11 @@ mod tests {
                 pull_bias_deg: 0.0,
                 timing_angle_error: 0.0,
                 final_hla_deg: 0.0,
+                length_offset_m: 0.04,
+                original_contact_type:
+                    crate::domain::resolver::batting_resolver::SwingContactType::WeakContact,
+                adjusted_contact_type:
+                    crate::domain::resolver::batting_resolver::SwingContactType::SolidContact,
                 ball: batted_ball(),
                 fielder_position: None,
                 result: BattingResult::Single,
@@ -1885,6 +1893,17 @@ mod tests {
         repo.update_game_result(&game).unwrap();
 
         let conn = conn(&repo);
+        let contact_types: (f64, String, String) = conn
+            .query_row(
+                "SELECT length_offset_m, original_contact_type, adjusted_contact_type FROM player_game_batting WHERE game_id = 1 AND count_seq = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            contact_types,
+            (0.04, "WeakContact".into(), "SolidContact".into())
+        );
         let mut stmt = conn
             .prepare(
                 "SELECT pitcher_id, decision

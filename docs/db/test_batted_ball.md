@@ -26,7 +26,8 @@ CREATE TABLE test_batted_ball (
     offset_z_m REAL NOT NULL,
     thickness_offset_m REAL NOT NULL,
     length_offset_m REAL NOT NULL,
-    contact_type TEXT NOT NULL,
+    original_contact_type TEXT NOT NULL,
+    adjusted_contact_type TEXT NOT NULL,
     modified_attack_angle_deg REAL NOT NULL,
     launch_speed_ms REAL NOT NULL,
     launch_angle REAL NOT NULL,
@@ -62,7 +63,8 @@ CREATE TABLE test_batted_ball (
 | offset_z_m                | REAL |         | false    |          |         |         |
 | thickness_offset_m        | REAL |         | false    |          |         |         |
 | length_offset_m           | REAL |         | false    |          |         |         |
-| contact_type              | TEXT |         | false    |          |         |         |
+| original_contact_type     | TEXT |         | false    |          |         |         |
+| adjusted_contact_type     | TEXT |         | false    |          |         |         |
 | modified_attack_angle_deg | REAL |         | false    |          |         |         |
 | launch_speed_ms           | REAL |         | false    |          |         |         |
 | launch_angle              | REAL |         | false    |          |         |         |

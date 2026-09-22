@@ -1,4 +1,5 @@
 use super::game::BattingResult;
+use crate::domain::resolver::batting_resolver::SwingContactType;
 use crate::domain::resolver::fielding_resolver::PlayType;
 use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::RunningEvent;
@@ -138,6 +139,9 @@ pub struct PlayerGamePitching {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingMetrics {
+    pub length_offset_m: f64,
+    pub original_contact_type: SwingContactType,
+    pub adjusted_contact_type: SwingContactType,
     pub timing_error: f64,
     pub bat_speed: f64,
     pub angular_velocity: f64,
@@ -149,6 +153,9 @@ pub struct PlayerGameBattingMetrics {
 impl Default for PlayerGameBattingMetrics {
     fn default() -> Self {
         Self {
+            length_offset_m: 0.0,
+            original_contact_type: SwingContactType::Take,
+            adjusted_contact_type: SwingContactType::Take,
             timing_error: 0.0,
             bat_speed: 0.0,
             angular_velocity: 0.0,
@@ -172,6 +179,9 @@ pub struct PlayerGameBatting {
     pub pull_bias_deg: f64,
     pub timing_angle_error: f64,
     pub final_hla_deg: f64,
+    pub length_offset_m: f64,
+    pub original_contact_type: SwingContactType,
+    pub adjusted_contact_type: SwingContactType,
     pub ball: BattedBall,
     pub fielder_position: Option<Position>,
     pub result: BattingResult,

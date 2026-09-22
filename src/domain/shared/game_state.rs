@@ -102,9 +102,6 @@ pub enum GameError {
 
     #[error("Failed to create pitch: {0}")]
     PitchCreation(#[from] AppError),
-
-    #[error("Failed to determine contact timing quality")]
-    ContactTimingQuality,
 }
 
 pub struct WindCondition {
@@ -866,8 +863,8 @@ impl GameState {
                 &batting_factor,
             );
 
-            if swing_contact.contact_type == SwingContactType::SwungAndMiss {
-                self.resolve_swing_miss(pitcher_id, batter_id);
+            if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
+                self.resolve_swing_miss(pitcher_id, batter_id, &swing_contact);
             } else {
                 self.resolve_contact(
                     pitcher_id,
@@ -942,10 +939,15 @@ impl GameState {
             &pitched_ball.actual_location,
         );
 
-        evaluate_swing_contact(batter, &displacement, &swing_error)
+        evaluate_swing_contact(self.rng.as_mut(), batter, &displacement, &swing_error)
     }
 
-    fn resolve_swing_miss(&mut self, pitcher_id: i64, batter_id: i64) {
+    fn resolve_swing_miss(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        contact: &SwingContactResult,
+    ) {
         info!("SwungAndMiss");
 
         let batting_result = if self.inning_state.strike + 1 >= MAX_STRIKE {
@@ -958,7 +960,12 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
-            PlayerGameBattingMetrics::default(),
+            PlayerGameBattingMetrics {
+                length_offset_m: contact.length_offset_m,
+                original_contact_type: contact.original_contact_type,
+                adjusted_contact_type: contact.adjusted_contact_type,
+                ..Default::default()
+            },
             BattedBall::default(),
             None,
             batting_result,
