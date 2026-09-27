@@ -23,43 +23,63 @@ pub enum PitchingStrategy {
     PitchAround,
 }
 
+const STRATEGY_PRIORITY: [PitchingStrategy; 5] = [
+    PitchingStrategy::AttackZone,
+    PitchingStrategy::HuntStrikeout,
+    PitchingStrategy::InduceGroundBall,
+    PitchingStrategy::AvoidExtraBases,
+    PitchingStrategy::PitchAround,
+];
+
 pub fn select_pitching_strategy(
     inning_state: &InningState,
     inning: u8,
     score_diff: i16, // If the score is a plus from the defensive team's perspective, it is a lead.
 ) -> PitchingStrategy {
-    let mut strategy_score_map: HashMap<PitchingStrategy, u8> = HashMap::new();
+    let mut strategy_score_map: HashMap<PitchingStrategy, i32> = HashMap::new();
 
     // Score by RunnerState and out count
     if inning_state.can_double_play() {
-        strategy_score_map.insert(PitchingStrategy::InduceGroundBall, 5);
+        add_score(
+            &mut strategy_score_map,
+            PitchingStrategy::InduceGroundBall,
+            5,
+        );
     } else if inning_state.in_play_score_chance() {
-        strategy_score_map.insert(PitchingStrategy::HuntStrikeout, 5);
+        add_score(&mut strategy_score_map, PitchingStrategy::HuntStrikeout, 5);
     }
 
     // Score by Pitcher ability
     if let Some(active_pitcher) = &inning_state.active_pitcher {
         if active_pitcher.pitcher.ground_ball_option() > 0.5 {
-            strategy_score_map.insert(PitchingStrategy::InduceGroundBall, 2);
+            add_score(
+                &mut strategy_score_map,
+                PitchingStrategy::InduceGroundBall,
+                2,
+            );
         }
 
         if active_pitcher.pitcher.whiff_option() > 0.5 {
-            strategy_score_map.insert(PitchingStrategy::HuntStrikeout, 3);
+            add_score(&mut strategy_score_map, PitchingStrategy::HuntStrikeout, 3);
         }
 
         if sigmoid(active_pitcher.pitcher.control) > 0.5 {
-            strategy_score_map.insert(PitchingStrategy::AttackZone, 3);
+            add_score(&mut strategy_score_map, PitchingStrategy::AttackZone, 3);
         }
     }
 
     // Score by Batter ability
     if let Some(active_batter) = &inning_state.active_batter {
         if active_batter.batter.slugger_option() > 0.5 {
-            strategy_score_map.insert(PitchingStrategy::AvoidExtraBases, 3);
+            add_score(
+                &mut strategy_score_map,
+                PitchingStrategy::AvoidExtraBases,
+                3,
+            );
         }
 
         if active_batter.batter.score() > 0.5 {
-            strategy_score_map.insert(PitchingStrategy::PitchAround, 5);
+            add_score(&mut strategy_score_map, PitchingStrategy::PitchAround, 5);
         }
     }
 
@@ -68,9 +88,9 @@ pub fn select_pitching_strategy(
     if let Some(walk_cost_runs) = re.walk_cost_runs(&inning_state.runners, inning_state.out) {
         // TODO: walk_cost_runs should be updated based on PitchingStrategy distribution.
         if walk_cost_runs < 1.0 {
-            strategy_score_map.insert(PitchingStrategy::PitchAround, 3);
+            add_score(&mut strategy_score_map, PitchingStrategy::PitchAround, 3);
         } else {
-            strategy_score_map.insert(PitchingStrategy::AttackZone, 5);
+            add_score(&mut strategy_score_map, PitchingStrategy::AttackZone, 5);
         }
     }
 
@@ -84,15 +104,29 @@ pub fn select_pitching_strategy(
 
         // TODO: extra_base_damage should be updated based on PitchingStrategy distribution.
         if extra_base_damage > 1.5 {
-            strategy_score_map.insert(PitchingStrategy::AvoidExtraBases, 5);
+            add_score(
+                &mut strategy_score_map,
+                PitchingStrategy::AvoidExtraBases,
+                5,
+            );
         }
     }
 
-    strategy_score_map
-        .iter()
-        .max_by_key(|(_, score)| *score)
-        .map(|(strategy, _)| *strategy)
-        .unwrap_or(PitchingStrategy::PitchAround)
+    STRATEGY_PRIORITY
+        .into_iter()
+        .enumerate()
+        .max_by_key(|(index, strategy)| {
+            (
+                strategy_score_map.get(strategy).copied().unwrap_or(0),
+                std::cmp::Reverse(*index),
+            )
+        })
+        .map(|(_, strategy)| strategy)
+        .unwrap_or(PitchingStrategy::AttackZone)
+}
+
+fn add_score(scores: &mut HashMap<PitchingStrategy, i32>, strategy: PitchingStrategy, points: i32) {
+    *scores.entry(strategy).or_insert(0) += points;
 }
 
 pub struct PitchingPreferences {
