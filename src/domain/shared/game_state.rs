@@ -382,8 +382,14 @@ impl GameState {
         false
     }
 
-    pub fn advance_half_inning(&mut self) {
+    pub fn advance_half_inning(&mut self) -> Result<(), GameError> {
         self.inning_state = InningState::new();
+
+        self.inning_state.active_pitcher = if self.inning_tb == TB::Top {
+            Some(self.home_lineup.pitcher()?)
+        } else {
+            Some(self.away_lineup.pitcher()?)
+        };
 
         self.inning_tb = match self.inning_tb {
             TB::Top => TB::Bottom,
@@ -398,6 +404,7 @@ impl GameState {
             tb: self.inning_tb,
             counts: Vec::new(),
         };
+        Ok(())
     }
 
     pub fn finish_half_inning(&mut self) {
@@ -1249,6 +1256,7 @@ pub struct InningState {
     pub strike: u8,
     pub out: u8,
     pub active_batter: Option<ActiveBatter>,
+    pub active_pitcher: Option<ActivePitcher>,
 }
 impl InningState {
     pub fn new() -> InningState {
@@ -1258,6 +1266,7 @@ impl InningState {
             strike: 0,
             out: 0,
             active_batter: None,
+            active_pitcher: None,
         }
     }
 
@@ -1276,6 +1285,10 @@ impl InningState {
 
     pub fn can_double_play(&self) -> bool {
         self.out < 2 && self.runners.has_runner_on(Base::First)
+    }
+
+    pub fn in_play_score_chance(&self) -> bool {
+        self.out < 2 && self.runners.has_runner_on(Base::Third)
     }
 
     // TODO: Consider running attitude (early start, hit and run, etc)

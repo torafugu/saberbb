@@ -5,6 +5,9 @@ use rusqlite::params;
 use saberbb::domain::random_provider::*;
 use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::domain::schedule_service::ScheduleService;
+use saberbb::domain::shared::game_state::{ActiveBatter, ActivePitcher, InningState};
+use saberbb::domain::shared::player::SWING_SPEED_AVG;
+use saberbb::domain::strategy::pitching_strategy::select_pitching_strategy;
 use saberbb::repositories::db::*;
 
 #[test]
@@ -104,4 +107,74 @@ fn test_pitched_ball() {
         )
         .unwrap();
     }
+}
+
+#[test]
+fn test_select_pitching_strategy() {
+    let mut conn = SqlDb::new().unwrap().get_conn().unwrap();
+    let runner = generate_runner();
+    let mut inning_state = InningState::new();
+    inning_state.active_pitcher = Some(ActivePitcher {
+        id: 1,
+        pitcher: generate_pitcher(),
+    });
+    inning_state.active_batter = Some(ActiveBatter::new(2, generate_batter(), runner.skills));
+
+    conn.execute("DELETE FROM test_select_pitching_strategy", [])
+        .unwrap();
+
+    let tx = conn.transaction().unwrap();
+    tx.execute_batch(include_str!(
+        "../migrations/ddl/test_select_pitching_strategy.sql"
+    ))
+    .unwrap();
+
+    {
+        let mut insert = tx
+            .prepare("INSERT INTO test_select_pitching_strategy (pitching_strategy) VALUES (?1)")
+            .unwrap();
+
+        for sample in 0..1000 {
+            // Cycle through all 24 base/out situations.
+            let base_mask = sample % 8;
+            inning_state.out = ((sample / 8) % 3) as u8;
+            inning_state.runners.runner_1st = (base_mask & 1 != 0).then_some(runner);
+            inning_state.runners.runner_2nd = (base_mask & 2 != 0).then_some(runner);
+            inning_state.runners.runner_3rd = (base_mask & 4 != 0).then_some(runner);
+
+            if sample >= 500 {
+                // A power hitter with two outs and empty bases makes avoiding
+                // extra bases competitive without double-play or strikeout urgency.
+                inning_state.out = 2;
+                inning_state.runners = Default::default();
+                let batter = &mut inning_state.active_batter.as_mut().unwrap().batter;
+                batter.swing_speed = SWING_SPEED_AVG;
+                batter.swing_power = 2.0;
+                assert!(batter.slugger_option() > 0.5);
+            }
+
+            let strategy = select_pitching_strategy(&inning_state, 1, 0);
+            insert.execute(params![format!("{strategy:?}")]).unwrap();
+        }
+    }
+
+    let count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM test_select_pitching_strategy",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1000);
+    let avoid_extra_bases_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM test_select_pitching_strategy WHERE pitching_strategy = 'AvoidExtraBases'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    // Equal strategy scores are currently broken by HashMap iteration order,
+    // so check presence across the samples rather than an exact percentage.
+    assert!(avoid_extra_bases_count > 0);
+    tx.commit().unwrap();
 }

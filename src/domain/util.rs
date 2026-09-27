@@ -2,6 +2,9 @@ use crate::domain::shared::game::BaseCode;
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 
+pub const FIRST: u8 = 0b001;
+pub const SECOND: u8 = 0b010;
+pub const THIRD: u8 = 0b100;
 pub const GRAVITY: f64 = 9.81;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

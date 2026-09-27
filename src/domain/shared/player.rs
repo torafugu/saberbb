@@ -9,7 +9,7 @@ use crate::domain::strategy::batting_strategy::{default_plate_approach, zone_apt
 use crate::domain::strategy::pitching_strategy::{
     Margin, PitchCall, TargetZone, default_location_distribution,
 };
-use crate::domain::util::{Vector3D, softmax};
+use crate::domain::util::{Vector3D, sigmoid, softmax};
 use crate::error::AppError;
 use crate::t;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,8 @@ use validator::Validate;
 
 pub const PITCH_EXTENSION_MIN: f64 = 1.2;
 pub const PITCH_EXTENSION_MAX: f64 = 2.3;
+// TODO: SWING_SPEED_AVG should be retrieved from DB.
+pub const SWING_SPEED_AVG: f64 = 38.5;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, EnumString, Serialize, Deserialize, Debug, AsRefStr)]
 #[strum(ascii_case_insensitive)]
@@ -433,6 +435,21 @@ impl BatterInfo {
             .sum::<f64>()
             * (1.0 + self.hot_zone_scale)
     }
+
+    // TODO: Refine the slugger_option based on batting simulation result.
+    pub fn slugger_option(&self) -> f64 {
+        sigmoid(self.swing_speed / SWING_SPEED_AVG * 0.5 + self.swing_power * 0.5)
+    }
+
+    // TODO: Refine the score based on batting simulation result.
+    pub fn score(&self) -> f64 {
+        sigmoid(
+            self.swing_speed / SWING_SPEED_AVG * 0.3
+                + self.swing_power * 0.3
+                + self.batting_eye * 0.2
+                + self.bat_control * 0.2,
+        )
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug, Validate)]
@@ -644,7 +661,7 @@ impl PitcherInfo {
         }
     }
 
-    /// Auto-generate physical release point (x, y, z) from body data and delivery form
+    // Auto-generate physical release point (x, y, z) from body data and delivery form
     pub fn calculate_release_point(&self, rng: &mut dyn RandomProvider) -> Vector3D {
         // 1. Z-axis (height): multiply height by form factor
         let height_factor = match self.arm_slot {
@@ -763,6 +780,24 @@ impl PitcherInfo {
             .find(|i| i.is(pitch_type))
             .expect("PitchType is not found")
             .clone()
+    }
+
+    // TODO: Refine the ground ball option based on pitch simulation result.
+    pub fn ground_ball_option(&self) -> f64 {
+        match self.pitcher_style {
+            PitcherStyle::PowerPitcher => 0.4,
+            PitcherStyle::FinessePitcher => 0.6,
+            PitcherStyle::BalancedPitcher => 0.5,
+        }
+    }
+
+    // TODO: Refine the whiff option based on pitch simulation result.
+    pub fn whiff_option(&self) -> f64 {
+        match self.pitcher_style {
+            PitcherStyle::PowerPitcher => 0.6,
+            PitcherStyle::FinessePitcher => 0.4,
+            PitcherStyle::BalancedPitcher => 0.5,
+        }
     }
 }
 

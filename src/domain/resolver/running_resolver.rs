@@ -5,6 +5,7 @@ use crate::domain::shared::game::{BASE_DISTANCE, BattingResult};
 use crate::domain::shared::game_state::{ActiveRunner, GameError, Ruling};
 use crate::domain::shared::player::RL;
 use crate::domain::shared::stadium::Base;
+use crate::domain::util::{FIRST, SECOND, THIRD};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use strum_macros::{AsRefStr, EnumString};
@@ -207,6 +208,28 @@ pub struct RunnersOnBase {
     pub runner_3rd: Option<ActiveRunner>,
 }
 impl RunnersOnBase {
+    pub fn base_mask(&self) -> u8 {
+        // Bitmask representing runner state on bases (takes values 0–7)
+        // Example: runners on first and third = 1 + 4 = 5 (101)
+        (self.runner_1st.is_some() as u8)
+            | ((self.runner_2nd.is_some() as u8) << 1)
+            | ((self.runner_3rd.is_some() as u8) << 2)
+    }
+
+    pub fn bases_after_walk(&self) -> (u8, u8) {
+        let before = self.base_mask();
+        let on_first = before & FIRST != 0;
+        let on_second = before & SECOND != 0;
+        let on_third = before & THIRD != 0;
+
+        let after = FIRST // The batter reaches first base.
+        | (u8::from(on_first || on_second) << 1)
+        | (u8::from(on_third || (on_first && on_second)) << 2);
+
+        let runs_scored = u8::from(on_first && on_second && on_third);
+        (after, runs_scored)
+    }
+
     fn empty(&mut self) {
         self.batter_runner = None;
         self.runner_1st = None;
@@ -1092,6 +1115,28 @@ mod tests {
             runner_1st,
             runner_2nd,
             runner_3rd,
+        }
+    }
+
+    #[test]
+    fn occupancy_returns_base_runner_bitmask() {
+        let runner = Some(runner(8.0));
+        let cases = [
+            ((None, None, None), 0b000),
+            ((runner, None, None), 0b001),
+            ((None, runner, None), 0b010),
+            ((None, None, runner), 0b100),
+            ((runner, runner, None), 0b011),
+            ((runner, None, runner), 0b101),
+            ((None, runner, runner), 0b110),
+            ((runner, runner, runner), 0b111),
+        ];
+
+        for ((runner_1st, runner_2nd, runner_3rd), expected) in cases {
+            assert_eq!(
+                runners(None, runner_1st, runner_2nd, runner_3rd).base_mask(),
+                expected
+            );
         }
     }
 
