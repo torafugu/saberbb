@@ -1,7 +1,7 @@
 use crate::domain::shared::player::{
     ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, FullName,
-    HitterTendency, PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL,
-    RunningSkills, ZoneAptitude,
+    HitterTendency, PitchSkill, PitchType, PitcherCharacter, PitcherInfo, PitcherStyle, PlayerInfo,
+    Position, RL, RunningSkills, ZoneAptitude,
 };
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -125,6 +125,23 @@ impl ToSql for PitcherStyle {
     }
 }
 
+impl FromSql for PitcherCharacter {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let gt = value.as_str()?;
+
+        gt.parse::<PitcherCharacter>().map_err(|e| {
+            eprintln!("{} {}: {:?}", "Parse error at", gt, e);
+            rusqlite::types::FromSqlError::InvalidType
+        })
+    }
+}
+
+impl ToSql for PitcherCharacter {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_ref()))
+    }
+}
+
 impl FromRow for PlayerInfo {
     type Error = AppError;
 
@@ -193,6 +210,7 @@ impl FromRow for PitcherInfo {
             throw_side: row.get("throw_side")?,
             arm_slot: row.get("arm_slot")?,
             pitcher_style: row.get("pitcher_style")?,
+            pitcher_character: row.get("pitcher_character")?,
             velocity: row.get("velocity")?,
             spin_rate: row.get("spin_rate")?,
             control: row.get("control")?,

@@ -977,6 +977,7 @@ mod tests {
     use crate::domain::resolver::batting_resolver::*;
     use crate::domain::shared::ball::{BallLocation, PitchedBall, TrajectoryType};
     use crate::domain::shared::game_state::GameError;
+    use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
         ArmSlot, BatterType, FielderInfo, PitchSkill, PitchType, PitcherInfo, PitcherStyle, RL,
         ZoneAptitude,
@@ -1009,6 +1010,7 @@ mod tests {
             throw_side: RL::Right,
             arm_slot: ArmSlot::ThreeQuarter,
             pitcher_style: PitcherStyle::BalancedPitcher,
+            pitcher_character: PitcherCharacter::Balanced,
             velocity: 41.67,
             spin_rate: 2400.0,
             control: 0.5,

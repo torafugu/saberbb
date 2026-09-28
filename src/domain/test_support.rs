@@ -3,6 +3,7 @@ use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
 use crate::domain::shared::game::GameSeason;
 use crate::domain::shared::game::{GameSchedule, GameType};
 use crate::domain::shared::game_state::{ActiveFielder, ActiveRunner, GameState};
+use crate::domain::shared::player::PitcherCharacter;
 use crate::domain::shared::player::{
     ArmSlot, BatterInfo, BatterType, CatcherInfo, DefenseSkills, FielderInfo, FielderType,
     OffenseSkills, PitchSkill, PitchType, PitcherInfo, PitcherStyle, Player, PlayerInfo, Position,
@@ -92,6 +93,7 @@ pub(crate) fn pitcher_info() -> PitcherInfo {
         throw_side: RL::Right,
         arm_slot: ArmSlot::ThreeQuarter,
         pitcher_style: PitcherStyle::BalancedPitcher,
+        pitcher_character: PitcherCharacter::Balanced,
         velocity: 41.67,
         spin_rate: 2400.0,
         control: 0.5,

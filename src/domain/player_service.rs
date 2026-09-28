@@ -124,6 +124,7 @@ impl<R: PlayerRepository> PlayerService<R> {
         let throw_side = self.repo.item_probs(PTI, "throw_side")?;
         let arm_slot = self.repo.item_probs(PTI, "arm_slot")?;
         let pitcher_style = self.repo.item_probs(PTI, "pitcher_style")?;
+        let pitcher_character = self.repo.item_probs(PTI, "pitcher_character")?;
         let height = self.repo.normal_params(PLY, PTI, "height")?;
         let extension = self.repo.normal_params(PLY, PTI, "extension")?;
         let velocity = self.repo.normal_params(PLY, PTI, "velocity")?;
@@ -143,6 +144,7 @@ impl<R: PlayerRepository> PlayerService<R> {
             throw_side: throw_side,
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,
+            pitcher_character,
             velocity: velocity,
             spin_rate: spin_rate,
             control: control,
@@ -260,6 +262,7 @@ impl<R: PlayerRepository> PlayerService<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FullName, OffenseSkills,
         PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
@@ -373,6 +376,10 @@ mod tests {
                         name: ArmSlot::ThreeQuarter,
                         weight: 1.0,
                     }],
+                    pitcher_character: vec![ItemWeighted {
+                        name: PitcherCharacter::Cautious,
+                        weight: 1.0,
+                    }],
                     pitcher_style: vec![ItemWeighted {
                         name: PitcherStyle::BalancedPitcher,
                         weight: 1.0,
@@ -452,6 +459,19 @@ mod tests {
 
         unsafe fn cast_pitcher_style_probs<T>(
             items: Vec<ItemWeighted<PitcherStyle>>,
+        ) -> Vec<ItemWeighted<T>> {
+            let mut items = ManuallyDrop::new(items);
+            unsafe {
+                Vec::from_raw_parts(
+                    items.as_mut_ptr() as *mut ItemWeighted<T>,
+                    items.len(),
+                    items.capacity(),
+                )
+            }
+        }
+
+        unsafe fn cast_pitcher_character_probs<T>(
+            items: Vec<ItemWeighted<PitcherCharacter>>,
         ) -> Vec<ItemWeighted<T>> {
             let mut items = ManuallyDrop::new(items);
             unsafe {
@@ -712,6 +732,11 @@ mod tests {
                 (PTI, "arm_slot") => Ok(unsafe {
                     Self::cast_arm_slot_probs(self.state.pitcher_attribute_prob.arm_slot.clone())
                 }),
+                (PTI, "pitcher_character") => Ok(unsafe {
+                    Self::cast_pitcher_character_probs(
+                        self.state.pitcher_attribute_prob.pitcher_character.clone(),
+                    )
+                }),
                 (PTI, "pitcher_style") => {
                     self.state
                         .pitcher_style_probs_calls
@@ -779,6 +804,15 @@ mod tests {
 
         let probs = service.load_pitcher_info_prob().unwrap();
 
+        assert_eq!(probs.pitcher_character.len(), 1);
+        assert_eq!(probs.pitcher_character[0].name, PitcherCharacter::Cautious);
+        assert_eq!(probs.pitcher_character[0].weight, 1.0);
+        assert!(
+            state
+                .item_prob_categories
+                .borrow()
+                .contains(&(PTI.to_string(), "pitcher_character".to_string()))
+        );
         assert_eq!(probs.throw_side.len(), 1);
         assert_eq!(probs.throw_side[0].name, RL::Right);
         assert!(

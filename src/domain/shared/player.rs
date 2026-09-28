@@ -600,6 +600,62 @@ impl fmt::Display for PitcherStyle {
     }
 }
 
+pub struct PitcherTendencies {
+    pub hard_contact_aversion: f64, // How strongly the pitcher avoids hard contact
+    pub walk_aversion: f64,         // How strongly the pitcher avoids walks
+    pub pitch_variety: f64,         // How much the pitcher prefers to vary pitch selection
+                                    //pub catcher_trust: f64,         // How readily the pitcher accepts the catcher's suggestions
+}
+
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, EnumString, EnumIter, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum PitcherCharacter {
+    Aggressive,
+    Cautious,
+    Flexible,
+    Balanced,
+}
+impl fmt::Display for PitcherCharacter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Aggressive => write!(f, "{}", t!("pitcher_character_aggressive")),
+            Self::Cautious => write!(f, "{}", t!("pitcher_character_cautious")),
+            Self::Flexible => write!(f, "{}", t!("pitcher_character_flexible")),
+            Self::Balanced => write!(f, "{}", t!("pitcher_character_balanced")),
+        }
+    }
+}
+
+// TODO: Weights for the PitcherTendencies should be updated.
+impl PitcherCharacter {
+    pub fn tendencies(self) -> PitcherTendencies {
+        match self {
+            Self::Aggressive => PitcherTendencies {
+                hard_contact_aversion: 0.3,
+                walk_aversion: 0.8,
+                pitch_variety: 0.4,
+            },
+            Self::Cautious => PitcherTendencies {
+                hard_contact_aversion: 0.8,
+                walk_aversion: 0.3,
+                pitch_variety: 0.3,
+            },
+            Self::Flexible => PitcherTendencies {
+                hard_contact_aversion: 0.5,
+                walk_aversion: 0.5,
+                pitch_variety: 0.8,
+            },
+            Self::Balanced => PitcherTendencies {
+                hard_contact_aversion: 0.5,
+                walk_aversion: 0.5,
+                pitch_variety: 0.5,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PitcherInfo {
     pub height: f64,
@@ -607,6 +663,7 @@ pub struct PitcherInfo {
     pub throw_side: RL,
     pub arm_slot: ArmSlot,
     pub pitcher_style: PitcherStyle,
+    pub pitcher_character: PitcherCharacter,
     pub velocity: f64,
     pub spin_rate: f64,
     pub control: f64,
@@ -627,6 +684,7 @@ impl PitcherInfo {
         throw_side: RL,
         arm_slot: ArmSlot,
         pitcher_style: PitcherStyle,
+        pitcher_character: PitcherCharacter,
         velocity: f64,
         spin_rate: f64,
         control: f64,
@@ -646,6 +704,7 @@ impl PitcherInfo {
             throw_side,
             arm_slot,
             pitcher_style,
+            pitcher_character,
             velocity,
             spin_rate,
             control,
@@ -859,6 +918,7 @@ mod tests {
             RL::Right,
             ArmSlot::ThreeQuarter,
             PitcherStyle::BalancedPitcher,
+            PitcherCharacter::Balanced,
             145.0,
             2200.0,
             0.7,

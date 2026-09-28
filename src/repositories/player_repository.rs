@@ -285,6 +285,7 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             throw_side,
                                                             arm_slot,
                                                             pitcher_style,
+                                                            pitcher_character,
                                                             velocity,
                                                             spin_rate,
                                                             control,
@@ -296,7 +297,7 @@ impl PlayerRepository for SqlPlayerRepository {
                                                             delivery_motion_time,
                                                             consistency
                                                             ) VALUES (
-                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)";
+                                                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
         self.db_client.execute_tx(
             tx,
             insert_pitcher_info_sql,
@@ -307,6 +308,7 @@ impl PlayerRepository for SqlPlayerRepository {
                 pitcher_info.throw_side,
                 pitcher_info.arm_slot,
                 pitcher_info.pitcher_style,
+                pitcher_info.pitcher_character,
                 pitcher_info.velocity,
                 pitcher_info.spin_rate,
                 pitcher_info.control,
@@ -481,6 +483,7 @@ impl PlayerRepository for SqlPlayerRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, OffenseSkills,
         PitchSkill, PitchType, PitcherInfo, PitcherStyle, PlayerInfo, Position, RL, RunningSkills,
@@ -576,6 +579,7 @@ mod tests {
                 throw_side TEXT NOT NULL,
                 arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
+                pitcher_character TEXT NOT NULL,
                 velocity REAL NOT NULL,
                 spin_rate REAL NOT NULL,
                 control REAL NOT NULL,
@@ -903,6 +907,7 @@ mod tests {
             throw_side: RL::Left,
             arm_slot: ArmSlot::Sidearm,
             pitcher_style: PitcherStyle::BalancedPitcher,
+            pitcher_character: PitcherCharacter::Flexible,
             velocity: 1.1,
             spin_rate: 1.15,
             control: 1.2,
@@ -920,6 +925,12 @@ mod tests {
         repo.insert_player(1, &player).unwrap();
 
         let conn = conn(&repo);
+        let stored: PitcherCharacter = conn
+            .query_row("SELECT pitcher_character FROM pitcher_info", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, PitcherCharacter::Flexible);
         let row: (
             u32,
             String,
@@ -984,6 +995,7 @@ mod tests {
             throw_side: RL::Right,
             arm_slot: ArmSlot::ThreeQuarter,
             pitcher_style: PitcherStyle::PowerPitcher,
+            pitcher_character: PitcherCharacter::Balanced,
             velocity: 1.1,
             spin_rate: 1.15,
             control: 1.2,

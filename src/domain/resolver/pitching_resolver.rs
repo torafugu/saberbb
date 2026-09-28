@@ -288,6 +288,7 @@ mod tests {
     use super::*;
     use crate::domain::random_provider::FixedRng;
     use crate::domain::shared::ball::BallLocation;
+    use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
         ArmSlot, FielderInfo, FielderType, PitchSkill, PitchType, PitcherStyle,
     };
@@ -347,6 +348,7 @@ mod tests {
             throw_side,
             ArmSlot::ThreeQuarter,
             PitcherStyle::BalancedPitcher,
+            PitcherCharacter::Balanced,
             41.67,
             2200.0,
             0.5,

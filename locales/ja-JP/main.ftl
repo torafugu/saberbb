@@ -124,6 +124,11 @@ overhand = オーバースロー
 p = 投
 pct = 勝率
 pitcher = ピッチャー
+pitcher_character = 性格
+pitcher_character_aggressive = 積極的
+pitcher_character_cautious = 慎重
+pitcher_character_flexible = 柔軟
+pitcher_character_balanced = バランス型
 pitcher_stats = 投手成績
 pitcher2 = 投手
 pitcher_style = スタイル
@@ -222,4 +227,3 @@ win = 勝利
 wins = 勝利
 zone_aptitude = ゾーン適正
 zone_balanced = バランス型
-

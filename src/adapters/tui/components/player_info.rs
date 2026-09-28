@@ -413,6 +413,7 @@ impl PlayerInfoWidget {
                 format!("{}: {}", t!("throw_side"), pitcher.throw_side),
                 format!("{}: {}", t!("arm_slot"), pitcher.arm_slot),
                 format!("{}: {}", t!("pitcher_style"), pitcher.pitcher_style),
+                format!("{}: {}", t!("pitcher_character"), pitcher.pitcher_character),
                 format!("{}: {}km/h", t!("velocity"), ms_to_kmh(pitcher.velocity)),
                 format!("{}: {}rpm", t!("spin_rate"), pitcher.spin_rate.round()),
                 format!("{}: {}", t!("control"), normal_to_rank(pitcher.control)),
@@ -732,6 +733,7 @@ impl Component for PlayerInfoWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, PitchSkill, PitchType,
         PitcherInfo, PitcherStyle, PlayerInfo, RL, RunningSkills, ZoneAptitude,
@@ -757,6 +759,7 @@ mod tests {
             RL::Right,
             ArmSlot::ThreeQuarter,
             PitcherStyle::BalancedPitcher,
+            PitcherCharacter::Balanced,
             41.0,
             2200.0,
             0.7,
@@ -977,6 +980,7 @@ mod tests {
 
         assert!(primary_detail.contains("Pitcher"));
         assert!(primary_detail.contains("Velocity"));
+        assert!(primary_detail.contains("Character: Balanced"));
         assert!(!primary_detail.contains("Batter"));
         assert!(!primary_detail.contains("Pitch Skills"));
         assert!(!primary_detail.contains("Four Seam Fastball"));

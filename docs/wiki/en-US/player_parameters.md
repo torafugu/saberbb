@@ -91,6 +91,7 @@ Most `FielderInfo` numeric values are generated from `normal_param` under `playe
 | `throw_side` | `RL` | `pitcher_info.throw_side` | Pitcher throwing side. Values: `Right`, `Left`. |
 | `arm_slot` | `ArmSlot` | `pitcher_info.arm_slot` | Delivery arm slot. |
 | `pitcher_style` | `PitcherStyle` | `pitcher_info.pitcher_style` | Pitcher archetype used to choose pitch types. |
+| `pitcher_character` | `PitcherCharacter` | `pitcher_info.pitcher_character` | Pitcher tendencies: `Aggressive`, `Cautious`, `Flexible`, or `Balanced`. Generated from configurable weights (equal in sample data). |
 | `velocity` | `f64` | `pitcher_info.velocity` | Pitcher-level velocity value. |
 | `spin_rate` | `f64` | `pitcher_info.spin_rate` | Pitcher-level spin-rate value. |
 | `control` | `f64` | `pitcher_info.control` | Pitcher-level control value. |

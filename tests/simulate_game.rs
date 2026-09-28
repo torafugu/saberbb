@@ -344,6 +344,7 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
         throw_side: RL::Right,
         arm_slot: ArmSlot::ThreeQuarter,
         pitcher_style: PitcherStyle::BalancedPitcher,
+        pitcher_character: PitcherCharacter::Balanced,
         velocity: 0.0,
         spin_rate: 0.0,
         control: 0.0,

@@ -434,7 +434,7 @@ impl GamePlayerReader for SqlGameRepository {
     fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError> {
         info!("load_pitcher_info() started");
         let query =
-                "SELECT height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time, consistency 
+                "SELECT height, extension, throw_side, arm_slot, pitcher_style, pitcher_character, velocity, spin_rate, control, stamina, injury_proneness, clutch, hpp, platoon_splitting, delivery_motion_time, consistency
                 FROM pitcher_info WHERE player_id = ?1";
         let mut pitcher_info = self
             .db_client
@@ -832,6 +832,7 @@ mod tests {
                 throw_side TEXT NOT NULL,
                 arm_slot TEXT NOT NULL,
                 pitcher_style TEXT NOT NULL,
+                pitcher_character TEXT NOT NULL,
                 velocity REAL NOT NULL,
                 spin_rate REAL NOT NULL,
                 control REAL NOT NULL,
@@ -1115,10 +1116,10 @@ mod tests {
             if position == Position::P {
                 conn.execute(
                     "INSERT INTO pitcher_info (
-                        player_id, height, extension, throw_side, arm_slot, pitcher_style, velocity, spin_rate, control, stamina,
+                        player_id, height, extension, throw_side, arm_slot, pitcher_style, pitcher_character, velocity, spin_rate, control, stamina,
                         injury_proneness, clutch, hpp, platoon_splitting,
                         delivery_motion_time, consistency
-                    ) VALUES (?1, 1.85, 1.8, 'Right', 'ThreeQuarter', 'BalancedPitcher', 145.0, 2200.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4, 0.03)",
+                    ) VALUES (?1, 1.85, 1.8, 'Right', 'ThreeQuarter', 'BalancedPitcher', 'Cautious', 145.0, 2200.0, 0.7, 90.0, 0.1, 0.6, 0.5, 0.2, 1.4, 0.03)",
                     params![id],
                 )
                 .unwrap();
@@ -1342,6 +1343,19 @@ mod tests {
             fence_impact_time: None,
             outbound_result: OutboundResult::InField,
         }
+    }
+
+    #[test]
+    fn load_pitcher_info_preserves_character() {
+        let (repo, path) = setup_repo();
+        seed_players(&repo);
+        seed_player_skills(&repo);
+        let pitcher = repo.load_pitcher_info(1).unwrap();
+        assert_eq!(
+            pitcher.pitcher_character,
+            crate::domain::shared::player::PitcherCharacter::Cautious
+        );
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

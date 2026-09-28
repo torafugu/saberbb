@@ -13,6 +13,7 @@ CREATE TABLE pitcher_info(
     throw_side TEXT NOT NULL,
     arm_slot TEXT NOT NULL,
     pitcher_style TEXT NOT NULL,
+    pitcher_character TEXT NOT NULL,
     velocity REAL NOT NULL,
     spin_rate REAL NOT NULL,
     control REAL NOT NULL,
@@ -38,6 +39,7 @@ CREATE TABLE pitcher_info(
 | throw_side           | TEXT    |         | false    |          |         |         |
 | arm_slot             | TEXT    |         | false    |          |         |         |
 | pitcher_style        | TEXT    |         | false    |          |         |         |
+| pitcher_character    | TEXT    |         | false    |          |         |         |
 | velocity             | REAL    |         | false    |          |         |         |
 | spin_rate            | REAL    |         | false    |          |         |         |
 | control              | REAL    |         | false    |          |         |         |

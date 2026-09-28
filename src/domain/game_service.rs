@@ -66,6 +66,7 @@ impl<R: GameRoundRepository> GameService<R> {
 mod tests {
     use super::*;
     use crate::domain::shared::game::{GameResult, GameSchedule, GameType, TB};
+    use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
         ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, PitchSkill,
         PitchType, PitcherInfo, PitcherStyle, Player, PlayerInfo, Position, RL, RunningSkills,
@@ -209,6 +210,7 @@ mod tests {
                 throw_side: RL::Right,
                 arm_slot: ArmSlot::ThreeQuarter,
                 pitcher_style: PitcherStyle::BalancedPitcher,
+                pitcher_character: PitcherCharacter::Balanced,
                 velocity: 145.0,
                 spin_rate: 2200.0,
                 control: 10.0,

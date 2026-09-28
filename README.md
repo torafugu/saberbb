@@ -36,7 +36,13 @@ cargo run -- --help
 ```
 
 Initialize a database with the SQL files under [`migrations/`](migrations/),
-then run a typical simulation flow:
+then run a typical simulation flow. For an existing database created before
+`pitcher_character` was added, run
+[`migrations/upgrades/add_pitcher_character.sql`](migrations/upgrades/add_pitcher_character.sql)
+once instead of rebuilding the tables. This preserves existing pitchers and assigns
+`Balanced` to them. Do not run this upgrade on a newly initialized database.
+
+Typical simulation flow:
 
 ```sh
 cargo run -- --generate 100

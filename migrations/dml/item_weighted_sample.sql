@@ -550,3 +550,9 @@ VALUES
         'Pitcher',
         0.0
     );
+-- Provisional equal weights for pitcher characters.
+INSERT INTO item_weighted (category1, category2, name, weight) VALUES
+    ('pitcher_info', 'pitcher_character', 'Aggressive', 0.25),
+    ('pitcher_info', 'pitcher_character', 'Cautious', 0.25),
+    ('pitcher_info', 'pitcher_character', 'Flexible', 0.25),
+    ('pitcher_info', 'pitcher_character', 'Balanced', 0.25);

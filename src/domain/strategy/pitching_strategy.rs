@@ -1,6 +1,6 @@
 use crate::domain::shared::ball::{BallLocation, BallZone};
 use crate::domain::shared::game_state::InningState;
-use crate::domain::shared::player::PitchType;
+use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, PitcherTendencies};
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::strategy::common_strategy::{
     DEFAULT_XBH_PROBS, HitAdvanceModel, RunExpectancyTable,
@@ -13,6 +13,110 @@ use strum_macros::{AsRefStr, EnumIter};
 const WIDE_AIM_FACTOR: f64 = 3.0;
 const EDGE_AIM_FACTOR: f64 = 4.0;
 const OUT_AIM_FACTOR: f64 = -5.0;
+
+pub struct PitchTypeEstimate {
+    pub whiff: f64,        // Estimated ability to induce swings and misses: 0.0–1.0
+    pub ground_ball: f64,  // Estimated ability to induce ground balls
+    pub hard_contact: f64, // Estimated risk of allowing hard contact
+    pub command: f64,      // Estimated ability to hit the intended location
+}
+
+pub fn estimate_pitch_types(
+    pitcher: &PitcherInfo,
+    batter: &BatterInfo,
+) -> HashMap<PitchType, PitchTypeEstimate> {
+    pitcher
+        .pitch_skills
+        .iter()
+        .map(|skill| {
+            // TODO: base_whiff, base_ground_ball, base_hard_contact should be updated based on pitching simulation result.
+            // Provisional baseline values by pitch type. All are selection scores from 0.0 to 1.0.
+            let (base_whiff, base_ground_ball, base_hard_contact) = match skill.pitch_type {
+                PitchType::FourSeamFastball => (0.55, 0.35, 0.50),
+                PitchType::Cutter => (0.50, 0.50, 0.42),
+                PitchType::Curveball => (0.55, 0.50, 0.38),
+                PitchType::Slider => (0.65, 0.42, 0.38),
+                PitchType::Changeup => (0.55, 0.58, 0.40),
+                PitchType::Splitter => (0.65, 0.65, 0.35),
+            };
+
+            let estimate = PitchTypeEstimate {
+                whiff: (base_whiff + 0.15 * (pitcher.whiff_option() - 0.5)
+                    - 0.10 * (batter.bat_control - 0.5))
+                    .clamp(0.0, 1.0),
+
+                ground_ball: (base_ground_ball + 0.15 * (pitcher.ground_ball_option() - 0.5))
+                    .clamp(0.0, 1.0),
+
+                hard_contact: (base_hard_contact + 0.15 * (batter.slugger_option() - 0.5))
+                    .clamp(0.0, 1.0),
+
+                command: (0.5
+                    + 0.25 * (sigmoid(pitcher.control) - 0.5)
+                    + 0.25 * (sigmoid(skill.control) - 0.5))
+                    .clamp(0.0, 1.0),
+            };
+
+            (skill.pitch_type, estimate)
+        })
+        .collect()
+}
+
+pub struct PitchTypeProposal {
+    pub pitch_type: PitchType,
+    pub score: f64,
+    pub estimate: PitchTypeEstimate,
+}
+
+pub fn shortlist_pitch_types(
+    pitcher: &PitcherInfo,
+    tendencies: &PitcherTendencies,
+    strategy: PitchingStrategy,
+    previous_pitch: Option<PitchType>,
+    estimates: &HashMap<PitchType, PitchTypeEstimate>,
+    limit: usize,
+) -> Vec<PitchTypeProposal> {
+    let mut proposals: Vec<_> = pitcher
+        .pitch_skill_distribution()
+        .into_iter()
+        .filter_map(|item| {
+            let pitch_type = item.name.pitch_type;
+            let estimate = estimates.get(&pitch_type)?;
+
+            // Base usage rate derived from the existing PitchSkill.usage.
+            // Convert to log scale to match the score adjustments below.
+            let usage_score = item.weight.max(1e-9).ln();
+
+            let strategy_score = match strategy {
+                PitchingStrategy::AttackZone => 0.8 * estimate.command,
+                PitchingStrategy::HuntStrikeout => 0.8 * estimate.whiff,
+                PitchingStrategy::InduceGroundBall => 0.8 * estimate.ground_ball,
+                PitchingStrategy::AvoidExtraBases => -0.8 * estimate.hard_contact,
+                PitchingStrategy::PitchAround => -0.4 * estimate.hard_contact,
+            };
+
+            let tendency_score = -0.6 * tendencies.hard_contact_aversion * estimate.hard_contact
+                - 0.6 * tendencies.walk_aversion * (1.0 - estimate.command)
+                + 0.3 * tendencies.pitch_variety * f64::from(previous_pitch != Some(pitch_type));
+
+            Some(PitchTypeProposal {
+                pitch_type,
+                score: usage_score + strategy_score + tendency_score,
+                estimate: PitchTypeEstimate {
+                    whiff: estimate.whiff,
+                    ground_ball: estimate.ground_ball,
+                    hard_contact: estimate.hard_contact,
+                    command: estimate.command,
+                },
+            })
+        })
+        .collect();
+
+    // sort_by is stable, preserving the original pitch_skills order for ties.
+    proposals.sort_by(|a, b| b.score.total_cmp(&a.score));
+    proposals.truncate(limit);
+    proposals
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PitchingStrategy {

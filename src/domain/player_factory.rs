@@ -271,6 +271,10 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let pitcher_style =
             choose_item_weighted(self.rng.as_mut(), &self.pitcher_info_probs.pitcher_style)?
                 .clone();
+        let pitcher_character = *choose_item_weighted(
+            self.rng.as_mut(),
+            &self.pitcher_info_probs.pitcher_character,
+        )?;
         let pitch_skills = self.assign_pitch_skill(&pitcher_style)?;
 
         Ok(PitcherInfo {
@@ -279,6 +283,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             throw_side: throw_side,
             arm_slot: arm_slot,
             pitcher_style: pitcher_style,
+            pitcher_character,
             velocity: self.rng.normal(self.pitcher_info_probs.velocity),
             spin_rate: self.rng.normal(self.pitcher_info_probs.spin_rate),
             control: self.rng.normal(self.pitcher_info_probs.control),

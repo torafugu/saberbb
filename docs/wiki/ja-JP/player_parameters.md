@@ -91,6 +91,7 @@
 | `throw_side` | `RL` | `pitcher_info.throw_side` | 投手の投球側。値は `Right`（右投げ）、`Left`（左投げ）。 |
 | `arm_slot` | `ArmSlot` | `pitcher_info.arm_slot` | 投球フォームのアームスロット。 |
 | `pitcher_style` | `PitcherStyle` | `pitcher_info.pitcher_style` | 球種の選択に使用される投手タイプ。 |
+| `pitcher_character` | `PitcherCharacter` | `pitcher_info.pitcher_character` | 投手の傾向。`Aggressive`、`Cautious`、`Flexible`、`Balanced`。設定された重みから生成（サンプルでは均等）。 |
 | `velocity` | `f64` | `pitcher_info.velocity` | 投手レベルの球速。 |
 | `spin_rate` | `f64` | `pitcher_info.spin_rate` | 投手レベルのスピン量。 |
 | `control` | `f64` | `pitcher_info.control` | 投手レベルの制球力。 |
