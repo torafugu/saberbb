@@ -118,6 +118,105 @@ pub fn shortlist_pitch_types(
     proposals
 }
 
+// Relative risks used for ranking calls, not observed event probabilities.
+#[derive(Debug, Clone, Copy)]
+pub struct PitchRisks {
+    pub walk: f64,
+    pub hard_contact: f64,
+    pub execution: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PitchCallProposal {
+    pub pitch_call: PitchCall,
+    pub score: f64,
+    pub risks: PitchRisks,
+}
+
+// Evaluate locations only for the shortlisted pitch types. Keep a separate
+// shortlist for each pitch type so that one pitch does not crowd out the others.
+pub fn shortlist_pitch_calls(
+    pitch_types: &[PitchTypeProposal],
+    batter: &BatterInfo,
+    tendencies: &PitcherTendencies,
+    strategy: PitchingStrategy,
+    limit_per_pitch: usize,
+) -> Vec<PitchCallProposal> {
+    const ZONES: [TargetZone; 5] = [
+        TargetZone::Center,
+        TargetZone::LowInside,
+        TargetZone::LowOutside,
+        TargetZone::HighInside,
+        TargetZone::HighOutside,
+    ];
+    const MARGINS: [Margin; 3] = [Margin::Wide, Margin::Edge, Margin::Out];
+
+    let mut shortlisted = Vec::new();
+    for pitch in pitch_types {
+        let mut proposals = Vec::with_capacity(13); // Center once + four corners × three margins
+        for zone in ZONES {
+            for margin in MARGINS {
+                // Margin does not affect the aim location of a center pitch.
+                if zone == TargetZone::Center && margin != Margin::Wide {
+                    continue;
+                }
+
+                let pitch_call = PitchCall {
+                    pitch_type: pitch.pitch_type,
+                    target_zone: zone,
+                    margin,
+                };
+                let aim = pitch_call.aim_location();
+                let edge = aim.x.abs().max(aim.y.abs());
+                let outside = (edge - 1.0).max(0.0);
+                let batter_aptitude = batter.zone_modifier(&aim).clamp(-0.2, 0.5);
+
+                // These are provisional indices. In particular, a ball at this
+                // location is not the same event as a walk (which depends on count).
+                let risks = PitchRisks {
+                    walk: (0.10
+                        + 0.25 * (1.0 - pitch.estimate.command)
+                        + 0.15 * edge
+                        + 0.8 * outside)
+                        .clamp(0.0, 1.0),
+                    hard_contact: (pitch.estimate.hard_contact
+                        * (0.8 + 2.0 * batter_aptitude)
+                        * (1.0 - 0.15 * edge.min(1.0)))
+                    .clamp(0.0, 1.0),
+                    execution: ((1.0 - pitch.estimate.command) * (0.3 + 0.3 * edge))
+                        .clamp(0.0, 1.0),
+                };
+
+                let strategy_score = match strategy {
+                    PitchingStrategy::AttackZone => -0.8 * risks.walk,
+                    PitchingStrategy::HuntStrikeout => {
+                        0.3 * pitch.estimate.whiff * edge.min(1.0) - 0.3 * risks.walk
+                    }
+                    PitchingStrategy::InduceGroundBall => {
+                        0.4 * pitch.estimate.ground_ball * f64::from(aim.y < 0.0) - 0.3 * risks.walk
+                    }
+                    PitchingStrategy::AvoidExtraBases => -0.8 * risks.hard_contact,
+                    PitchingStrategy::PitchAround => -0.8 * risks.hard_contact + 0.3 * outside,
+                };
+                let tendency_score = -0.5 * tendencies.walk_aversion * risks.walk
+                    - 0.5 * tendencies.hard_contact_aversion * risks.hard_contact;
+
+                proposals.push(PitchCallProposal {
+                    pitch_call,
+                    score: pitch.score + strategy_score + tendency_score - 0.3 * risks.execution,
+                    risks,
+                });
+            }
+        }
+
+        // Stable sorting also gives deterministic tie handling within each pitch.
+        proposals.sort_by(|a, b| b.score.total_cmp(&a.score));
+        proposals.truncate(limit_per_pitch);
+        shortlisted.extend(proposals);
+    }
+    shortlisted
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PitchingStrategy {
     AttackZone,
@@ -406,4 +505,106 @@ pub fn default_location_distribution() -> Vec<ItemWeighted<TargetZone>> {
     });
 
     locations
+}
+
+#[cfg(test)]
+mod pitch_call_shortlist_tests {
+    use super::*;
+    use crate::domain::shared::player::{RL, ZoneAptitude};
+    use crate::domain::test_support::{batter_info, pitcher_info};
+
+    #[test]
+    fn shortlist_keeps_each_pitch_and_does_not_duplicate_center() {
+        let pitcher = pitcher_info();
+        let batter = batter_info(RL::Right);
+        let tendencies = pitcher.pitcher_character.tendencies();
+        let estimates = estimate_pitch_types(&pitcher, &batter);
+        let pitches = shortlist_pitch_types(
+            &pitcher,
+            &tendencies,
+            PitchingStrategy::AttackZone,
+            None,
+            &estimates,
+            2,
+        );
+
+        let calls = shortlist_pitch_calls(
+            &pitches,
+            &batter,
+            &tendencies,
+            PitchingStrategy::AttackZone,
+            13,
+        );
+        assert_eq!(calls.len(), pitches.len() * 13);
+        for pitch in &pitches {
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|call| {
+                        call.pitch_call.pitch_type == pitch.pitch_type
+                            && call.pitch_call.target_zone == TargetZone::Center
+                    })
+                    .count(),
+                1
+            );
+        }
+
+        let limited = shortlist_pitch_calls(
+            &pitches,
+            &batter,
+            &tendencies,
+            PitchingStrategy::AttackZone,
+            2,
+        );
+        assert_eq!(limited.len(), pitches.len() * 2);
+        assert!(pitches.iter().all(|pitch| {
+            limited
+                .iter()
+                .filter(|call| call.pitch_call.pitch_type == pitch.pitch_type)
+                .count()
+                == 2
+        }));
+    }
+
+    #[test]
+    fn location_risks_reflect_margin_and_batter_aptitude() {
+        let pitcher = pitcher_info();
+        let mut batter = batter_info(RL::Right);
+        batter.zone_aptitude = ZoneAptitude::InsideDominant;
+        let tendencies = pitcher.pitcher_character.tendencies();
+        let estimates = estimate_pitch_types(&pitcher, &batter);
+        let pitches = shortlist_pitch_types(
+            &pitcher,
+            &tendencies,
+            PitchingStrategy::AvoidExtraBases,
+            None,
+            &estimates,
+            1,
+        );
+        let calls = shortlist_pitch_calls(
+            &pitches,
+            &batter,
+            &tendencies,
+            PitchingStrategy::AvoidExtraBases,
+            13,
+        );
+        let risk = |zone, margin| {
+            calls
+                .iter()
+                .find(|call| {
+                    call.pitch_call.target_zone == zone && call.pitch_call.margin == margin
+                })
+                .unwrap()
+                .risks
+        };
+
+        assert!(
+            risk(TargetZone::LowOutside, Margin::Out).walk
+                > risk(TargetZone::LowOutside, Margin::Wide).walk
+        );
+        assert!(
+            risk(TargetZone::LowInside, Margin::Wide).hard_contact
+                > risk(TargetZone::LowOutside, Margin::Wide).hard_contact
+        );
+    }
 }
