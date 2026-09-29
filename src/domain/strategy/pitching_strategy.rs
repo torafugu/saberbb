@@ -68,6 +68,16 @@ struct PitchTypeProposal {
     pub estimate: PitchTypeEstimate,
 }
 
+fn pitch_type_strategy_score(strategy: PitchingStrategy, estimate: &PitchTypeEstimate) -> f64 {
+    match strategy {
+        PitchingStrategy::AttackZone => 0.8 * estimate.command,
+        PitchingStrategy::HuntStrikeout => 0.8 * estimate.whiff,
+        PitchingStrategy::InduceGroundBall => 0.8 * estimate.ground_ball,
+        PitchingStrategy::AvoidExtraBases => -0.8 * estimate.hard_contact,
+        PitchingStrategy::PitchAround => -0.4 * estimate.hard_contact,
+    }
+}
+
 fn shortlist_pitch_types(
     pitcher: &PitcherInfo,
     tendencies: &PitcherTendencies,
@@ -87,13 +97,7 @@ fn shortlist_pitch_types(
             // Convert to log scale to match the score adjustments below.
             let usage_score = item.weight.max(1e-9).ln();
 
-            let strategy_score = match strategy {
-                PitchingStrategy::AttackZone => 0.8 * estimate.command,
-                PitchingStrategy::HuntStrikeout => 0.8 * estimate.whiff,
-                PitchingStrategy::InduceGroundBall => 0.8 * estimate.ground_ball,
-                PitchingStrategy::AvoidExtraBases => -0.8 * estimate.hard_contact,
-                PitchingStrategy::PitchAround => -0.4 * estimate.hard_contact,
-            };
+            let strategy_score = pitch_type_strategy_score(strategy, estimate);
 
             let tendency_score = -0.6 * tendencies.hard_contact_aversion * estimate.hard_contact
                 - 0.6 * tendencies.walk_aversion * (1.0 - estimate.command)
@@ -153,6 +157,29 @@ fn estimate_call_risks(
             * (1.0 - 0.15 * edge.min(1.0)))
             .clamp(0.0, 1.0),
         execution: ((1.0 - estimate.command) * (0.3 + 0.3 * edge)).clamp(0.0, 1.0),
+    }
+}
+
+fn pitch_call_strategy_score(
+    strategy: PitchingStrategy,
+    pitch_call: PitchCall,
+    estimate: &PitchTypeEstimate,
+    risks: PitchRisks,
+) -> f64 {
+    let aim = pitch_call.aim_location();
+    let edge = aim.x.abs().max(aim.y.abs());
+    let outside = (edge - 1.0).max(0.0);
+
+    match strategy {
+        PitchingStrategy::AttackZone => -0.8 * risks.walk,
+        PitchingStrategy::HuntStrikeout => {
+            0.3 * estimate.whiff * edge.min(1.0) - 0.3 * risks.walk
+        }
+        PitchingStrategy::InduceGroundBall => {
+            0.4 * estimate.ground_ball * f64::from(aim.y < 0.0) - 0.3 * risks.walk
+        }
+        PitchingStrategy::AvoidExtraBases => -0.8 * risks.hard_contact,
+        PitchingStrategy::PitchAround => -0.8 * risks.hard_contact + 0.3 * outside,
     }
 }
 
@@ -217,25 +244,9 @@ fn shortlist_locations_for_pitch_types(
                     target_zone: zone,
                     margin,
                 };
-                let aim = pitch_call.aim_location();
-                let edge = aim.x.abs().max(aim.y.abs());
-                let outside = (edge - 1.0).max(0.0);
                 let risks = estimate_call_risks(pitch_call, &pitch.estimate, batter);
-
-                let strategy_score = match strategy {
-                    PitchingStrategy::AttackZone => -0.8 * risks.walk,
-                    PitchingStrategy::HuntStrikeout => {
-                        0.3 * pitch.estimate.whiff * edge.min(1.0) - 0.3 * risks.walk
-                    }
-                    PitchingStrategy::InduceGroundBall => {
-                        0.4 * pitch.estimate.ground_ball * f64::from(aim.y < 0.0)
-                            - 0.3 * risks.walk
-                    }
-                    PitchingStrategy::AvoidExtraBases => -0.8 * risks.hard_contact,
-                    PitchingStrategy::PitchAround => {
-                        -0.8 * risks.hard_contact + 0.3 * outside
-                    }
-                };
+                let strategy_score =
+                    pitch_call_strategy_score(strategy, pitch_call, &pitch.estimate, risks);
                 let tendency_score = -0.5 * tendencies.walk_aversion * risks.walk
                     - 0.5 * tendencies.hard_contact_aversion * risks.hard_contact;
 
@@ -422,6 +433,7 @@ pub fn catcher_pitch_call_proposals(
     preferences: &PitchingPreferences,
     pitcher: &PitcherInfo,
     batter: &BatterInfo,
+    strategy: PitchingStrategy,
     previous_call: Option<PitchCall>,
     limit: usize,
 ) -> Vec<PitchCallProposal> {
@@ -460,6 +472,8 @@ pub fn catcher_pitch_call_proposals(
                 };
                 let risks = estimate_call_risks(pitch_call, estimate, batter);
                 let mut score = item.weight.max(1e-9).ln()
+                    + pitch_type_strategy_score(strategy, estimate)
+                    + pitch_call_strategy_score(strategy, pitch_call, estimate, risks)
                     - 0.15 * risks.walk
                     - 0.25 * risks.hard_contact
                     - 0.15 * risks.execution;
@@ -755,6 +769,7 @@ mod pitch_call_shortlist_tests {
             &preferences,
             &pitcher,
             &batter,
+            PitchingStrategy::AttackZone,
             None,
             26,
         );
@@ -765,5 +780,45 @@ mod pitch_call_shortlist_tests {
         }));
         assert_eq!(catcher_calls[0].pitch_call.target_zone, TargetZone::LowOutside);
         assert_eq!(catcher_calls[0].pitch_call.margin, Margin::Edge);
+    }
+
+    #[test]
+    fn catcher_strategy_changes_the_relative_value_of_pitching_outside() {
+        let pitcher = pitcher_info();
+        let batter = batter_info(RL::Right);
+        let preferences = PitchingPreferences::default();
+        let attack = catcher_pitch_call_proposals(
+            &preferences,
+            &pitcher,
+            &batter,
+            PitchingStrategy::AttackZone,
+            None,
+            26,
+        );
+        let pitch_around = catcher_pitch_call_proposals(
+            &preferences,
+            &pitcher,
+            &batter,
+            PitchingStrategy::PitchAround,
+            None,
+            26,
+        );
+        let pitch_type = pitcher.pitch_skills[0].pitch_type;
+        let score = |proposals: &[PitchCallProposal], margin| {
+            proposals
+                .iter()
+                .find(|proposal| {
+                    proposal.pitch_call.pitch_type == pitch_type
+                        && proposal.pitch_call.target_zone == TargetZone::LowOutside
+                        && proposal.pitch_call.margin == margin
+                })
+                .unwrap()
+                .score
+        };
+
+        let attack_outside_bonus = score(&attack, Margin::Out) - score(&attack, Margin::Wide);
+        let pitch_around_outside_bonus =
+            score(&pitch_around, Margin::Out) - score(&pitch_around, Margin::Wide);
+        assert!(pitch_around_outside_bonus > attack_outside_bonus);
     }
 }
