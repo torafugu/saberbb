@@ -14,14 +14,14 @@ const WIDE_AIM_FACTOR: f64 = 3.0;
 const EDGE_AIM_FACTOR: f64 = 4.0;
 const OUT_AIM_FACTOR: f64 = -5.0;
 
-pub struct PitchTypeEstimate {
+struct PitchTypeEstimate {
     pub whiff: f64,        // Estimated ability to induce swings and misses: 0.0–1.0
     pub ground_ball: f64,  // Estimated ability to induce ground balls
     pub hard_contact: f64, // Estimated risk of allowing hard contact
     pub command: f64,      // Estimated ability to hit the intended location
 }
 
-pub fn estimate_pitch_types(
+fn estimate_pitch_types(
     pitcher: &PitcherInfo,
     batter: &BatterInfo,
 ) -> HashMap<PitchType, PitchTypeEstimate> {
@@ -422,7 +422,6 @@ pub fn catcher_pitch_call_proposals(
     preferences: &PitchingPreferences,
     pitcher: &PitcherInfo,
     batter: &BatterInfo,
-    estimates: &HashMap<PitchType, PitchTypeEstimate>,
     previous_call: Option<PitchCall>,
     limit: usize,
 ) -> Vec<PitchCallProposal> {
@@ -435,6 +434,7 @@ pub fn catcher_pitch_call_proposals(
     ];
     const MARGINS: [Margin; 3] = [Margin::Wide, Margin::Edge, Margin::Out];
 
+    let estimates = estimate_pitch_types(pitcher, batter);
     let previous_skill = previous_call.and_then(|call| {
         pitcher
             .pitch_skills
@@ -732,7 +732,6 @@ mod pitch_call_shortlist_tests {
     fn catcher_preferences_can_propose_a_pitch_outside_pitcher_shortlist() {
         let pitcher = pitcher_info();
         let batter = batter_info(RL::Right);
-        let estimates = estimate_pitch_types(&pitcher, &batter);
         let pitcher_shortlist = shortlist_pitch_calls(
             &pitcher,
             &batter,
@@ -756,7 +755,6 @@ mod pitch_call_shortlist_tests {
             &preferences,
             &pitcher,
             &batter,
-            &estimates,
             None,
             26,
         );
