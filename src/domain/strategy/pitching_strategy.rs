@@ -62,13 +62,13 @@ pub fn estimate_pitch_types(
         .collect()
 }
 
-pub struct PitchTypeProposal {
+struct PitchTypeProposal {
     pub pitch_type: PitchType,
     pub score: f64,
     pub estimate: PitchTypeEstimate,
 }
 
-pub fn shortlist_pitch_types(
+fn shortlist_pitch_types(
     pitcher: &PitcherInfo,
     tendencies: &PitcherTendencies,
     strategy: PitchingStrategy,
@@ -156,9 +156,37 @@ fn estimate_call_risks(
     }
 }
 
-/// Evaluate locations only for the shortlisted pitch types. Keep a separate
-/// shortlist for each pitch type so that one pitch does not crowd out the others.
+/// Generate the pitcher's proposals from one strategy and one set of tendencies.
+/// Keep a separate location shortlist for each pitch type.
 pub fn shortlist_pitch_calls(
+    pitcher: &PitcherInfo,
+    batter: &BatterInfo,
+    strategy: PitchingStrategy,
+    previous_pitch: Option<PitchType>,
+    pitch_type_limit: usize,
+    limit_per_pitch: usize,
+) -> Vec<PitchCallProposal> {
+    let tendencies = pitcher.pitcher_character.tendencies();
+    let estimates = estimate_pitch_types(pitcher, batter);
+    let pitch_types = shortlist_pitch_types(
+        pitcher,
+        &tendencies,
+        strategy,
+        previous_pitch,
+        &estimates,
+        pitch_type_limit,
+    );
+
+    shortlist_locations_for_pitch_types(
+        &pitch_types,
+        batter,
+        &tendencies,
+        strategy,
+        limit_per_pitch,
+    )
+}
+
+fn shortlist_locations_for_pitch_types(
     pitch_types: &[PitchTypeProposal],
     batter: &BatterInfo,
     tendencies: &PitcherTendencies,
@@ -631,26 +659,16 @@ mod pitch_call_shortlist_tests {
     fn shortlist_keeps_each_pitch_and_does_not_duplicate_center() {
         let pitcher = pitcher_info();
         let batter = batter_info(RL::Right);
-        let tendencies = pitcher.pitcher_character.tendencies();
-        let estimates = estimate_pitch_types(&pitcher, &batter);
-        let pitches = shortlist_pitch_types(
+        let calls = shortlist_pitch_calls(
             &pitcher,
-            &tendencies,
+            &batter,
             PitchingStrategy::AttackZone,
             None,
-            &estimates,
             2,
-        );
-
-        let calls = shortlist_pitch_calls(
-            &pitches,
-            &batter,
-            &tendencies,
-            PitchingStrategy::AttackZone,
             13,
         );
-        assert_eq!(calls.len(), pitches.len() * 13);
-        for pitch in &pitches {
+        assert_eq!(calls.len(), pitcher.pitch_skills.len() * 13);
+        for pitch in &pitcher.pitch_skills {
             assert_eq!(
                 calls
                     .iter()
@@ -664,14 +682,15 @@ mod pitch_call_shortlist_tests {
         }
 
         let limited = shortlist_pitch_calls(
-            &pitches,
+            &pitcher,
             &batter,
-            &tendencies,
             PitchingStrategy::AttackZone,
+            None,
+            2,
             2,
         );
-        assert_eq!(limited.len(), pitches.len() * 2);
-        assert!(pitches.iter().all(|pitch| {
+        assert_eq!(limited.len(), pitcher.pitch_skills.len() * 2);
+        assert!(pitcher.pitch_skills.iter().all(|pitch| {
             limited
                 .iter()
                 .filter(|call| call.pitch_call.pitch_type == pitch.pitch_type)
@@ -685,21 +704,12 @@ mod pitch_call_shortlist_tests {
         let pitcher = pitcher_info();
         let mut batter = batter_info(RL::Right);
         batter.zone_aptitude = ZoneAptitude::InsideDominant;
-        let tendencies = pitcher.pitcher_character.tendencies();
-        let estimates = estimate_pitch_types(&pitcher, &batter);
-        let pitches = shortlist_pitch_types(
+        let calls = shortlist_pitch_calls(
             &pitcher,
-            &tendencies,
+            &batter,
             PitchingStrategy::AvoidExtraBases,
             None,
-            &estimates,
             1,
-        );
-        let calls = shortlist_pitch_calls(
-            &pitches,
-            &batter,
-            &tendencies,
-            PitchingStrategy::AvoidExtraBases,
             13,
         );
         let risk = |zone, margin| {
@@ -722,14 +732,13 @@ mod pitch_call_shortlist_tests {
     fn catcher_preferences_can_propose_a_pitch_outside_pitcher_shortlist() {
         let pitcher = pitcher_info();
         let batter = batter_info(RL::Right);
-        let tendencies = pitcher.pitcher_character.tendencies();
         let estimates = estimate_pitch_types(&pitcher, &batter);
-        let pitcher_shortlist = shortlist_pitch_types(
+        let pitcher_shortlist = shortlist_pitch_calls(
             &pitcher,
-            &tendencies,
+            &batter,
             PitchingStrategy::AttackZone,
             None,
-            &estimates,
+            1,
             1,
         );
         let preferences = PitchingPreferences {
@@ -754,7 +763,7 @@ mod pitch_call_shortlist_tests {
 
         assert_eq!(catcher_calls.len(), 26); // Two pitches × thirteen distinct locations
         assert!(catcher_calls.iter().any(|call| {
-            call.pitch_call.pitch_type != pitcher_shortlist[0].pitch_type
+            call.pitch_call.pitch_type != pitcher_shortlist[0].pitch_call.pitch_type
         }));
         assert_eq!(catcher_calls[0].pitch_call.target_zone, TargetZone::LowOutside);
         assert_eq!(catcher_calls[0].pitch_call.margin, Margin::Edge);
