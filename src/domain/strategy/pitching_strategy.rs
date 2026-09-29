@@ -1,3 +1,4 @@
+use crate::domain::resolver::batting_resolver::CountStatus;
 use crate::domain::shared::ball::{BallLocation, BallZone};
 use crate::domain::shared::game_state::InningState;
 use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, PitcherTendencies};
@@ -426,6 +427,154 @@ pub enum PitchSequence {
     ChangeSides,
 }
 
+/// Calling style supplied by the caller, independent of the pitcher's character.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CatcherCallingStyle {
+    #[default]
+    Balanced,
+    Aggressive,
+    Cautious,
+    Adaptive,
+}
+
+/// Express the catcher's wishes without selecting a pitch or estimating risk.
+/// Strategy and pitcher feasibility are evaluated only when producing proposals.
+/// All strengths are provisional, soft scoring weights in the range 0.0..=1.0.
+pub fn catcher_preferences(
+    style: CatcherCallingStyle,
+    batter: &BatterInfo,
+    count: CountStatus,
+    previous_call: Option<PitchCall>,
+) -> PitchingPreferences {
+    let (margin, margin_strength, arsenal, arsenal_strength, sequence, sequence_strength) =
+        match style {
+            CatcherCallingStyle::Balanced => (
+                Margin::Edge,
+                0.35,
+                PitchArsenal::Mix,
+                0.35,
+                PitchSequence::ChangeSpeeds,
+                0.35,
+            ),
+            CatcherCallingStyle::Aggressive => (
+                Margin::Wide,
+                0.65,
+                PitchArsenal::BestPitch,
+                0.7,
+                PitchSequence::ChangeEyeLevel,
+                0.4,
+            ),
+            CatcherCallingStyle::Cautious => (
+                Margin::Edge,
+                0.75,
+                PitchArsenal::Mix,
+                0.5,
+                PitchSequence::ChangeSides,
+                0.5,
+            ),
+            CatcherCallingStyle::Adaptive => (
+                Margin::Edge,
+                0.4,
+                PitchArsenal::Mix,
+                0.6,
+                PitchSequence::ChangeSpeeds,
+                0.7,
+            ),
+        };
+    let mut preferences = PitchingPreferences {
+        target_zone: catcher_target_zone_preference(batter),
+        margin: Some(MarginPreference {
+            margin,
+            strength: margin_strength,
+        }),
+        arsenal: Some(ArsenalPreference {
+            arsenal,
+            strength: arsenal_strength,
+        }),
+        sequence: previous_call.map(|last| {
+            let sequence = if style == CatcherCallingStyle::Adaptive {
+                let aim = last.aim_location();
+                if aim.y > 0.0 {
+                    PitchSequence::ChangeEyeLevel
+                } else if aim.x != 0.0 {
+                    PitchSequence::ChangeSides
+                } else {
+                    PitchSequence::ChangeSpeeds
+                }
+            } else {
+                sequence
+            };
+            SequencePreference {
+                sequence,
+                strength: sequence_strength,
+            }
+        }),
+    };
+
+    // Three balls take precedence over two strikes, including a full count.
+    // These are count-based wishes; PitchAround can still favor Out in proposals.
+    if matches!(count, CountStatus::C30 | CountStatus::C31 | CountStatus::C32) {
+        preferences.margin = Some(MarginPreference {
+            margin: Margin::Wide,
+            strength: 0.9,
+        });
+        preferences.arsenal = Some(ArsenalPreference {
+            arsenal: PitchArsenal::BestPitch,
+            strength: 0.8,
+        });
+    } else if count.is_strike_two() {
+        preferences.margin = Some(MarginPreference {
+            margin: Margin::Edge,
+            strength: 0.7,
+        });
+        preferences.arsenal = Some(ArsenalPreference {
+            arsenal: PitchArsenal::Mix,
+            strength: 0.65,
+        });
+    }
+    // Mixing pitches needs a previous pitch to compare against.
+    if previous_call.is_none()
+        && preferences
+            .arsenal
+            .is_some_and(|p| p.arsenal == PitchArsenal::Mix)
+    {
+        preferences.arsenal = None;
+    }
+    preferences
+}
+
+fn catcher_target_zone_preference(batter: &BatterInfo) -> Option<TargetZonePreference> {
+    // Compare corners at a fixed margin so location wishes do not encode margin.
+    const ZONES: [TargetZone; 4] = [
+        TargetZone::LowOutside,
+        TargetZone::LowInside,
+        TargetZone::HighOutside,
+        TargetZone::HighInside,
+    ];
+    let aptitudes = ZONES.map(|zone| {
+        let aim = PitchCall {
+            pitch_type: PitchType::FourSeamFastball,
+            target_zone: zone,
+            margin: Margin::Edge,
+        }
+        .aim_location();
+        (zone, batter.zone_modifier(&aim))
+    });
+    let &(zone, weakest) = aptitudes.iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
+    let strongest = aptitudes
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let spread = strongest - weakest;
+    if spread <= 1e-9 {
+        return None; // Equal aptitude should not invent a preferred corner.
+    }
+    Some(TargetZonePreference {
+        zone,
+        strength: (spread / 0.2).clamp(0.0, 0.7),
+    })
+}
+
 /// Generate the catcher's proposals independently of the pitcher's shortlist.
 /// Preferences express the catcher's desired call; the pitcher and batter
 /// supply feasibility and risk estimates for the same PitchCallProposal type.
@@ -668,6 +817,120 @@ mod pitch_call_shortlist_tests {
     use super::*;
     use crate::domain::shared::player::{RL, ZoneAptitude};
     use crate::domain::test_support::{batter_info, pitcher_info};
+
+    #[test]
+    fn catcher_count_wishes_override_style_and_full_count_prioritizes_walks() {
+        let batter = batter_info(RL::Right);
+        let previous = Some(PitchCall {
+            pitch_type: PitchType::FourSeamFastball,
+            target_zone: TargetZone::HighInside,
+            margin: Margin::Edge,
+        });
+        for style in [
+            CatcherCallingStyle::Balanced,
+            CatcherCallingStyle::Aggressive,
+            CatcherCallingStyle::Cautious,
+            CatcherCallingStyle::Adaptive,
+        ] {
+            for count in [CountStatus::C30, CountStatus::C31, CountStatus::C32] {
+                let preferences = catcher_preferences(style, &batter, count, previous);
+                assert_eq!(preferences.margin.unwrap().margin, Margin::Wide);
+                assert_eq!(preferences.arsenal.unwrap().arsenal, PitchArsenal::BestPitch);
+            }
+            for count in [CountStatus::C02, CountStatus::C12, CountStatus::C22] {
+                let preferences = catcher_preferences(style, &batter, count, previous);
+                assert_eq!(preferences.margin.unwrap().margin, Margin::Edge);
+                assert_eq!(preferences.arsenal.unwrap().arsenal, PitchArsenal::Mix);
+            }
+        }
+    }
+
+    #[test]
+    fn catcher_zone_wishes_follow_batter_aptitude_without_arbitrary_balanced_bias() {
+        let mut batter = batter_info(RL::Right);
+        batter.zone_aptitude = ZoneAptitude::Balanced;
+        assert!(catcher_preferences(
+            CatcherCallingStyle::Balanced, &batter, CountStatus::C00, None,
+        ).target_zone.is_none());
+
+        batter.zone_aptitude = ZoneAptitude::InsideDominant;
+        let preference = catcher_target_zone_preference(&batter).unwrap();
+        assert!(matches!(preference.zone, TargetZone::LowOutside | TargetZone::HighOutside));
+        assert!(preference.strength > 0.0 && preference.strength <= 0.7);
+
+        batter.zone_aptitude = ZoneAptitude::LowBaller;
+        let preference = catcher_target_zone_preference(&batter).unwrap();
+        assert!(matches!(preference.zone, TargetZone::HighInside | TargetZone::HighOutside));
+    }
+
+    #[test]
+    fn catcher_style_and_previous_call_control_sequence_wishes() {
+        let batter = batter_info(RL::Right);
+        let initial = catcher_preferences(
+            CatcherCallingStyle::Adaptive, &batter, CountStatus::C00, None,
+        );
+        assert!(initial.sequence.is_none());
+        assert!(initial.arsenal.is_none());
+        let aggressive = catcher_preferences(
+            CatcherCallingStyle::Aggressive, &batter, CountStatus::C00, None,
+        );
+        let cautious = catcher_preferences(
+            CatcherCallingStyle::Cautious, &batter, CountStatus::C00, None,
+        );
+        assert_eq!(aggressive.margin.unwrap().margin, Margin::Wide);
+        assert_eq!(cautious.margin.unwrap().margin, Margin::Edge);
+
+        for (zone, expected) in [
+            (TargetZone::HighInside, PitchSequence::ChangeEyeLevel),
+            (TargetZone::LowOutside, PitchSequence::ChangeSides),
+            (TargetZone::Center, PitchSequence::ChangeSpeeds),
+        ] {
+            let previous = Some(PitchCall {
+                pitch_type: PitchType::FourSeamFastball,
+                target_zone: zone,
+                margin: Margin::Wide,
+            });
+            let preferences = catcher_preferences(
+                CatcherCallingStyle::Adaptive, &batter, CountStatus::C00, previous,
+            );
+            assert_eq!(preferences.sequence.unwrap().sequence, expected);
+        }
+    }
+
+    #[test]
+    fn generated_catcher_preferences_add_soft_bonuses_without_filtering_calls() {
+        let pitcher = pitcher_info();
+        let mut batter = batter_info(RL::Right);
+        batter.zone_aptitude = ZoneAptitude::InsideDominant;
+        let preferences = catcher_preferences(
+            CatcherCallingStyle::Cautious, &batter, CountStatus::C00, None,
+        );
+        let baseline = catcher_pitch_call_proposals(
+            &PitchingPreferences::default(), &pitcher, &batter,
+            PitchingStrategy::PitchAround, None, usize::MAX,
+        );
+        let proposals = catcher_pitch_call_proposals(
+            &preferences, &pitcher, &batter,
+            PitchingStrategy::PitchAround, None, usize::MAX,
+        );
+        assert_eq!(proposals.len(), baseline.len());
+        let zone_preference = preferences.target_zone.unwrap();
+        let margin_preference = preferences.margin.unwrap();
+        for proposal in proposals {
+            let base = baseline.iter().find(|base| {
+                base.pitch_call.pitch_type == proposal.pitch_call.pitch_type
+                    && base.pitch_call.target_zone == proposal.pitch_call.target_zone
+                    && base.pitch_call.margin == proposal.pitch_call.margin
+            }).unwrap();
+            let zone_bonus = if proposal.pitch_call.target_zone == zone_preference.zone {
+                0.8 * zone_preference.strength
+            } else { 0.0 };
+            let margin_bonus = if proposal.pitch_call.margin == margin_preference.margin {
+                0.5 * margin_preference.strength
+            } else { 0.0 };
+            assert!((proposal.score - base.score - zone_bonus - margin_bonus).abs() < 1e-9);
+        }
+    }
 
     #[test]
     fn shortlist_keeps_each_pitch_and_does_not_duplicate_center() {
