@@ -1,10 +1,14 @@
 flowchart TD
-    select_pitching_strategy --> |PitchingStrategy|shortlist_pitch_calls
-    shortlist_pitch_calls --> PitcherCharacter
-    shortlist_pitch_types --> shortlist_locations_for_pitch_types
-    PitcherCharacter --> |PitcherTendencies|shortlist_locations_for_pitch_types
-    shortlist_pitch_calls --> estimate_pitch_types
-    estimate_pitch_types --> shortlist_pitch_types
-    PitcherCharacter --> |PitcherTendencies|shortlist_pitch_types
-    shortlist_pitch_calls --> shortlist_locations_for_pitch_types
-    shortlist_locations_for_pitch_types --> estimate_call_risks
+    Character[PitcherCharacter] --> Preferences[pitcher_preferences]
+    Context["打者・カウント・直前の投球"] --> Preferences
+    Preferences -->|PitchingPreferences| Proposals[pitcher_pitch_call_proposals]
+    Strategy[PitchingStrategy] --> Proposals
+    Proposals --> Estimates[estimate_pitch_types]
+    Estimates --> Types[shortlist_pitch_types]
+    Proposals -->|preferences| Types
+    Types --> Locations[shortlist_locations_for_pitch_types]
+    Proposals -->|preferences| Locations
+    Locations --> Risks[estimate_call_risks]
+    Locations --> Scoring["共通の preferences 評価"]
+    Risks --> Scoring
+    Scoring --> Result[PitchCallProposal]
