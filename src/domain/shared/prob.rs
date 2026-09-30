@@ -1,5 +1,6 @@
 use crate::domain::shared::player::{
-    ArmSlot, BatterType, FielderType, PitcherCharacter, PitcherStyle, RL, ZoneAptitude,
+    ArmSlot, BatterType, CatcherCallingStyle, FielderType, PitcherCharacter, PitcherStyle, RL,
+    ZoneAptitude,
 };
 use serde::{Deserialize, Serialize};
 use validator::Validate;
@@ -66,6 +67,11 @@ pub struct FielderInfoProbs {
     pub prep_time: NormalParam,
     pub catching: NormalParam,
     pub reach_height: NormalParam,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]
+pub struct CatcherInfoProbs {
+    pub calling_style: Vec<ItemWeighted<CatcherCallingStyle>>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, Validate)]

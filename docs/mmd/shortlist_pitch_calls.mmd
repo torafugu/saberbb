@@ -1,0 +1,10 @@
+flowchart TD
+    select_pitching_strategy --> |PitchingStrategy|shortlist_pitch_calls
+    shortlist_pitch_calls --> PitcherCharacter
+    shortlist_pitch_types --> shortlist_locations_for_pitch_types
+    PitcherCharacter --> |PitcherTendencies|shortlist_locations_for_pitch_types
+    shortlist_pitch_calls --> estimate_pitch_types
+    estimate_pitch_types --> shortlist_pitch_types
+    PitcherCharacter --> |PitcherTendencies|shortlist_pitch_types
+    shortlist_pitch_calls --> shortlist_locations_for_pitch_types
+    shortlist_locations_for_pitch_types --> estimate_call_risks

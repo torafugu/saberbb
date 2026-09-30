@@ -42,6 +42,16 @@ then run a typical simulation flow. For an existing database created before
 once instead of rebuilding the tables. This preserves existing pitchers and assigns
 `Balanced` to them. Do not run this upgrade on a newly initialized database.
 
+For databases created before `catcher_info` was added, run
+[`migrations/upgrades/add_catcher_info.sql`](migrations/upgrades/add_catcher_info.sql)
+once. It preserves catcher fielding data and initializes their calling style to
+`Balanced`. New databases use `migrations/ddl/catcher_info_table.sql` instead.
+
+Existing databases also need
+[`migrations/upgrades/add_catcher_calling_style_weights.sql`](migrations/upgrades/add_catcher_calling_style_weights.sql)
+once to configure randomized calling styles for newly generated catchers. New
+databases receive these weights from `migrations/dml/item_weighted_sample.sql`.
+
 Typical simulation flow:
 
 ```sh

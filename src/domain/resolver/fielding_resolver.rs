@@ -696,18 +696,16 @@ mod tests {
     }
 
     fn catcher(prep_time: f64, throw_speed: f64) -> CatcherInfo {
-        CatcherInfo {
-            fielder_info: FielderInfo {
-                fielder_type: FielderType::Catcher,
-                throw_speed,
-                running_speed: 7.0,
-                reaction: 0.5,
-                prep_time,
-                catching: 0.8,
-                reach_height: 2.5,
-                reach_range: 0.0,
-            },
-        }
+        CatcherInfo::from_fielder_info(FielderInfo {
+            fielder_type: FielderType::Catcher,
+            throw_speed,
+            running_speed: 7.0,
+            reaction: 0.5,
+            prep_time,
+            catching: 0.8,
+            reach_height: 2.5,
+            reach_range: 0.0,
+        })
     }
 
     fn fixed_rng() -> Box<dyn RandomProvider> {

@@ -505,15 +505,31 @@ impl FielderInfo {
     }
 }
 
+/// Calling style supplied by the caller, independent of the pitcher's character.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, EnumString, AsRefStr,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum CatcherCallingStyle {
+    #[default]
+    Balanced,
+    Aggressive,
+    Cautious,
+    Adaptive,
+}
+
 // TODO: Consider calling pitches skill
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct CatcherInfo {
     pub fielder_info: FielderInfo,
+    #[serde(default)]
+    pub calling_style: CatcherCallingStyle,
 }
 impl CatcherInfo {
     pub fn from_fielder_info(fielder_info: FielderInfo) -> Self {
         Self {
-            fielder_info: fielder_info,
+            fielder_info,
+            calling_style: CatcherCallingStyle::default(),
         }
     }
 }
@@ -906,6 +922,36 @@ impl PitchSkill {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catcher_info_defaults_missing_calling_style_to_balanced() {
+        let catcher = CatcherInfo::from_fielder_info(fielder_info(FielderType::Catcher, 0.0));
+        assert_eq!(catcher.calling_style, CatcherCallingStyle::Balanced);
+
+        let mut legacy = serde_json::to_value(catcher).unwrap();
+        legacy.as_object_mut().unwrap().remove("calling_style");
+        let restored: CatcherInfo = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.calling_style, CatcherCallingStyle::Balanced);
+        assert_eq!(restored.fielder_info.fielder_type, FielderType::Catcher);
+    }
+
+    #[test]
+    fn catcher_info_preserves_calling_style_when_serialized() {
+        for calling_style in [
+            CatcherCallingStyle::Balanced,
+            CatcherCallingStyle::Aggressive,
+            CatcherCallingStyle::Cautious,
+            CatcherCallingStyle::Adaptive,
+        ] {
+            let catcher = CatcherInfo {
+                calling_style,
+                ..CatcherInfo::from_fielder_info(fielder_info(FielderType::Catcher, 0.0))
+            };
+            let json = serde_json::to_string(&catcher).unwrap();
+            let restored: CatcherInfo = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.calling_style, calling_style);
+        }
+    }
 
     fn pitch_skill(pitch_type: PitchType, usage: f64) -> PitchSkill {
         PitchSkill::from_prob(pitch_type, 41.67, 0.7, 0.8, 0.1, 2200.0, 180.0, 0.95, usage)

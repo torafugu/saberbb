@@ -136,11 +136,9 @@ pub fn generate_pitcher() -> PitcherInfo {
 
 #[allow(dead_code)]
 pub fn generate_catcher() -> CatcherInfo {
-    CatcherInfo {
-        fielder_info: PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
-            FielderType::Catcher,
-        ),
-    }
+    CatcherInfo::from_fielder_info(PlayerFactory::<SqlPlayerRepository>::default_fielder_info(
+        FielderType::Catcher,
+    ))
 }
 
 #[allow(dead_code)]

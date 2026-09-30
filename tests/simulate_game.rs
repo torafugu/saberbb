@@ -367,18 +367,16 @@ fn test_inning_base_steal_deterministically() -> Result<(), GameError> {
             reach_range: 0.0,
         },
     };
-    let catcher = CatcherInfo {
-        fielder_info: FielderInfo {
-            fielder_type: FielderType::Catcher,
-            throw_speed: 40.0,
-            running_speed: 7.0,
-            reaction: 0.5,
-            prep_time: 0.65,
-            catching: 0.8,
-            reach_height: 2.5,
-            reach_range: 0.0,
-        },
-    };
+    let catcher = CatcherInfo::from_fielder_info(FielderInfo {
+        fielder_type: FielderType::Catcher,
+        throw_speed: 40.0,
+        running_speed: 7.0,
+        reaction: 0.5,
+        prep_time: 0.65,
+        catching: 0.8,
+        reach_height: 2.5,
+        reach_range: 0.0,
+    });
     let runner_on_first = ActiveRunner {
         id: 0,
         skills: RunningSkills {

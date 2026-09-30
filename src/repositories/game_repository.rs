@@ -94,6 +94,7 @@ pub trait GamePlayerReader {
         player_id: i64,
         fielder_type: FielderType,
     ) -> Result<FielderInfo, AppError>;
+    fn load_catcher_info(&self, player_id: i64) -> Result<CatcherInfo, AppError>;
     fn load_pitcher_info(&self, player_id: i64) -> Result<PitcherInfo, AppError>;
     fn load_pitch_skill(&self, player_id: i64) -> Result<Vec<PitchSkill>, AppError>;
     fn load_defense_skills(&self, player_id: i64) -> Result<DefenseSkills, AppError>;
@@ -374,9 +375,7 @@ impl GamePlayerReader for SqlGameRepository {
                 player.offense_skills.batter = Some(self.load_batter_info(player_info.id)?);
 
                 if player.defense_skills.position == Position::C {
-                    player.defense_skills.catcher = Some(CatcherInfo::from_fielder_info(
-                        self.load_fielder_info(player_info.id, FielderType::Catcher)?,
-                    ));
+                    player.defense_skills.catcher = Some(self.load_catcher_info(player_info.id)?);
                 } else if player.defense_skills.position.is_corner_infielder() {
                     player.defense_skills.corner_infielder =
                         Some(self.load_fielder_info(player_info.id, FielderType::CornerInfielder)?);
@@ -428,6 +427,17 @@ impl GamePlayerReader for SqlGameRepository {
                 WHERE player_id = ?1 AND fielder_type = ?2";
         self.db_client
             .query_row::<FielderInfo>(query, params![player_id, fielder_type.as_ref()])
+    }
+
+    #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
+    fn load_catcher_info(&self, player_id: i64) -> Result<CatcherInfo, AppError> {
+        self.db_client.query_row::<CatcherInfo>(
+            "SELECT c.calling_style, f.fielder_type, f.throw_speed, f.running_speed,
+                    f.reaction, f.prep_time, f.catching, f.reach_height, f.reach_range
+             FROM catcher_info c JOIN fielder_info f ON f.player_id = c.player_id
+             WHERE c.player_id = ?1 AND f.fielder_type = ?2",
+            params![player_id, FielderType::Catcher],
+        )
     }
 
     #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
@@ -825,6 +835,11 @@ mod tests {
                 PRIMARY KEY (player_id, fielder_type)
             );
 
+            CREATE TABLE catcher_info (
+                player_id INTEGER PRIMARY KEY,
+                calling_style TEXT NOT NULL
+            );
+
             CREATE TABLE pitcher_info (
                 player_id INTEGER PRIMARY KEY,
                 height REAL NOT NULL,
@@ -1144,6 +1159,7 @@ mod tests {
 
                 if position == Position::C {
                     seed_fielder_info(&conn, id, FielderType::Catcher);
+                    conn.execute("INSERT INTO catcher_info (player_id, calling_style) VALUES (?1, 'Adaptive')", params![id]).unwrap();
                 } else if position.is_corner_infielder() {
                     seed_fielder_info(&conn, id, FielderType::CornerInfielder);
                 } else if position.is_middle_infielder() {
@@ -1343,6 +1359,22 @@ mod tests {
             fence_impact_time: None,
             outbound_result: OutboundResult::InField,
         }
+    }
+
+    #[test]
+    fn load_catcher_info_preserves_calling_style_and_fielding() {
+        let (repo, path) = setup_repo();
+        seed_players(&repo);
+        seed_player_skills(&repo);
+        let catcher = repo.load_catcher_info(2).unwrap();
+        assert_eq!(
+            catcher.calling_style,
+            crate::domain::shared::player::CatcherCallingStyle::Adaptive
+        );
+        assert_eq!(catcher.fielder_info.fielder_type, FielderType::Catcher);
+        assert_eq!(catcher.fielder_info.throw_speed, 38.0);
+        assert!(repo.load_catcher_info(1).is_err());
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

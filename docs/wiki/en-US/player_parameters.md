@@ -60,7 +60,7 @@ The current `Player` model is nested:
 | --- | --- | --- | --- |
 | `position` | `Position` | `defense_skills.position` | Primary defensive position. |
 | `pitcher` | `Option<PitcherInfo>` | `pitcher_info`, `pitch_skill`, `fielder_info` | Pitcher parameters and pitcher fielding info. Set when the player has `FielderType::Pitcher`. |
-| `catcher` | `Option<CatcherInfo>` | `fielder_info` | Catcher fielding info. Set when the player has `FielderType::Catcher`. |
+| `catcher` | `Option<CatcherInfo>` | `fielder_info` | Catcher fielding info and `calling_style` (defaults to `Balanced`). Set when the player has `FielderType::Catcher`. |
 | `middle_infielder` | `Option<FielderInfo>` | `fielder_info` | Middle-infielder fielding info. Set for `SB` and `SS` type skills. |
 | `corner_infielder` | `Option<FielderInfo>` | `fielder_info` | Corner-infielder fielding info. Set for `FB` and `TB` type skills. |
 | `outfielder` | `Option<FielderInfo>` | `fielder_info` | Outfielder fielding info. Set for `LF`, `CF`, and `RF` type skills. |
@@ -258,4 +258,4 @@ The factory may add extra defensive skill groups from `multiple_fielder_type/<Fi
 | `Player::fielder()` | Returns the fielding info for the player's primary position or `GameError::FielderInfo`. |
 | `DefenseSkills::new(position)` | Creates defense skills for a primary position with all optional skill groups set to `None`. |
 | `FielderInfo::new_pitcher()` | Creates zeroed pitcher fielding info. |
-| `CatcherInfo::from_fielder_info(fielder_info)` | Wraps fielder info as catcher info. |
+| `CatcherInfo::from_fielder_info(fielder_info)` | Wraps fielder info as catcher info with `calling_style` set to `Balanced`. |

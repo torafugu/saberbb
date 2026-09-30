@@ -236,7 +236,7 @@ mod tests {
             });
         } else if position == Position::C {
             player.defense_skills.catcher =
-                Some(crate::domain::shared::player::CatcherInfo { fielder_info });
+                Some(crate::domain::shared::player::CatcherInfo::from_fielder_info(fielder_info));
         } else if position.is_corner_infielder() {
             player.defense_skills.corner_infielder = Some(fielder_info);
         } else if position.is_middle_infielder() {

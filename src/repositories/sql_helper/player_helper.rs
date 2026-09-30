@@ -1,7 +1,7 @@
 use crate::domain::shared::player::{
-    ArmSlot, BatterInfo, BatterType, DefenseSkills, FielderInfo, FielderType, FullName,
-    HitterTendency, PitchSkill, PitchType, PitcherCharacter, PitcherInfo, PitcherStyle, PlayerInfo,
-    Position, RL, RunningSkills, ZoneAptitude,
+    ArmSlot, BatterInfo, BatterType, CatcherCallingStyle, CatcherInfo, DefenseSkills, FielderInfo,
+    FielderType, FullName, HitterTendency, PitchSkill, PitchType, PitcherCharacter, PitcherInfo,
+    PitcherStyle, PlayerInfo, Position, RL, RunningSkills, ZoneAptitude,
 };
 use crate::error::AppError;
 use crate::repositories::db::FromRow;
@@ -197,6 +197,32 @@ impl FromRow for FielderInfo {
         fielder_info.validate()?;
 
         Ok(fielder_info)
+    }
+}
+
+impl ToSql for CatcherCallingStyle {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_ref()))
+    }
+}
+
+impl FromSql for CatcherCallingStyle {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|_| rusqlite::types::FromSqlError::InvalidType)
+    }
+}
+
+impl FromRow for CatcherInfo {
+    type Error = AppError;
+
+    fn from_row(row: &rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            fielder_info: FielderInfo::from_row(row)?,
+            calling_style: row.get("calling_style")?,
+        })
     }
 }
 

@@ -67,9 +67,7 @@ pub(crate) fn fielder_info(fielder_type: FielderType) -> FielderInfo {
 }
 
 pub(crate) fn catcher_info() -> CatcherInfo {
-    CatcherInfo {
-        fielder_info: fielder_info(FielderType::Catcher),
-    }
+    CatcherInfo::from_fielder_info(fielder_info(FielderType::Catcher))
 }
 
 pub(crate) fn pitch_skill(pitch_type: PitchType) -> PitchSkill {

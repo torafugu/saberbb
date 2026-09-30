@@ -1,6 +1,6 @@
 use crate::domain::shared::player::{
-    BatterInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill, PitcherInfo,
-    Player, Position, RunningSkills,
+    BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FullName, OffenseSkills, PitchSkill,
+    PitcherInfo, Player, Position, RunningSkills,
 };
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::prob::{GammaParam, NormalParam};
@@ -43,6 +43,12 @@ pub trait PlayerRepository {
         tx: &Transaction,
         player_id: i64,
         fielder_info: &FielderInfo,
+    ) -> Result<usize, AppError>;
+    fn insert_catcher_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        catcher_info: &CatcherInfo,
     ) -> Result<usize, AppError>;
     fn insert_pitcher_info(
         &self,
@@ -222,6 +228,7 @@ impl PlayerRepository for SqlPlayerRepository {
 
         if let Some(catcher) = &defense_skills.catcher {
             self.insert_fielder_info(tx, player_id, &catcher.fielder_info)?;
+            self.insert_catcher_info(tx, player_id, catcher)?;
         }
 
         if let Some(middle_infielder) = &defense_skills.middle_infielder {
@@ -266,6 +273,20 @@ impl PlayerRepository for SqlPlayerRepository {
                 fielder_info.reach_height,
                 fielder_info.reach_range
             ],
+        )
+    }
+
+    #[tracing::instrument(skip(self, tx, catcher_info), fields(player_id = %player_id), err)]
+    fn insert_catcher_info(
+        &self,
+        tx: &Transaction,
+        player_id: i64,
+        catcher_info: &CatcherInfo,
+    ) -> Result<usize, AppError> {
+        self.db_client.execute_tx(
+            tx,
+            "INSERT INTO catcher_info (player_id, calling_style) VALUES (?1, ?2)",
+            params![player_id, catcher_info.calling_style],
         )
     }
 
@@ -570,6 +591,11 @@ mod tests {
                 reach_height REAL NOT NULL,
                 reach_range REAL NOT NULL,
                 PRIMARY KEY (player_id, fielder_type)
+            );
+
+            CREATE TABLE catcher_info (
+                player_id INTEGER PRIMARY KEY,
+                calling_style TEXT NOT NULL
             );
 
             CREATE TABLE pitcher_info (
@@ -893,6 +919,126 @@ mod tests {
 
         assert_eq!(position, "P");
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn catcher_calling_style_weights_load_from_database() {
+        use crate::domain::player_service::PlayerService;
+        use crate::domain::shared::player::CatcherCallingStyle;
+
+        let (repo, path) = setup_repo();
+        conn(&repo)
+            .execute_batch(include_str!(
+                "../../migrations/upgrades/add_catcher_calling_style_weights.sql"
+            ))
+            .unwrap();
+        let service = PlayerService { repo };
+        let probs = service.load_catcher_info_probs().unwrap();
+        assert_eq!(probs.calling_style.len(), 4);
+        for style in [
+            CatcherCallingStyle::Balanced,
+            CatcherCallingStyle::Aggressive,
+            CatcherCallingStyle::Cautious,
+            CatcherCallingStyle::Adaptive,
+        ] {
+            assert!(
+                probs
+                    .calling_style
+                    .iter()
+                    .any(|item| item.name == style && item.weight == 0.25)
+            );
+        }
+        conn(&service.repo).execute(
+            "UPDATE item_weighted SET weight = 0.8 WHERE category1 = 'catcher_info' AND category2 = 'calling_style' AND name = 'Adaptive'", [],
+        ).unwrap();
+        let probs = service.load_catcher_info_probs().unwrap();
+        assert_eq!(
+            probs
+                .calling_style
+                .iter()
+                .find(|item| item.name == CatcherCallingStyle::Adaptive)
+                .unwrap()
+                .weight,
+            0.8
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn save_player_preserves_all_catcher_calling_styles() {
+        use crate::domain::shared::player::CatcherCallingStyle;
+
+        let (mut repo, path) = setup_repo();
+        seed_team(&repo, 1, "Catchers");
+        for style in [
+            CatcherCallingStyle::Balanced,
+            CatcherCallingStyle::Aggressive,
+            CatcherCallingStyle::Cautious,
+            CatcherCallingStyle::Adaptive,
+        ] {
+            let mut player = player();
+            player.defense_skills.position = Position::C;
+            player.defense_skills.catcher = Some(CatcherInfo {
+                fielder_info: fielder_info(FielderType::Catcher),
+                calling_style: style,
+            });
+            repo.insert_player(1, &player).unwrap();
+            let restored = repo
+                .db_client
+                .query_row::<CatcherInfo>(
+                    "SELECT c.calling_style, f.* FROM catcher_info c
+                 JOIN fielder_info f ON f.player_id = c.player_id
+                 WHERE f.fielder_type = 'Catcher' ORDER BY c.player_id DESC LIMIT 1",
+                    &[],
+                )
+                .unwrap();
+            assert_eq!(restored.calling_style, style);
+            assert_eq!(restored.fielder_info.fielder_type, FielderType::Catcher);
+            assert_eq!(
+                restored.fielder_info.throw_speed,
+                player
+                    .defense_skills
+                    .catcher
+                    .unwrap()
+                    .fielder_info
+                    .throw_speed
+            );
+        }
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn catcher_upgrade_backfills_only_catchers_and_preserves_fielding() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../../migrations/ddl/catcher_info_table.sql"))
+            .unwrap();
+        conn.execute_batch("DROP TABLE catcher_info;
+            CREATE TABLE fielder_info (player_id INTEGER, fielder_type TEXT, throw_speed REAL);
+            INSERT INTO fielder_info VALUES (1, 'Catcher', 38.0), (1, 'Outfielder', 40.0), (2, 'Pitcher', 39.0);").unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_catcher_info.sql"
+        ))
+        .unwrap();
+        let rows: (i64, String) = conn
+            .query_row(
+                "SELECT player_id, calling_style FROM catcher_info",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(rows, (1, "Balanced".into()));
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM catcher_info", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM fielder_info", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
     }
 
     #[test]

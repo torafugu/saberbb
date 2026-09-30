@@ -1,7 +1,9 @@
 use crate::domain::resolver::batting_resolver::CountStatus;
 use crate::domain::shared::ball::{BallLocation, BallZone};
 use crate::domain::shared::game_state::InningState;
-use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo, PitcherTendencies};
+use crate::domain::shared::player::{
+    BatterInfo, CatcherCallingStyle, PitchType, PitcherInfo, PitcherTendencies,
+};
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::strategy::common_strategy::{
     DEFAULT_XBH_PROBS, HitAdvanceModel, RunExpectancyTable,
@@ -156,7 +158,7 @@ fn estimate_call_risks(
         hard_contact: (estimate.hard_contact
             * (0.8 + 2.0 * batter_aptitude)
             * (1.0 - 0.15 * edge.min(1.0)))
-            .clamp(0.0, 1.0),
+        .clamp(0.0, 1.0),
         execution: ((1.0 - estimate.command) * (0.3 + 0.3 * edge)).clamp(0.0, 1.0),
     }
 }
@@ -173,9 +175,7 @@ fn pitch_call_strategy_score(
 
     match strategy {
         PitchingStrategy::AttackZone => -0.8 * risks.walk,
-        PitchingStrategy::HuntStrikeout => {
-            0.3 * estimate.whiff * edge.min(1.0) - 0.3 * risks.walk
-        }
+        PitchingStrategy::HuntStrikeout => 0.3 * estimate.whiff * edge.min(1.0) - 0.3 * risks.walk,
         PitchingStrategy::InduceGroundBall => {
             0.4 * estimate.ground_ball * f64::from(aim.y < 0.0) - 0.3 * risks.walk
         }
@@ -427,16 +427,6 @@ pub enum PitchSequence {
     ChangeSides,
 }
 
-/// Calling style supplied by the caller, independent of the pitcher's character.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum CatcherCallingStyle {
-    #[default]
-    Balanced,
-    Aggressive,
-    Cautious,
-    Adaptive,
-}
-
 /// Express the catcher's wishes without selecting a pitch or estimating risk.
 /// Strategy and pitcher feasibility are evaluated only when producing proposals.
 /// All strengths are provisional, soft scoring weights in the range 0.0..=1.0.
@@ -513,7 +503,10 @@ pub fn catcher_preferences(
 
     // Three balls take precedence over two strikes, including a full count.
     // These are count-based wishes; PitchAround can still favor Out in proposals.
-    if matches!(count, CountStatus::C30 | CountStatus::C31 | CountStatus::C32) {
+    if matches!(
+        count,
+        CountStatus::C30 | CountStatus::C31 | CountStatus::C32
+    ) {
         preferences.margin = Some(MarginPreference {
             margin: Margin::Wide,
             strength: 0.9,
@@ -640,9 +633,9 @@ pub fn catcher_pitch_call_proposals(
                 if let Some(preferred) = preferences.arsenal {
                     let bonus = match preferred.arsenal {
                         PitchArsenal::BestPitch => item.weight,
-                        PitchArsenal::Mix => {
-                            f64::from(previous_call.is_some_and(|call| call.pitch_type != pitch_type))
-                        }
+                        PitchArsenal::Mix => f64::from(
+                            previous_call.is_some_and(|call| call.pitch_type != pitch_type),
+                        ),
                     };
                     score += 0.3 * preferred.strength.clamp(0.0, 1.0) * bonus;
                 }
@@ -655,9 +648,7 @@ pub fn catcher_pitch_call_proposals(
                             let b = last_skill.velocity;
                             (a - b).abs() / a.abs().max(b.abs()).max(1e-9)
                         }),
-                        PitchSequence::ChangeEyeLevel => {
-                            f64::from(aim.y * last_aim.y < 0.0)
-                        }
+                        PitchSequence::ChangeEyeLevel => f64::from(aim.y * last_aim.y < 0.0),
                         PitchSequence::ChangeSides => f64::from(aim.x * last_aim.x < 0.0),
                     };
                     score += 0.3 * preferred.strength.clamp(0.0, 1.0) * bonus;
@@ -835,7 +826,10 @@ mod pitch_call_shortlist_tests {
             for count in [CountStatus::C30, CountStatus::C31, CountStatus::C32] {
                 let preferences = catcher_preferences(style, &batter, count, previous);
                 assert_eq!(preferences.margin.unwrap().margin, Margin::Wide);
-                assert_eq!(preferences.arsenal.unwrap().arsenal, PitchArsenal::BestPitch);
+                assert_eq!(
+                    preferences.arsenal.unwrap().arsenal,
+                    PitchArsenal::BestPitch
+                );
             }
             for count in [CountStatus::C02, CountStatus::C12, CountStatus::C22] {
                 let preferences = catcher_preferences(style, &batter, count, previous);
@@ -849,33 +843,55 @@ mod pitch_call_shortlist_tests {
     fn catcher_zone_wishes_follow_batter_aptitude_without_arbitrary_balanced_bias() {
         let mut batter = batter_info(RL::Right);
         batter.zone_aptitude = ZoneAptitude::Balanced;
-        assert!(catcher_preferences(
-            CatcherCallingStyle::Balanced, &batter, CountStatus::C00, None,
-        ).target_zone.is_none());
+        assert!(
+            catcher_preferences(
+                CatcherCallingStyle::Balanced,
+                &batter,
+                CountStatus::C00,
+                None,
+            )
+            .target_zone
+            .is_none()
+        );
 
         batter.zone_aptitude = ZoneAptitude::InsideDominant;
         let preference = catcher_target_zone_preference(&batter).unwrap();
-        assert!(matches!(preference.zone, TargetZone::LowOutside | TargetZone::HighOutside));
+        assert!(matches!(
+            preference.zone,
+            TargetZone::LowOutside | TargetZone::HighOutside
+        ));
         assert!(preference.strength > 0.0 && preference.strength <= 0.7);
 
         batter.zone_aptitude = ZoneAptitude::LowBaller;
         let preference = catcher_target_zone_preference(&batter).unwrap();
-        assert!(matches!(preference.zone, TargetZone::HighInside | TargetZone::HighOutside));
+        assert!(matches!(
+            preference.zone,
+            TargetZone::HighInside | TargetZone::HighOutside
+        ));
     }
 
     #[test]
     fn catcher_style_and_previous_call_control_sequence_wishes() {
         let batter = batter_info(RL::Right);
         let initial = catcher_preferences(
-            CatcherCallingStyle::Adaptive, &batter, CountStatus::C00, None,
+            CatcherCallingStyle::Adaptive,
+            &batter,
+            CountStatus::C00,
+            None,
         );
         assert!(initial.sequence.is_none());
         assert!(initial.arsenal.is_none());
         let aggressive = catcher_preferences(
-            CatcherCallingStyle::Aggressive, &batter, CountStatus::C00, None,
+            CatcherCallingStyle::Aggressive,
+            &batter,
+            CountStatus::C00,
+            None,
         );
         let cautious = catcher_preferences(
-            CatcherCallingStyle::Cautious, &batter, CountStatus::C00, None,
+            CatcherCallingStyle::Cautious,
+            &batter,
+            CountStatus::C00,
+            None,
         );
         assert_eq!(aggressive.margin.unwrap().margin, Margin::Wide);
         assert_eq!(cautious.margin.unwrap().margin, Margin::Edge);
@@ -891,7 +907,10 @@ mod pitch_call_shortlist_tests {
                 margin: Margin::Wide,
             });
             let preferences = catcher_preferences(
-                CatcherCallingStyle::Adaptive, &batter, CountStatus::C00, previous,
+                CatcherCallingStyle::Adaptive,
+                &batter,
+                CountStatus::C00,
+                previous,
             );
             assert_eq!(preferences.sequence.unwrap().sequence, expected);
         }
@@ -903,31 +922,49 @@ mod pitch_call_shortlist_tests {
         let mut batter = batter_info(RL::Right);
         batter.zone_aptitude = ZoneAptitude::InsideDominant;
         let preferences = catcher_preferences(
-            CatcherCallingStyle::Cautious, &batter, CountStatus::C00, None,
+            CatcherCallingStyle::Cautious,
+            &batter,
+            CountStatus::C00,
+            None,
         );
         let baseline = catcher_pitch_call_proposals(
-            &PitchingPreferences::default(), &pitcher, &batter,
-            PitchingStrategy::PitchAround, None, usize::MAX,
+            &PitchingPreferences::default(),
+            &pitcher,
+            &batter,
+            PitchingStrategy::PitchAround,
+            None,
+            usize::MAX,
         );
         let proposals = catcher_pitch_call_proposals(
-            &preferences, &pitcher, &batter,
-            PitchingStrategy::PitchAround, None, usize::MAX,
+            &preferences,
+            &pitcher,
+            &batter,
+            PitchingStrategy::PitchAround,
+            None,
+            usize::MAX,
         );
         assert_eq!(proposals.len(), baseline.len());
         let zone_preference = preferences.target_zone.unwrap();
         let margin_preference = preferences.margin.unwrap();
         for proposal in proposals {
-            let base = baseline.iter().find(|base| {
-                base.pitch_call.pitch_type == proposal.pitch_call.pitch_type
-                    && base.pitch_call.target_zone == proposal.pitch_call.target_zone
-                    && base.pitch_call.margin == proposal.pitch_call.margin
-            }).unwrap();
+            let base = baseline
+                .iter()
+                .find(|base| {
+                    base.pitch_call.pitch_type == proposal.pitch_call.pitch_type
+                        && base.pitch_call.target_zone == proposal.pitch_call.target_zone
+                        && base.pitch_call.margin == proposal.pitch_call.margin
+                })
+                .unwrap();
             let zone_bonus = if proposal.pitch_call.target_zone == zone_preference.zone {
                 0.8 * zone_preference.strength
-            } else { 0.0 };
+            } else {
+                0.0
+            };
             let margin_bonus = if proposal.pitch_call.margin == margin_preference.margin {
                 0.5 * margin_preference.strength
-            } else { 0.0 };
+            } else {
+                0.0
+            };
             assert!((proposal.score - base.score - zone_bonus - margin_bonus).abs() < 1e-9);
         }
     }
@@ -936,14 +973,8 @@ mod pitch_call_shortlist_tests {
     fn shortlist_keeps_each_pitch_and_does_not_duplicate_center() {
         let pitcher = pitcher_info();
         let batter = batter_info(RL::Right);
-        let calls = shortlist_pitch_calls(
-            &pitcher,
-            &batter,
-            PitchingStrategy::AttackZone,
-            None,
-            2,
-            13,
-        );
+        let calls =
+            shortlist_pitch_calls(&pitcher, &batter, PitchingStrategy::AttackZone, None, 2, 13);
         assert_eq!(calls.len(), pitcher.pitch_skills.len() * 13);
         for pitch in &pitcher.pitch_skills {
             assert_eq!(
@@ -958,14 +989,8 @@ mod pitch_call_shortlist_tests {
             );
         }
 
-        let limited = shortlist_pitch_calls(
-            &pitcher,
-            &batter,
-            PitchingStrategy::AttackZone,
-            None,
-            2,
-            2,
-        );
+        let limited =
+            shortlist_pitch_calls(&pitcher, &batter, PitchingStrategy::AttackZone, None, 2, 2);
         assert_eq!(limited.len(), pitcher.pitch_skills.len() * 2);
         assert!(pitcher.pitch_skills.iter().all(|pitch| {
             limited
@@ -999,24 +1024,22 @@ mod pitch_call_shortlist_tests {
                 .risks
         };
 
-        assert!(risk(TargetZone::LowOutside, Margin::Out).walk
-            > risk(TargetZone::LowOutside, Margin::Wide).walk);
-        assert!(risk(TargetZone::LowInside, Margin::Wide).hard_contact
-            > risk(TargetZone::LowOutside, Margin::Wide).hard_contact);
+        assert!(
+            risk(TargetZone::LowOutside, Margin::Out).walk
+                > risk(TargetZone::LowOutside, Margin::Wide).walk
+        );
+        assert!(
+            risk(TargetZone::LowInside, Margin::Wide).hard_contact
+                > risk(TargetZone::LowOutside, Margin::Wide).hard_contact
+        );
     }
 
     #[test]
     fn catcher_preferences_can_propose_a_pitch_outside_pitcher_shortlist() {
         let pitcher = pitcher_info();
         let batter = batter_info(RL::Right);
-        let pitcher_shortlist = shortlist_pitch_calls(
-            &pitcher,
-            &batter,
-            PitchingStrategy::AttackZone,
-            None,
-            1,
-            1,
-        );
+        let pitcher_shortlist =
+            shortlist_pitch_calls(&pitcher, &batter, PitchingStrategy::AttackZone, None, 1, 1);
         let preferences = PitchingPreferences {
             target_zone: Some(TargetZonePreference {
                 zone: TargetZone::LowOutside,
@@ -1041,7 +1064,10 @@ mod pitch_call_shortlist_tests {
         assert!(catcher_calls.iter().any(|call| {
             call.pitch_call.pitch_type != pitcher_shortlist[0].pitch_call.pitch_type
         }));
-        assert_eq!(catcher_calls[0].pitch_call.target_zone, TargetZone::LowOutside);
+        assert_eq!(
+            catcher_calls[0].pitch_call.target_zone,
+            TargetZone::LowOutside
+        );
         assert_eq!(catcher_calls[0].pitch_call.margin, Margin::Edge);
     }
 

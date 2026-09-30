@@ -4,8 +4,8 @@ use super::shared::player::{
     PitcherStyle, Player, Position, RunningSkills,
 };
 use super::shared::prob::{
-    BatterInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs, PlayerInfoProbs,
-    RunningSkillProbs,
+    BatterInfoProbs, CatcherInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs,
+    PlayerInfoProbs, RunningSkillProbs,
 };
 use crate::domain::random_provider::{
     RandomProvider, RealRng, choose_item_if_exists, choose_item_weighted,
@@ -26,6 +26,7 @@ pub struct PlayerFactory<R: PlayerRepository> {
     running_skill_probs: RunningSkillProbs,
     batter_info_probs: BatterInfoProbs,
     fielder_info_probs: FielderInfoProbs,
+    catcher_info_probs: CatcherInfoProbs,
     pitcher_info_probs: PitcherInfoProbs,
     pitch_type_map: HashMap<PitcherStyle, Vec<ItemWeighted<PitchType>>>,
     pitch_skill_map: HashMap<PitchType, PitchSkillProbs>,
@@ -39,6 +40,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             running_skill_probs: RunningSkillProbs::default(),
             batter_info_probs: BatterInfoProbs::default(),
             fielder_info_probs: FielderInfoProbs::default(),
+            catcher_info_probs: CatcherInfoProbs::default(),
             pitcher_info_probs: PitcherInfoProbs::default(),
             pitch_type_map: HashMap::new(),
             pitch_skill_map: HashMap::new(),
@@ -52,6 +54,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         self.running_skill_probs = self.service.load_running_skill_probs()?;
         self.batter_info_probs = self.service.load_batter_info_probs()?;
         self.fielder_info_probs = self.service.load_fielder_info_probs()?;
+        self.catcher_info_probs = self.service.load_catcher_info_probs()?;
         self.pitcher_info_probs = self.service.load_pitcher_info_prob()?;
         self.player_info_probs = self.service.load_player_info_probs()?;
         self.pitch_type_map = self.service.load_pitch_type_prob()?;
@@ -95,22 +98,20 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         let mut defense_skills = DefenseSkills::new(primary_position);
 
         for fielder_type in fielder_types {
-            let fileder_info = self.assign_fielder_info(&fielder_type)?;
+            let fielder_info = self.assign_fielder_info(&fielder_type)?;
             match fielder_type {
-                FielderType::Outfielder => defense_skills.outfielder = Some(fileder_info),
+                FielderType::Outfielder => defense_skills.outfielder = Some(fielder_info),
                 FielderType::MiddleInfielder => {
-                    defense_skills.middle_infielder = Some(fileder_info)
+                    defense_skills.middle_infielder = Some(fielder_info)
                 }
                 FielderType::CornerInfielder => {
-                    defense_skills.corner_infielder = Some(fileder_info)
+                    defense_skills.corner_infielder = Some(fielder_info)
                 }
                 FielderType::Pitcher => {
-                    defense_skills.pitcher = Some(self.assign_pitcher_info(&fileder_info)?)
+                    defense_skills.pitcher = Some(self.assign_pitcher_info(&fielder_info)?)
                 }
                 FielderType::Catcher => {
-                    defense_skills.catcher = Some(CatcherInfo {
-                        fielder_info: fileder_info,
-                    })
+                    defense_skills.catcher = Some(self.assign_catcher_info(&fielder_info)?)
                 }
             }
         }
@@ -260,6 +261,16 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             catching: self.rng.normal(self.fielder_info_probs.catching),
             reach_height: self.rng.normal(self.fielder_info_probs.reach_height),
             reach_range: 1.0,
+        })
+    }
+
+    fn assign_catcher_info(&mut self, fielder_info: &FielderInfo) -> Result<CatcherInfo> {
+        Ok(CatcherInfo {
+            fielder_info: *fielder_info,
+            calling_style: *choose_item_weighted(
+                self.rng.as_mut(),
+                &self.catcher_info_probs.calling_style,
+            )?,
         })
     }
 

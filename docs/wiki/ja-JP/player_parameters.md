@@ -60,7 +60,7 @@
 | --- | --- | --- | --- |
 | `position` | `Position` | `defense_skills.position` | 主守備ポジション。 |
 | `pitcher` | `Option<PitcherInfo>` | `pitcher_info`、`pitch_skill`、`fielder_info` | 投手パラメータと投手の守備情報。プレイヤーが `FielderType::Pitcher` を持つ場合に設定されます。 |
-| `catcher` | `Option<CatcherInfo>` | `fielder_info` | 捕手の守備情報。プレイヤーが `FielderType::Catcher` を持つ場合に設定されます。 |
+| `catcher` | `Option<CatcherInfo>` | `fielder_info` | 捕手の守備情報と `calling_style`（デフォルトは `Balanced`）。プレイヤーが `FielderType::Catcher` を持つ場合に設定されます。 |
 | `middle_infielder` | `Option<FielderInfo>` | `fielder_info` | 二遊間（中堅内野手）の守備情報。`SB` と `SS` タイプのスキルで設定されます。 |
 | `corner_infielder` | `Option<FielderInfo>` | `fielder_info` | コーナー内野手の守備情報。`FB` と `TB` タイプのスキルで設定されます。 |
 | `outfielder` | `Option<FielderInfo>` | `fielder_info` | 外野手の守備情報。`LF`、`CF`、`RF` タイプのスキルで設定されます。 |
@@ -258,4 +258,4 @@ PitcherInfo は以下のメソッドも導出します:
 | `Player::fielder()` | プレイヤーの主ポジションの守備情報を返します。存在しない場合は `GameError::FielderInfo` を返します。 |
 | `DefenseSkills::new(position)` | 主ポジション用の守備スキルを作成し、すべての任意スキルグループを `None` に設定します。 |
 | `FielderInfo::new_pitcher()` | ゼロ初期化された投手用守備情報を作成します。 |
-| `CatcherInfo::from_fielder_info(fielder_info)` | 野手情報を捕手情報としてラップします。 |
+| `CatcherInfo::from_fielder_info(fielder_info)` | 野手情報を捕手情報としてラップし、`calling_style` を `Balanced` に設定します。 |

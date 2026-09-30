@@ -1,7 +1,7 @@
 use super::shared::player::{FielderType, PitchType, PitcherStyle, Player, Position};
 use super::shared::prob::{
-    BatterInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs, PlayerInfoProbs,
-    RunningSkillProbs,
+    BatterInfoProbs, CatcherInfoProbs, FielderInfoProbs, PitchSkillProbs, PitcherInfoProbs,
+    PlayerInfoProbs, RunningSkillProbs,
 };
 use crate::domain::shared::player::FullName;
 use crate::domain::shared::prob::ItemWeighted;
@@ -115,6 +115,14 @@ impl<R: PlayerRepository> PlayerService<R> {
             attack_angle: attack_angle,
             bat_control,
             consistency,
+        })
+    }
+
+    pub fn load_catcher_info_probs(&self) -> Result<CatcherInfoProbs, AppError> {
+        info!("load_catcher_info_probs() started");
+
+        Ok(CatcherInfoProbs {
+            calling_style: self.repo.item_probs("catcher_info", "calling_style")?,
         })
     }
 
@@ -591,6 +599,15 @@ mod tests {
             _tx: &Transaction,
             _player_id: i64,
             _fielder_info: &FielderInfo,
+        ) -> Result<usize, AppError> {
+            Ok(1)
+        }
+
+        fn insert_catcher_info(
+            &self,
+            _tx: &Transaction,
+            _player_id: i64,
+            _catcher_info: &crate::domain::shared::player::CatcherInfo,
         ) -> Result<usize, AppError> {
             Ok(1)
         }
