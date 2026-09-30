@@ -286,8 +286,8 @@ const STRATEGY_PRIORITY: [PitchingStrategy; 5] = [
 
 pub fn select_pitching_strategy(
     inning_state: &InningState,
-    inning: u8,
-    score_diff: i16, // If the score is a plus from the defensive team's perspective, it is a lead.
+    _inning: u8,
+    _score_diff: i16, // If the score is a plus from the defensive team's perspective, it is a lead.
 ) -> PitchingStrategy {
     let mut strategy_score_map: HashMap<PitchingStrategy, i32> = HashMap::new();
 

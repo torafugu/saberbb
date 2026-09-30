@@ -27,7 +27,7 @@ impl<R: GameRoundRepository> GameService<R> {
             while let GameProgress::Ongoing = game_state.progress() {
                 info!("new inning started");
 
-                game_state.advance_half_inning();
+                game_state.advance_half_inning()?;
 
                 while let InningProgress::Ongoing = game_state.inning_state.inning_progress() {
                     game_state.process_count()?;

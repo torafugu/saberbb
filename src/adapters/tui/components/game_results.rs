@@ -811,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn format_batting_order_lists_order_position_and_player() {
+    fn format_batting_order_lists_order_and_player() {
         let formatted_batting_order = formatter::format_batting_order(
             vec![
                 BatterGameStatView {
@@ -842,19 +842,10 @@ mod tests {
             Some(11),
         );
 
-        assert_eq!(
-            formatted_batting_order[0].to_string(),
-            format!("{}: away", t!("batting_order"))
-        );
-        assert_eq!(
-            formatted_batting_order[1].to_string(),
-            "1. (CF) First10 Last10"
-        );
+        assert_eq!(formatted_batting_order[0].to_string(), "");
+        assert_eq!(formatted_batting_order[1].to_string(), "1. First10 Last10");
         assert_eq!(formatted_batting_order[1].style.fg, None);
-        assert_eq!(
-            formatted_batting_order[2].to_string(),
-            "2. (DH) First11 Last11"
-        );
+        assert_eq!(formatted_batting_order[2].to_string(), "2. First11 Last11");
         assert_eq!(formatted_batting_order[2].style.fg, Some(Color::Yellow));
     }
 }

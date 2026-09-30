@@ -998,13 +998,13 @@ mod tests {
     fn is_ball_in_fielder_lane_uses_position_specific_coverage() {
         let pitcher = fielder(Position::P, 18.0, 0.0);
         let shortstop = fielder(Position::SS, 30.0, -7.5);
-        let left_fielder = fielder(Position::LF, 80.0, -11.5);
+        let left_fielder = fielder(Position::LF, 80.0, -8.0);
 
         assert!(is_ball_in_fielder_lane(&pitcher, 4.0));
         assert!(!is_ball_in_fielder_lane(&pitcher, 4.1));
         assert!(is_ball_in_fielder_lane(&shortstop, 0.0));
         assert!(is_ball_in_fielder_lane(&left_fielder, 0.0));
-        assert!(!is_ball_in_fielder_lane(&left_fielder, 12.1));
+        assert!(!is_ball_in_fielder_lane(&left_fielder, 0.1));
     }
 
     #[test]

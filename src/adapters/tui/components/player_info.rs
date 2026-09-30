@@ -1012,7 +1012,7 @@ mod tests {
 
         assert!(detail.contains("Four Seam Fastball"));
         assert!(detail.contains("Velocity: 148km/h"));
-        assert!(detail.contains("Spin Efficiency: 0.95"));
+        assert!(detail.contains("Spin Efficiency: 95.00%"));
         assert!(detail.contains("Usage: 100.00%"));
     }
 

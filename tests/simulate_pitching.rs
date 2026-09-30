@@ -7,7 +7,7 @@ use saberbb::domain::resolver::pitching_resolver::*;
 use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::domain::shared::game_state::{ActiveBatter, ActivePitcher, InningState};
 use saberbb::domain::shared::player::SWING_SPEED_AVG;
-use saberbb::domain::strategy::pitching_strategy::select_pitching_strategy;
+use saberbb::domain::strategy::pitching_strategy::{PitchingStrategy, select_pitching_strategy};
 use saberbb::repositories::db::*;
 
 #[test]
@@ -143,17 +143,25 @@ fn test_select_pitching_strategy() {
             inning_state.runners.runner_3rd = (base_mask & 4 != 0).then_some(runner);
 
             if sample >= 500 {
-                // A power hitter with two outs and empty bases makes avoiding
-                // extra bases competitive without double-play or strikeout urgency.
+                // Isolate a power hitter with poor contact and plate discipline.
+                // Without pitcher bonuses, AvoidExtraBases wins the deterministic
+                // tie with PitchAround in this low-walk-cost situation.
                 inning_state.out = 2;
                 inning_state.runners = Default::default();
+                inning_state.active_pitcher = None;
                 let batter = &mut inning_state.active_batter.as_mut().unwrap().batter;
                 batter.swing_speed = SWING_SPEED_AVG;
                 batter.swing_power = 2.0;
+                batter.batting_eye = -3.0;
+                batter.bat_control = -3.0;
                 assert!(batter.slugger_option() > 0.5);
+                assert!(batter.score() <= 0.5);
             }
 
             let strategy = select_pitching_strategy(&inning_state, 1, 0);
+            if sample >= 500 {
+                assert_eq!(strategy, PitchingStrategy::AvoidExtraBases);
+            }
             insert.execute(params![format!("{strategy:?}")]).unwrap();
         }
     }
@@ -173,8 +181,7 @@ fn test_select_pitching_strategy() {
             |row| row.get(0),
         )
         .unwrap();
-    // Equal strategy scores are currently broken by HashMap iteration order,
-    // so check presence across the samples rather than an exact percentage.
-    assert!(avoid_extra_bases_count > 0);
+    // The controlled matchup accounts for the final 500 samples.
+    assert!(avoid_extra_bases_count >= 500);
     tx.commit().unwrap();
 }

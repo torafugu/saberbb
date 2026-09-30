@@ -1344,7 +1344,7 @@ mod tests {
     fn advance_half_inning_cycles_top_and_bottom() {
         let mut game = game_state();
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         assert_eq!(game.inning.seq, 1);
         assert_eq!(game.inning.tb, TB::Top);
         assert!(game.inning.counts.is_empty());
@@ -1352,13 +1352,13 @@ mod tests {
         assert_eq!(game.inning_state.out, 0);
 
         game.inning_state.add_out();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         assert_eq!(game.inning.seq, 1);
         assert_eq!(game.inning.tb, TB::Bottom);
         assert_no_runners(&game.inning_state);
         assert_eq!(game.inning_state.out, 0);
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         assert_eq!(game.inning.seq, 2);
         assert_eq!(game.inning.tb, TB::Top);
     }
@@ -1367,7 +1367,7 @@ mod tests {
     fn process_count_records_count_for_current_batting_team() {
         let mut game = game_state();
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let away_batter_id = game.away_lineup.batters()[0].id;
         game.process_count().unwrap();
 
@@ -1384,7 +1384,7 @@ mod tests {
             assert_eq!(active_batter.id, away_batter_id);
         }
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let home_batter_id = game.home_lineup.batters()[0].id;
         game.process_count().unwrap();
 
@@ -1406,13 +1406,13 @@ mod tests {
     fn current_batter_uses_correct_lineup_and_wraps_after_nine_batters() {
         let mut game = game_state();
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         for expected_id in 2..=10 {
             assert_eq!(game.current_batter().unwrap().id, expected_id as i64);
         }
         assert_eq!(game.current_batter().unwrap().id, 2);
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         assert_eq!(game.current_batter().unwrap().id, 102);
     }
 
@@ -1420,7 +1420,7 @@ mod tests {
     fn active_batter_for_count_reuses_batter_until_plate_appearance_finishes() {
         let mut game = game_state();
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
 
         let first_batter = game.active_batter_for_count().unwrap();
         assert_eq!(first_batter.id, 2);
@@ -1440,7 +1440,7 @@ mod tests {
     #[test]
     fn add_strike_increments_strike_without_finishing_plate_appearance() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = 2;
@@ -1457,7 +1457,7 @@ mod tests {
     #[test]
     fn add_strike_records_out_and_resets_plate_appearance_on_third_strike() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = 3;
@@ -1474,7 +1474,7 @@ mod tests {
     #[test]
     fn add_ball_increments_ball_without_finishing_plate_appearance() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = 2;
@@ -1493,7 +1493,7 @@ mod tests {
     #[test]
     fn add_ball_walks_batter_and_resets_plate_appearance_on_fourth_ball() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = MAX_BALL - 1;
@@ -1516,7 +1516,7 @@ mod tests {
     #[test]
     fn add_ball_forces_runners_and_scores_when_bases_are_loaded() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = MAX_BALL - 1;
@@ -1537,7 +1537,7 @@ mod tests {
     #[test]
     fn resolve_wild_pitch_advances_base_runners_without_moving_batter_before_walk() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = 1;
@@ -1563,7 +1563,7 @@ mod tests {
     #[test]
     fn resolve_wild_pitch_on_ball_four_advances_runners_and_walks_batter() {
         let mut game = game_state();
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         let batter = game.active_batter_for_count().unwrap();
         game.prepare_plate_appearance(batter.runner());
         game.inning_state.ball = MAX_BALL - 1;
@@ -1588,10 +1588,10 @@ mod tests {
     fn current_pitcher_returns_fielding_teams_pitcher() -> Result<(), GameError> {
         let mut game = game_state();
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         assert_eq!(game.current_pitcher()?.id, 101);
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         assert_eq!(game.current_pitcher()?.id, 1);
 
         Ok(())
@@ -1615,7 +1615,7 @@ mod tests {
                 .all(|fielder| fielder.risk_tolerance == FielderRiskTolerance::Balanced)
         );
 
-        game.advance_half_inning();
+        game.advance_half_inning().unwrap();
         game.change_risk_tolerance(FielderRiskTolerance::Aggressive);
         assert!(
             game.home_lineup

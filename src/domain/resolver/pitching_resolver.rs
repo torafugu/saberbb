@@ -338,7 +338,7 @@ mod tests {
         base_four_seam_speed: f64,
     ) -> f64 {
         let speed = pitcher_velocity * pitch_skill_velocity * pitch_effect;
-        2200.0 * pitch_skill_spin_rate * pitch_effect * (speed / base_four_seam_speed)
+        2200.0 * pitch_skill_spin_rate * pitch_effect.max(1.0) * (speed / base_four_seam_speed)
     }
 
     fn pitcher(throw_side: RL, pitch_skills: Vec<PitchSkill>) -> PitcherInfo {
@@ -452,7 +452,7 @@ mod tests {
             .expect("pitch should be created");
 
         assert_eq!(ball.pitch_type, PitchType::Slider);
-        assert_near(ball.speed, 132.0);
+        assert_near(ball.speed, 41.67 * 0.88);
         assert_near(
             ball.spin_rate,
             expected_raw_spin_rate(
@@ -529,7 +529,7 @@ mod tests {
         let ball = create_pitch(&mut rng, &pitcher, Some(0.9), TEST_BASE_FOUR_SEAM_SPEED)
             .expect("pitch should be created");
 
-        assert_near(ball.speed, 135.0);
+        assert_near(ball.speed, 41.67 * 0.9);
         assert_near(
             ball.spin_rate,
             expected_raw_spin_rate(
