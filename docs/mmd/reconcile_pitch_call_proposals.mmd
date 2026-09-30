@@ -1,0 +1,11 @@
+flowchart TD
+    Pitcher[pitcher_pitch_call_proposals] --> Reconcile[reconcile_pitch_call_proposals]
+    Catcher[catcher_pitch_call_proposals] --> Reconcile
+    Weight["捕手側の重み：初期値 0.5"] --> Reconcile
+    Reconcile --> Shared{"共通候補あり？"}
+    Shared -->|あり| Score["双方のスコアを重み付き平均"]
+    Score --> Best["最大スコアの候補"]
+    Shared -->|なし| Fallback["投手の最良案、なければ捕手案"]
+    Best --> Decision["PitchCallDecision：選択理由・双方のスコア"]
+    Fallback --> Decision
+    Decision --> Call[PitchCall]

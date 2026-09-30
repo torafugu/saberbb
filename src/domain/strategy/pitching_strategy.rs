@@ -162,6 +162,112 @@ pub struct PitchCallProposal {
     pub risks: PitchRisks,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PitchCallDecisionReason {
+    Agreement,
+    PitcherChoice,
+    CatcherChoice,
+}
+
+/// Scores are relative utilities, not probabilities. Missing scores remain None.
+#[derive(Debug, Clone, Copy)]
+pub struct PitchCallDecision {
+    pub pitch_call: PitchCall,
+    pub score: f64,
+    pub pitcher_score: Option<f64>,
+    pub catcher_score: Option<f64>,
+    pub reason: PitchCallDecisionReason,
+}
+
+/// Choose a final call with equal pitcher/catcher influence.
+pub fn select_pitch_call(
+    pitcher_proposals: &[PitchCallProposal],
+    catcher_proposals: &[PitchCallProposal],
+) -> Option<PitchCall> {
+    reconcile_pitch_call_proposals(pitcher_proposals, catcher_proposals, 0.5)
+        .map(|decision| decision.pitch_call)
+}
+
+/// Reconcile scores for calls present in both shortlists. A weighted average
+/// preserves the common strategy/risk scale rather than adding it twice.
+/// No common call: prefer the pitcher's best call; no pitcher call: use catcher.
+/// Empty or entirely non-finite inputs return None. Duplicate calls use their
+/// best finite score. Ties prefer the higher pitcher score, then pitcher order.
+/// catcher_weight is clamped to 0..=1; non-finite weights use the default 0.5.
+/// At 0 or 1, choose solely from that side (falling back if it is empty).
+pub fn reconcile_pitch_call_proposals(
+    pitcher_proposals: &[PitchCallProposal],
+    catcher_proposals: &[PitchCallProposal],
+    catcher_weight: f64,
+) -> Option<PitchCallDecision> {
+    let catcher_weight = if catcher_weight.is_finite() {
+        catcher_weight.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+    let pitcher_scores = proposal_scores(pitcher_proposals);
+    let catcher_scores = proposal_scores(catcher_proposals);
+
+    let side_choice = |proposals: &[PitchCallProposal], reason| {
+        let mut best: Option<&PitchCallProposal> = None;
+        for proposal in proposals.iter().filter(|p| p.score.is_finite()) {
+            if best.is_none_or(|current| proposal.score > current.score) {
+                best = Some(proposal);
+            }
+        }
+        best.map(|proposal| PitchCallDecision {
+            pitch_call: proposal.pitch_call,
+            score: proposal.score,
+            pitcher_score: pitcher_scores.get(&proposal.pitch_call).copied(),
+            catcher_score: catcher_scores.get(&proposal.pitch_call).copied(),
+            reason,
+        })
+    };
+
+    if catcher_weight == 0.0 || catcher_scores.is_empty() {
+        return side_choice(pitcher_proposals, PitchCallDecisionReason::PitcherChoice)
+            .or_else(|| side_choice(catcher_proposals, PitchCallDecisionReason::CatcherChoice));
+    }
+    if catcher_weight == 1.0 || pitcher_scores.is_empty() {
+        return side_choice(catcher_proposals, PitchCallDecisionReason::CatcherChoice)
+            .or_else(|| side_choice(pitcher_proposals, PitchCallDecisionReason::PitcherChoice));
+    }
+
+    let mut best: Option<PitchCallDecision> = None;
+    // Iterate the original ordered shortlist, not a HashMap, for stable ties.
+    for proposal in pitcher_proposals {
+        let (Some(&pitcher_score), Some(&catcher_score)) = (
+            pitcher_scores.get(&proposal.pitch_call),
+            catcher_scores.get(&proposal.pitch_call),
+        ) else {
+            continue;
+        };
+        let score = (1.0 - catcher_weight) * pitcher_score + catcher_weight * catcher_score;
+        if best.is_none_or(|current| {
+            score > current.score
+                || (score == current.score && Some(pitcher_score) > current.pitcher_score)
+        }) {
+            best = Some(PitchCallDecision {
+                pitch_call: proposal.pitch_call,
+                score,
+                pitcher_score: Some(pitcher_score),
+                catcher_score: Some(catcher_score),
+                reason: PitchCallDecisionReason::Agreement,
+            });
+        }
+    }
+    best.or_else(|| side_choice(pitcher_proposals, PitchCallDecisionReason::PitcherChoice))
+}
+
+fn proposal_scores(proposals: &[PitchCallProposal]) -> HashMap<PitchCall, f64> {
+    let mut scores = HashMap::new();
+    for proposal in proposals.iter().filter(|p| p.score.is_finite()) {
+        let score = scores.entry(proposal.pitch_call).or_insert(proposal.score);
+        *score = score.max(proposal.score);
+    }
+    scores
+}
+
 fn estimate_call_risks(
     pitch_call: PitchCall,
     estimate: &PitchTypeEstimate,
@@ -952,6 +1058,195 @@ pub fn default_location_distribution() -> Vec<ItemWeighted<TargetZone>> {
     });
 
     locations
+}
+
+#[cfg(test)]
+mod pitch_call_reconciliation_tests {
+    use super::*;
+    use crate::domain::shared::player::RL;
+    use crate::domain::test_support::{batter_info, pitcher_info};
+
+    fn proposal(zone: TargetZone, score: f64) -> PitchCallProposal {
+        PitchCallProposal {
+            pitch_call: PitchCall {
+                pitch_type: PitchType::FourSeamFastball,
+                target_zone: zone,
+                margin: Margin::Edge,
+            },
+            score,
+            risks: PitchRisks {
+                walk: 0.2,
+                hard_contact: 0.3,
+                execution: 0.1,
+            },
+        }
+    }
+
+    #[test]
+    fn agreement_uses_weighted_scores_and_keeps_common_baseline_once() {
+        let pitcher = [
+            proposal(TargetZone::LowInside, -1.0),
+            proposal(TargetZone::LowOutside, -2.0),
+        ];
+        let catcher = [
+            proposal(TargetZone::LowInside, -3.0),
+            proposal(TargetZone::LowOutside, -1.0),
+        ];
+        let equal = reconcile_pitch_call_proposals(&pitcher, &catcher, 0.5).unwrap();
+        assert_eq!(equal.pitch_call.target_zone, TargetZone::LowOutside);
+        assert_eq!(equal.score, -1.5);
+        assert_eq!(equal.pitcher_score, Some(-2.0));
+        assert_eq!(equal.catcher_score, Some(-1.0));
+        assert_eq!(equal.reason, PitchCallDecisionReason::Agreement);
+        let favors_pitcher = reconcile_pitch_call_proposals(&pitcher, &catcher, 0.2).unwrap();
+        assert_eq!(favors_pitcher.pitch_call.target_zone, TargetZone::LowInside);
+        let same = [proposal(TargetZone::LowInside, -2.0)];
+        assert_eq!(
+            reconcile_pitch_call_proposals(&same, &same, 0.5)
+                .unwrap()
+                .score,
+            -2.0
+        );
+        assert_eq!(
+            select_pitch_call(&pitcher, &catcher),
+            Some(equal.pitch_call)
+        );
+    }
+
+    #[test]
+    fn missing_calls_use_explicit_fallback_without_fabricating_scores() {
+        let pitcher = [
+            proposal(TargetZone::LowInside, -3.0),
+            proposal(TargetZone::HighInside, -1.0),
+        ];
+        let catcher = [proposal(TargetZone::LowOutside, 10.0)];
+        let decision = reconcile_pitch_call_proposals(&pitcher, &catcher, 0.5).unwrap();
+        assert_eq!(decision.pitch_call.target_zone, TargetZone::HighInside);
+        assert_eq!(decision.reason, PitchCallDecisionReason::PitcherChoice);
+        assert_eq!(decision.catcher_score, None);
+        let decision = reconcile_pitch_call_proposals(&[], &catcher, 0.5).unwrap();
+        assert_eq!(decision.reason, PitchCallDecisionReason::CatcherChoice);
+        assert_eq!(decision.pitcher_score, None);
+        assert!(select_pitch_call(&[], &[]).is_none());
+
+        // Matching a pitch type/zone alone is insufficient: margin is part of a call.
+        let mut different_margin = pitcher[0];
+        different_margin.pitch_call.margin = Margin::Out;
+        assert_eq!(
+            reconcile_pitch_call_proposals(&pitcher, &[different_margin], 0.5)
+                .unwrap()
+                .reason,
+            PitchCallDecisionReason::PitcherChoice
+        );
+    }
+
+    #[test]
+    fn duplicate_calls_and_equal_scores_have_stable_tie_handling() {
+        let pitcher = [
+            proposal(TargetZone::LowInside, -4.0),
+            proposal(TargetZone::LowOutside, -2.0),
+            proposal(TargetZone::LowInside, -1.0),
+        ];
+        let catcher = [
+            proposal(TargetZone::LowOutside, -1.0),
+            proposal(TargetZone::LowInside, -2.0),
+        ];
+        let decision = reconcile_pitch_call_proposals(&pitcher, &catcher, 0.5).unwrap();
+        assert_eq!(decision.pitch_call.target_zone, TargetZone::LowInside);
+        assert_eq!(decision.pitcher_score, Some(-1.0));
+        let tied = [
+            proposal(TargetZone::HighInside, -1.0),
+            proposal(TargetZone::LowOutside, -1.0),
+        ];
+        let reversed = [tied[1], tied[0]];
+        assert_eq!(
+            select_pitch_call(&tied, &reversed),
+            Some(tied[0].pitch_call)
+        );
+    }
+
+    #[test]
+    fn endpoints_and_non_finite_inputs_are_handled() {
+        let pitcher = [proposal(TargetZone::LowInside, 1.0)];
+        let catcher = [proposal(TargetZone::LowOutside, 2.0)];
+        assert_eq!(
+            reconcile_pitch_call_proposals(&pitcher, &catcher, -1.0)
+                .unwrap()
+                .pitch_call,
+            pitcher[0].pitch_call
+        );
+        assert_eq!(
+            reconcile_pitch_call_proposals(&pitcher, &catcher, 2.0)
+                .unwrap()
+                .pitch_call,
+            catcher[0].pitch_call
+        );
+        let invalid = [
+            proposal(TargetZone::LowInside, f64::NAN),
+            proposal(TargetZone::LowOutside, f64::INFINITY),
+        ];
+        assert!(select_pitch_call(&invalid, &[]).is_none());
+        assert_eq!(
+            select_pitch_call(&invalid, &catcher),
+            Some(catcher[0].pitch_call)
+        );
+        let same = [proposal(TargetZone::LowInside, 3.0)];
+        assert_eq!(
+            reconcile_pitch_call_proposals(&pitcher, &same, f64::NAN)
+                .unwrap()
+                .score,
+            2.0
+        );
+    }
+
+    #[test]
+    fn generated_preferences_and_proposals_produce_a_final_supported_call() {
+        let pitcher = pitcher_info();
+        let batter = batter_info(RL::Right);
+        let pitcher_preferences =
+            pitcher_preferences(pitcher.pitcher_character, &batter, CountStatus::C00, None);
+        let catcher_preferences = catcher_preferences(
+            CatcherCallingStyle::Balanced,
+            &batter,
+            CountStatus::C00,
+            None,
+        );
+        let pitcher_calls = pitcher_pitch_call_proposals(
+            &pitcher_preferences,
+            &pitcher,
+            &batter,
+            PitchingStrategy::AttackZone,
+            None,
+            2,
+            2,
+        );
+        let catcher_calls = catcher_pitch_call_proposals(
+            &catcher_preferences,
+            &pitcher,
+            &batter,
+            PitchingStrategy::AttackZone,
+            None,
+            usize::MAX,
+        );
+        let decision = reconcile_pitch_call_proposals(&pitcher_calls, &catcher_calls, 0.5).unwrap();
+        assert_eq!(decision.reason, PitchCallDecisionReason::Agreement);
+        assert!(
+            pitcher_calls
+                .iter()
+                .any(|p| p.pitch_call == decision.pitch_call)
+        );
+        assert!(
+            catcher_calls
+                .iter()
+                .any(|p| p.pitch_call == decision.pitch_call)
+        );
+        assert!(
+            pitcher
+                .pitch_skills
+                .iter()
+                .any(|p| p.pitch_type == decision.pitch_call.pitch_type)
+        );
+    }
 }
 
 #[cfg(test)]
