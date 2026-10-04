@@ -71,3 +71,28 @@ let decision = reconcile_pitch_call_proposals(
 正常な選択結果では双方のスコアが `Some` になる。
 preferences の変更や再提案を繰り返す処理は行わず、一回の再評価で決める。
 ゲーム内の投球実行への接続は別の処理とする。
+
+## 一連の処理を検証する simulation テスト
+
+初期データを用意した既存のテスト DB に対して、次を実行する。
+
+```sh
+cargo test --test simulate_pitching test_select_pitching_strategy -- --nocapture
+```
+
+`test_select_pitching_strategy()` は Strategy の選択から preferences、双方の短縮候補、
+和集合の再評価、最終 PitchCall の決定までを 1,000 ケース実行する。
+前半は走者・アウトの全 24 状況と全 12 カウントを組み合わせる。
+後半は従来の AvoidExtraBases の回帰条件を維持するため Strategy の投手能力加点を省き、
+配球生成では実際の投手の持ち球を使用する。
+初球以外では直前に選択した配球を用いて sequence の評価を通す。
+状況を切り替える集計テストであり、一打席を進行させるシミュレーションではない。
+
+`test_select_pitching_strategy` テーブルは実行時に再作成し、状況・選択配球・
+狙い位置・双方の評価値・選択理由・候補数・直前の配球を記録する。
+`tests/sql/pitching_strategy_percentage.sql` で従来の Strategy 分布、
+`tests/sql/pitch_call_percentage.sql` で Strategy ごとの配球分布と選択理由の割合を確認できる。
+
+選手は既存の生成処理で作るため、配球の割合は実行ごとに変わる。
+テストは固定割合ではなく、実行可能性・候補内の最大統合スコア・
+双方の評価値・全 12 カウントの記録・従来の Strategy 回帰条件を検証する。
