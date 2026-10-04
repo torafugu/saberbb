@@ -1,11 +1,11 @@
 flowchart TD
-    Pitcher[pitcher_pitch_call_proposals] --> Reconcile[reconcile_pitch_call_proposals]
-    Catcher[catcher_pitch_call_proposals] --> Reconcile
-    Weight["捕手側の重み：初期値 0.5"] --> Reconcile
-    Reconcile --> Shared{"共通候補あり？"}
-    Shared -->|あり| Score["双方のスコアを重み付き平均"]
-    Score --> Best["最大スコアの候補"]
-    Shared -->|なし| Fallback["投手の最良案、なければ捕手案"]
-    Best --> Decision["PitchCallDecision：選択理由・双方のスコア"]
-    Fallback --> Decision
+    Pitcher["投手の短縮候補"] --> Union["候補の和集合・重複除去"]
+    Catcher["捕手の短縮候補"] --> Union
+    Context[PitchEvaluationContext] --> Evaluate[evaluate_pitch_call]
+    Preferences["双方の preferences"] --> Evaluate
+    Union --> Evaluate
+    Evaluate --> Valid{"持ち球・双方の有効評価あり？"}
+    Valid -->|あり| Score["双方のスコアを重み付き平均"]
+    Valid -->|なし| Skip["候補を除外"]
+    Score --> Decision["最大スコアの PitchCallDecision"]
     Decision --> Call[PitchCall]

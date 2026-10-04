@@ -1,49 +1,73 @@
 # 投手・捕手の配球候補の統合
 
-`PitchingStrategy` は共通の上位方針とし、投手と捕手がそれぞれ
-`PitchingPreferences` から生成した `PitchCallProposal` を照合する。
+投手・捕手はそれぞれの `PitchingPreferences` から短縮候補を作る。
+`reconcile_pitch_call_proposals` は双方の候補の和集合を作り、各配球を双方の preferences で再評価して最終案を決定する。
+候補から落ちたことを、投げられない・拒否したという意味には扱わない。
 
-## API
+## 共通の評価 context
 
-- `select_pitch_call(pitcher_proposals, catcher_proposals)` は双方を等しい重みで評価し、`Option<PitchCall>` を返す。
-- `reconcile_pitch_call_proposals(pitcher_proposals, catcher_proposals, catcher_weight)` は重みを指定し、選択の根拠を含む `Option<PitchCallDecision>` を返す。
+`PitchEvaluationContext::new(pitcher, batter, strategy, previous_call)` は、投手・打者・共通の Strategy・直前の投球を固定した評価 context を作る。
+球種ごとの estimates、球速、usage による重みを作成時に保持する。
+同じ context を候補生成と交渉に渡すことで、これらの計算を再利用できる。
+投手・打者・Strategy・直前の投球が変わった場合は、新しい context を作る。
 
 ```rust
+let context = PitchEvaluationContext::new(
+    &pitcher, &batter, strategy, previous_call,
+);
+let pitcher_proposals = context.pitcher_proposals(&pitcher_preferences, 3, 2);
+let catcher_proposals = context.catcher_proposals(&catcher_preferences, 4);
 let decision = reconcile_pitch_call_proposals(
     &pitcher_proposals,
     &catcher_proposals,
+    &pitcher_preferences,
+    &catcher_preferences,
+    &context,
     0.5,
 );
-if let Some(decision) = decision {
-    let pitch_call = decision.pitch_call;
-    // decision.reason / pitcher_score / catcher_score で判断を記録できる。
-}
 ```
 
-## 初期ルール
+`select_pitch_call` は上の双方の候補・preferences・context を受け取り、重み 0.5 で `Option<PitchCall>` を返す。
+既存の `pitcher_pitch_call_proposals` と `catcher_pitch_call_proposals` は引数を維持したラッパーとして残る。
+計算を再利用する場合は context のメソッドを使う。
 
-1. 球種・TargetZone・Margin がすべて一致する候補を共通候補とする。
-2. 共通候補の評価値を `(1 - catcher_weight) * pitcher_score + catcher_weight * catcher_score` とする。
-3. 最大評価値の候補を採用する。同点なら投手側の評価が高いものを優先し、さらに同点なら投手候補の入力順を維持する。
-4. 共通候補がなければ投手側の最良候補を採用する。投手候補がなければ捕手側の最良候補を採用する。
-5. 有効な候補が双方にない場合は `None` とする。
+## 単一候補の採点
 
-双方のスコアには共通の Strategy・能力・リスク評価が含まれるため、
-単純加算ではなく重み付き平均を使う。ここでリスクの再加算はしない。
-スコアは確率ではなく相対的な評価値であり、負の値も有効。
+`evaluate_pitch_call(call, preferences, context)` は `Option<PitchCallProposal>` を返す。
+候補生成と交渉はどちらもこの関数を使い、次の共通項と個別の希望を評価する。
 
-`catcher_weight` の初期値は 0.5。0 は投手、1 は捕手のみで選び、指定側が空なら他方へフォールバックする。
-有限値は 0〜1 に制限し、NaN・無限大は 0.5 として扱う。
-非有限の候補スコアは除外し、同じ候補が重複していればその側の最高スコアを使う。
+- 共通項：usage、球種・コースの Strategy 評価、打者との相性、四球・強打・実行リスク。
+- 個別項：コース・Margin・球種構成・配球順序・リスク回避の希望。
 
-## 候補数と選択範囲
+投手の持ち球にない球種、非有限の評価値やリスクは `None` とする。
+希望に合わないだけの配球は除外せず、スコアで評価する。
+球種の短縮選択で使う概算値は、最終評価へ重複加算しない。
 
-この処理は、渡された短縮候補を照合する段階であり、新しい球種やコースは生成しない。
-候補にない配球のスコアを 0 とみなすこともしない。
-共通候補が一つでもあれば、その中から選ぶため、片側だけが提案した候補は選ばれない。
-捕手独自の提案まで交渉対象にしたい場合は、双方にその候補を再評価させる段階が別途必要。
+## 交渉と決定
 
-選択結果の `reason` は `Agreement`、`PitcherChoice`、`CatcherChoice`。
-片側の候補しか使わなかった場合、他方のスコアは存在すれば記録し、なければ `None` とする。
+1. 球種・TargetZone・Margin が一致する重複候補を除き、和集合を作る。順序は投手候補、その後に捕手独自の候補。
+2. 和集合に含まれる各候補を双方で採点し直す。持ち球にない候補と、双方の有効な評価が得られない候補は除外する。
+3. `(1 - catcher_weight) * pitcher_score + catcher_weight * catcher_score` の最大値を採用する。
+4. 同点なら投手の評価が高い候補、さらに同点なら和集合の入力順を優先する。
+5. 有効な候補がない場合は `None` とする。
 
-候補生成から決定までの関数を追加した段階であり、ゲーム内の投球実行への接続は別の処理とする。
+提案時のスコアやリスクは再利用せず、現在の context を採点の根拠とする。
+古いスコアや候補の重複が選択を歪めないようにする。
+和集合が N 件なら最大 2N 件の採点を行い、交渉時に全球種×全コースを探索し直すことはない。
+片側のリストが空でも、他方の候補を双方で評価して決める。
+
+`catcher_weight` は 0〜1 に制限し、非有限値は 0.5 とする。
+0 は和集合の中から投手評価だけで、1 は捕手評価だけで選ぶ。
+共通項を二重加算しないよう、双方のスコアは平均で統合する。
+
+## 判断の記録
+
+`PitchCallDecision` は配球、統合スコア、双方のスコア、次の理由を保持する。
+
+- `Agreement`：当初から双方にあった候補を採用。
+- `ReevaluatedAgreement`：当初は片側だけにあった候補を、双方の再評価後に採用。
+- `PitcherChoice` / `CatcherChoice`：重み 0 / 1 で選択。
+
+正常な選択結果では双方のスコアが `Some` になる。
+preferences の変更や再提案を繰り返す処理は行わず、一回の再評価で決める。
+ゲーム内の投球実行への接続は別の処理とする。
