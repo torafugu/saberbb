@@ -1,15 +1,23 @@
 flowchart TD
-    subgraph pitcher
+    subgraph pitcher1[pitcher]
+        sample_pitch_calling
+    end
+
+    subgraph pitcher2[pitcher]
         base_spin_angle
         select_pitch_skill
-        sample_pitch_calling
         calculate_release_point
         calculate_flight_time
         sample_ball_location
     end
 
     subgraph create_pitch
-        pitcher
+        pitcher1
+    end
+
+
+    subgraph create_pitch_for_call
+        pitcher2
         calculate_flight_time
     end
 
@@ -17,10 +25,11 @@ flowchart TD
         crossfire_perceived_multiplier
     end
 
-    calculate_hanging_pitch_effect --> create_pitch 
-    create_pitch --> MatchupContext --> calculate_pitch_offset
-    create_pitch --> calculate_location_bias --> calculate_pitch_offset
-    create_pitch --> calculate_ball_movement
+    calculate_hanging_pitch_effect --> create_pitch
+    create_pitch --> create_pitch_for_call
+    create_pitch_for_call --> MatchupContext --> calculate_pitch_offset
+    create_pitch_for_call --> calculate_location_bias --> calculate_pitch_offset
+    create_pitch_for_call --> calculate_ball_movement
 
     subgraph calculate_pitch_offset
         get_side_accel

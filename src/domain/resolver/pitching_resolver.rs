@@ -2,6 +2,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::{BallLocation, BallMovement, BallZone, PitchedBall};
 use crate::domain::shared::player::PitcherInfo;
 use crate::domain::shared::player::RL;
+use crate::domain::strategy::pitching_strategy::PitchCall;
 use crate::domain::util::GRAVITY;
 use crate::domain::util::sigmoid;
 use crate::error::AppError;
@@ -38,8 +39,26 @@ pub fn create_pitch(
         rng.normal_factor_std_1_percent()
     };
 
-    let base_spin_angle = pitcher.base_spin_angle();
     let pitch_call = pitcher.sample_pitch_calling(rng)?;
+    create_pitch_for_call(
+        rng,
+        pitcher,
+        pitch_call,
+        Some(pitch_effect),
+        base_four_seam_speed,
+    )
+}
+
+/// Execute a selected call without sampling a replacement pitch or target.
+pub fn create_pitch_for_call(
+    rng: &mut dyn RandomProvider,
+    pitcher: &PitcherInfo,
+    pitch_call: PitchCall,
+    hanging_pitch_effect: Option<f64>,
+    base_four_seam_speed: f64,
+) -> Result<PitchedBall, AppError> {
+    let pitch_effect = hanging_pitch_effect.unwrap_or_else(|| rng.normal_factor_std_1_percent());
+    let base_spin_angle = pitcher.base_spin_angle();
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
     let pitch_spin_angle = (pitch_skill.spin_angle * pitch_effect).clamp(-180.0, 180.0);
 

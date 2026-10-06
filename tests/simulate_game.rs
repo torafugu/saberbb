@@ -12,6 +12,10 @@ use saberbb::domain::shared::game_state::*;
 use saberbb::domain::shared::player::*;
 use saberbb::domain::shared::stadium::*;
 use saberbb::domain::strategy::batting_strategy::*;
+use saberbb::domain::strategy::pitching_strategy::{
+    PitchEvaluationContext, catcher_preferences, pitcher_preferences,
+    reconcile_pitch_call_proposals, select_pitching_strategy,
+};
 use saberbb::domain::util::PolarPosition;
 
 #[test]
@@ -25,6 +29,18 @@ fn test_through_half_inning() -> Result<(), GameError> {
 
     let mut scores = 0;
     let mut inning_state = InningState::new();
+    inning_state.active_pitcher = Some(ActivePitcher {
+        id: 1,
+        pitcher: pitcher.clone(),
+    });
+    inning_state.active_batter = Some(ActiveBatter::new(
+        batter_runner.id,
+        batter.clone(),
+        batter_runner.skills,
+    ));
+    // This harness evaluates each pitch at the same synthetic count.
+    inning_state.strike = 1;
+    let count_status = CountStatus::C01;
     let mut rng = RealRng::new();
     let base_four_seam_speed = ScheduleService::<
         saberbb::repositories::schedule_repository::SqlScheduleRepository,
@@ -34,19 +50,47 @@ fn test_through_half_inning() -> Result<(), GameError> {
         println!("\n--- New count ---");
         inning_state.runners.batter_runner = Some(batter_runner);
 
+        let previous_call = inning_state.previous_pitch_call;
+        let strategy = select_pitching_strategy(&inning_state, 1, -i16::from(scores));
+        let pitcher_preferences = pitcher_preferences(
+            pitcher.pitcher_character,
+            &batter,
+            count_status,
+            previous_call,
+        );
+        let catcher_preferences =
+            catcher_preferences(catcher.calling_style, &batter, count_status, previous_call);
+        let context = PitchEvaluationContext::new(&pitcher, &batter, strategy, previous_call);
+        let pitcher_proposals = context.pitcher_proposals(&pitcher_preferences, 3, 2);
+        let catcher_proposals = context.catcher_proposals(&catcher_preferences, 4);
+        let decision = reconcile_pitch_call_proposals(
+            &pitcher_proposals,
+            &catcher_proposals,
+            &pitcher_preferences,
+            &catcher_preferences,
+            &context,
+            0.5,
+        )
+        .ok_or(GameError::NoPitchCall)?;
+        let pitch_call = decision.pitch_call;
+
         let hanging_pitch_effect = calculate_hanging_pitch_effect(&mut rng, &pitcher);
-        let pitched_ball = create_pitch(
+        let pitched_ball = create_pitch_for_call(
             &mut rng,
             &pitcher,
+            pitch_call,
             hanging_pitch_effect,
             base_four_seam_speed,
         )?;
+        // Match process_count(): batter expectations are still sampled separately.
         let expected_ball = create_pitch(
             &mut rng,
             &pitcher,
             hanging_pitch_effect,
             base_four_seam_speed,
         )?;
+
+        inning_state.previous_pitch_call = Some(pitch_call);
 
         let _absolute_location = calculate_ball_movement(&pitched_ball);
 
@@ -66,8 +110,6 @@ fn test_through_half_inning() -> Result<(), GameError> {
             batter.batting_eye,
             base_four_seam_speed,
         );
-
-        let count_status = CountStatus::C01;
 
         let batting_factor = calculate_batting_factor(
             &pitcher,
@@ -112,6 +154,10 @@ fn test_through_half_inning() -> Result<(), GameError> {
                 )?;
 
                 println!("{:#?}", ball);
+
+                if ball.outbound_result != OutboundResult::Foul {
+                    inning_state.previous_pitch_call = None;
+                }
 
                 match ball.outbound_result {
                     OutboundResult::Foul => {

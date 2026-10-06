@@ -16,7 +16,7 @@ use crate::domain::resolver::fielding_resolver::{
 };
 use crate::domain::resolver::pitching_resolver::{
     MatchupContext, PitchDisplacement, calculate_ball_movement, calculate_hanging_pitch_effect,
-    calculate_location_bias, calculate_pitch_offset, create_pitch,
+    calculate_location_bias, calculate_pitch_offset, create_pitch, create_pitch_for_call,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -26,6 +26,10 @@ use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stats::PlayerGameBattingMetrics;
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::SwingExecution;
+use crate::domain::strategy::pitching_strategy::{
+    PitchCall, PitchEvaluationContext, catcher_preferences, pitcher_preferences,
+    reconcile_pitch_call_proposals, select_pitching_strategy,
+};
 use crate::domain::util::PolarPosition;
 use crate::error::AppError;
 use crate::t;
@@ -99,6 +103,9 @@ pub enum GameError {
 
     #[error("Invalid count: {balls} balls, {strikes} strikes")]
     InvalidCount { balls: u8, strikes: u8 },
+
+    #[error("No valid pitch call proposals")]
+    NoPitchCall,
 
     #[error("Failed to create pitch: {0}")]
     PitchCreation(#[from] AppError),
@@ -467,6 +474,7 @@ impl GameState {
     }
 
     fn finish_plate_appearance(&mut self) {
+        self.inning_state.previous_pitch_call = None;
         self.inning_state.active_batter = None;
         self.inning_state.runners.batter_runner = None;
     }
@@ -797,12 +805,41 @@ impl GameState {
         let batter_runner = active_batter.runner();
 
         self.prepare_plate_appearance(batter_runner);
+        self.inning_state.active_pitcher = Some(active_pitcher);
+
+        let catcher = self.current_catcher()?.catcher;
+        let count = self.count_status()?;
+        let previous_call = self.inning_state.previous_pitch_call;
+        let score_diff = if self.is_top() {
+            i16::from(self.home_total_point) - i16::from(self.away_total_point)
+        } else {
+            i16::from(self.away_total_point) - i16::from(self.home_total_point)
+        };
+        let strategy = select_pitching_strategy(&self.inning_state, self.inning_seq, score_diff);
+        let pitcher_preferences =
+            pitcher_preferences(pitcher.pitcher_character, &batter, count, previous_call);
+        let catcher_preferences =
+            catcher_preferences(catcher.calling_style, &batter, count, previous_call);
+        let context = PitchEvaluationContext::new(&pitcher, &batter, strategy, previous_call);
+        let pitcher_proposals = context.pitcher_proposals(&pitcher_preferences, 3, 2);
+        let catcher_proposals = context.catcher_proposals(&catcher_preferences, 4);
+        let decision = reconcile_pitch_call_proposals(
+            &pitcher_proposals,
+            &catcher_proposals,
+            &pitcher_preferences,
+            &catcher_preferences,
+            &context,
+            0.5,
+        )
+        .ok_or(GameError::NoPitchCall)?;
+        let pitch_call = decision.pitch_call;
 
         let hanging_pitch_effect = calculate_hanging_pitch_effect(self.rng.as_mut(), &pitcher);
 
-        let pitched_ball = create_pitch(
+        let pitched_ball = create_pitch_for_call(
             self.rng.as_mut(),
             &pitcher,
+            pitch_call,
             hanging_pitch_effect,
             self.base_four_seam_speed,
         )?;
@@ -813,6 +850,8 @@ impl GameState {
             hanging_pitch_effect,
             self.base_four_seam_speed,
         )?;
+
+        self.inning_state.previous_pitch_call = Some(pitch_call);
 
         let ball_movement = calculate_ball_movement(&pitched_ball);
 
@@ -1257,6 +1296,7 @@ pub struct InningState {
     pub out: u8,
     pub active_batter: Option<ActiveBatter>,
     pub active_pitcher: Option<ActivePitcher>,
+    pub previous_pitch_call: Option<PitchCall>,
 }
 impl InningState {
     pub fn new() -> InningState {
@@ -1267,6 +1307,7 @@ impl InningState {
             out: 0,
             active_batter: None,
             active_pitcher: None,
+            previous_pitch_call: None,
         }
     }
 
