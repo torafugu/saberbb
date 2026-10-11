@@ -82,10 +82,11 @@ fn test_through_half_inning() -> Result<(), GameError> {
             hanging_pitch_effect,
             base_four_seam_speed,
         )?;
-        // Match process_count(): batter expectations are still sampled separately.
-        let expected_ball = create_pitch(
+        // Sample expected execution separately using the reconciled pitch type and target.
+        let expected_ball = create_pitch_for_call(
             &mut rng,
             &pitcher,
+            pitch_call,
             hanging_pitch_effect,
             base_four_seam_speed,
         )?;

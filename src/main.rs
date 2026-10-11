@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use chrono::{Datelike, Local};
 use clap::Parser;
 use saberbb::adapters::tui::top_tui::menu;
 use saberbb::config::load_app_config;
@@ -7,7 +8,7 @@ use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
 use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::i18n::I18nManager;
-use saberbb::repositories::db::maintenance;
+use saberbb::repositories::db::{SqlDb, maintenance};
 use saberbb::repositories::game_repository::SqlGameRepository;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
@@ -54,23 +55,13 @@ fn main() -> Result<()> {
 
     info!("game started.");
 
+    if args.newyear {
+        newyear()?;
+    }
+
     // Game Process Mode
     if let Some(num_of_games) = args.process {
-        let mut game_service = GameService {
-            repo: app_context().game_repository.clone(),
-        };
-
-        for _ in 0..num_of_games {
-            if let Err(e) = game_service.process_game_round() {
-                let error_msg = t!("error", "function" => "process_game");
-                bail!("{}, {}", error_msg, e);
-            }
-            info!("1 game processed.");
-        }
-        println!(
-            "{}",
-            t!("game_rounds_processed", "num_of_rounds" => num_of_games.to_string())
-        );
+        process_games(num_of_games)?;
     }
 
     // Player Generate Mode
@@ -93,20 +84,7 @@ fn main() -> Result<()> {
 
     // Game Schedule Generate Mode
     if let Some(num_of_schedules) = args.schedule {
-        let mut schedule_service = ScheduleService {
-            repo: app_context().schedule_repository.clone(),
-        };
-        for _ in 0..num_of_schedules {
-            if let Err(e) = schedule_service.schedule_season() {
-                let error_msg = t!("error", "function" => "schedule_season");
-                bail!("{}, {}", error_msg, e);
-            }
-            info!("1 season scheduled.");
-        }
-        println!(
-            "{}",
-            t!("game_seasons_scheduled", "num_of_seasons" => num_of_schedules.to_string())
-        );
+        schedule_games(num_of_schedules)?;
     }
 
     // Execute VACUUM and PRAGMA optimize
@@ -122,9 +100,78 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn newyear() -> Result<()> {
+    let mut conn = SqlDb::new()?.get_conn()?;
+    reset_season(&mut conn, Local::now().year())?;
+    schedule_games(1)?;
+    process_games(40)?;
+    Ok(())
+}
+
+fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute_batch(
+        "DELETE FROM count;
+         DELETE FROM inning;
+         DELETE FROM game;
+         DELETE FROM player_game_batting;
+         DELETE FROM player_game_entry;
+         DELETE FROM player_game_fielding;
+         DELETE FROM player_game_running;
+         DELETE FROM player_game_pitching;",
+    )?;
+    tx.execute("UPDATE game_season SET current_season = ?1", [year])?;
+    tx.execute("UPDATE game_season SET scheduled_season = ?1", [year - 1])?;
+    tx.execute("UPDATE game_season SET current_round_seq = 1", [])?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn process_games(num_of_games: i8) -> Result<()> {
+    let mut game_service = GameService {
+        repo: app_context().game_repository.clone(),
+    };
+
+    for _ in 0..num_of_games {
+        if let Err(e) = game_service.process_game_round() {
+            let error_msg = t!("error", "function" => "process_game");
+            bail!("{}, {}", error_msg, e);
+        }
+        info!("1 game processed.");
+        println!("1 game processed.");
+    }
+    println!(
+        "{}",
+        t!("game_rounds_processed", "num_of_rounds" => num_of_games.to_string())
+    );
+    Ok(())
+}
+
+fn schedule_games(num_of_schedules: u8) -> Result<()> {
+    let mut schedule_service = ScheduleService {
+        repo: app_context().schedule_repository.clone(),
+    };
+    for _ in 0..num_of_schedules {
+        if let Err(e) = schedule_service.schedule_season() {
+            let error_msg = t!("error", "function" => "schedule_season");
+            bail!("{}, {}", error_msg, e);
+        }
+        info!("1 season scheduled.");
+    }
+    println!(
+        "{}",
+        t!("game_seasons_scheduled", "num_of_seasons" => num_of_schedules.to_string())
+    );
+    Ok(())
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Clear game data, reset to the current year, schedule a season, and process 40 rounds
+    #[arg(short, long)]
+    newyear: bool,
+
     /// Process games
     #[arg(short, long)]
     process: Option<i8>,
@@ -144,4 +191,100 @@ struct Args {
     /// Show TUI game menu
     #[arg(short, long)]
     view: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    const GAME_TABLES: [&str; 8] = [
+        "count",
+        "inning",
+        "game",
+        "player_game_batting",
+        "player_game_entry",
+        "player_game_fielding",
+        "player_game_running",
+        "player_game_pitching",
+    ];
+
+    fn populated_database() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        for table in GAME_TABLES {
+            conn.execute_batch(&format!(
+                "CREATE TABLE {table} (id INTEGER); INSERT INTO {table} VALUES (1);"
+            ))
+            .unwrap();
+        }
+        conn.execute_batch(
+            "CREATE TABLE game_season (
+                current_season INTEGER, scheduled_season INTEGER, current_round_seq INTEGER
+             );
+             INSERT INTO game_season VALUES (2020, 2021, 42);
+             CREATE TABLE player_info (id INTEGER);
+             INSERT INTO player_info VALUES (1);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn reset_clears_game_data_and_sets_requested_year() {
+        let mut conn = populated_database();
+        reset_season(&mut conn, 2031).unwrap();
+
+        for table in GAME_TABLES {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table} was not cleared");
+        }
+        let season: (i32, i32, i32) = conn
+            .query_row("SELECT * FROM game_season", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(season, (2031, 2030, 1));
+        let players: i64 = conn
+            .query_row("SELECT COUNT(*) FROM player_info", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(players, 1);
+    }
+
+    #[test]
+    fn reset_rolls_back_on_failure() {
+        let mut conn = populated_database();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_season_update BEFORE UPDATE OF scheduled_season
+             ON game_season BEGIN SELECT RAISE(ABORT, 'test failure'); END;",
+        )
+        .unwrap();
+
+        assert!(reset_season(&mut conn, 2031).is_err());
+        for table in GAME_TABLES {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 1, "{table} deletion was not rolled back");
+        }
+        let year: i32 = conn
+            .query_row("SELECT current_season FROM game_season", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(year, 2020);
+    }
+
+    #[test]
+    fn newyear_flag_is_optional_and_accepts_long_and_short_forms() {
+        assert!(!Args::try_parse_from(["saberbb"]).unwrap().newyear);
+        for flag in ["--newyear", "-n"] {
+            assert!(Args::try_parse_from(["saberbb", flag]).unwrap().newyear);
+        }
+    }
 }
