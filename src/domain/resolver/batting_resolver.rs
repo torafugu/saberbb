@@ -280,8 +280,8 @@ pub fn calculate_swing_execution_error(
                 * rng.normal_factor_std_5_percent();
 
     SwingExecutionError {
-        additional_x_m,
-        additional_z_m,
+        additional_x_m: 0.0,
+        additional_z_m: 0.0,
         ideal_bat_angle_deg: ideal_angle,
         actual_bat_angle_deg,
         ideal_attack_angle_deg: batter.attack_angle,
