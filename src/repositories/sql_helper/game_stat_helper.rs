@@ -47,10 +47,11 @@ const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
         original_contact_type, adjusted_contact_type, launch_speed,
         launch_angle, polar_distance, polar_angle, total_time, first_bounce_distance, first_bounce_angle, first_bounce_time,
         fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
-        fielder_position, result
+        fielder_position, result,
+        adapted_horizontal_offset_m, adapted_vertical_offset_m, adapted_timing_offset_sec, timing_impact_x_m, swing_error_x_m, swing_error_z_m, contact_offset_x_m, contact_offset_z_m, thickness_offset_m
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28
+        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37
     )";
 
 const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding (
@@ -405,7 +406,16 @@ pub fn insert_player_game_batting(
             player_game_batting.ball.fence_impact_time,
             player_game_batting.ball.outbound_result,
             fielder_position_str,
-            player_game_batting.result
+            player_game_batting.result,
+            player_game_batting.adapted_horizontal_offset_m,
+            player_game_batting.adapted_vertical_offset_m,
+            player_game_batting.adapted_timing_offset_sec,
+            player_game_batting.timing_impact_x_m,
+            player_game_batting.swing_error_x_m,
+            player_game_batting.swing_error_z_m,
+            player_game_batting.contact_offset_x_m,
+            player_game_batting.contact_offset_z_m,
+            player_game_batting.thickness_offset_m,
         ],
     )
 }

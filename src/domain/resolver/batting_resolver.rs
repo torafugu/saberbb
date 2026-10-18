@@ -292,6 +292,14 @@ pub fn calculate_swing_execution_error(
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
+    #[serde(default)]
+    pub adapted_horizontal_offset_m: f64,
+    #[serde(default)]
+    pub adapted_vertical_offset_m: f64,
+    #[serde(default)]
+    pub swing_error_x_m: f64,
+    #[serde(default)]
+    pub swing_error_z_m: f64,
     pub timing_offset_sec: f64,
     pub timing_impact_x_m: f64,
     pub offset_x_m: f64,
@@ -405,6 +413,10 @@ pub fn evaluate_swing_contact(
     };
 
     SwingContactResult {
+        adapted_horizontal_offset_m: offset.horizontal_offset_m,
+        adapted_vertical_offset_m: offset.vertical_offset_m,
+        swing_error_x_m: swing_execution_error.additional_x_m,
+        swing_error_z_m: swing_execution_error.additional_z_m,
         timing_offset_sec: offset.timing_offset_sec,
         timing_impact_x_m: timing_impact_x_m,
         offset_x_m: offset_x_m,
@@ -956,16 +968,13 @@ pub fn calculate_batted_ball_with_metrics(
     let angles = calculate_launch_angles(rng, contact, batter)?;
     let batted_ball = calculate_batted_ball(batter, ball, contact, &angles, stadium)?;
     let metrics = PlayerGameBattingMetrics {
-        length_offset_m: contact.length_offset_m,
-        original_contact_type: contact.original_contact_type,
-        adjusted_contact_type: contact.adjusted_contact_type,
-        timing_error: contact.timing_offset_sec,
         bat_speed: batter.swing_speed,
         angular_velocity: angles.angular_velocity_rad_s,
         approach_variation_deg: angles.approach_variation_deg,
         pull_bias_deg: angles.pull_bias_deg,
         timing_angle_error: angles.timing_angle_error_deg,
         final_hla_deg: angles.hla_deg,
+        ..PlayerGameBattingMetrics::from_contact(contact)
     };
 
     Ok((batted_ball, metrics))
@@ -1073,6 +1082,46 @@ mod tests {
         );
     }
 
+    #[test]
+    fn swing_diagnostics_preserve_components_for_contact_and_miss() {
+        for horizontal_offset_m in [0.01, 0.30] {
+            let mut rng = FixedRng::new(0.5);
+            let batter = batter(RL::Right);
+            let offset = PitchDisplacement {
+                horizontal_offset_m,
+                vertical_offset_m: -0.02,
+                timing_offset_sec: -0.001,
+                ..Default::default()
+            };
+            let execution = SwingExecutionError {
+                additional_x_m: -0.005,
+                additional_z_m: 0.003,
+                actual_bat_angle_deg: 0.0,
+                ..Default::default()
+            };
+            let contact = evaluate_swing_contact(&mut rng, &batter, &offset, &execution);
+            let metrics = PlayerGameBattingMetrics::from_contact(&contact);
+            assert_eq!(metrics.adapted_horizontal_offset_m, Some(horizontal_offset_m));
+            assert_eq!(metrics.adapted_vertical_offset_m, Some(-0.02));
+            assert_eq!(metrics.adapted_timing_offset_sec, Some(-0.001));
+            assert_eq!(metrics.timing_error, -0.001);
+            assert_eq!(metrics.swing_error_x_m, Some(-0.005));
+            assert_eq!(metrics.swing_error_z_m, Some(0.003));
+            assert_eq!(metrics.timing_impact_x_m, Some(-0.001 * batter.swing_speed));
+            assert_eq!(metrics.contact_offset_x_m, Some(contact.offset_x_m));
+            assert_eq!(metrics.contact_offset_z_m, Some(contact.offset_z_m));
+            assert_eq!(metrics.thickness_offset_m, Some(contact.thickness_offset_m));
+            assert!((contact.offset_x_m - (horizontal_offset_m - 0.005
+                - 0.001 * batter.swing_speed)).abs() < 1e-12);
+            assert!((contact.offset_z_m + 0.017).abs() < 1e-12);
+            assert_eq!(
+                matches!(metrics.adjusted_contact_type, SwingContactType::SwungAndMiss),
+                horizontal_offset_m > 0.16
+            );
+        }
+        assert_eq!(PlayerGameBattingMetrics::default().contact_offset_x_m, None);
+    }
+
     fn centered_contact(attack_angle_deg: f64) -> SwingContactResult {
         SwingContactResult {
             timing_offset_sec: 0.0,
@@ -1084,6 +1133,7 @@ mod tests {
             original_contact_type: SwingContactType::SolidContact,
             adjusted_contact_type: SwingContactType::SolidContact,
             attack_angle_deg,
+            ..Default::default()
         }
     }
 
@@ -1101,6 +1151,7 @@ mod tests {
                     original_contact_type: SwingContactType::SolidContact,
                     adjusted_contact_type: SwingContactType::SolidContact,
                     attack_angle_deg: 5.0,
+                    ..Default::default()
                 },
                 RL::Right,
                 59.0,
@@ -1117,6 +1168,7 @@ mod tests {
                     original_contact_type: SwingContactType::SolidContact,
                     adjusted_contact_type: SwingContactType::SolidContact,
                     attack_angle_deg: 5.0,
+                    ..Default::default()
                 },
                 RL::Left,
                 -49.0,

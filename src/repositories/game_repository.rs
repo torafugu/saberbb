@@ -944,6 +944,15 @@ mod tests {
                 pull_bias_deg REAL NOT NULL DEFAULT 0.0,
                 timing_angle_error REAL NOT NULL DEFAULT 0.0,
                 final_hla_deg REAL NOT NULL DEFAULT 0.0,
+                adapted_horizontal_offset_m REAL,
+                adapted_vertical_offset_m REAL,
+                adapted_timing_offset_sec REAL,
+                timing_impact_x_m REAL,
+                swing_error_x_m REAL,
+                swing_error_z_m REAL,
+                contact_offset_x_m REAL,
+                contact_offset_z_m REAL,
+                thickness_offset_m REAL,
                 length_offset_m REAL NOT NULL DEFAULT 0.0,
                 original_contact_type TEXT NOT NULL DEFAULT 'Take',
                 adjusted_contact_type TEXT NOT NULL DEFAULT 'Take',
@@ -1923,6 +1932,15 @@ mod tests {
                 pull_bias_deg: 0.0,
                 timing_angle_error: 0.0,
                 final_hla_deg: 0.0,
+                adapted_horizontal_offset_m: Some(0.01),
+                adapted_vertical_offset_m: Some(0.02),
+                adapted_timing_offset_sec: Some(0.03),
+                timing_impact_x_m: Some(0.04),
+                swing_error_x_m: Some(0.05),
+                swing_error_z_m: Some(0.06),
+                contact_offset_x_m: Some(0.07),
+                contact_offset_z_m: Some(0.08),
+                thickness_offset_m: Some(0.09),
                 length_offset_m: 0.04,
                 original_contact_type:
                     crate::domain::resolver::batting_resolver::SwingContactType::WeakContact,
@@ -1950,6 +1968,12 @@ mod tests {
             contact_types,
             (0.04, "WeakContact".into(), "SolidContact".into())
         );
+        let diagnostics = conn.query_row(
+            "SELECT adapted_horizontal_offset_m, adapted_vertical_offset_m, adapted_timing_offset_sec, timing_impact_x_m, swing_error_x_m, swing_error_z_m, contact_offset_x_m, contact_offset_z_m, thickness_offset_m FROM player_game_batting WHERE game_id = 1 AND count_seq = 1",
+            [],
+            |row| (0..9).map(|i| row.get::<_, Option<f64>>(i)).collect::<rusqlite::Result<Vec<_>>>(),
+        ).unwrap();
+        assert_eq!(diagnostics, (1..=9).map(|i| Some(i as f64 / 100.0)).collect::<Vec<_>>());
         let mut stmt = conn
             .prepare(
                 "SELECT pitcher_id, decision
@@ -2080,4 +2104,24 @@ mod tests {
         assert!(matches!(skills.position, Position::P));
         std::fs::remove_file(path).ok();
     }
+
+    #[test]
+    fn batting_contact_upgrade_preserves_history_and_nullable_diagnostics() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE player_game_batting (game_id INTEGER, count_seq INTEGER, result TEXT);
+             INSERT INTO player_game_batting VALUES (1, 1, 'Strikeout');",
+        ).unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_batting_contact_diagnostics.sql"
+        )).unwrap();
+        let historical: (String, Option<f64>, Option<f64>) = conn.query_row(
+            "SELECT result, adapted_timing_offset_sec, thickness_offset_m
+             FROM player_game_batting WHERE game_id = 1 AND count_seq = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(historical, ("Strikeout".into(), None, None));
+    }
+
 }
