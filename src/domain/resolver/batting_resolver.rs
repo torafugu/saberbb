@@ -192,7 +192,7 @@ pub fn adapt_to_pitch(
     batting_factor: &BattingFactor,
 ) -> PitchDisplacement {
     let total_modifier =
-        ((sigmoid(bat_control) + batting_factor.total_modifier) / 2.0).clamp(0.1, 1.2);
+        (((1.0 - sigmoid(bat_control)) + batting_factor.total_modifier) / 2.0).clamp(0.1, 1.2);
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
     let adapted_x = offset.horizontal_offset_m * total_modifier;
     let adapted_z = offset.vertical_offset_m * total_modifier;
@@ -1101,7 +1101,10 @@ mod tests {
             };
             let contact = evaluate_swing_contact(&mut rng, &batter, &offset, &execution);
             let metrics = PlayerGameBattingMetrics::from_contact(&contact);
-            assert_eq!(metrics.adapted_horizontal_offset_m, Some(horizontal_offset_m));
+            assert_eq!(
+                metrics.adapted_horizontal_offset_m,
+                Some(horizontal_offset_m)
+            );
             assert_eq!(metrics.adapted_vertical_offset_m, Some(-0.02));
             assert_eq!(metrics.adapted_timing_offset_sec, Some(-0.001));
             assert_eq!(metrics.timing_error, -0.001);
@@ -1111,11 +1114,17 @@ mod tests {
             assert_eq!(metrics.contact_offset_x_m, Some(contact.offset_x_m));
             assert_eq!(metrics.contact_offset_z_m, Some(contact.offset_z_m));
             assert_eq!(metrics.thickness_offset_m, Some(contact.thickness_offset_m));
-            assert!((contact.offset_x_m - (horizontal_offset_m - 0.005
-                - 0.001 * batter.swing_speed)).abs() < 1e-12);
+            assert!(
+                (contact.offset_x_m - (horizontal_offset_m - 0.005 - 0.001 * batter.swing_speed))
+                    .abs()
+                    < 1e-12
+            );
             assert!((contact.offset_z_m + 0.017).abs() < 1e-12);
             assert_eq!(
-                matches!(metrics.adjusted_contact_type, SwingContactType::SwungAndMiss),
+                matches!(
+                    metrics.adjusted_contact_type,
+                    SwingContactType::SwungAndMiss
+                ),
                 horizontal_offset_m > 0.16
             );
         }

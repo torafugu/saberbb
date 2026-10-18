@@ -265,7 +265,7 @@ fn calculate_timing_offset(
 
     // 2. Predicted flight time the batter calculates in their mind
     let release_point_seen_from_batter = actual_release_point
-        * (1.0 + rng.normal_random(0.0, 0.01, 0.0, 1.0, 0.0) * sigmoid(batting_eye));
+        * (1.0 + rng.normal_random(0.0, 0.01, 0.0, 1.0, 0.0) * (1.0 - sigmoid(batting_eye)));
     let expected_flight_time =
         calculate_flight_time(expected_ball.speed, release_point_seen_from_batter);
 
@@ -277,7 +277,7 @@ fn calculate_timing_offset(
     // actual_time > expected_time (ball arrives slower) = batter swung too early (Early)
     // actual_time < expected_time (ball arrives faster) = batter swung late (Late)
     let delta_t_sec =
-        (actual_flight_time - expected_flight_time) * sigmoid(batting_eye) * speed_factor;
+        (actual_flight_time - expected_flight_time) * (1.0 - sigmoid(batting_eye)) * speed_factor;
 
     delta_t_sec
 }
