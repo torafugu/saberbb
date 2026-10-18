@@ -273,7 +273,7 @@ pub fn calculate_swing_execution_error(
     let additional_x_m = BAT_BARREL_LENGTH_M * (1.0 - delta_rad.cos());
 
     // 3. Calculate actual bat angle and attack angle the batter swung
-    let actual_bat_angle_deg = intended_angle - (intended_angle - ideal_angle);
+    let actual_bat_angle_deg = ideal_angle + delta_angle_deg;
     let actual_attack_angle_deg =
         calculate_dynamic_attack_angle(batter.attack_angle, actual_bat_angle_deg)
             + calculate_attack_angle_modifier(batter.batter_type)

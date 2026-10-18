@@ -163,13 +163,16 @@ pub struct LocationBias {
 pub fn calculate_location_bias(location: BallLocation) -> LocationBias {
     // 1. Inside (x < 0) tends to make batter late (+), Outside (x > 0) tends to make batter early (-)
     // Inside pitches jam the batter up to +0.012s (12ms), outside pitches can be waited on -0.010s
-    let timing_bias = -location.x * 0.010 + location.y * 0.005;
+    // let timing_bias = -location.x * 0.010 + location.y * 0.005;
+    let timing_bias = -location.x * 0.0 + location.y * 0.0;
 
     // 2. Lateral offset bias: Inside tends to jam (-), Outside tends to hit the end of the bat (+)
-    let spatial_x = location.x * 0.20;
+    // let spatial_x = location.x * 0.20;
+    let spatial_x = location.x * 0.0;
 
     // 3. Vertical offset bias: High (norm_y > 0) tends to hit above the ball (+), Low (norm_y < 0) tends to hit below (-)
-    let spatial_y = location.y * 0.15;
+    // let spatial_y = location.y * 0.15;
+    let spatial_y = location.y * 0.0;
 
     LocationBias {
         timing_bias_sec: timing_bias,
@@ -277,7 +280,7 @@ fn calculate_timing_offset(
     // actual_time > expected_time (ball arrives slower) = batter swung too early (Early)
     // actual_time < expected_time (ball arrives faster) = batter swung late (Late)
     let delta_t_sec =
-        (actual_flight_time - expected_flight_time) * (1.0 - sigmoid(batting_eye)) * speed_factor;
+        (expected_flight_time - actual_flight_time) * (1.0 - sigmoid(batting_eye)) * speed_factor;
 
     delta_t_sec
 }
