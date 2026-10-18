@@ -63,6 +63,13 @@ For existing databases, also run
 once to enable fielding catch diagnostics. See
 [`docs/fielding_catch_diagnostics.md`](docs/fielding_catch_diagnostics.md) for columns and single-pitch queries.
 
+To record one diagnostic row per active fielder and fielded pitch, apply
+[`migrations/upgrades/add_fielding_candidate_diagnostics.sql`](migrations/upgrades/add_fielding_candidate_diagnostics.sql).
+This additive migration is repeatable. New databases also need
+`migrations/ddl/player_game_fielding_candidate_table.sql`. See
+[`docs/fielding_candidate_diagnostics.md`](docs/fielding_candidate_diagnostics.md)
+for stage counts, maximum arrival margins, and analysis queries.
+
 Typical simulation flow:
 
 ```sh

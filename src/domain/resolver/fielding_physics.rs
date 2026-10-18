@@ -38,12 +38,88 @@ pub enum FieldError {
     Passed, // Ball gets by / tunneled (slips behind, transitions to covering play)
 }
 
+/// Diagnostics of the actual search prefix, ending at the first interception or exhaustion.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct AirSearchDiagnostics {
+    pub air_samples: u32,
+    pub height_ok_samples: u32,
+    pub reachable_samples: u32,
+    pub risk_ok_samples: u32,
+    pub max_air_margin_sec: Option<f64>,
+    pub max_air_margin_time_sec: Option<f64>,
+    pub max_air_margin_height_m: Option<f64>,
+    pub last_evaluated_time_sec: Option<f64>,
+    pub end_reason: CandidateEndReason,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, AsRefStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum CandidateEndReason {
+    FilteredLane,
+    FilteredDistance,
+    DirectFly,
+    BounceCatch,
+    FieldingError,
+    #[default]
+    NoInterception,
+}
+
+/// One row for every active fielder, including fielders rejected before the search.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FielderCandidateDiagnostics {
+    pub fielder_id: i64,
+    pub fielder_position: crate::domain::shared::player::Position,
+    pub lane_eligible: bool,
+    pub distance_eligible: bool,
+    pub required_margin_sec: f64,
+    pub search: Option<AirSearchDiagnostics>,
+    pub interception_catch_type: Option<CatchType>,
+    pub interception_error_type: Option<FieldError>,
+    pub interception_time_sec: Option<f64>,
+    pub selected: bool,
+    pub selected_path: Option<FieldingSelectionPath>,
+}
+impl FielderCandidateDiagnostics {
+    pub fn end_reason(&self) -> CandidateEndReason {
+        if !self.lane_eligible {
+            CandidateEndReason::FilteredLane
+        } else if !self.distance_eligible {
+            CandidateEndReason::FilteredDistance
+        } else {
+            self.search
+                .map_or(CandidateEndReason::NoInterception, |s| s.end_reason)
+        }
+    }
+}
+
 pub struct FieldPlayPlayResult<'a> {
     pub selection_path: FieldingSelectionPath,
+    pub candidate_diagnostics: Vec<FielderCandidateDiagnostics>,
     pub primary_interception: FielderInterception<'a>, // Main play (or the one who let it pass)
     pub covering_interception: Option<FielderInterception<'a>>, // Covering fielder when the ball gets by
 }
 impl<'a> FieldPlayPlayResult<'a> {
+    pub fn new(
+        selection_path: FieldingSelectionPath,
+        primary_interception: FielderInterception<'a>,
+        covering_interception: Option<FielderInterception<'a>>,
+        mut candidate_diagnostics: Vec<FielderCandidateDiagnostics>,
+    ) -> Self {
+        let selected = covering_interception.as_ref().unwrap_or(&primary_interception);
+        for candidate in &mut candidate_diagnostics {
+            candidate.selected = candidate.fielder_id == selected.fielder.id
+                && candidate.fielder_position == selected.fielder.position;
+            candidate.selected_path = candidate.selected.then_some(selection_path);
+        }
+        Self {
+            selection_path,
+            primary_interception,
+            covering_interception,
+            candidate_diagnostics,
+        }
+    }
+
     pub fn diagnostics(&self) -> FieldingCatchDiagnostics {
         let selected = self.result();
         FieldingCatchDiagnostics {
@@ -117,10 +193,39 @@ pub enum FielderRiskTolerance {
     Conservative, // Prioritize avoiding errors/misses; safely field it on one bounce (low risk)
 }
 
+impl FielderRiskTolerance {
+    pub fn required_margin_sec(self) -> f64 {
+        match self {
+            Self::Aggressive => 0.0,
+            Self::Balanced => 0.15,
+            Self::Conservative => 0.35,
+        }
+    }
+}
+
 pub fn evaluate_fielder_interception<'a>(
     rng: &mut dyn RandomProvider,
     ball: &'a BattedBall,
     fielder: &'a ActiveFielder,
+) -> Option<FielderInterception<'a>> {
+    evaluate_fielder_interception_with_diagnostics(rng, ball, fielder).0
+}
+
+pub fn evaluate_fielder_interception_with_diagnostics<'a>(
+    rng: &mut dyn RandomProvider,
+    ball: &'a BattedBall,
+    fielder: &'a ActiveFielder,
+) -> (Option<FielderInterception<'a>>, AirSearchDiagnostics) {
+    let mut diagnostics = AirSearchDiagnostics::default();
+    let interception = search_fielder_interception(rng, ball, fielder, &mut diagnostics);
+    (interception, diagnostics)
+}
+
+fn search_fielder_interception<'a>(
+    rng: &mut dyn RandomProvider,
+    ball: &'a BattedBall,
+    fielder: &'a ActiveFielder,
+    diagnostics: &mut AirSearchDiagnostics,
 ) -> Option<FielderInterception<'a>> {
     // Fielder's Cartesian coordinates (x, y)
     let f_rad = fielder.polar_position.angle.to_radians();
@@ -133,6 +238,10 @@ pub fn evaluate_fielder_interception<'a>(
     while t <= ball.total_time {
         // Get the ball's polar coordinates (b_r, b_theta), height, and Cartesian coordinates
         let (b_r, b_theta, b_x, b_y, b_z, is_direct) = estimate_ball_state_at_time(t, ball);
+        diagnostics.last_evaluated_time_sec = Some(t);
+        if is_direct {
+            diagnostics.air_samples += 1;
+        }
 
         // Only points where the ball is at the fielder's catchable height become the movement target.
         if b_z <= fielder.info.reach_height {
@@ -141,26 +250,25 @@ pub fn evaluate_fielder_interception<'a>(
             let fielder_needed_time =
                 fielder.info.prep_time + (move_dist / fielder.info.running_speed);
 
+            if is_direct {
+                diagnostics.height_ok_samples += 1;
+                let margin = t - fielder_needed_time;
+                if diagnostics.max_air_margin_sec.is_none_or(|best| margin > best) {
+                    diagnostics.max_air_margin_sec = Some(margin);
+                    diagnostics.max_air_margin_time_sec = Some(t);
+                    diagnostics.max_air_margin_height_m = Some(b_z);
+                }
+            }
+
             // Can the fielder reach the target point by the ball's arrival time t?
             if fielder_needed_time <= t {
                 let waiting_time = t - fielder_needed_time;
 
                 // 1. No-bounce catch avoidance judgment based on FielderRiskTolerance
                 if is_direct {
-                    let is_acceptable_risk = match fielder.risk_tolerance {
-                        FielderRiskTolerance::Aggressive => {
-                            // Go for it no matter how tight, as long as waiting time is >= 0
-                            waiting_time >= 0.0
-                        }
-                        FielderRiskTolerance::Balanced => {
-                            // Give up the no-bounce catch unless there's 0.15s of margin, and play it on the first bounce
-                            waiting_time >= 0.15
-                        }
-                        FielderRiskTolerance::Conservative => {
-                            // Avoid the no-bounce catch unless there's a solid 0.35s of margin
-                            waiting_time >= 0.35
-                        }
-                    };
+                    diagnostics.reachable_samples += 1;
+                    let is_acceptable_risk =
+                        waiting_time >= fielder.risk_tolerance.required_margin_sec();
 
                     // If the risk is deemed too high, skip the catch at this (no-bounce) point
                     // and continue the loop to find a safe point after the first bounce
@@ -168,6 +276,7 @@ pub fn evaluate_fielder_interception<'a>(
                         t += DT;
                         continue;
                     }
+                    diagnostics.risk_ok_samples += 1;
                 }
 
                 // Fielding error judgment (varies with how little waiting time there is)
@@ -177,6 +286,7 @@ pub fn evaluate_fielder_interception<'a>(
                 let rng_value = rng.random();
 
                 if rng_value < error_probability {
+                    diagnostics.end_reason = CandidateEndReason::FieldingError;
                     if waiting_time >= 0.25 {
                         // [Fumble]: stopped it in front of the body but fumbled at the hands (time delay)
                         let fumble_penalty_sec = 1.2 + (rng_value * 10.0) % 0.8;
@@ -212,6 +322,11 @@ pub fn evaluate_fielder_interception<'a>(
                 }
 
                 // Normal catch
+                diagnostics.end_reason = if is_direct {
+                    CandidateEndReason::DirectFly
+                } else {
+                    CandidateEndReason::BounceCatch
+                };
                 return Some(FielderInterception {
                     fielder: fielder,
                     catch_type: if is_direct {
@@ -384,5 +499,130 @@ pub fn evaluate_final_pickup<'a>(
         catch_z_m: 0.0,
         waiting_time_sec: 0.0,
         ball: ball,
+    }
+}
+
+#[cfg(test)]
+mod candidate_diagnostics_tests {
+    use super::*;
+    use crate::domain::random_provider::{FixedRng, RealRng};
+    use crate::domain::shared::player::Position;
+    use crate::domain::test_support::active_fielder;
+
+    fn short_fly() -> BattedBall {
+        BattedBall {
+            final_position: PolarPosition::new(1.0, 0.0),
+            total_time: 0.5,
+            first_bounce_time: Some(0.3),
+            first_bounce_position: Some(PolarPosition::new(0.6, 0.0)),
+            max_height: 10.0,
+            ..BattedBall::default()
+        }
+    }
+
+    fn nearby_fielder() -> ActiveFielder {
+        let mut fielder = active_fielder(Position::CF, 0.0, 0.0);
+        fielder.info.running_speed = 1e9;
+        fielder.info.prep_time = 0.15;
+        fielder.info.reach_height = 100.0;
+        fielder
+    }
+
+    #[test]
+    fn height_failure_has_no_max_margin_but_records_air_samples() {
+        let ball = short_fly();
+        let mut fielder = nearby_fielder();
+        fielder.info.reach_height = 0.0;
+        let (result, diagnostics) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        assert!(result.is_none());
+        assert!(diagnostics.air_samples > 0);
+        assert_eq!(diagnostics.height_ok_samples, 0);
+        assert_eq!(diagnostics.max_air_margin_sec, None);
+        assert_eq!(diagnostics.max_air_margin_time_sec, None);
+        assert_eq!(diagnostics.max_air_margin_height_m, None);
+        assert_eq!(diagnostics.end_reason, CandidateEndReason::NoInterception);
+    }
+
+    #[test]
+    fn unreachable_air_points_keep_negative_max_margin() {
+        let ball = short_fly();
+        let mut fielder = nearby_fielder();
+        fielder.info.prep_time = 100.0;
+        let (result, diagnostics) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        assert!(result.is_none());
+        assert!(diagnostics.height_ok_samples > 0);
+        assert_eq!(diagnostics.air_samples, diagnostics.height_ok_samples);
+        assert_eq!(diagnostics.reachable_samples, 0);
+        assert_eq!(diagnostics.risk_ok_samples, 0);
+        assert!(diagnostics.max_air_margin_sec.unwrap() < 0.0);
+        let t = diagnostics.max_air_margin_time_sec.unwrap();
+        let (_, _, x, y, z, direct) = estimate_ball_state_at_time(t, &ball);
+        assert!(direct);
+        let expected = t - (100.0 + x.hypot(y) / fielder.info.running_speed);
+        assert!((diagnostics.max_air_margin_sec.unwrap() - expected).abs() < 1e-9);
+        assert_eq!(diagnostics.max_air_margin_height_m, Some(z));
+    }
+
+    #[test]
+    fn risk_rejection_is_distinct_from_arriving_too_late() {
+        let ball = short_fly();
+        let mut fielder = nearby_fielder();
+        let (result, diagnostics) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        assert_eq!(result.unwrap().catch_type, CatchType::BounceCatch);
+        assert!(diagnostics.reachable_samples > 0);
+        assert_eq!(diagnostics.risk_ok_samples, 0);
+        assert!(diagnostics.max_air_margin_sec.unwrap() > 0.0);
+        assert!(diagnostics.max_air_margin_sec.unwrap() < 0.15);
+        assert_eq!(diagnostics.end_reason, CandidateEndReason::BounceCatch);
+
+        fielder.risk_tolerance = FielderRiskTolerance::Aggressive;
+        let (result, aggressive) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        assert_eq!(result.unwrap().catch_type, CatchType::DirectFly);
+        assert_eq!(aggressive.risk_ok_samples, 1);
+        assert!(aggressive.air_samples < diagnostics.air_samples);
+        assert_eq!(aggressive.end_reason, CandidateEndReason::DirectFly);
+    }
+
+    #[test]
+    fn accepted_air_point_can_end_in_a_fielding_error() {
+        let ball = short_fly();
+        let mut fielder = nearby_fielder();
+        fielder.risk_tolerance = FielderRiskTolerance::Aggressive;
+        let (result, diagnostics) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.0), &ball, &fielder,
+        );
+        assert_eq!(result.unwrap().error_type, Some(FieldError::Passed));
+        assert_eq!(diagnostics.risk_ok_samples, 1);
+        assert_eq!(diagnostics.end_reason, CandidateEndReason::FieldingError);
+    }
+
+    #[test]
+    fn instrumentation_does_not_add_random_draws() {
+        let ball = short_fly();
+        for can_reach in [false, true] {
+            let mut fielder = nearby_fielder();
+            if !can_reach {
+                fielder.info.prep_time = 100.0;
+            }
+            let mut actual_rng = RealRng::from_seed(42);
+            let mut expected_rng = RealRng::from_seed(42);
+            let (result, _) = evaluate_fielder_interception_with_diagnostics(
+                &mut actual_rng, &ball, &fielder,
+            );
+            assert_eq!(result.is_some(), can_reach);
+            // The existing interception search draws once when it returns an interception.
+            if can_reach {
+                expected_rng.random();
+            }
+            assert_eq!(actual_rng.random(), expected_rng.random());
+        }
     }
 }

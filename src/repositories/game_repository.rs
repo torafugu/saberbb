@@ -16,6 +16,7 @@ use crate::repositories::sql_helper::game_helper::{
 };
 use crate::repositories::sql_helper::game_stat_helper::{
     insert_player_game_batting, insert_player_game_entry, insert_player_game_fielding,
+    insert_player_game_fielding_candidate,
     insert_player_game_pitching, insert_player_game_running,
     refresh_player_game_pitching_decisions,
 };
@@ -156,6 +157,10 @@ impl GameResultWriter for SqlGameRepository {
 
             for player_game_fielding in &game.player_fieldings {
                 insert_player_game_fielding(&self.db_client, tx, game.id, player_game_fielding)?;
+            }
+
+            for candidate in &game.player_fielding_candidates {
+                insert_player_game_fielding_candidate(&self.db_client, tx, game.id, candidate)?;
             }
 
             for player_game_running in &game.player_runnings {
@@ -1021,6 +1026,9 @@ mod tests {
             &include_str!("../../migrations/ddl/player_game_fielding_table.sql")
                 .replace("DROP TABLE player_game_fielding;", ""),
         ).unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/ddl/player_game_fielding_candidate_table.sql"
+        )).unwrap();
         drop(conn);
 
         let manager = SqliteManager::from_path(path.clone());
@@ -1774,6 +1782,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
 
@@ -1837,6 +1846,149 @@ mod tests {
     }
 
     #[test]
+    fn save_game_result_persists_all_fielding_candidate_states() {
+        use crate::domain::resolver::fielding_physics::{
+            AirSearchDiagnostics, CandidateEndReason, CatchType, FielderCandidateDiagnostics,
+            FieldingSelectionPath,
+        };
+        use crate::domain::shared::game_stats::PlayerGameFieldingCandidate;
+
+        let (mut repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, None);
+        let filtered = FielderCandidateDiagnostics {
+            fielder_id: 10,
+            fielder_position: Position::LF,
+            lane_eligible: false,
+            distance_eligible: true,
+            required_margin_sec: 0.15,
+            search: None,
+            interception_catch_type: None,
+            interception_error_type: None,
+            interception_time_sec: None,
+            selected: false,
+            selected_path: None,
+        };
+        let evaluated = FielderCandidateDiagnostics {
+            fielder_position: Position::RF,
+            lane_eligible: true,
+            search: Some(AirSearchDiagnostics::default()),
+            ..filtered
+        };
+        let negative = FielderCandidateDiagnostics {
+            fielder_position: Position::SS,
+            search: Some(AirSearchDiagnostics {
+                air_samples: 20,
+                height_ok_samples: 5,
+                max_air_margin_sec: Some(-0.2),
+                max_air_margin_time_sec: Some(1.5),
+                max_air_margin_height_m: Some(2.0),
+                last_evaluated_time_sec: Some(2.0),
+                ..AirSearchDiagnostics::default()
+            }),
+            ..evaluated
+        };
+        let selected = FielderCandidateDiagnostics {
+            fielder_position: Position::CF,
+            search: Some(AirSearchDiagnostics {
+                air_samples: 10,
+                height_ok_samples: 2,
+                reachable_samples: 1,
+                risk_ok_samples: 1,
+                max_air_margin_sec: Some(0.25),
+                max_air_margin_time_sec: Some(0.55),
+                max_air_margin_height_m: Some(1.8),
+                last_evaluated_time_sec: Some(0.55),
+                end_reason: CandidateEndReason::DirectFly,
+            }),
+            interception_catch_type: Some(CatchType::DirectFly),
+            interception_time_sec: Some(0.55),
+            selected: true,
+            selected_path: Some(FieldingSelectionPath::Interception),
+            ..evaluated
+        };
+        let mut game = GameResult {
+            id: 1,
+            actual_date: "2026-04-01".parse().unwrap(),
+            away_total_point: 1,
+            home_total_point: 0,
+            innings: Vec::new(),
+            player_entries: Vec::new(),
+            player_pitchings: Vec::new(),
+            player_battings: Vec::new(),
+            player_fieldings: Vec::new(),
+            player_fielding_candidates: [filtered, evaluated, negative, selected].into_iter()
+                .map(|diagnostics| PlayerGameFieldingCandidate { count_seq: 160, diagnostics })
+                .collect(),
+            player_runnings: Vec::new(),
+        };
+        repo.update_game_result(&game).unwrap();
+        {
+            let conn = conn(&repo);
+            let rows: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM player_game_fielding_candidate
+                 WHERE game_id = 1 AND count_seq = 160", [], |r| r.get(0),
+            ).unwrap();
+            assert_eq!(rows, 4);
+            let filtered_row = conn.query_row(
+                "SELECT evaluated, air_samples, max_air_margin_sec, end_reason
+                 FROM player_game_fielding_candidate WHERE fielder_position = 'LF'", [],
+                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, Option<u32>>(1)?,
+                    r.get::<_, Option<f64>>(2)?, r.get::<_, String>(3)?)),
+            ).unwrap();
+            assert_eq!(filtered_row, (false, None, None, "filtered_lane".into()));
+            let evaluated_row = conn.query_row(
+                "SELECT evaluated, air_samples, max_air_margin_sec FROM player_game_fielding_candidate
+                 WHERE fielder_position = 'RF'", [],
+                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, u32>(1)?, r.get::<_, Option<f64>>(2)?)),
+            ).unwrap();
+            assert_eq!(evaluated_row, (true, 0, None));
+            let margin: f64 = conn.query_row(
+                "SELECT max_air_margin_sec FROM player_game_fielding_candidate
+                 WHERE fielder_position = 'SS'", [], |r| r.get(0),
+            ).unwrap();
+            assert_eq!(margin, -0.2);
+            let selected_row = conn.query_row(
+                "SELECT risk_ok_samples, selected, selected_path, interception_catch_type,
+                        max_air_margin_time_sec, max_air_margin_height_m
+                 FROM player_game_fielding_candidate WHERE fielder_position = 'CF'", [],
+                |r| Ok((r.get::<_, u32>(0)?, r.get::<_, bool>(1)?, r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?, r.get::<_, f64>(4)?, r.get::<_, f64>(5)?)),
+            ).unwrap();
+            assert_eq!(selected_row, (1, true, "interception".into(), "DirectFly".into(), 0.55, 1.8));
+        }
+
+        // A candidate insert failure must roll back the game header update as well.
+        game.away_total_point = 9;
+        assert!(repo.update_game_result(&game).is_err());
+        let points: u8 = conn(&repo).query_row(
+            "SELECT away_points FROM game WHERE id = 1", [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(points, 1);
+
+        // Old serialized GameResult values remain readable without this new collection.
+        let mut json = serde_json::to_value(&game).unwrap();
+        json.as_object_mut().unwrap().remove("player_fielding_candidates");
+        let legacy: GameResult = serde_json::from_value(json).unwrap();
+        assert!(legacy.player_fielding_candidates.is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn fielding_candidate_upgrade_is_additive_and_repeatable() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE legacy_marker (value TEXT); INSERT INTO legacy_marker VALUES ('keep');"
+        ).unwrap();
+        let migration = include_str!("../../migrations/upgrades/add_fielding_candidate_diagnostics.sql");
+        conn.execute_batch(migration).unwrap();
+        conn.execute_batch(migration).unwrap();
+        let marker: String = conn.query_row("SELECT value FROM legacy_marker", [], |r| r.get(0)).unwrap();
+        assert_eq!(marker, "keep");
+    }
+
+    #[test]
     fn save_game_result_persists_fielding_catch_diagnostics_and_nulls() {
         use crate::domain::resolver::fielding_physics::{
             CatchType, FieldError, FieldingCatchDiagnostics, FieldingSelectionPath,
@@ -1858,6 +2010,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
         let cases = [
@@ -1952,6 +2105,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
 
@@ -2082,6 +2236,7 @@ mod tests {
                 result: BattingResult::Single,
             }],
             player_fieldings: Vec::new(),
+            player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
 
@@ -2159,6 +2314,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
 
