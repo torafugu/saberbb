@@ -3,7 +3,7 @@ use super::running_resolver::RunnersOnBase;
 use super::throw_target_rules::*;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_physics::{
-    FieldError, FieldPlayPlayResult, FielderInterception, evaluate_fielder_interception,
+    FieldError, FieldPlayPlayResult, FielderInterception, FieldingSelectionPath, evaluate_fielder_interception,
     evaluate_final_pickup,
 };
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
@@ -524,6 +524,7 @@ pub fn process_fielding<'a>(
         // Normal catch or fumble (handled on the spot) completes the play
         if primary.error_type != Some(FieldError::Passed) {
             return Ok(FieldPlayPlayResult {
+                selection_path: FieldingSelectionPath::Interception,
                 primary_interception: primary,
                 covering_interception: None,
             });
@@ -537,6 +538,11 @@ pub fn process_fielding<'a>(
             .min_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
 
         return Ok(FieldPlayPlayResult {
+            selection_path: if covering.is_some() {
+                FieldingSelectionPath::Covering
+            } else {
+                FieldingSelectionPath::Interception
+            },
             primary_interception: primary, // Info of the infielder who committed the error (e.g. E-6)
             covering_interception: covering, // Info of the outfielder who actually recovers and throws the ball
         });
@@ -560,6 +566,7 @@ pub fn process_fielding<'a>(
         .ok_or_else(|| GameError::NoPlayerFor("pickup the ball".to_string()))?;
 
     Ok(FieldPlayPlayResult {
+        selection_path: FieldingSelectionPath::FinalPickup,
         primary_interception: covering,
         covering_interception: None,
     })
@@ -991,6 +998,15 @@ mod tests {
 
         assert_eq!(result.primary_interception.fielder.position, Position::CF);
         assert_eq!(result.primary_interception.catch_type, CatchType::DirectFly);
+        let diagnostics = result.diagnostics();
+        assert_eq!(diagnostics.selection_path, FieldingSelectionPath::Interception);
+        assert_eq!(diagnostics.fielder_position, Position::CF);
+        assert_eq!(diagnostics.catch_type, CatchType::DirectFly);
+        assert_eq!(diagnostics.error_type, None);
+        assert_eq!(diagnostics.catch_time_sec, result.result().catch_time_sec);
+        assert_eq!(diagnostics.catch_z_m, result.result().catch_z_m);
+        assert_eq!(diagnostics.waiting_time_sec, result.result().waiting_time_sec);
+        assert_eq!(diagnostics.first_bounce_time, fly_ball.first_bounce_time);
         assert!(result.covering_interception.is_none());
     }
 
@@ -1065,6 +1081,35 @@ mod tests {
         assert_eq!(final_handler.fielder.position, Position::CF);
         assert_eq!(final_handler.ball.trajectory(), TrajectoryType::Grounder);
         assert_eq!(final_handler.catch_type, CatchType::FinalPickup);
+        let diagnostics = result.diagnostics();
+        assert_eq!(diagnostics.selection_path, FieldingSelectionPath::FinalPickup);
+        assert_eq!(diagnostics.fielder_position, Position::CF);
+        assert_eq!(diagnostics.catch_type, CatchType::FinalPickup);
+        assert_eq!(diagnostics.first_bounce_time, grounder.first_bounce_time);
+    }
+
+    #[test]
+    fn process_fielding_diagnostics_follow_covering_fielder_after_passed_ball() {
+        let mut fielders = [
+            fielder(Position::SS, 30.0, 0.0),
+            fielder(Position::CF, 80.0, 0.0),
+        ];
+        // CF is available for covering but is not an interception candidate.
+        fielders[1].polar_position = PolarPosition::new(110.0, 0.0);
+        let grounder = ball(TrajectoryType::Grounder, 100.0, 0.0, 3.0, 90.0, 5.0);
+        let mut rng = FixedRng::new(0.0);
+        let result = process_fielding(&mut rng, &fielders, &grounder).unwrap();
+        assert_eq!(result.selection_path, FieldingSelectionPath::Covering);
+        assert_eq!(result.primary_interception.error_type, Some(FieldError::Passed));
+        let selected = result.covering_interception.as_ref().unwrap();
+        let diagnostics = result.diagnostics();
+        assert_eq!(diagnostics.fielder_position, selected.fielder.position);
+        assert_eq!(diagnostics.catch_type, selected.catch_type);
+        assert_eq!(diagnostics.error_type, selected.error_type);
+        assert_eq!(diagnostics.catch_time_sec, selected.catch_time_sec);
+        assert_eq!(diagnostics.catch_z_m, selected.catch_z_m);
+        assert_eq!(diagnostics.waiting_time_sec, selected.waiting_time_sec);
+        assert_eq!(diagnostics.first_bounce_time, grounder.first_bounce_time);
     }
 
     #[test]

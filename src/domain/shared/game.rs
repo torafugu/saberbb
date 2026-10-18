@@ -6,6 +6,7 @@ use super::game_stats::{
     PlayerGameRunningView,
 };
 use super::team::Team;
+use crate::domain::resolver::fielding_physics::FieldingCatchDiagnostics;
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, DoublePlayDefensePlayResult, PlayType,
 };
@@ -243,6 +244,7 @@ impl GameResult {
         let player_fielding = PlayerGameFielding {
             count_seq: count_seq,
             seq: 2,
+            catch_diagnostics: None,
             catch_fielder_id: result.thrower_fielder_id,
             catch_fielder_position: result.thrower_fielder_position,
             cutoff_fielder_id: None,
@@ -261,10 +263,12 @@ impl GameResult {
         count_seq: u16,
         catch_fielder_position: Position,
         result: &DefensePlayResult,
+        catch_diagnostics: FieldingCatchDiagnostics,
     ) {
         let player_fielding = PlayerGameFielding {
             count_seq: count_seq,
             seq: 1,
+            catch_diagnostics: Some(catch_diagnostics),
             catch_fielder_id: result.final_fielder_id,
             catch_fielder_position: catch_fielder_position,
             cutoff_fielder_id: result.cutoff_fielder_id,
@@ -285,10 +289,12 @@ impl GameResult {
         fielder_position: Position,
         time_to_field: f64,
         play_type: PlayType,
+        catch_diagnostics: FieldingCatchDiagnostics,
     ) {
         let player_fielding = PlayerGameFielding {
             count_seq: count_seq,
             seq: 1,
+            catch_diagnostics: Some(catch_diagnostics),
             catch_fielder_id: fielder_id,
             catch_fielder_position: fielder_position,
             cutoff_fielder_id: None,
