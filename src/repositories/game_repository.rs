@@ -1017,6 +1017,10 @@ mod tests {
             ",
         )
         .unwrap();
+        conn.execute_batch(
+            &include_str!("../../migrations/ddl/player_game_fielding_table.sql")
+                .replace("DROP TABLE player_game_fielding;", ""),
+        ).unwrap();
         drop(conn);
 
         let manager = SqliteManager::from_path(path.clone());
@@ -1799,6 +1803,133 @@ mod tests {
             .unwrap();
         assert_eq!(innings, 1);
         assert_eq!(counts, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn fielding_diagnostics_upgrade_preserves_legacy_records() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE player_game_fielding (
+                game_id INTEGER, count_seq INTEGER, seq INTEGER,
+                catch_fielder_id INTEGER NOT NULL, catch_fielder_position TEXT NOT NULL,
+                cutoff_fielder_id INTEGER, cutoff_fielder_position TEXT,
+                final_fielder_id INTEGER, final_fielder_position TEXT,
+                time_to_field REAL NOT NULL, play_type TEXT NOT NULL,
+                PRIMARY KEY (game_id, count_seq, seq)
+            );
+            INSERT INTO player_game_fielding
+                (game_id, count_seq, seq, catch_fielder_id, catch_fielder_position,
+                 time_to_field, play_type)
+                VALUES (1, 160, 1, 10, 'CF', 2.2, 'CatchPlay');"
+        ).unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_fielding_catch_diagnostics.sql"
+        )).unwrap();
+        let row = conn.query_row(
+            "SELECT time_to_field, selection_path, catch_time_sec, first_bounce_time
+             FROM player_game_fielding WHERE game_id = 1 AND count_seq = 160 AND seq = 1",
+            [],
+            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<f64>>(2)?, row.get::<_, Option<f64>>(3)?)),
+        ).unwrap();
+        assert_eq!(row, (2.2, None, None, None));
+    }
+
+    #[test]
+    fn save_game_result_persists_fielding_catch_diagnostics_and_nulls() {
+        use crate::domain::resolver::fielding_physics::{
+            CatchType, FieldError, FieldingCatchDiagnostics, FieldingSelectionPath,
+        };
+        use crate::domain::resolver::fielding_resolver::PlayType;
+        use crate::domain::shared::game_stats::PlayerGameFielding;
+
+        let (mut repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, None);
+        let mut game = GameResult {
+            id: 1,
+            actual_date: "2026-04-01".parse().unwrap(),
+            away_total_point: 1,
+            home_total_point: 0,
+            innings: Vec::new(),
+            player_entries: Vec::new(),
+            player_pitchings: Vec::new(),
+            player_battings: Vec::new(),
+            player_fieldings: Vec::new(),
+            player_runnings: Vec::new(),
+        };
+        let cases = [
+            (FieldingSelectionPath::Interception, CatchType::DirectFly, None, None),
+            (FieldingSelectionPath::Covering, CatchType::FinalPickup,
+                Some(FieldError::Fumble), Some(2.18)),
+            (FieldingSelectionPath::FinalPickup, CatchType::FinalPickup, None, Some(3.0)),
+        ];
+        for (i, (selection_path, catch_type, error_type, first_bounce_time)) in
+            cases.into_iter().enumerate()
+        {
+            game.player_fieldings.push(PlayerGameFielding {
+                count_seq: i as u16 + 1,
+                seq: 1,
+                catch_fielder_id: 1,
+                catch_fielder_position: Position::CF,
+                cutoff_fielder_id: None,
+                cutoff_fielder_position: None,
+                final_fielder_id: None,
+                final_fielder_position: None,
+                time_to_field: 4.25,
+                play_type: PlayType::CatchPlay,
+                catch_diagnostics: Some(FieldingCatchDiagnostics {
+                    selection_path,
+                    fielder_position: Position::CF,
+                    catch_type,
+                    error_type,
+                    catch_time_sec: 4.25,
+                    catch_z_m: 1.75,
+                    waiting_time_sec: 0.35,
+                    first_bounce_time,
+                }),
+            });
+        }
+        let mut subsequent_throw = game.player_fieldings[0];
+        subsequent_throw.seq = 2;
+        subsequent_throw.catch_diagnostics = None;
+        game.player_fieldings.push(subsequent_throw);
+        repo.update_game_result(&game).unwrap();
+
+        let conn = conn(&repo);
+        for (i, (selection_path, catch_type, error_type, first_bounce_time)) in
+            cases.into_iter().enumerate()
+        {
+            let row = conn.query_row(
+                "SELECT selection_path, interception_fielder_position, catch_type, error_type,
+                        catch_time_sec, catch_z_m, waiting_time_sec, first_bounce_time
+                 FROM player_game_fielding WHERE game_id = 1 AND count_seq = ?1 AND seq = 1",
+                [i as i64 + 1],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?,
+                    row.get::<_, f64>(4)?, row.get::<_, f64>(5)?,
+                    row.get::<_, f64>(6)?, row.get::<_, Option<f64>>(7)?)),
+            ).unwrap();
+            assert_eq!(row.0, selection_path.as_ref());
+            assert_eq!(row.1, "CF");
+            assert_eq!(row.2, catch_type.as_ref());
+            assert_eq!(row.3.as_deref(), error_type.as_ref().map(|e| e.as_ref()));
+            assert_eq!(row.4, 4.25);
+            assert_eq!(row.5, 1.75);
+            assert_eq!(row.6, 0.35);
+            assert_eq!(row.7, first_bounce_time);
+        }
+        let null_columns = conn.query_row(
+            "SELECT selection_path, interception_fielder_position, catch_type, error_type,
+                    catch_time_sec, catch_z_m, waiting_time_sec, first_bounce_time
+             FROM player_game_fielding WHERE game_id = 1 AND count_seq = 1 AND seq = 2",
+            [],
+            |row| (0..8).map(|i| row.get::<_, Option<String>>(i))
+                .collect::<rusqlite::Result<Vec<_>>>(),
+        ).unwrap();
+        assert!(null_columns.iter().all(Option::is_none));
         std::fs::remove_file(path).ok();
     }
 

@@ -3,20 +3,61 @@ use crate::domain::shared::ball::{BattedBall, FieldedBall};
 use crate::domain::shared::game_state::ActiveFielder;
 use crate::domain::util::PolarPosition;
 
+use serde::{Deserialize, Serialize};
+use strum_macros::AsRefStr;
+
 const DT: f64 = 0.05;
 
+/// Branch of process_fielding that selected the effective interception.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsRefStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum FieldingSelectionPath {
+    Interception,
+    Covering,
+    FinalPickup,
+}
+
+/// Snapshot of the effective interception; capturing it consumes no random values.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FieldingCatchDiagnostics {
+    pub selection_path: FieldingSelectionPath,
+    pub fielder_position: crate::domain::shared::player::Position,
+    pub catch_type: CatchType,
+    pub error_type: Option<FieldError>,
+    pub catch_time_sec: f64,
+    pub catch_z_m: f64,
+    pub waiting_time_sec: f64,
+    pub first_bounce_time: Option<f64>,
+}
+
 /// Types of fielding errors
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsRefStr)]
 pub enum FieldError {
     Fumble, // Fumbling around at the hands (processing time delay)
     Passed, // Ball gets by / tunneled (slips behind, transitions to covering play)
 }
 
 pub struct FieldPlayPlayResult<'a> {
+    pub selection_path: FieldingSelectionPath,
     pub primary_interception: FielderInterception<'a>, // Main play (or the one who let it pass)
     pub covering_interception: Option<FielderInterception<'a>>, // Covering fielder when the ball gets by
 }
 impl<'a> FieldPlayPlayResult<'a> {
+    pub fn diagnostics(&self) -> FieldingCatchDiagnostics {
+        let selected = self.result();
+        FieldingCatchDiagnostics {
+            selection_path: self.selection_path,
+            fielder_position: selected.fielder.position,
+            catch_type: selected.catch_type,
+            error_type: selected.error_type,
+            catch_time_sec: selected.catch_time_sec,
+            catch_z_m: selected.catch_z_m,
+            waiting_time_sec: selected.waiting_time_sec,
+            first_bounce_time: selected.ball.first_bounce_time,
+        }
+    }
+
     pub fn result(&self) -> &FielderInterception<'a> {
         if let Some(interception) = &self.covering_interception {
             interception
@@ -61,7 +102,7 @@ impl<'a> FielderInterception<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsRefStr)]
 pub enum CatchType {
     DirectFly,   // No-bounce catch
     BounceCatch, // Catch on one bounce / in the middle of a grounder

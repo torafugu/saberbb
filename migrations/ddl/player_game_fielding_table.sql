@@ -12,5 +12,13 @@ CREATE TABLE player_game_fielding (
     final_fielder_position TEXT,
     time_to_field REAL NOT NULL,
     play_type TEXT NOT NULL,
+    selection_path TEXT,
+    interception_fielder_position TEXT,
+    catch_type TEXT,
+    error_type TEXT,
+    catch_time_sec REAL,
+    catch_z_m REAL,
+    waiting_time_sec REAL,
+    first_bounce_time REAL,
     PRIMARY KEY (game_id, count_seq, seq)
 );

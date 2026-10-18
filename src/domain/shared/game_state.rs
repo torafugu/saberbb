@@ -9,7 +9,7 @@ use crate::domain::resolver::batting_resolver::{
     calculate_batted_ball_with_metrics, calculate_batting_factor, calculate_swing_execution_error,
     calculate_swing_factor, evaluate_swing_contact, select_swing_execution,
 };
-use crate::domain::resolver::fielding_physics::FielderRiskTolerance;
+use crate::domain::resolver::fielding_physics::{FieldingCatchDiagnostics, FielderRiskTolerance};
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_fielding,
@@ -584,6 +584,7 @@ impl GameState {
         batter_id: i64,
         metrics: PlayerGameBattingMetrics,
         ctx: &PlayContext,
+        catch_diagnostics: FieldingCatchDiagnostics,
     ) -> Result<(), GameError> {
         self.inning_state.add_out();
 
@@ -622,6 +623,7 @@ impl GameState {
             ctx.try_catch_fielder.position,
             ctx.fielded_ball.time_to_field,
             PlayType::CatchPlay,
+            catch_diagnostics,
         );
 
         self.game_result.add_player_batting(
@@ -1066,6 +1068,7 @@ impl GameState {
 
         let fielders = self.current_fielders();
         let field_play_result = process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
+        let catch_diagnostics = field_play_result.diagnostics();
         let fielder = field_play_result.result().fielder;
         let fielded_ball = field_play_result.result().ball();
 
@@ -1079,7 +1082,7 @@ impl GameState {
         };
 
         if fielded_ball.is_fly_catch {
-            self.resolve_fly_catch(pitcher_id, batter_id, metrics, &ctx)?;
+            self.resolve_fly_catch(pitcher_id, batter_id, metrics, &ctx, catch_diagnostics)?;
             return Ok(());
         }
 
@@ -1143,6 +1146,7 @@ impl GameState {
             self.count_seq,
             ctx.try_catch_fielder.position,
             &defense_play_result,
+            catch_diagnostics,
         );
         self.game_result.add_player_running(
             self.count_seq,

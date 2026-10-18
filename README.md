@@ -58,6 +58,11 @@ once before saving new games. This preserves existing records; the new diagnosti
 columns remain `NULL` for historical rows and takes. See
 [`docs/batting_contact_diagnostics.md`](docs/batting_contact_diagnostics.md) for field definitions and analysis queries.
 
+For existing databases, also run
+[`migrations/upgrades/add_fielding_catch_diagnostics.sql`](migrations/upgrades/add_fielding_catch_diagnostics.sql)
+once to enable fielding catch diagnostics. See
+[`docs/fielding_catch_diagnostics.md`](docs/fielding_catch_diagnostics.md) for columns and single-pitch queries.
+
 Typical simulation flow:
 
 ```sh

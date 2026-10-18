@@ -56,9 +56,12 @@ const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
 
 const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding (
         game_id, count_seq, seq, catch_fielder_id, catch_fielder_position, cutoff_fielder_id,
-        cutoff_fielder_position, final_fielder_id, final_fielder_position, time_to_field, play_type
+        cutoff_fielder_position, final_fielder_id, final_fielder_position, time_to_field, play_type,
+        selection_path, interception_fielder_position, catch_type, error_type,
+        catch_time_sec, catch_z_m, waiting_time_sec, first_bounce_time
     ) VALUES (
-        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
     )";
 
 const INSERT_PLAYER_GAME_RUNNING_SQL: &str = "INSERT INTO player_game_running (
@@ -428,6 +431,7 @@ pub fn insert_player_game_fielding(
     player_game_fielding: &PlayerGameFielding,
 ) -> Result<usize, AppError> {
     info!("insert_player_game_fielding() started");
+    let diagnostics = player_game_fielding.catch_diagnostics.as_ref();
 
     db_client.execute_tx(
         tx,
@@ -443,7 +447,15 @@ pub fn insert_player_game_fielding(
             player_game_fielding.final_fielder_id,
             player_game_fielding.final_fielder_position,
             player_game_fielding.time_to_field,
-            player_game_fielding.play_type
+            player_game_fielding.play_type,
+            diagnostics.map(|d| d.selection_path.as_ref()),
+            diagnostics.map(|d| d.fielder_position),
+            diagnostics.map(|d| d.catch_type.as_ref()),
+            diagnostics.and_then(|d| d.error_type.as_ref().map(|e| e.as_ref())),
+            diagnostics.map(|d| d.catch_time_sec),
+            diagnostics.map(|d| d.catch_z_m),
+            diagnostics.map(|d| d.waiting_time_sec),
+            diagnostics.and_then(|d| d.first_bounce_time)
         ],
     )
 }
