@@ -1,5 +1,5 @@
 use super::game::BattingResult;
-use crate::domain::resolver::batting_resolver::SwingContactType;
+use crate::domain::resolver::batting_resolver::{SwingContactResult, SwingContactType};
 use crate::domain::resolver::fielding_resolver::PlayType;
 use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::RunningEvent;
@@ -139,6 +139,15 @@ pub struct PlayerGamePitching {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingMetrics {
+    pub adapted_horizontal_offset_m: Option<f64>,
+    pub adapted_vertical_offset_m: Option<f64>,
+    pub adapted_timing_offset_sec: Option<f64>,
+    pub timing_impact_x_m: Option<f64>,
+    pub swing_error_x_m: Option<f64>,
+    pub swing_error_z_m: Option<f64>,
+    pub contact_offset_x_m: Option<f64>,
+    pub contact_offset_z_m: Option<f64>,
+    pub thickness_offset_m: Option<f64>,
     pub length_offset_m: f64,
     pub original_contact_type: SwingContactType,
     pub adjusted_contact_type: SwingContactType,
@@ -150,9 +159,40 @@ pub struct PlayerGameBattingMetrics {
     pub timing_angle_error: f64,
     pub final_hla_deg: f64,
 }
+impl PlayerGameBattingMetrics {
+    /// Capture the contact calculation for every swing, including misses and fouls.
+    pub fn from_contact(contact: &SwingContactResult) -> Self {
+        Self {
+            adapted_horizontal_offset_m: Some(contact.adapted_horizontal_offset_m),
+            adapted_vertical_offset_m: Some(contact.adapted_vertical_offset_m),
+            adapted_timing_offset_sec: Some(contact.timing_offset_sec),
+            timing_impact_x_m: Some(contact.timing_impact_x_m),
+            swing_error_x_m: Some(contact.swing_error_x_m),
+            swing_error_z_m: Some(contact.swing_error_z_m),
+            contact_offset_x_m: Some(contact.offset_x_m),
+            contact_offset_z_m: Some(contact.offset_z_m),
+            thickness_offset_m: Some(contact.thickness_offset_m),
+            length_offset_m: contact.length_offset_m,
+            original_contact_type: contact.original_contact_type,
+            adjusted_contact_type: contact.adjusted_contact_type,
+            timing_error: contact.timing_offset_sec,
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for PlayerGameBattingMetrics {
     fn default() -> Self {
         Self {
+            adapted_horizontal_offset_m: None,
+            adapted_vertical_offset_m: None,
+            adapted_timing_offset_sec: None,
+            timing_impact_x_m: None,
+            swing_error_x_m: None,
+            swing_error_z_m: None,
+            contact_offset_x_m: None,
+            contact_offset_z_m: None,
+            thickness_offset_m: None,
             length_offset_m: 0.0,
             original_contact_type: SwingContactType::Take,
             adjusted_contact_type: SwingContactType::Take,
@@ -179,6 +219,15 @@ pub struct PlayerGameBatting {
     pub pull_bias_deg: f64,
     pub timing_angle_error: f64,
     pub final_hla_deg: f64,
+    pub adapted_horizontal_offset_m: Option<f64>,
+    pub adapted_vertical_offset_m: Option<f64>,
+    pub adapted_timing_offset_sec: Option<f64>,
+    pub timing_impact_x_m: Option<f64>,
+    pub swing_error_x_m: Option<f64>,
+    pub swing_error_z_m: Option<f64>,
+    pub contact_offset_x_m: Option<f64>,
+    pub contact_offset_z_m: Option<f64>,
+    pub thickness_offset_m: Option<f64>,
     pub length_offset_m: f64,
     pub original_contact_type: SwingContactType,
     pub adjusted_contact_type: SwingContactType,

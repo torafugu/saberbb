@@ -52,6 +52,12 @@ Existing databases also need
 once to configure randomized calling styles for newly generated catchers. New
 databases receive these weights from `migrations/dml/item_weighted_sample.sql`.
 
+For existing databases, run
+[`migrations/upgrades/add_batting_contact_diagnostics.sql`](migrations/upgrades/add_batting_contact_diagnostics.sql)
+once before saving new games. This preserves existing records; the new diagnostic
+columns remain `NULL` for historical rows and takes. See
+[`docs/batting_contact_diagnostics.md`](docs/batting_contact_diagnostics.md) for field definitions and analysis queries.
+
 Typical simulation flow:
 
 ```sh

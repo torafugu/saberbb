@@ -1006,12 +1006,7 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
-            PlayerGameBattingMetrics {
-                length_offset_m: contact.length_offset_m,
-                original_contact_type: contact.original_contact_type,
-                adjusted_contact_type: contact.adjusted_contact_type,
-                ..Default::default()
-            },
+            PlayerGameBattingMetrics::from_contact(contact),
             BattedBall::default(),
             None,
             batting_result,
