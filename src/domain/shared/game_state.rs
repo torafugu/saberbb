@@ -23,7 +23,7 @@ use crate::domain::resolver::running_resolver::{
 };
 use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall};
 use crate::domain::shared::game::{GameResult, GameSchedule};
-use crate::domain::shared::game_stats::PlayerGameBattingMetrics;
+use crate::domain::shared::game_stats::{PlayerGameBattingMetrics, PlayerGameFieldingCandidate};
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::SwingExecution;
 use crate::domain::strategy::pitching_strategy::{
@@ -1068,6 +1068,16 @@ impl GameState {
 
         let fielders = self.current_fielders();
         let field_play_result = process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
+        // Save before any fly/foul/steal early return can advance count_seq.
+        let count_seq = self.count_seq;
+        self.game_result.player_fielding_candidates.extend(
+            field_play_result.candidate_diagnostics.iter().map(|diagnostics| {
+                PlayerGameFieldingCandidate {
+                    count_seq,
+                    diagnostics: *diagnostics,
+                }
+            }),
+        );
         let catch_diagnostics = field_play_result.diagnostics();
         let fielder = field_play_result.result().fielder;
         let fielded_ball = field_play_result.result().ball();

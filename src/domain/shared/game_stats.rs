@@ -1,6 +1,6 @@
 use super::game::BattingResult;
 use crate::domain::resolver::batting_resolver::{SwingContactResult, SwingContactType};
-use crate::domain::resolver::fielding_physics::FieldingCatchDiagnostics;
+use crate::domain::resolver::fielding_physics::{FielderCandidateDiagnostics, FieldingCatchDiagnostics};
 use crate::domain::resolver::fielding_resolver::PlayType;
 use crate::domain::resolver::pitching_resolver::{LocationBias, PitchDisplacement};
 use crate::domain::resolver::running_resolver::RunningEvent;
@@ -235,6 +235,12 @@ pub struct PlayerGameBatting {
     pub ball: BattedBall,
     pub fielder_position: Option<Position>,
     pub result: BattingResult,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
+pub struct PlayerGameFieldingCandidate {
+    pub count_seq: u16,
+    pub diagnostics: FielderCandidateDiagnostics,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]

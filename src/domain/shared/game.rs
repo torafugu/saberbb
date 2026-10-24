@@ -1,8 +1,8 @@
 use super::game_state::ActivePlayer;
 use super::game_stats::{
     PlayerGameBatting, PlayerGameBattingMetrics, PlayerGameBattingView, PlayerGameEntry,
-    PlayerGameEntryView, PlayerGameFielding, PlayerGameHomeRunView, PlayerGamePitching,
-    PlayerGamePitchingDecisionView, PlayerGamePitchingView, PlayerGameRunning,
+    PlayerGameEntryView, PlayerGameFielding, PlayerGameFieldingCandidate, PlayerGameHomeRunView,
+    PlayerGamePitching, PlayerGamePitchingDecisionView, PlayerGamePitchingView, PlayerGameRunning,
     PlayerGameRunningView,
 };
 use super::team::Team;
@@ -114,6 +114,8 @@ pub struct GameResult {
     pub player_pitchings: Vec<PlayerGamePitching>,
     pub player_battings: Vec<PlayerGameBatting>,
     pub player_fieldings: Vec<PlayerGameFielding>,
+    #[serde(default)]
+    pub player_fielding_candidates: Vec<PlayerGameFieldingCandidate>,
     pub player_runnings: Vec<PlayerGameRunning>,
 }
 impl GameResult {
@@ -134,6 +136,7 @@ impl GameResult {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         }
     }

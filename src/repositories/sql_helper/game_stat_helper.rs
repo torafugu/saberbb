@@ -6,8 +6,8 @@ use crate::domain::shared::game::{BattingResult, FieldingResult};
 use crate::domain::shared::game_state::Ruling;
 use crate::domain::shared::game_stats::{
     PlayerGameBatting, PlayerGameBattingView, PlayerGameEntry, PlayerGameEntryView,
-    PlayerGameFielding, PlayerGameHomeRunView, PlayerGamePitching, PlayerGamePitchingDecisionView,
-    PlayerGamePitchingView, PlayerGameRunning, PlayerGameRunningView,
+    PlayerGameFielding, PlayerGameFieldingCandidate, PlayerGameHomeRunView, PlayerGamePitching,
+    PlayerGamePitchingDecisionView, PlayerGamePitchingView, PlayerGameRunning, PlayerGameRunningView,
 };
 use crate::domain::shared::player::{PitchType, PlayerInfo};
 use crate::domain::shared::stadium::Base;
@@ -62,6 +62,18 @@ const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding 
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
         ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+    )";
+
+const INSERT_PLAYER_GAME_FIELDING_CANDIDATE_SQL: &str = "INSERT INTO player_game_fielding_candidate (
+        game_id, count_seq, fielder_position, fielder_id,
+        lane_eligible, distance_eligible, evaluated, air_samples,
+        height_ok_samples, reachable_samples, risk_ok_samples, max_air_margin_sec,
+        max_air_margin_time_sec, max_air_margin_height_m, required_margin_sec, last_evaluated_time_sec,
+        end_reason, interception_catch_type, interception_error_type, interception_time_sec,
+        selected, selected_path
+    ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
     )";
 
 const INSERT_PLAYER_GAME_RUNNING_SQL: &str = "INSERT INTO player_game_running (
@@ -456,6 +468,46 @@ pub fn insert_player_game_fielding(
             diagnostics.map(|d| d.catch_z_m),
             diagnostics.map(|d| d.waiting_time_sec),
             diagnostics.and_then(|d| d.first_bounce_time)
+        ],
+    )
+}
+
+#[tracing::instrument(skip(db_client, tx, candidate), fields(game_id = %game_id, count_seq = %candidate.count_seq), err)]
+pub fn insert_player_game_fielding_candidate(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game_id: u32,
+    candidate: &PlayerGameFieldingCandidate,
+) -> Result<usize, AppError> {
+    let diagnostics = &candidate.diagnostics;
+    let search = diagnostics.search.as_ref();
+    let end_reason = diagnostics.end_reason();
+    db_client.execute_tx(
+        tx,
+        INSERT_PLAYER_GAME_FIELDING_CANDIDATE_SQL,
+        params![
+            game_id,
+            candidate.count_seq,
+            diagnostics.fielder_position,
+            diagnostics.fielder_id,
+            diagnostics.lane_eligible,
+            diagnostics.distance_eligible,
+            search.is_some(),
+            search.map(|s| s.air_samples),
+            search.map(|s| s.height_ok_samples),
+            search.map(|s| s.reachable_samples),
+            search.map(|s| s.risk_ok_samples),
+            search.and_then(|s| s.max_air_margin_sec),
+            search.and_then(|s| s.max_air_margin_time_sec),
+            search.and_then(|s| s.max_air_margin_height_m),
+            diagnostics.required_margin_sec,
+            search.and_then(|s| s.last_evaluated_time_sec),
+            end_reason.as_ref(),
+            diagnostics.interception_catch_type.as_ref().map(|t| t.as_ref()),
+            diagnostics.interception_error_type.as_ref().map(|e| e.as_ref()),
+            diagnostics.interception_time_sec,
+            diagnostics.selected,
+            diagnostics.selected_path.as_ref().map(|p| p.as_ref()),
         ],
     )
 }

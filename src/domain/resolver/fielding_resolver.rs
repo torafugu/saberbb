@@ -3,8 +3,8 @@ use super::running_resolver::RunnersOnBase;
 use super::throw_target_rules::*;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_physics::{
-    FieldError, FieldPlayPlayResult, FielderInterception, FieldingSelectionPath, evaluate_fielder_interception,
-    evaluate_final_pickup,
+    FieldError, FieldPlayPlayResult, FielderCandidateDiagnostics, FielderInterception,
+    FieldingSelectionPath, evaluate_fielder_interception_with_diagnostics, evaluate_final_pickup,
 };
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::shared::ball::{BattedBall, FieldedBall};
@@ -498,19 +498,38 @@ pub fn process_fielding<'a>(
     fielders: &'a [ActiveFielder],
     ball: &'a BattedBall,
 ) -> Result<FieldPlayPlayResult<'a>, GameError> {
-    // 1. Sort fielders in the same lane by distance (closest first)
-    // Fielders outside the ball's angle coverage are excluded from the list.
-    let lane_fielders: Vec<&ActiveFielder> = fielders
-        .iter()
-        .filter(|f| is_ball_in_fielder_lane(f, ball.angle()))
-        .filter(|f| f.distance() <= ball.distance())
-        .collect();
-
-    // 2. Mid-flight catch judgment (for all fielders)
-    let mut interceptions: Vec<FielderInterception> = lane_fielders
-        .iter()
-        .filter_map(|f| evaluate_fielder_interception(rng, ball, f))
-        .collect();
+    // Preserve fielder order and evaluate each eligible fielder exactly once.
+    let mut candidate_diagnostics = Vec::with_capacity(fielders.len());
+    let mut interceptions: Vec<FielderInterception> = Vec::new();
+    for fielder in fielders {
+        let lane_eligible = is_ball_in_fielder_lane(fielder, ball.angle());
+        let distance_eligible = fielder.distance() <= ball.distance();
+        let mut candidate = FielderCandidateDiagnostics {
+            fielder_id: fielder.id,
+            fielder_position: fielder.position,
+            lane_eligible,
+            distance_eligible,
+            required_margin_sec: fielder.risk_tolerance.required_margin_sec(),
+            search: None,
+            interception_catch_type: None,
+            interception_error_type: None,
+            interception_time_sec: None,
+            selected: false,
+            selected_path: None,
+        };
+        if lane_eligible && distance_eligible {
+            let (interception, diagnostics) =
+                evaluate_fielder_interception_with_diagnostics(rng, ball, fielder);
+            candidate.search = Some(diagnostics);
+            if let Some(interception) = interception {
+                candidate.interception_catch_type = Some(interception.catch_type);
+                candidate.interception_error_type = interception.error_type;
+                candidate.interception_time_sec = Some(interception.catch_time_sec);
+                interceptions.push(interception);
+            }
+        }
+        candidate_diagnostics.push(candidate);
+    }
 
     // If someone can catch it mid-flight, settle on the earliest fielder and return immediately!
     if !interceptions.is_empty() {
@@ -523,11 +542,12 @@ pub fn process_fielding<'a>(
 
         // Normal catch or fumble (handled on the spot) completes the play
         if primary.error_type != Some(FieldError::Passed) {
-            return Ok(FieldPlayPlayResult {
-                selection_path: FieldingSelectionPath::Interception,
-                primary_interception: primary,
-                covering_interception: None,
-            });
+            return Ok(FieldPlayPlayResult::new(
+                FieldingSelectionPath::Interception,
+                primary,
+                None,
+                candidate_diagnostics,
+            ));
         }
 
         // [Ball got by]: record the infielder's error and have a cover!
@@ -537,15 +557,17 @@ pub fn process_fielding<'a>(
             .map(|f| evaluate_final_pickup(rng, ball, f))
             .min_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
 
-        return Ok(FieldPlayPlayResult {
-            selection_path: if covering.is_some() {
-                FieldingSelectionPath::Covering
-            } else {
-                FieldingSelectionPath::Interception
-            },
-            primary_interception: primary, // Info of the infielder who committed the error (e.g. E-6)
-            covering_interception: covering, // Info of the outfielder who actually recovers and throws the ball
-        });
+        let selection_path = if covering.is_some() {
+            FieldingSelectionPath::Covering
+        } else {
+            FieldingSelectionPath::Interception
+        };
+        return Ok(FieldPlayPlayResult::new(
+            selection_path,
+            primary,
+            covering,
+            candidate_diagnostics,
+        ));
     }
 
     // 3. Extra-base hit / ball got by (no one caught it mid-flight)
@@ -565,11 +587,12 @@ pub fn process_fielding<'a>(
         .next()
         .ok_or_else(|| GameError::NoPlayerFor("pickup the ball".to_string()))?;
 
-    Ok(FieldPlayPlayResult {
-        selection_path: FieldingSelectionPath::FinalPickup,
-        primary_interception: covering,
-        covering_interception: None,
-    })
+    Ok(FieldPlayPlayResult::new(
+        FieldingSelectionPath::FinalPickup,
+        covering,
+        None,
+        candidate_diagnostics,
+    ))
 }
 
 #[cfg(test)]
@@ -964,6 +987,41 @@ mod tests {
     }
 
     #[test]
+    fn candidate_diagnostics_include_every_active_fielder_and_filter_decision() {
+        let fielders = default_fielders();
+        let grounder = ball(TrajectoryType::Grounder, 50.0, 0.0, 2.0, 90.0, 5.0);
+        let mut rng = fixed_rng();
+        let result = process_fielding(&mut *rng, &fielders, &grounder).unwrap();
+        assert_eq!(result.candidate_diagnostics.len(), fielders.len());
+        assert_eq!(result.candidate_diagnostics.iter().filter(|c| c.selected).count(), 1);
+        for (fielder, diagnostics) in fielders.iter().zip(&result.candidate_diagnostics) {
+            assert_eq!(diagnostics.fielder_position, fielder.position);
+            assert_eq!(diagnostics.fielder_id, fielder.id);
+            assert_eq!(diagnostics.lane_eligible, is_ball_in_fielder_lane(fielder, grounder.angle()));
+            assert_eq!(diagnostics.distance_eligible, fielder.distance() <= grounder.distance());
+            assert_eq!(diagnostics.search.is_some(),
+                diagnostics.lane_eligible && diagnostics.distance_eligible);
+            if let Some(search) = diagnostics.search {
+                // A ground ball has an evaluated search, but no airborne sample.
+                assert_eq!(search.air_samples, 0);
+                assert_eq!(search.max_air_margin_sec, None);
+            }
+            if diagnostics.selected {
+                assert_eq!(diagnostics.fielder_position, result.result().fielder.position);
+                assert_eq!(diagnostics.selected_path, Some(result.selection_path));
+            } else {
+                assert_eq!(diagnostics.selected_path, None);
+            }
+        }
+        let center = result.candidate_diagnostics.iter()
+            .find(|c| c.fielder_position == Position::CF).unwrap();
+        assert!(center.lane_eligible);
+        assert!(!center.distance_eligible);
+        assert_eq!(center.end_reason(),
+            crate::domain::resolver::fielding_physics::CandidateEndReason::FilteredDistance);
+    }
+
+    #[test]
     fn process_fielding_uses_reachable_infielder_for_short_grounders() {
         let fielders = [
             fielder(Position::SB, 35.0, 0.0),
@@ -1086,6 +1144,11 @@ mod tests {
         assert_eq!(diagnostics.fielder_position, Position::CF);
         assert_eq!(diagnostics.catch_type, CatchType::FinalPickup);
         assert_eq!(diagnostics.first_bounce_time, grounder.first_bounce_time);
+        let selected = result.candidate_diagnostics.iter().find(|c| c.selected).unwrap();
+        assert_eq!(selected.fielder_position, Position::CF);
+        assert!(!selected.lane_eligible);
+        assert!(selected.search.is_none());
+        assert_eq!(selected.selected_path, Some(FieldingSelectionPath::FinalPickup));
     }
 
     #[test]
