@@ -5,6 +5,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_physics::{
     FieldError, FieldPlayPlayResult, FielderCandidateDiagnostics, FielderInterception,
     FieldingSelectionPath, evaluate_fielder_interception_with_diagnostics, evaluate_final_pickup,
+    probe_airborne_catches,
 };
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::shared::ball::{BattedBall, FieldedBall};
@@ -501,7 +502,8 @@ pub fn process_fielding<'a>(
     // Preserve fielder order and evaluate each eligible fielder exactly once.
     let mut candidate_diagnostics = Vec::with_capacity(fielders.len());
     let mut interceptions: Vec<FielderInterception> = Vec::new();
-    for fielder in fielders {
+    let air_probes = probe_airborne_catches(ball, fielders);
+    for (fielder, air_probe) in fielders.iter().zip(air_probes) {
         let lane_eligible = is_ball_in_fielder_lane(fielder, ball.angle());
         let distance_eligible = fielder.distance() <= ball.distance();
         let mut candidate = FielderCandidateDiagnostics {
@@ -511,6 +513,7 @@ pub fn process_fielding<'a>(
             distance_eligible,
             required_margin_sec: fielder.risk_tolerance.required_margin_sec(),
             search: None,
+            air_probe: Some(air_probe),
             interception_catch_type: None,
             interception_error_type: None,
             interception_time_sec: None,
@@ -987,6 +990,47 @@ mod tests {
     }
 
     #[test]
+    fn fine_air_probe_does_not_select_a_fielder_or_consume_play_rng() {
+        use crate::domain::random_provider::RealRng;
+        let mut fielder = fielder(Position::CF, 90.0, 0.0);
+        fielder.id = 6755;
+        let mut fly = ball(TrajectoryType::Fly, 80.0, 0.0, 6.0, 30.0, 40.0);
+        fly.first_bounce_time = Some(4.0);
+        fly.first_bounce_position = Some(PolarPosition::new(75.0, 0.0));
+        fly.max_height = 20.0;
+        let fielders = [fielder];
+        let mut rng = RealRng::from_seed(42);
+        let mut expected_rng = RealRng::from_seed(42);
+        let result = process_fielding(&mut rng, &fielders, &fly).unwrap();
+        let candidate = &result.candidate_diagnostics[0];
+        assert!(!candidate.distance_eligible);
+        assert!(candidate.search.is_none());
+        assert!(candidate.air_probe.unwrap().risk_ok_samples > 0);
+        // A diagnostic success must not turn the actual pickup into a fly out.
+        assert_eq!(result.selection_path, FieldingSelectionPath::FinalPickup);
+        assert_eq!(result.result().catch_type, CatchType::FinalPickup);
+        // The actual path draws exactly once for its single final-pickup evaluation.
+        expected_rng.random();
+        assert_eq!(rng.random(), expected_rng.random());
+    }
+
+    #[test]
+    fn fine_air_probe_includes_fielders_excluded_by_direction() {
+        let fielder = fielder(Position::LF, 80.0, -26.0);
+        let mut fly = ball(TrajectoryType::Fly, 100.0, -13.775, 6.0, 30.0, 40.0);
+        fly.first_bounce_time = Some(4.0);
+        fly.first_bounce_position = Some(PolarPosition::new(75.0, -13.867));
+        fly.max_height = 20.0;
+        let fielders = [fielder];
+        let result = process_fielding(&mut *fixed_rng(), &fielders, &fly).unwrap();
+        let candidate = &result.candidate_diagnostics[0];
+        assert!(!candidate.lane_eligible);
+        assert!(candidate.search.is_none());
+        assert!(candidate.air_probe.unwrap().risk_ok_samples > 0);
+        assert_eq!(result.selection_path, FieldingSelectionPath::FinalPickup);
+    }
+
+    #[test]
     fn candidate_diagnostics_include_every_active_fielder_and_filter_decision() {
         let fielders = default_fielders();
         let grounder = ball(TrajectoryType::Grounder, 50.0, 0.0, 2.0, 90.0, 5.0);
@@ -1001,6 +1045,7 @@ mod tests {
             assert_eq!(diagnostics.distance_eligible, fielder.distance() <= grounder.distance());
             assert_eq!(diagnostics.search.is_some(),
                 diagnostics.lane_eligible && diagnostics.distance_eligible);
+            assert_eq!(diagnostics.air_probe.unwrap().step_sec, 0.01);
             if let Some(search) = diagnostics.search {
                 // A ground ball has an evaluated search, but no airborne sample.
                 assert_eq!(search.air_samples, 0);

@@ -7,6 +7,23 @@ use serde::{Deserialize, Serialize};
 use strum_macros::AsRefStr;
 
 const DT: f64 = 0.05;
+const AIR_PROBE_STEP_SEC: f64 = 0.01;
+
+/// Full airborne scan, independent of candidate filters, early returns and errors.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct AirCatchProbeDiagnostics {
+    pub step_sec: f64,
+    pub air_samples: u32,
+    pub height_ok_samples: u32,
+    pub reachable_samples: u32,
+    pub risk_ok_samples: u32,
+    pub max_margin_sec: Option<f64>,
+    pub max_margin_time_sec: Option<f64>,
+    pub max_margin_height_m: Option<f64>,
+    pub first_catch_time_sec: Option<f64>,
+    pub first_catch_height_m: Option<f64>,
+    pub first_catch_margin_sec: Option<f64>,
+}
 
 /// Branch of process_fielding that selected the effective interception.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsRefStr)]
@@ -74,6 +91,9 @@ pub struct FielderCandidateDiagnostics {
     pub distance_eligible: bool,
     pub required_margin_sec: f64,
     pub search: Option<AirSearchDiagnostics>,
+    /// None only for legacy values; new plays probe every active fielder.
+    #[serde(default)]
+    pub air_probe: Option<AirCatchProbeDiagnostics>,
     pub interception_catch_type: Option<CatchType>,
     pub interception_error_type: Option<FieldError>,
     pub interception_time_sec: Option<f64>,
@@ -201,6 +221,83 @@ impl FielderRiskTolerance {
             Self::Conservative => 0.35,
         }
     }
+}
+
+/// Probe all active fielders at 10 ms without mutating state or drawing randomness.
+/// The trajectory samples are shared by the fielders to avoid repeated reconstruction.
+/// A successful probe is geometric feasibility, not a guaranteed catch or play result.
+pub fn probe_airborne_catches(
+    ball: &BattedBall,
+    fielders: &[ActiveFielder],
+) -> Vec<AirCatchProbeDiagnostics> {
+    let mut results = vec![AirCatchProbeDiagnostics {
+        step_sec: AIR_PROBE_STEP_SEC,
+        ..AirCatchProbeDiagnostics::default()
+    }; fielders.len()];
+    if fielders.is_empty() || !ball.total_time.is_finite() || ball.total_time <= 0.0 {
+        return results;
+    }
+
+    let mut samples = Vec::new();
+    let mut sample_index = 0_u32;
+    loop {
+        // Use integer ticks rather than accumulating rounding error in t += step.
+        let t = 0.10 + f64::from(sample_index) * AIR_PROBE_STEP_SEC;
+        if t >= ball.total_time {
+            break;
+        }
+        let (_, _, x, y, height, is_direct) = estimate_ball_state_at_time(t, ball);
+        if !is_direct {
+            break; // Neither ground nor fence rebounds qualify as direct flies.
+        }
+        samples.push((t, x, y, height));
+        sample_index += 1;
+    }
+
+    for (fielder, result) in fielders.iter().zip(&mut results) {
+        let rad = fielder.polar_position.angle.to_radians();
+        let f_x = fielder.polar_position.distance * rad.sin();
+        let f_y = fielder.polar_position.distance * rad.cos();
+        let speed = fielder.info.running_speed;
+        let prep_time = fielder.info.prep_time;
+        let required_margin = fielder.risk_tolerance.required_margin_sec();
+        for &(t, x, y, height) in &samples {
+            result.air_samples += 1;
+            if !height.is_finite() || !fielder.info.reach_height.is_finite()
+                || height > fielder.info.reach_height
+            {
+                continue;
+            }
+            result.height_ok_samples += 1;
+            if !speed.is_finite() || speed <= 0.0 || !prep_time.is_finite() {
+                continue;
+            }
+            let movement = ((x - f_x).powi(2) + (y - f_y).powi(2)).sqrt();
+            let margin = t - (prep_time + movement / speed);
+            if !margin.is_finite() {
+                continue;
+            }
+            if result.max_margin_sec.is_none_or(|best| margin > best) {
+                result.max_margin_sec = Some(margin);
+                result.max_margin_time_sec = Some(t);
+                result.max_margin_height_m = Some(height);
+            }
+            if margin < 0.0 {
+                continue;
+            }
+            result.reachable_samples += 1;
+            if margin < required_margin {
+                continue;
+            }
+            result.risk_ok_samples += 1;
+            if result.first_catch_time_sec.is_none() {
+                result.first_catch_time_sec = Some(t);
+                result.first_catch_height_m = Some(height);
+                result.first_catch_margin_sec = Some(margin);
+            }
+        }
+    }
+    results
 }
 
 pub fn evaluate_fielder_interception<'a>(
@@ -847,5 +944,130 @@ mod trajectory_tests {
         assert!(state.1.abs() > 179.0);
         assert_near(state.2, 0.0);
         assert!(state.3 < 0.0);
+    }
+}
+
+#[cfg(test)]
+mod air_probe_tests {
+    use super::*;
+    use crate::domain::random_provider::FixedRng;
+    use crate::domain::shared::player::Position;
+    use crate::domain::test_support::{active_fielder, default_fielders};
+
+    fn left_field_example() -> (BattedBall, ActiveFielder) {
+        let ball = BattedBall {
+            launch_speed: 30.0,
+            launch_angle: 40.0,
+            total_time: 6.0,
+            // Match the integrator's 305 additions of 0.01 rather than rounded SQL output.
+            first_bounce_time: Some(3.049999999999979),
+            first_bounce_position: Some(PolarPosition::new(70.833, -13.867)),
+            final_position: PolarPosition::new(100.0, -13.775),
+            // Representative height: the historical row does not store this value.
+            max_height: 20.0,
+            ..BattedBall::default()
+        };
+        let mut fielder = active_fielder(Position::LF, 80.0, -26.0);
+        fielder.id = 6755;
+        fielder.info.running_speed = 8.4353393605285;
+        fielder.info.prep_time = 0.637923851954722;
+        fielder.info.reach_height = 2.49425091521223;
+        (ball, fielder)
+    }
+
+    #[test]
+    fn fine_probe_finds_three_late_air_points_missed_by_the_normal_step() {
+        let (ball, fielder) = left_field_example();
+        let (_, normal) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        assert_eq!(normal.risk_ok_samples, 0);
+        let probe = probe_airborne_catches(&ball, &[fielder])[0];
+        assert_eq!(probe.step_sec, 0.01);
+        assert_eq!(probe.air_samples, 295);
+        assert_eq!(probe.risk_ok_samples, 3); // Scan continues after the first success.
+        assert!((probe.first_catch_time_sec.unwrap() - 3.02).abs() < 1e-9);
+        assert!((probe.max_margin_time_sec.unwrap() - 3.04).abs() < 1e-9);
+        assert!(probe.first_catch_margin_sec.unwrap() > 0.17);
+        assert!(probe.first_catch_height_m.unwrap() < 2.4943);
+    }
+
+    #[test]
+    fn fine_probe_applies_height_conditions_not_just_arrival_time() {
+        let (mut ball, fielder) = left_field_example();
+        ball.max_height = 500.0;
+        let probe = probe_airborne_catches(&ball, &[fielder])[0];
+        assert!(probe.air_samples > 0);
+        assert_eq!(probe.height_ok_samples, 0);
+        assert_eq!(probe.risk_ok_samples, 0);
+        assert_eq!(probe.max_margin_sec, None);
+        assert_eq!(probe.first_catch_time_sec, None);
+    }
+
+    #[test]
+    fn fine_probe_keeps_negative_margins_and_rejects_invalid_movement_speed() {
+        let (ball, mut fielder) = left_field_example();
+        fielder.info.prep_time = 100.0;
+        let probe = probe_airborne_catches(&ball, &[fielder.clone()])[0];
+        assert!(probe.height_ok_samples > 0);
+        assert!(probe.max_margin_sec.unwrap() < 0.0);
+        assert_eq!(probe.reachable_samples, 0);
+        assert_eq!(probe.first_catch_time_sec, None);
+
+        fielder.info.running_speed = 0.0;
+        let invalid = probe_airborne_catches(&ball, &[fielder])[0];
+        assert!(invalid.height_ok_samples > 0);
+        assert_eq!(invalid.max_margin_sec, None);
+        assert_eq!(invalid.risk_ok_samples, 0);
+    }
+
+    #[test]
+    fn fine_probe_checks_risk_tolerance_and_stops_at_fence_impact() {
+        let ball = BattedBall {
+            total_time: 0.5,
+            first_bounce_time: Some(0.3),
+            first_bounce_position: Some(PolarPosition::new(0.6, 0.0)),
+            final_position: PolarPosition::new(1.0, 0.0),
+            max_height: 10.0,
+            ..BattedBall::default()
+        };
+        let mut fielder = active_fielder(Position::CF, 0.0, 0.0);
+        fielder.info.running_speed = 1e9;
+        fielder.info.prep_time = 0.15;
+        fielder.info.reach_height = 100.0;
+        let balanced = probe_airborne_catches(&ball, &[fielder.clone()])[0];
+        assert!(balanced.reachable_samples > 0);
+        assert_eq!(balanced.risk_ok_samples, 0);
+        fielder.risk_tolerance = FielderRiskTolerance::Aggressive;
+        let aggressive = probe_airborne_catches(&ball, &[fielder.clone()])[0];
+        assert!(aggressive.risk_ok_samples > 0);
+
+        let mut wall_ball = ball;
+        wall_ball.fence_impact_time = Some(0.2);
+        wall_ball.fence_impact_position = Some(PolarPosition::new(0.4, 0.0));
+        let wall = probe_airborne_catches(&wall_ball, &[fielder])[0];
+        assert!(wall.air_samples < aggressive.air_samples);
+        assert!(wall.max_margin_time_sec.unwrap() < 0.2);
+        assert!(wall.first_catch_time_sec.unwrap() < 0.2);
+    }
+
+    #[test]
+    fn ground_balls_have_a_recorded_zero_probe_for_every_fielder() {
+        let grounder = BattedBall {
+            total_time: 3.0,
+            first_bounce_time: Some(0.0),
+            first_bounce_position: Some(PolarPosition::new(0.0, 0.0)),
+            final_position: PolarPosition::new(50.0, 0.0),
+            ..BattedBall::default()
+        };
+        let fielders = default_fielders();
+        let before = fielders.clone();
+        let probes = probe_airborne_catches(&grounder, &fielders);
+        assert_eq!(fielders, before);
+        assert_eq!(probes.len(), 9);
+        assert!(probes.iter().all(|p| p.step_sec == 0.01 && p.air_samples == 0
+            && p.risk_ok_samples == 0 && p.max_margin_sec.is_none()
+            && p.first_catch_time_sec.is_none()));
+        assert!(probe_airborne_catches(&grounder, &[]).is_empty());
     }
 }

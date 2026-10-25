@@ -1848,7 +1848,8 @@ mod tests {
     #[test]
     fn save_game_result_persists_all_fielding_candidate_states() {
         use crate::domain::resolver::fielding_physics::{
-            AirSearchDiagnostics, CandidateEndReason, CatchType, FielderCandidateDiagnostics,
+            AirCatchProbeDiagnostics, AirSearchDiagnostics, CandidateEndReason, CatchType,
+            FielderCandidateDiagnostics,
             FieldingSelectionPath,
         };
         use crate::domain::shared::game_stats::PlayerGameFieldingCandidate;
@@ -1864,6 +1865,7 @@ mod tests {
             distance_eligible: true,
             required_margin_sec: 0.15,
             search: None,
+            air_probe: None,
             interception_catch_type: None,
             interception_error_type: None,
             interception_time_sec: None,
@@ -1908,6 +1910,23 @@ mod tests {
             selected_path: Some(FieldingSelectionPath::Interception),
             ..evaluated
         };
+        let probed = FielderCandidateDiagnostics {
+            fielder_position: Position::TB,
+            air_probe: Some(AirCatchProbeDiagnostics {
+                step_sec: 0.01,
+                air_samples: 295,
+                height_ok_samples: 20,
+                reachable_samples: 10,
+                risk_ok_samples: 3,
+                max_margin_sec: Some(0.214),
+                max_margin_time_sec: Some(3.04),
+                max_margin_height_m: Some(0.26),
+                first_catch_time_sec: Some(3.02),
+                first_catch_height_m: Some(0.78),
+                first_catch_margin_sec: Some(0.171),
+            }),
+            ..filtered
+        };
         let mut game = GameResult {
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
@@ -1918,7 +1937,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
-            player_fielding_candidates: [filtered, evaluated, negative, selected].into_iter()
+            player_fielding_candidates: [filtered, evaluated, negative, selected, probed].into_iter()
                 .map(|diagnostics| PlayerGameFieldingCandidate { count_seq: 160, diagnostics })
                 .collect(),
             player_runnings: Vec::new(),
@@ -1930,7 +1949,23 @@ mod tests {
                 "SELECT COUNT(*) FROM player_game_fielding_candidate
                  WHERE game_id = 1 AND count_seq = 160", [], |r| r.get(0),
             ).unwrap();
-            assert_eq!(rows, 4);
+            assert_eq!(rows, 5);
+            let probe_values = conn.query_row(
+                "SELECT air_probe_step_sec, air_probe_air_samples, air_probe_height_ok_samples,
+                        air_probe_reachable_samples, air_probe_risk_ok_samples, air_probe_max_margin_sec,
+                        air_probe_max_margin_time_sec, air_probe_max_margin_height_m,
+                        air_probe_first_catch_time_sec, air_probe_first_catch_height_m,
+                        air_probe_first_catch_margin_sec
+                 FROM player_game_fielding_candidate WHERE fielder_position = 'TB'", [],
+                |r| (0..11).map(|i| r.get::<_, f64>(i)).collect::<rusqlite::Result<Vec<_>>>(),
+            ).unwrap();
+            assert_eq!(probe_values, vec![0.01, 295.0, 20.0, 10.0, 3.0,
+                0.214, 3.04, 0.26, 3.02, 0.78, 0.171]);
+            let legacy_probe: Option<f64> = conn.query_row(
+                "SELECT air_probe_step_sec FROM player_game_fielding_candidate
+                 WHERE fielder_position = 'LF'", [], |r| r.get(0),
+            ).unwrap();
+            assert_eq!(legacy_probe, None);
             let filtered_row = conn.query_row(
                 "SELECT evaluated, air_samples, max_air_margin_sec, end_reason
                  FROM player_game_fielding_candidate WHERE fielder_position = 'LF'", [],
@@ -1967,12 +2002,46 @@ mod tests {
         ).unwrap();
         assert_eq!(points, 1);
 
+        let mut old_candidate = serde_json::to_value(&filtered).unwrap();
+        old_candidate.as_object_mut().unwrap().remove("air_probe");
+        let legacy_candidate: FielderCandidateDiagnostics =
+            serde_json::from_value(old_candidate).unwrap();
+        assert!(legacy_candidate.air_probe.is_none());
+
         // Old serialized GameResult values remain readable without this new collection.
         let mut json = serde_json::to_value(&game).unwrap();
         json.as_object_mut().unwrap().remove("player_fielding_candidates");
         let legacy: GameResult = serde_json::from_value(json).unwrap();
         assert!(legacy.player_fielding_candidates.is_empty());
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn air_probe_upgrade_keeps_historical_candidates_without_inventing_probe_values() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_fielding_candidate_diagnostics.sql"
+        )).unwrap();
+        conn.execute_batch(
+            "INSERT INTO player_game_fielding_candidate (
+                game_id, count_seq, fielder_position, fielder_id,
+                lane_eligible, distance_eligible, evaluated, required_margin_sec,
+                end_reason, selected, selected_path
+             ) VALUES (16712, 22, 'LF', 6755, 0, 1, 0, 0.15,
+                       'filtered_lane', 1, 'final_pickup');"
+        ).unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_fielding_air_probe.sql"
+        )).unwrap();
+        let row = conn.query_row(
+            "SELECT end_reason, selected, air_probe_step_sec,
+                    air_probe_air_samples, air_probe_risk_ok_samples
+             FROM player_game_fielding_candidate WHERE game_id = 16712 AND count_seq = 22",
+            [], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?,
+                r.get::<_, Option<f64>>(2)?, r.get::<_, Option<u32>>(3)?,
+                r.get::<_, Option<u32>>(4)?)),
+        ).unwrap();
+        assert_eq!(row, ("filtered_lane".into(), true, None, None, None));
     }
 
     #[test]
