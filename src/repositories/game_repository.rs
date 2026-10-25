@@ -1866,6 +1866,7 @@ mod tests {
             required_margin_sec: 0.15,
             search: None,
             air_probe: None,
+            air_probe_coarse: None,
             interception_catch_type: None,
             interception_error_type: None,
             interception_time_sec: None,
@@ -1925,6 +1926,17 @@ mod tests {
                 first_catch_height_m: Some(0.78),
                 first_catch_margin_sec: Some(0.171),
             }),
+            air_probe_coarse: Some(AirCatchProbeDiagnostics {
+                step_sec: 0.05,
+                air_samples: 59,
+                height_ok_samples: 4,
+                reachable_samples: 2,
+                risk_ok_samples: 0,
+                max_margin_sec: Some(0.126),
+                max_margin_time_sec: Some(3.0),
+                max_margin_height_m: Some(1.29),
+                ..AirCatchProbeDiagnostics::default()
+            }),
             ..filtered
         };
         let mut game = GameResult {
@@ -1961,6 +1973,18 @@ mod tests {
             ).unwrap();
             assert_eq!(probe_values, vec![0.01, 295.0, 20.0, 10.0, 3.0,
                 0.214, 3.04, 0.26, 3.02, 0.78, 0.171]);
+            let coarse_values = conn.query_row(
+                "SELECT air_probe_coarse_step_sec, air_probe_coarse_air_samples,
+                        air_probe_coarse_height_ok_samples, air_probe_coarse_reachable_samples,
+                        air_probe_coarse_risk_ok_samples, air_probe_coarse_max_margin_sec,
+                        air_probe_coarse_max_margin_time_sec, air_probe_coarse_max_margin_height_m,
+                        air_probe_coarse_first_catch_time_sec, air_probe_coarse_first_catch_height_m,
+                        air_probe_coarse_first_catch_margin_sec
+                 FROM player_game_fielding_candidate WHERE fielder_position = 'TB'", [],
+                |r| (0..11).map(|i| r.get::<_, Option<f64>>(i)).collect::<rusqlite::Result<Vec<_>>>(),
+            ).unwrap();
+            assert_eq!(coarse_values, vec![Some(0.05), Some(59.0), Some(4.0), Some(2.0),
+                Some(0.0), Some(0.126), Some(3.0), Some(1.29), None, None, None]);
             let legacy_probe: Option<f64> = conn.query_row(
                 "SELECT air_probe_step_sec FROM player_game_fielding_candidate
                  WHERE fielder_position = 'LF'", [], |r| r.get(0),
@@ -2004,9 +2028,11 @@ mod tests {
 
         let mut old_candidate = serde_json::to_value(&filtered).unwrap();
         old_candidate.as_object_mut().unwrap().remove("air_probe");
+        old_candidate.as_object_mut().unwrap().remove("air_probe_coarse");
         let legacy_candidate: FielderCandidateDiagnostics =
             serde_json::from_value(old_candidate).unwrap();
         assert!(legacy_candidate.air_probe.is_none());
+        assert!(legacy_candidate.air_probe_coarse.is_none());
 
         // Old serialized GameResult values remain readable without this new collection.
         let mut json = serde_json::to_value(&game).unwrap();
@@ -2042,6 +2068,36 @@ mod tests {
                 r.get::<_, Option<u32>>(4)?)),
         ).unwrap();
         assert_eq!(row, ("filtered_lane".into(), true, None, None, None));
+    }
+
+    #[test]
+    fn coarse_probe_upgrade_preserves_fine_probe_and_leaves_control_unknown() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_fielding_candidate_diagnostics.sql"
+        )).unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_fielding_air_probe.sql"
+        )).unwrap();
+        conn.execute_batch(
+            "INSERT INTO player_game_fielding_candidate (
+                game_id, count_seq, fielder_position, fielder_id,
+                lane_eligible, distance_eligible, evaluated, required_margin_sec,
+                end_reason, selected, selected_path, air_probe_step_sec, air_probe_risk_ok_samples
+             ) VALUES (16712, 22, 'LF', 6755, 0, 1, 0, 0.15,
+                       'filtered_lane', 1, 'final_pickup', 0.01, 3);"
+        ).unwrap();
+        conn.execute_batch(include_str!(
+            "../../migrations/upgrades/add_fielding_air_probe_comparison.sql"
+        )).unwrap();
+        let row = conn.query_row(
+            "SELECT air_probe_step_sec, air_probe_risk_ok_samples,
+                    air_probe_coarse_step_sec, air_probe_coarse_risk_ok_samples
+             FROM player_game_fielding_candidate", [],
+            |r| Ok((r.get::<_, f64>(0)?, r.get::<_, u32>(1)?,
+                r.get::<_, Option<f64>>(2)?, r.get::<_, Option<u32>>(3)?)),
+        ).unwrap();
+        assert_eq!(row, (0.01, 3, None, None));
     }
 
     #[test]

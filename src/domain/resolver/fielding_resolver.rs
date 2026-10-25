@@ -5,7 +5,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_physics::{
     FieldError, FieldPlayPlayResult, FielderCandidateDiagnostics, FielderInterception,
     FieldingSelectionPath, evaluate_fielder_interception_with_diagnostics, evaluate_final_pickup,
-    probe_airborne_catches,
+    probe_airborne_catches, probe_airborne_catches_coarse,
 };
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::shared::ball::{BattedBall, FieldedBall};
@@ -503,7 +503,8 @@ pub fn process_fielding<'a>(
     let mut candidate_diagnostics = Vec::with_capacity(fielders.len());
     let mut interceptions: Vec<FielderInterception> = Vec::new();
     let air_probes = probe_airborne_catches(ball, fielders);
-    for (fielder, air_probe) in fielders.iter().zip(air_probes) {
+    let coarse_probes = probe_airborne_catches_coarse(ball, fielders);
+    for ((fielder, air_probe), coarse_probe) in fielders.iter().zip(air_probes).zip(coarse_probes) {
         let lane_eligible = is_ball_in_fielder_lane(fielder, ball.angle());
         let distance_eligible = fielder.distance() <= ball.distance();
         let mut candidate = FielderCandidateDiagnostics {
@@ -514,6 +515,7 @@ pub fn process_fielding<'a>(
             required_margin_sec: fielder.risk_tolerance.required_margin_sec(),
             search: None,
             air_probe: Some(air_probe),
+            air_probe_coarse: Some(coarse_probe),
             interception_catch_type: None,
             interception_error_type: None,
             interception_time_sec: None,
@@ -1006,6 +1008,7 @@ mod tests {
         assert!(!candidate.distance_eligible);
         assert!(candidate.search.is_none());
         assert!(candidate.air_probe.unwrap().risk_ok_samples > 0);
+        assert!(candidate.air_probe_coarse.unwrap().risk_ok_samples > 0);
         // A diagnostic success must not turn the actual pickup into a fly out.
         assert_eq!(result.selection_path, FieldingSelectionPath::FinalPickup);
         assert_eq!(result.result().catch_type, CatchType::FinalPickup);
@@ -1046,6 +1049,7 @@ mod tests {
             assert_eq!(diagnostics.search.is_some(),
                 diagnostics.lane_eligible && diagnostics.distance_eligible);
             assert_eq!(diagnostics.air_probe.unwrap().step_sec, 0.01);
+            assert_eq!(diagnostics.air_probe_coarse.unwrap().step_sec, 0.05);
             if let Some(search) = diagnostics.search {
                 // A ground ball has an evaluated search, but no airborne sample.
                 assert_eq!(search.air_samples, 0);

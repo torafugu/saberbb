@@ -149,3 +149,6 @@ ORDER BY balls DESC;
 当時のmax_height自体は保存されていないため、歴史上の1球を完全再現したテストではない。
 このケースに加え、高さ不成立・負の余裕・リスク条件・フェンス衝突による終了・ゴロ・
 候補除外後の診断成立・乱数列の維持・DB移行と保存をテスト対象とする。
+
+0.05秒と0.01秒を同一条件で比較する追加診断は
+[fielding_air_probe_comparison.md](fielding_air_probe_comparison.md) を参照。
