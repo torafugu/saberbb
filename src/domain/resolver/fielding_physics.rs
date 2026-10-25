@@ -8,6 +8,20 @@ use strum_macros::AsRefStr;
 
 const DT: f64 = 0.05;
 const AIR_PROBE_STEP_SEC: f64 = 0.01;
+// Numerical tolerance only: do not treat the same event time, represented a few
+// ULPs earlier, as a direct fly. This is far smaller than the 10 ms search step.
+const AIR_EVENT_EPS_SEC: f64 = 1e-9;
+
+fn direct_flight_end_time(ball: &BattedBall) -> f64 {
+    let total = ball.total_time.max(0.0);
+    ball.first_bounce_time.into_iter().chain(ball.fence_impact_time)
+        .filter(|time| time.is_finite() && (0.0..=total).contains(time))
+        .fold(total, f64::min)
+}
+
+fn is_before_air_event(time: f64, end: f64) -> bool {
+    end - time > AIR_EVENT_EPS_SEC
+}
 
 /// Full airborne scan, independent of candidate filters, early returns and errors.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -350,10 +364,24 @@ fn search_fielder_interception<'a>(
     let f_x0 = fielder.polar_position.distance * f_rad.sin();
     let f_y0 = fielder.polar_position.distance * f_rad.cos();
 
-    let mut t = 0.10;
+    if !ball.total_time.is_finite() || ball.total_time < 0.10 {
+        return None;
+    }
+    let direct_until = direct_flight_end_time(ball);
+    let mut sample_index = 0_u32;
 
-    // Scan chronologically for future points where the ball is at a catchable height.
-    while t <= ball.total_time {
+    // Match the fine probe's integer 10 ms grid while airborne. After the first
+    // ground/fence event, resume the original 0.10 + n * 0.05 ground grid.
+    loop {
+        let t = 0.10 + f64::from(sample_index) * AIR_PROBE_STEP_SEC;
+        if t > ball.total_time {
+            break;
+        }
+        if !is_before_air_event(t, direct_until) && sample_index % 5 != 0 {
+            sample_index += 5 - sample_index % 5;
+            continue;
+        }
+        sample_index += if is_before_air_event(t, direct_until) { 1 } else { 5 };
         // Get the ball's polar coordinates (b_r, b_theta), height, and Cartesian coordinates
         let (b_r, b_theta, b_x, b_y, b_z, is_direct) = estimate_ball_state_at_time(t, ball);
         diagnostics.last_evaluated_time_sec = Some(t);
@@ -391,7 +419,6 @@ fn search_fielder_interception<'a>(
                     // If the risk is deemed too high, skip the catch at this (no-bounce) point
                     // and continue the loop to find a safe point after the first bounce
                     if !is_acceptable_risk {
-                        t += DT;
                         continue;
                     }
                     diagnostics.risk_ok_samples += 1;
@@ -462,11 +489,9 @@ fn search_fielder_interception<'a>(
                 });
             }
         }
-
-        t += DT;
     }
 
-    None // Failed to catch in mid-flight
+    None // No acceptable interception on either the air or ground grid
 }
 
 /// Reconstruct a coarse trajectory through the recorded ground/fence events.
@@ -536,8 +561,8 @@ pub fn estimate_ball_state_at_time(
 
     // A ball is no longer a direct fly after either a ground bounce or a fence
     // collision, including when the other event is recorded at a later time.
-    let direct_until = bounce_time.into_iter().chain(fence_time).fold(total_time, f64::min);
-    let is_direct = t < direct_until;
+    let direct_until = direct_flight_end_time(ball);
+    let is_direct = is_before_air_event(t, direct_until);
 
     // Rolling time must not stretch the initial airborne arc. When the fence
     // precedes the ground, retain airborne height until that first ground contact,
@@ -997,12 +1022,15 @@ mod air_probe_tests {
     }
 
     #[test]
-    fn fine_probe_finds_three_late_air_points_missed_by_the_normal_step() {
+    fn normal_fine_search_finds_the_first_point_missed_by_the_coarse_probe() {
         let (ball, fielder) = left_field_example();
-        let (_, normal) = evaluate_fielder_interception_with_diagnostics(
+        let (interception, normal) = evaluate_fielder_interception_with_diagnostics(
             &mut FixedRng::new(0.5), &ball, &fielder,
         );
-        assert_eq!(normal.risk_ok_samples, 0);
+        assert_eq!(normal.risk_ok_samples, 1);
+        let interception = interception.unwrap();
+        assert_eq!(interception.catch_type, CatchType::DirectFly);
+        assert!((interception.catch_time_sec - 3.02).abs() < 1e-9);
         let coarse = probe_airborne_catches_coarse(&ball, &[fielder.clone()])[0];
         assert_eq!(coarse.step_sec, 0.05);
         assert_eq!(coarse.air_samples, 59);
@@ -1015,6 +1043,66 @@ mod air_probe_tests {
         assert!((probe.max_margin_time_sec.unwrap() - 3.04).abs() < 1e-9);
         assert!(probe.first_catch_margin_sec.unwrap() > 0.17);
         assert!(probe.first_catch_height_m.unwrap() < 2.4943);
+    }
+
+    #[test]
+    fn event_boundary_tolerance_is_shared_by_normal_and_both_probes() {
+        let mut ball = BattedBall {
+            total_time: 2.2,
+            first_bounce_time: Some(2.05),
+            first_bounce_position: Some(PolarPosition::new(0.0, 0.0)),
+            final_position: PolarPosition::new(0.0, 0.0),
+            max_height: 1.0,
+            ..BattedBall::default()
+        };
+        let mut fielder = active_fielder(Position::CF, 0.0, 0.0);
+        fielder.info.prep_time = 1.90;
+        fielder.info.reach_height = 3.0;
+        for end in [2.05 - 1e-13, 2.05, 2.05 + 1e-13] {
+            ball.first_bounce_time = Some(end);
+            for t in [2.05 - 1e-13, 2.05, 2.05 + 1e-13] {
+                assert!(!estimate_ball_state_at_time(t, &ball).5);
+            }
+            assert!(estimate_ball_state_at_time(end - 1e-6, &ball).5);
+            let fine = probe_airborne_catches(&ball, &[fielder.clone()])[0];
+            let coarse = probe_airborne_catches_coarse(&ball, &[fielder.clone()])[0];
+            assert_eq!(fine.risk_ok_samples, 0);
+            assert_eq!(coarse.risk_ok_samples, 0);
+            let (catch, normal) = evaluate_fielder_interception_with_diagnostics(
+                &mut FixedRng::new(0.5), &ball, &fielder,
+            );
+            assert_eq!(normal.risk_ok_samples, 0);
+            assert_eq!(catch.unwrap().catch_type, CatchType::BounceCatch);
+        }
+        // An earlier fence, rather than the later bounce, ends direct-flight eligibility.
+        ball.first_bounce_time = Some(2.15);
+        ball.fence_impact_time = Some(2.05 + 1e-13);
+        assert!(!estimate_ball_state_at_time(2.05, &ball).5);
+        assert!(estimate_ball_state_at_time(2.05 - 1e-6, &ball).5);
+        assert_eq!(probe_airborne_catches(&ball, &[fielder.clone()])[0].risk_ok_samples, 0);
+        assert_eq!(probe_airborne_catches_coarse(&ball, &[fielder])[0].risk_ok_samples, 0);
+    }
+
+    #[test]
+    fn missed_air_window_resumes_on_the_coarse_ground_grid() {
+        let ball = BattedBall {
+            total_time: 3.0,
+            first_bounce_time: Some(2.03),
+            first_bounce_position: Some(PolarPosition::new(0.0, 0.0)),
+            final_position: PolarPosition::new(0.0, 0.0),
+            max_height: 1.0,
+            ..BattedBall::default()
+        };
+        let mut fielder = active_fielder(Position::CF, 0.0, 0.0);
+        fielder.info.prep_time = 2.035;
+        fielder.info.reach_height = 3.0;
+        let (catch, normal) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        let catch = catch.unwrap();
+        assert_eq!(catch.catch_type, CatchType::BounceCatch);
+        assert!((catch.catch_time_sec - 2.05).abs() < 1e-9);
+        assert_eq!(normal.risk_ok_samples, 0);
     }
 
     #[test]
