@@ -70,6 +70,11 @@ This additive migration is repeatable. New databases also need
 [`docs/fielding_candidate_diagnostics.md`](docs/fielding_candidate_diagnostics.md)
 for stage counts, maximum arrival margins, and analysis queries.
 
+For the independent 10 ms airborne probe of all active fielders, apply
+[`migrations/upgrades/add_fielding_air_probe.sql`](migrations/upgrades/add_fielding_air_probe.sql)
+once after creating the candidate table. Historical probe columns remain `NULL`.
+See [`docs/fielding_air_probe.md`](docs/fielding_air_probe.md) for interpretation and queries.
+
 Typical simulation flow:
 
 ```sh

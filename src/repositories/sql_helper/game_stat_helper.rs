@@ -70,10 +70,14 @@ const INSERT_PLAYER_GAME_FIELDING_CANDIDATE_SQL: &str = "INSERT INTO player_game
         height_ok_samples, reachable_samples, risk_ok_samples, max_air_margin_sec,
         max_air_margin_time_sec, max_air_margin_height_m, required_margin_sec, last_evaluated_time_sec,
         end_reason, interception_catch_type, interception_error_type, interception_time_sec,
-        selected, selected_path
+        selected, selected_path, air_probe_step_sec, air_probe_air_samples,
+        air_probe_height_ok_samples, air_probe_reachable_samples, air_probe_risk_ok_samples, air_probe_max_margin_sec,
+        air_probe_max_margin_time_sec, air_probe_max_margin_height_m, air_probe_first_catch_time_sec, air_probe_first_catch_height_m,
+        air_probe_first_catch_margin_sec
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
+        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+        ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33
     )";
 
 const INSERT_PLAYER_GAME_RUNNING_SQL: &str = "INSERT INTO player_game_running (
@@ -481,6 +485,7 @@ pub fn insert_player_game_fielding_candidate(
 ) -> Result<usize, AppError> {
     let diagnostics = &candidate.diagnostics;
     let search = diagnostics.search.as_ref();
+    let probe = diagnostics.air_probe.as_ref();
     let end_reason = diagnostics.end_reason();
     db_client.execute_tx(
         tx,
@@ -508,6 +513,17 @@ pub fn insert_player_game_fielding_candidate(
             diagnostics.interception_time_sec,
             diagnostics.selected,
             diagnostics.selected_path.as_ref().map(|p| p.as_ref()),
+            probe.map(|p| p.step_sec),
+            probe.map(|p| p.air_samples),
+            probe.map(|p| p.height_ok_samples),
+            probe.map(|p| p.reachable_samples),
+            probe.map(|p| p.risk_ok_samples),
+            probe.and_then(|p| p.max_margin_sec),
+            probe.and_then(|p| p.max_margin_time_sec),
+            probe.and_then(|p| p.max_margin_height_m),
+            probe.and_then(|p| p.first_catch_time_sec),
+            probe.and_then(|p| p.first_catch_height_m),
+            probe.and_then(|p| p.first_catch_margin_sec),
         ],
     )
 }
