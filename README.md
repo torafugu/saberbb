@@ -235,3 +235,7 @@ For a controlled 0.05 s / 0.01 s diagnostic comparison, apply
 [`add_fielding_air_probe_comparison.sql`](migrations/upgrades/add_fielding_air_probe_comparison.sql)
 once to an existing probe-enabled DB, then run new games.
 See [`docs/fielding_air_probe_comparison.md`](docs/fielding_air_probe_comparison.md) for queries.
+
+The normal airborne search now uses 10 ms ticks with a shared event-boundary tolerance.
+See [`docs/air_catch_search_validation.md`](docs/air_catch_search_validation.md)
+for before/after queries and interpretation (no additional DB migration).
