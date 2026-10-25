@@ -351,74 +351,89 @@ fn search_fielder_interception<'a>(
     None // Failed to catch in mid-flight
 }
 
+/// Reconstruct a coarse trajectory through the recorded ground/fence events.
+/// Horizontal segments are straight lines in Cartesian space. The initial flight
+/// remains a height envelope, not a replay of the batting physics integration.
 pub fn estimate_ball_state_at_time(
     time_sec: f64,
     ball: &BattedBall,
 ) -> (f64, f64, f64, f64, f64, bool) {
-    let t = time_sec.min(ball.total_time); // Clamp time
+    let total_time = ball.total_time.max(0.0);
+    let t = time_sec.max(0.0).min(total_time);
+    if total_time == 0.0 {
+        let position = ball.final_position;
+        return (position.distance, position.angle, position.x, position.y, 0.0, false);
+    }
 
-    let is_direct = match ball.first_bounce_time {
-        Some(bounce_t) => t < bounce_t,
-        None => ball.fence_impact_time.map_or(true, |imp| t < imp),
+    // Ignore out-of-range timestamps. Time-only legacy records still establish
+    // a flight boundary; their missing horizontal anchor uses the final ray.
+    let valid_time = |time: f64| time.is_finite() && (0.0..=total_time).contains(&time);
+    let bounce_time = ball.first_bounce_time.filter(|time| valid_time(*time));
+    let fence_time = ball.fence_impact_time.filter(|time| valid_time(*time));
+    let fallback_position = |time: f64| {
+        PolarPosition::new(ball.final_position.distance * (time / total_time), ball.final_position.angle)
     };
+    let bounce = bounce_time.map(|time| {
+        (time, ball.first_bounce_position.unwrap_or_else(|| fallback_position(time)))
+    });
+    let fence = fence_time.map(|time| {
+        (time, ball.fence_impact_position.unwrap_or_else(|| fallback_position(time)))
+    });
 
-    // Fence impact (cushion ball) occurred and current time t is after the impact
-    let (current_dist, current_angle) = match (ball.fence_impact_position, ball.fence_impact_time) {
-        (Some(impact_position), Some(impact_time)) => {
-            if t >= impact_time {
-                // [After fence impact]: interpolate from impact position back toward the final resting position
-                let post_impact_duration = ball.total_time - impact_time;
-                let factor = if post_impact_duration > 0.0 {
-                    ((t - impact_time) / post_impact_duration).min(1.0)
-                } else {
-                    1.0
-                };
-
-                let r = impact_position.distance
-                    + (ball.final_position.distance - impact_position.distance) * factor;
-                let theta = impact_position.angle
-                    + (ball.final_position.angle - impact_position.angle) * factor;
-                (r, theta)
-            } else {
-                // [Before fence impact]: interpolate from home toward the impact position
-                let factor = (t / impact_time).min(1.0);
-                let r = impact_position.distance * factor;
-                let theta = impact_position.angle * factor;
-                (r, theta)
-            }
+    // Include both events, regardless of which happened first. For simultaneous
+    // events the ground anchor wins; no division by a zero-duration segment occurs.
+    let mut events = [fence, bounce];
+    if events[0].is_none()
+        || matches!((events[0], events[1]), (Some(a), Some(b)) if b.0 < a.0)
+    {
+        events.swap(0, 1);
+    }
+    let mut start_time = 0.0;
+    let mut start_position = PolarPosition::new(0.0, ball.final_position.angle);
+    let mut end_time = total_time;
+    let mut end_position = ball.final_position;
+    for (event_time, event_position) in events.into_iter().flatten() {
+        if t < event_time {
+            end_time = event_time;
+            end_position = event_position;
+            break;
         }
-        _ => {
-            // Normal trajectory interpolation without a cushion
-            let factor = (t / ball.total_time).min(1.0);
-            let r = ball.final_position.distance * factor;
-            let theta = ball.final_position.angle * factor;
-            (r, theta)
-        }
-    };
-
-    // Convert to Cartesian coordinates
-    let rad = current_angle.to_radians();
-    let x = current_dist * rad.sin();
-    let y = current_dist * rad.cos();
-
-    // Determine height Z
-    let z = if is_direct {
-        // During airborne flight (parabola)
-        let progress = if let Some(impact_time) = ball.fence_impact_time {
-            (t / impact_time).min(1.0)
-        } else {
-            (t / ball.total_time).min(1.0)
-        };
-        // NOTE: The apex of the parabola is at 0.5
-        // The base parabola at progress rate p ∈ [0, 1] is p(1 - p), so 0.5 × 0.5 = 0.25
-        const HIGHEST_POINT: f64 = 0.25;
-        (progress * (1.0 - progress) / HIGHEST_POINT * ball.max_height).max(0.0)
+        start_time = event_time;
+        start_position = event_position;
+    }
+    let duration = end_time - start_time;
+    let progress = if duration > 0.0 {
+        ((t - start_time) / duration).clamp(0.0, 1.0)
     } else {
-        // During ground bounce / rolling
-        0.3
+        0.0
+    };
+    let x = start_position.x + (end_position.x - start_position.x) * progress;
+    let y = start_position.y + (end_position.y - start_position.y) * progress;
+    let distance = x.hypot(y);
+    let angle = if distance > 0.0 {
+        x.atan2(y).to_degrees()
+    } else {
+        end_position.angle
     };
 
-    (current_dist, current_angle, x, y, z, is_direct)
+    // A ball is no longer a direct fly after either a ground bounce or a fence
+    // collision, including when the other event is recorded at a later time.
+    let direct_until = bounce_time.into_iter().chain(fence_time).fold(total_time, f64::min);
+    let is_direct = t < direct_until;
+
+    // Rolling time must not stretch the initial airborne arc. When the fence
+    // precedes the ground, retain airborne height until that first ground contact,
+    // while is_direct is already false. With no ground event, use the fence/end
+    // as the available height boundary. Subsequent ground hops are not reconstructed.
+    let flight_time = bounce_time.or(fence_time).unwrap_or(total_time);
+    let height = if flight_time > 0.0 && t < flight_time {
+        let flight_progress = t / flight_time;
+        (4.0 * flight_progress * (1.0 - flight_progress) * ball.max_height).max(0.0)
+    } else {
+        0.0
+    };
+
+    (distance, angle, x, y, height, is_direct)
 }
 
 // Final processing when a hit gets through or the ball gets past the fielder
@@ -536,13 +551,13 @@ mod candidate_diagnostics_tests {
         let (result, diagnostics) = evaluate_fielder_interception_with_diagnostics(
             &mut FixedRng::new(0.5), &ball, &fielder,
         );
-        assert!(result.is_none());
+        assert_eq!(result.unwrap().catch_type, CatchType::BounceCatch);
         assert!(diagnostics.air_samples > 0);
         assert_eq!(diagnostics.height_ok_samples, 0);
         assert_eq!(diagnostics.max_air_margin_sec, None);
         assert_eq!(diagnostics.max_air_margin_time_sec, None);
         assert_eq!(diagnostics.max_air_margin_height_m, None);
-        assert_eq!(diagnostics.end_reason, CandidateEndReason::NoInterception);
+        assert_eq!(diagnostics.end_reason, CandidateEndReason::BounceCatch);
     }
 
     #[test]
@@ -624,5 +639,213 @@ mod candidate_diagnostics_tests {
             }
             assert_eq!(actual_rng.random(), expected_rng.random());
         }
+    }
+}
+
+#[cfg(test)]
+mod trajectory_tests {
+    use super::*;
+    use crate::domain::random_provider::FixedRng;
+    use crate::domain::shared::player::Position;
+    use crate::domain::test_support::active_fielder;
+
+    fn observed_fly() -> BattedBall {
+        BattedBall {
+            launch_speed: 27.8212296937015,
+            launch_angle: 42.7842008991087,
+            total_time: 6.9,
+            first_bounce_time: Some(3.9),
+            first_bounce_position: Some(PolarPosition::new(75.8059723102372, 5.60276591880655)),
+            final_position: PolarPosition::new(110.241980734776, 4.73367573653012),
+            // Representative height; the DB row does not retain max_height.
+            max_height: 18.7,
+            ..BattedBall::default()
+        }
+    }
+
+    fn assert_near(actual: f64, expected: f64) {
+        assert!((actual - expected).abs() < 1e-8, "{actual} != {expected}");
+    }
+
+    fn assert_position(time: f64, ball: &BattedBall, expected: PolarPosition) {
+        let (r, angle, x, y, _, _) = estimate_ball_state_at_time(time, ball);
+        assert_near(r, expected.distance);
+        assert_near(angle, expected.angle);
+        assert_near(x, expected.x);
+        assert_near(y, expected.y);
+    }
+
+    #[test]
+    fn observed_fly_reaches_its_recorded_landing_point_and_descends_before_landing() {
+        let ball = observed_fly();
+        let landing = ball.first_bounce_position.unwrap();
+        assert_position(3.9, &ball, landing);
+        assert_position(6.9, &ball, ball.final_position);
+        let (_, _, _, _, before_height, before_direct) =
+            estimate_ball_state_at_time(3.8, &ball);
+        assert!(before_direct);
+        assert!(before_height > 0.0 && before_height < 2.5);
+        let (_, _, _, _, landing_height, landing_direct) =
+            estimate_ball_state_at_time(3.9, &ball);
+        assert_eq!(landing_height, 0.0);
+        assert!(!landing_direct);
+        let (_, _, _, _, after_height, after_direct) =
+            estimate_ball_state_at_time(4.0, &ball);
+        assert_eq!(after_height, 0.0);
+        assert!(!after_direct);
+
+        // Before contact the ball follows the landing ray, not a turn from angle 0.
+        let (r, angle, _, _, _, _) = estimate_ball_state_at_time(1.95, &ball);
+        assert_near(r, landing.distance / 2.0);
+        assert_near(angle, landing.angle);
+    }
+
+    #[test]
+    fn position_and_height_are_continuous_at_first_bounce() {
+        let ball = observed_fly();
+        let at = estimate_ball_state_at_time(3.9, &ball);
+        for time in [3.9 - 1e-8, 3.9 + 1e-8] {
+            let state = estimate_ball_state_at_time(time, &ball);
+            assert!((state.2 - at.2).abs() < 1e-5);
+            assert!((state.3 - at.3).abs() < 1e-5);
+            assert!((state.4 - at.4).abs() < 1e-5);
+        }
+        // The rolling interval joins the landing point to the stop position.
+        let halfway = estimate_ball_state_at_time(5.4, &ball);
+        let landing = ball.first_bounce_position.unwrap();
+        assert_near(halfway.2, (landing.x + ball.final_position.x) / 2.0);
+        assert_near(halfway.3, (landing.y + ball.final_position.y) / 2.0);
+    }
+
+    #[test]
+    fn center_fielder_can_catch_the_observed_shape_before_it_bounces() {
+        let ball = observed_fly();
+        let fielder = active_fielder(Position::CF, 90.0, 0.0);
+        let (interception, diagnostics) = evaluate_fielder_interception_with_diagnostics(
+            &mut FixedRng::new(0.5), &ball, &fielder,
+        );
+        let interception = interception.expect("descending fly should be reachable");
+        assert_eq!(interception.catch_type, CatchType::DirectFly);
+        assert_eq!(interception.error_type, None);
+        assert!(interception.catch_time_sec < 3.9);
+        assert!(interception.catch_z_m <= fielder.info.reach_height);
+        assert!(diagnostics.max_air_margin_sec.unwrap() >= 0.15);
+        assert!(diagnostics.max_air_margin_time_sec.unwrap() > 3.0);
+        assert_eq!(diagnostics.risk_ok_samples, 1);
+    }
+
+    #[test]
+    fn fence_then_ground_uses_both_anchors_and_never_returns_direct_after_fence() {
+        let ball = BattedBall {
+            total_time: 6.0,
+            max_height: 10.0,
+            fence_impact_time: Some(2.0),
+            fence_impact_position: Some(PolarPosition::new(100.0, 10.0)),
+            first_bounce_time: Some(3.0),
+            first_bounce_position: Some(PolarPosition::new(80.0, 8.0)),
+            final_position: PolarPosition::new(70.0, 6.0),
+            ..BattedBall::default()
+        };
+        assert_position(2.0, &ball, ball.fence_impact_position.unwrap());
+        assert_position(3.0, &ball, ball.first_bounce_position.unwrap());
+        assert_position(6.0, &ball, ball.final_position);
+        assert!(estimate_ball_state_at_time(1.99, &ball).5);
+        let at_fence = estimate_ball_state_at_time(2.0, &ball);
+        assert!(!at_fence.5);
+        assert!(at_fence.4 > 0.0); // It may still be airborne after striking the wall.
+        assert!(!estimate_ball_state_at_time(2.5, &ball).5);
+        for time in [2.0 - 1e-8, 2.0 + 1e-8] {
+            let nearby = estimate_ball_state_at_time(time, &ball);
+            assert!((nearby.2 - at_fence.2).abs() < 1e-5);
+            assert!((nearby.3 - at_fence.3).abs() < 1e-5);
+            assert!((nearby.4 - at_fence.4).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn ground_then_fence_is_interpolated_in_chronological_order() {
+        let ball = BattedBall {
+            total_time: 6.0,
+            max_height: 10.0,
+            first_bounce_time: Some(2.0),
+            first_bounce_position: Some(PolarPosition::new(60.0, 0.0)),
+            fence_impact_time: Some(4.0),
+            fence_impact_position: Some(PolarPosition::new(100.0, 0.0)),
+            final_position: PolarPosition::new(90.0, 0.0),
+            ..BattedBall::default()
+        };
+        for (time, distance) in [(1.0, 30.0), (2.0, 60.0), (3.0, 80.0), (4.0, 100.0), (5.0, 95.0)] {
+            assert_position(time, &ball, PolarPosition::new(distance, 0.0));
+        }
+        assert!(estimate_ball_state_at_time(1.0, &ball).5);
+        for time in [2.0, 3.0, 4.0, 5.0] {
+            let state = estimate_ball_state_at_time(time, &ball);
+            assert!(!state.5);
+            assert_eq!(state.4, 0.0);
+        }
+    }
+
+    #[test]
+    fn zero_time_grounders_stopped_balls_and_out_of_range_queries_are_finite() {
+        let grounder = BattedBall {
+            total_time: 2.0,
+            first_bounce_time: Some(0.0),
+            first_bounce_position: Some(PolarPosition::new(0.0, 15.0)),
+            final_position: PolarPosition::new(40.0, 15.0),
+            ..BattedBall::default()
+        };
+        assert_position(1.0, &grounder, PolarPosition::new(20.0, 15.0));
+        for time in [-1.0, 0.0, 1.0, 2.0, 10.0] {
+            let state = estimate_ball_state_at_time(time, &grounder);
+            assert!([state.0, state.1, state.2, state.3, state.4].iter().all(|n| n.is_finite()));
+            assert_eq!(state.4, 0.0);
+            assert!(!state.5);
+        }
+        assert_position(10.0, &grounder, grounder.final_position);
+        let stopped = BattedBall {
+            final_position: PolarPosition::new(10.0, -20.0),
+            ..BattedBall::default()
+        };
+        assert_position(1.0, &stopped, stopped.final_position);
+        assert!(!estimate_ball_state_at_time(1.0, &stopped).5);
+    }
+
+    #[test]
+    fn sparse_and_simultaneous_event_metadata_has_safe_boundaries() {
+        let mut ball = BattedBall {
+            total_time: 4.0,
+            max_height: 10.0,
+            final_position: PolarPosition::new(80.0, 20.0),
+            first_bounce_time: Some(2.0),
+            ..BattedBall::default()
+        };
+        // Missing position: preserve the time boundary using a point on the final ray.
+        assert_position(2.0, &ball, PolarPosition::new(40.0, 20.0));
+        assert!(!estimate_ball_state_at_time(2.0, &ball).5);
+        ball.fence_impact_time = Some(2.0);
+        ball.fence_impact_position = Some(PolarPosition::new(40.0, 20.0));
+        assert_position(2.0, &ball, ball.fence_impact_position.unwrap());
+        ball.first_bounce_time = None;
+        assert!(!estimate_ball_state_at_time(2.0, &ball).5);
+        assert_eq!(estimate_ball_state_at_time(2.0, &ball).4, 0.0);
+        ball.fence_impact_time = None;
+        assert!(estimate_ball_state_at_time(3.0, &ball).5);
+        assert_eq!(estimate_ball_state_at_time(4.0, &ball).4, 0.0);
+    }
+
+    #[test]
+    fn cartesian_segments_do_not_rotate_through_zero_when_angles_wrap() {
+        let ball = BattedBall {
+            total_time: 4.0,
+            first_bounce_time: Some(2.0),
+            first_bounce_position: Some(PolarPosition::new(100.0, 179.0)),
+            final_position: PolarPosition::new(100.0, -179.0),
+            ..BattedBall::default()
+        };
+        let state = estimate_ball_state_at_time(3.0, &ball);
+        assert!(state.0 > 99.9);
+        assert!(state.1.abs() > 179.0);
+        assert_near(state.2, 0.0);
+        assert!(state.3 < 0.0);
     }
 }
