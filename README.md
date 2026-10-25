@@ -230,3 +230,8 @@ tests/            Integration and simulation tests
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
+
+For a controlled 0.05 s / 0.01 s diagnostic comparison, apply
+[`add_fielding_air_probe_comparison.sql`](migrations/upgrades/add_fielding_air_probe_comparison.sql)
+once to an existing probe-enabled DB, then run new games.
+See [`docs/fielding_air_probe_comparison.md`](docs/fielding_air_probe_comparison.md) for queries.

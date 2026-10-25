@@ -73,11 +73,23 @@ const INSERT_PLAYER_GAME_FIELDING_CANDIDATE_SQL: &str = "INSERT INTO player_game
         selected, selected_path, air_probe_step_sec, air_probe_air_samples,
         air_probe_height_ok_samples, air_probe_reachable_samples, air_probe_risk_ok_samples, air_probe_max_margin_sec,
         air_probe_max_margin_time_sec, air_probe_max_margin_height_m, air_probe_first_catch_time_sec, air_probe_first_catch_height_m,
-        air_probe_first_catch_margin_sec
+        air_probe_first_catch_margin_sec,
+        air_probe_coarse_step_sec,
+        air_probe_coarse_air_samples,
+        air_probe_coarse_height_ok_samples,
+        air_probe_coarse_reachable_samples,
+        air_probe_coarse_risk_ok_samples,
+        air_probe_coarse_max_margin_sec,
+        air_probe_coarse_max_margin_time_sec,
+        air_probe_coarse_max_margin_height_m,
+        air_probe_coarse_first_catch_time_sec,
+        air_probe_coarse_first_catch_height_m,
+        air_probe_coarse_first_catch_margin_sec
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
         ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-        ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33
+        ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
+        ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44
     )";
 
 const INSERT_PLAYER_GAME_RUNNING_SQL: &str = "INSERT INTO player_game_running (
@@ -486,6 +498,7 @@ pub fn insert_player_game_fielding_candidate(
     let diagnostics = &candidate.diagnostics;
     let search = diagnostics.search.as_ref();
     let probe = diagnostics.air_probe.as_ref();
+    let coarse = diagnostics.air_probe_coarse.as_ref();
     let end_reason = diagnostics.end_reason();
     db_client.execute_tx(
         tx,
@@ -524,6 +537,17 @@ pub fn insert_player_game_fielding_candidate(
             probe.and_then(|p| p.first_catch_time_sec),
             probe.and_then(|p| p.first_catch_height_m),
             probe.and_then(|p| p.first_catch_margin_sec),
+            coarse.map(|p| p.step_sec),
+            coarse.map(|p| p.air_samples),
+            coarse.map(|p| p.height_ok_samples),
+            coarse.map(|p| p.reachable_samples),
+            coarse.map(|p| p.risk_ok_samples),
+            coarse.and_then(|p| p.max_margin_sec),
+            coarse.and_then(|p| p.max_margin_time_sec),
+            coarse.and_then(|p| p.max_margin_height_m),
+            coarse.and_then(|p| p.first_catch_time_sec),
+            coarse.and_then(|p| p.first_catch_height_m),
+            coarse.and_then(|p| p.first_catch_margin_sec),
         ],
     )
 }
