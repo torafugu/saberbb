@@ -55,8 +55,8 @@ fn main() -> Result<()> {
 
     info!("game started.");
 
-    if args.newyear {
-        newyear()?;
+    if args.sampleyear {
+        sampleyear()?;
     }
 
     // Game Process Mode
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn newyear() -> Result<()> {
+fn sampleyear() -> Result<()> {
     let mut conn = SqlDb::new()?.get_conn()?;
     reset_season(&mut conn, Local::now().year())?;
     schedule_games(1)?;
@@ -117,6 +117,7 @@ fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
          DELETE FROM player_game_batting;
          DELETE FROM player_game_entry;
          DELETE FROM player_game_fielding;
+         DELETE FROM player_game_fielding_candidate;
          DELETE FROM player_game_running;
          DELETE FROM player_game_pitching;",
     )?;
@@ -169,8 +170,8 @@ fn schedule_games(num_of_schedules: u8) -> Result<()> {
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Clear game data, reset to the current year, schedule a season, and process 40 rounds
-    #[arg(short, long)]
-    newyear: bool,
+    #[arg(short = 'n', long)]
+    sampleyear: bool,
 
     /// Process games
     #[arg(short, long)]
@@ -198,13 +199,14 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
 
-    const GAME_TABLES: [&str; 8] = [
+    const GAME_TABLES: [&str; 9] = [
         "count",
         "inning",
         "game",
         "player_game_batting",
         "player_game_entry",
         "player_game_fielding",
+        "player_game_fielding_candidate",
         "player_game_running",
         "player_game_pitching",
     ];
@@ -281,10 +283,10 @@ mod tests {
     }
 
     #[test]
-    fn newyear_flag_is_optional_and_accepts_long_and_short_forms() {
-        assert!(!Args::try_parse_from(["saberbb"]).unwrap().newyear);
-        for flag in ["--newyear", "-n"] {
-            assert!(Args::try_parse_from(["saberbb", flag]).unwrap().newyear);
+    fn sampleyear_flag_is_optional_and_accepts_long_and_short_forms() {
+        assert!(!Args::try_parse_from(["saberbb"]).unwrap().sampleyear);
+        for flag in ["--sampleyear", "-n"] {
+            assert!(Args::try_parse_from(["saberbb", flag]).unwrap().sampleyear);
         }
     }
 }

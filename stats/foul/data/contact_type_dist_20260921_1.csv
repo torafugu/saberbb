@@ -1,0 +1,8 @@
+original_contact_type,adjusted_contact_type,n
+MarginalContact,MarginalContact,1119
+SolidContact,SolidContact,3527
+SolidContact,WeakContact,396
+SwungAndMiss,SwungAndMiss,36245
+Take,Take,32885
+WeakContact,MarginalContact,765
+WeakContact,WeakContact,2778

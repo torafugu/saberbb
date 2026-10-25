@@ -1,0 +1,10 @@
+fielder_position,diagnosis,selected,n
+CF,filtered_lane,0,10
+CF,too_late,1,6
+CF,filtered_distance,1,2
+CF,filtered_lane,1,2
+LF,filtered_lane,0,14
+LF,filtered_lane,1,4
+LF,too_late,1,2
+RF,filtered_lane,0,16
+RF,filtered_lane,1,4

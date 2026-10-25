@@ -1,0 +1,15 @@
+adjusted_contact_type,ev_band,n,pct_within_type
+MarginalContact,<25,2029,94.99
+MarginalContact,25-35,58,2.72
+MarginalContact,35-40,36,1.69
+MarginalContact,40-45,13,0.61
+SolidContact,25-35,1,0.01
+SolidContact,35-40,69,0.59
+SolidContact,40-45,3207,27.64
+SolidContact,45-50,7951,68.53
+SolidContact,50+,375,3.23
+WeakContact,<25,1912,29.45
+WeakContact,25-35,1615,24.87
+WeakContact,35-40,1176,18.11
+WeakContact,40-45,1492,22.98
+WeakContact,45-50,298,4.59

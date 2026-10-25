@@ -1,0 +1,9 @@
+band_no,attempts,contacts,solid_pct,solid_change_pp,weak_or_marginal_pct,weak_or_marginal_change_pp,check_result
+1,2856,1404,43.23,,56.77,,ok
+2,3055,1742,44.14,0.91,55.86,-0.91,ok
+3,2862,1896,50.47,6.33,49.53,-6.33,solid_increase
+4,1580,1104,43.39,-7.09,56.61,7.09,ok
+5,1705,1224,32.43,-10.95,67.57,10.95,ok
+6,1741,1215,26.17,-6.26,73.83,6.26,ok
+7,4224,0,,,,,ok
+8,26807,0,,,,,ok

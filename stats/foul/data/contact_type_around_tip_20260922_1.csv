@@ -1,0 +1,4 @@
+adjusted_contact_type,contacts,fouls,fair_balls,foul_pct,fair_pct,avg_launch_speed,avg_abs_hla,avg_launch_angle
+SolidContact,318,8,310,2.52,97.48,37.94,31.87,-26.89
+WeakContact,392,13,379,3.32,96.68,30.16,32.25,-19.66
+MarginalContact,505,228,277,45.15,54.85,17.09,35.82,-13.94

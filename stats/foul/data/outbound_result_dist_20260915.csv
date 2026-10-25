@@ -1,0 +1,17 @@
+outbound_result,result,n
+Foul,Foul,7
+GroundRuleDouble,Double,98
+HomeRun,HomeRun,418
+InField,Take,11815
+InField,StrikeSwung,9247
+InField,Strikeout,6834
+InField,Out,2809
+InField,Single,1036
+InField,Triple,986
+InField,Double,766
+InField,Walk,272
+InField,Foul,168
+InField,FieldersChoice,153
+InField,DoublePlay,148
+InField,HitByPitch,109
+InField,WildPitch,52

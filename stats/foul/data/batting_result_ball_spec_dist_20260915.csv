@@ -1,0 +1,15 @@
+result,n,avg_exit_kmh,avg_launch_angle,avg_distance_m,avg_total_time_sec
+Take,11815,0.0,0.0,0.0,0.0
+StrikeSwung,9247,0.0,0.0,0.0,0.0
+Strikeout,6834,0.0,0.0,0.0,0.0
+Out,2809,81.3,-19.9,33.1,2.39
+Single,1036,113.6,-11.8,57.5,3.04
+Triple,986,48.1,-13.1,14.1,1.91
+Double,864,104.8,-0.3,43.2,2.94
+HomeRun,418,153.2,32.5,115.8,3.84
+Walk,272,0.0,0.0,0.0,0.0
+Foul,175,14.9,-1.3,11.1,1.88
+FieldersChoice,153,133.1,-26.0,65.8,3.9
+DoublePlay,148,125.9,-20.6,63.1,4.03
+HitByPitch,109,0.0,0.0,0.0,0.0
+WildPitch,52,0.0,0.0,0.0,0.0

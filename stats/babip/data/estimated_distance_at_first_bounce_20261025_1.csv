@@ -1,0 +1,2 @@
+game_id,count_seq,launch_speed,launch_angle,total_time,first_bounce_time,time_after_first_bounce_sec,first_bounce_distance,final_distance,estimated_distance_at_first_bounce,first_bounce_angle,final_angle
+16075,185,27.8212296937015,42.7842008991087,6.8999999999999,3.89999999999996,3.0,75.8059723102372,110.241980734776,62.311,5.60276591880655,4.73367573653012

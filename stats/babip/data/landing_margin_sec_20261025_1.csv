@@ -1,0 +1,3 @@
+game_id,count_seq,fielder_id,fielder_position,selected_path,final_distance,landing_distance,landing_angle,landing_time_sec,running_speed,prep_time,reach_height,movement_to_landing_m,needed_time_sec,landing_margin_sec,required_margin_sec
+16524,151,6995,CF,final_pickup,87.983,59.572,5.181,2.87,8.27640680103121,0.661912731392795,2.21890082361385,31.139,4.424,-1.554,0.15
+16535,165,6926,CF,final_pickup,86.483,58.804,0.035,2.79,7.82244808711533,0.604503458489116,2.51834961514467,31.196,4.593,-1.803,0.15

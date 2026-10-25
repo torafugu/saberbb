@@ -1,0 +1,10 @@
+game_id,count_seq,fielder_position,fielder_id,lane_eligible,distance_eligible,evaluated,air_samples,height_ok_samples,reachable_samples,risk_ok_samples,max_air_margin_sec,required_margin_sec,max_air_margin_time_sec,max_air_margin_height_m,last_evaluated_time_sec,end_reason,interception_catch_type,interception_error_type,interception_time_sec,selected,selected_path,first_bounce_time,fence_impact_time,result
+16936,86,C,6736,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,CF,6986,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,FB,6854,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,LF,6988,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,P,6980,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,RF,7006,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,SB,6754,1,1,1,77,2,1,1,0.4885,0.15,3.9,1.9315,3.89999999999999,direct_fly,DirectFly,,3.89999999999999,1,interception,3.99999999999996,,Out
+16936,86,SS,6760,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out
+16936,86,TB,6905,0,1,0,,,,,,0.15,,,,filtered_lane,,,,0,,3.99999999999996,,Out

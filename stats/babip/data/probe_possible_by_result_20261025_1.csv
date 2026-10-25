@@ -1,0 +1,8 @@
+result,balls,probe_possible,excluded_but_probe_possible,normal_failed_but_probe_possible
+Out,8311,1817,3,1
+Single,7029,133,11,120
+DoublePlay,910,1,1,0
+Foul,862,0,0,0
+FieldersChoice,445,0,0,0
+Double,339,19,18,1
+Triple,1,1,1,0

@@ -1,0 +1,5 @@
+step_sec,search_time_sec,movement_m,needed_time_sec,margin_sec,required_margin_sec,time_condition_ok,max_height_allowed_m
+0.05,3.0,18.86,2.874,0.126,0.15,0,38.671
+0.01,3.02,18.654,2.849,0.171,0.15,1,64.025
+0.01,3.03,18.554,2.838,0.192,0.15,1,95.721
+0.01,3.04,18.458,2.826,0.214,0.15,1,190.812

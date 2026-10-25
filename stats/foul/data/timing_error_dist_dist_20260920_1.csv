@@ -1,0 +1,15 @@
+timing_band,result,n,avg_abs_final_hla_deg,hla_foul_zone_pct
+00-05ms,Take,21856,0.0,0.0
+00-05ms,StrikeSwung,17517,0.0,0.0
+00-05ms,Strikeout,12230,0.0,0.0
+00-05ms,Out,8990,28.81,0.71
+00-05ms,Single,977,21.15,0.1
+00-05ms,DoublePlay,726,28.05,0.28
+00-05ms,HomeRun,548,24.29,0.0
+00-05ms,Walk,463,0.0,0.0
+00-05ms,Double,288,29.99,0.69
+00-05ms,FieldersChoice,260,28.78,0.0
+00-05ms,HitByPitch,237,0.0,0.0
+00-05ms,Foul,173,43.94,58.38
+00-05ms,WildPitch,119,0.0,0.0
+00-05ms,Triple,15,33.08,6.67

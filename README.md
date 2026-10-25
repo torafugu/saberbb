@@ -122,7 +122,7 @@ Available commands:
 cargo run -- --generate 10     # Generate 10 players
 cargo run -- --schedule 1      # Schedule 1 season
 cargo run -- --process 5       # Process 5 game rounds
-cargo run -- --newyear         # Clear game data, reset to this year, schedule 1 season, process 40 rounds
+cargo run -- --sampleyear         # Clear game data, reset to this year, schedule 1 season, process 40 rounds
 cargo run -- --maintenance     # Run SQLite VACUUM and PRAGMA optimize
 cargo run -- --view            # Open the interactive terminal UI
 ```

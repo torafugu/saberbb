@@ -1,0 +1,15 @@
+result,n,pct
+Take,11815,33.84
+StrikeSwung,9247,26.48
+Strikeout,6834,19.57
+Out,2809,8.04
+Single,1036,2.97
+Triple,986,2.82
+Double,864,2.47
+HomeRun,418,1.2
+Walk,272,0.78
+Foul,175,0.5
+FieldersChoice,153,0.44
+DoublePlay,148,0.42
+HitByPitch,109,0.31
+WildPitch,52,0.15

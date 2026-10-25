@@ -1,0 +1,4 @@
+contact_group,n,avg_abs_timing_ms,avg_abs_horizontal_cm,avg_abs_vertical_cm
+contact,20232,1.875,0.53,0.52
+length_miss,11439,22.734,3.92,4.13
+thickness_miss,4804,5.897,1.31,1.17
