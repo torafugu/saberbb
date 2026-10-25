@@ -210,6 +210,8 @@ impl Default for PlayerGameBattingMetrics {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBatting {
+    #[serde(default)]
+    pub swing_decision: Option<crate::domain::resolver::batting_resolver::SwingDecisionDiagnostics>,
     pub count_seq: u16,
     pub pitcher_id: i64,
     pub batter_id: i64,

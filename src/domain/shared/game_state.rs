@@ -7,7 +7,7 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
     BattingFactor, CountStatus, SwingContactResult, SwingContactType, adapt_to_pitch,
     calculate_batted_ball_with_metrics, calculate_batting_factor, calculate_swing_execution_error,
-    calculate_swing_factor, evaluate_swing_contact, select_swing_execution,
+    calculate_swing_decision, evaluate_swing_contact, select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::{FieldingCatchDiagnostics, FielderRiskTolerance};
 use crate::domain::resolver::fielding_resolver::{
@@ -892,14 +892,18 @@ impl GameState {
             &expected_ball.actual_location,
         );
 
-        let swing_factor = calculate_swing_factor(
+        let mut swing_decision = calculate_swing_decision(
             batter.sample_plate_approach(self.rng.as_mut())?,
             self.count_status()?,
             pitched_ball.pitch_type,
             &batting_factor,
         );
 
-        let swing_execution = select_swing_execution(self.rng.as_mut(), swing_factor);
+        swing_decision.location_x = pitched_ball.actual_location.x;
+        swing_decision.location_y = pitched_ball.actual_location.y;
+        let decision_count_seq = self.count_seq;
+        let swing_execution = select_swing_execution(self.rng.as_mut(), swing_decision.score);
+        swing_decision.swung = swing_execution == SwingExecution::Swing;
 
         if swing_execution == SwingExecution::Take {
             self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
@@ -924,6 +928,11 @@ impl GameState {
                 )?;
             };
         };
+
+        if let Some(record) = self.game_result.player_battings.iter_mut()
+            .rev().find(|record| record.count_seq == decision_count_seq) {
+            record.swing_decision = Some(swing_decision);
+        }
 
         Ok(())
     }

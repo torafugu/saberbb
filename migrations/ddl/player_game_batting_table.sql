@@ -38,5 +38,18 @@ CREATE TABLE player_game_batting (
     outbound_result TEXT NOT NULL,
     fielder_position TEXT,
     result TEXT NOT NULL,
+    decision_count_status TEXT,
+    decision_location_x REAL,
+    decision_location_y REAL,
+    decision_count_factor REAL,
+    decision_approach_factor REAL,
+    decision_protection_factor REAL,
+    decision_zone_factor REAL,
+    decision_pitch_factor REAL,
+    decision_anticipation_factor REAL,
+    decision_aptitude_factor REAL,
+    decision_score REAL,
+    decision_probability REAL,
+    decision_swung INTEGER,
     PRIMARY KEY (game_id, count_seq)
 );

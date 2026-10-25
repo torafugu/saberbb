@@ -92,7 +92,7 @@ fn calculate_pitch_similarity(
     (spin_rate_similarity + spin_angle_similarity).clamp(-0.2, 0.2)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, AsRefStr, Serialize, Deserialize)]
 pub enum CountStatus {
     C00,
     C10,
@@ -155,24 +155,51 @@ pub fn calculate_swing_factor(
     pitch_type: PitchType,
     batting_factor: &BattingFactor,
 ) -> f64 {
-    let mut count_status_factor = count_status.prob();
+    calculate_swing_decision(approach, count_status, pitch_type, batting_factor).score
+}
 
-    if !count_status.is_strike_two() {
-        count_status_factor += approach.prob();
+/// Logged before updating the count. Coordinates are normalized strike-zone units.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct SwingDecisionDiagnostics {
+    pub count_status: CountStatus,
+    pub location_x: f64,
+    pub location_y: f64,
+    pub count_factor: f64,
+    pub approach_factor: f64,
+    pub protection_factor: f64,
+    pub zone_factor: f64,
+    pub pitch_factor: f64,
+    pub anticipation_factor: f64,
+    pub aptitude_factor: f64,
+    pub score: f64,
+    pub probability: f64,
+    pub swung: bool,
+}
+
+pub fn calculate_swing_decision(
+    approach: PlateApproach,
+    count_status: CountStatus,
+    pitch_type: PitchType,
+    batting_factor: &BattingFactor,
+) -> SwingDecisionDiagnostics {
+    let two_strikes = count_status.is_strike_two();
+    let outside = batting_factor.distance_from_zone_edge.max(0.0);
+    let count_factor = count_status.prob();
+    // Keep aggression; suspend a pre-two-strike take/patient preference when protecting.
+    let approach_factor = if two_strikes { approach.prob().max(0.0) } else { approach.prob() };
+    let protection_factor = if two_strikes { 0.35 / (1.0 + 4.0 * outside) } else { 0.0 };
+    let zone_factor = -2.0 * outside;
+    let pitch_factor = if pitch_type == PitchType::FourSeamFastball { 0.1 } else { -0.05 };
+    let anticipation = batting_factor.zone_similarity + batting_factor.pitch_similarity;
+    let anticipation_factor = if two_strikes && anticipation < 0.0 { anticipation * 0.25 } else { anticipation };
+    let aptitude_factor = batting_factor.zone_aptitude;
+    let score = count_factor + approach_factor + protection_factor + zone_factor
+        + pitch_factor + anticipation_factor + aptitude_factor;
+    SwingDecisionDiagnostics {
+        count_status, location_x: 0.0, location_y: 0.0, count_factor, approach_factor,
+        protection_factor, zone_factor, pitch_factor, anticipation_factor, aptitude_factor,
+        score, probability: sigmoid(score), swung: false,
     }
-
-    let fastball_factor = if pitch_type == PitchType::FourSeamFastball {
-        0.1
-    } else {
-        -0.05
-    };
-
-    count_status_factor
-        + fastball_factor
-        + batting_factor.distance_from_zone_edge
-        + batting_factor.zone_similarity
-        + batting_factor.pitch_similarity
-        + batting_factor.zone_aptitude
 }
 
 pub fn select_swing_execution(
@@ -1343,5 +1370,46 @@ mod tests {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod swing_decision_tests {
+    use super::*;
+    fn factor(outside: f64) -> BattingFactor {
+        BattingFactor { distance_from_zone_edge: outside, zone_similarity: -0.2,
+            pitch_similarity: -0.2, zone_aptitude: 0.1, total_modifier: 0.0 }
+    }
+    #[test]
+    fn protecting_increases_zone_swing_probability_for_each_ball_count() {
+        for (one, two) in [(CountStatus::C01, CountStatus::C02),
+            (CountStatus::C11, CountStatus::C12), (CountStatus::C21, CountStatus::C22),
+            (CountStatus::C31, CountStatus::C32)] {
+            let before = calculate_swing_decision(PlateApproach::Aggressive, one, PitchType::FourSeamFastball, &factor(0.0));
+            let after = calculate_swing_decision(PlateApproach::Aggressive, two, PitchType::FourSeamFastball, &factor(0.0));
+            assert!(after.probability > before.probability);
+            assert_eq!(after.approach_factor, 0.2);
+            assert!((after.anticipation_factor + 0.1).abs() < 1e-12);
+            let sum = after.count_factor + after.approach_factor + after.protection_factor
+                + after.zone_factor + after.pitch_factor + after.anticipation_factor + after.aptitude_factor;
+            assert!((sum - after.score).abs() < 1e-12);
+        }
+    }
+    #[test]
+    fn farther_balls_are_less_attractive_even_with_two_strikes() {
+        for count in [CountStatus::C00, CountStatus::C02, CountStatus::C12, CountStatus::C22, CountStatus::C32] {
+            let probabilities: Vec<_> = [0.0, 0.1, 0.5, 1.0, 2.0].iter().map(|d|
+                calculate_swing_decision(PlateApproach::Aggressive, count, PitchType::FourSeamFastball, &factor(*d)).probability
+            ).collect();
+            assert!(probabilities.windows(2).all(|p| p[0] > p[1]));
+        }
+    }
+    #[test]
+    fn pre_two_strike_take_intent_is_preserved_but_protection_can_override_it() {
+        let early = calculate_swing_decision(PlateApproach::Take, CountStatus::C01, PitchType::FourSeamFastball, &factor(0.0));
+        let late = calculate_swing_decision(PlateApproach::Take, CountStatus::C02, PitchType::FourSeamFastball, &factor(0.0));
+        assert_eq!(early.approach_factor, -5.0);
+        assert_eq!(late.approach_factor, 0.0);
+        assert!(late.probability > early.probability);
     }
 }
