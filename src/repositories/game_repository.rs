@@ -2332,6 +2332,7 @@ mod tests {
             ],
             player_pitchings: Vec::new(),
             player_battings: vec![crate::domain::shared::game_stats::PlayerGameBatting {
+                timing_position_scale: None,
                 actual_bat_angle_deg: None,
                 swing_decision: None,
                 count_seq: 1,

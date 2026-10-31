@@ -248,3 +248,6 @@ Independent length/thickness miss classification and count/zone/timing queries:
 
 Timing-position sensitivity at 100/75/50/0% with fixed contact geometry:
 [`docs/timing_contact_probe.md`](docs/timing_contact_probe.md) (one-time bat-angle column upgrade).
+
+75% timing-position trial and before/after contact-quality checks:
+[`docs/timing_position_trial.md`](docs/timing_position_trial.md).
