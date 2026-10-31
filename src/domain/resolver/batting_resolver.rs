@@ -322,6 +322,8 @@ pub fn calculate_swing_execution_error(
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
     #[serde(default)]
+    pub actual_bat_angle_deg: Option<f64>,
+    #[serde(default)]
     pub adapted_horizontal_offset_m: f64,
     #[serde(default)]
     pub adapted_vertical_offset_m: f64,
@@ -442,6 +444,7 @@ pub fn evaluate_swing_contact(
     };
 
     SwingContactResult {
+        actual_bat_angle_deg: Some(swing_execution_error.actual_bat_angle_deg),
         adapted_horizontal_offset_m: offset.horizontal_offset_m,
         adapted_vertical_offset_m: offset.vertical_offset_m,
         swing_error_x_m: swing_execution_error.additional_x_m,
@@ -1137,6 +1140,7 @@ mod tests {
             assert_eq!(metrics.adapted_vertical_offset_m, Some(-0.02));
             assert_eq!(metrics.adapted_timing_offset_sec, Some(-0.001));
             assert_eq!(metrics.timing_error, -0.001);
+            assert_eq!(metrics.actual_bat_angle_deg, Some(0.0));
             assert_eq!(metrics.swing_error_x_m, Some(-0.005));
             assert_eq!(metrics.swing_error_z_m, Some(0.003));
             assert_eq!(metrics.timing_impact_x_m, Some(-0.001 * batter.swing_speed));
@@ -1158,6 +1162,16 @@ mod tests {
             );
         }
         assert_eq!(PlayerGameBattingMetrics::default().contact_offset_x_m, None);
+    }
+
+    #[test]
+    fn legacy_contact_without_bat_angle_stays_unknown() {
+        let contact = centered_contact(5.0);
+        let mut json = serde_json::to_value(&contact).unwrap();
+        json.as_object_mut().unwrap().remove("actual_bat_angle_deg");
+        let legacy: SwingContactResult = serde_json::from_value(json).unwrap();
+        assert_eq!(legacy.actual_bat_angle_deg, None);
+        assert_eq!(PlayerGameBattingMetrics::from_contact(&legacy).actual_bat_angle_deg, None);
     }
 
     fn centered_contact(attack_angle_deg: f64) -> SwingContactResult {

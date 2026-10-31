@@ -140,6 +140,8 @@ pub struct PlayerGamePitching {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingMetrics {
+    #[serde(default)]
+    pub actual_bat_angle_deg: Option<f64>,
     pub adapted_horizontal_offset_m: Option<f64>,
     pub adapted_vertical_offset_m: Option<f64>,
     pub adapted_timing_offset_sec: Option<f64>,
@@ -164,6 +166,7 @@ impl PlayerGameBattingMetrics {
     /// Capture the contact calculation for every swing, including misses and fouls.
     pub fn from_contact(contact: &SwingContactResult) -> Self {
         Self {
+            actual_bat_angle_deg: contact.actual_bat_angle_deg,
             adapted_horizontal_offset_m: Some(contact.adapted_horizontal_offset_m),
             adapted_vertical_offset_m: Some(contact.adapted_vertical_offset_m),
             adapted_timing_offset_sec: Some(contact.timing_offset_sec),
@@ -185,6 +188,7 @@ impl PlayerGameBattingMetrics {
 impl Default for PlayerGameBattingMetrics {
     fn default() -> Self {
         Self {
+            actual_bat_angle_deg: None,
             adapted_horizontal_offset_m: None,
             adapted_vertical_offset_m: None,
             adapted_timing_offset_sec: None,
@@ -210,6 +214,8 @@ impl Default for PlayerGameBattingMetrics {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBatting {
+    #[serde(default)]
+    pub actual_bat_angle_deg: Option<f64>,
     #[serde(default)]
     pub swing_decision: Option<crate::domain::resolver::batting_resolver::SwingDecisionDiagnostics>,
     pub count_seq: u16,

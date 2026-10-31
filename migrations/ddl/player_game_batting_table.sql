@@ -51,5 +51,6 @@ CREATE TABLE player_game_batting (
     decision_score REAL,
     decision_probability REAL,
     decision_swung INTEGER,
+    actual_bat_angle_deg REAL,
     PRIMARY KEY (game_id, count_seq)
 );
