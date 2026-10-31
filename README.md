@@ -242,3 +242,6 @@ for before/after queries and interpretation (no additional DB migration).
 
 Swing/take decision changes and the one-time diagnostic DB upgrade are described in
 [`docs/swing_decisions.md`](docs/swing_decisions.md).
+
+Independent length/thickness miss classification and count/zone/timing queries:
+[`docs/contact_miss_diagnostics.md`](docs/contact_miss_diagnostics.md).
