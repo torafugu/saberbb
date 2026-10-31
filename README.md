@@ -239,3 +239,6 @@ See [`docs/fielding_air_probe_comparison.md`](docs/fielding_air_probe_comparison
 The normal airborne search now uses 10 ms ticks with a shared event-boundary tolerance.
 See [`docs/air_catch_search_validation.md`](docs/air_catch_search_validation.md)
 for before/after queries and interpretation (no additional DB migration).
+
+Swing/take decision changes and the one-time diagnostic DB upgrade are described in
+[`docs/swing_decisions.md`](docs/swing_decisions.md).

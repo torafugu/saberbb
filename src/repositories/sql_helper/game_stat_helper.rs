@@ -48,10 +48,11 @@ const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
         launch_angle, polar_distance, polar_angle, total_time, first_bounce_distance, first_bounce_angle, first_bounce_time,
         fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
         fielder_position, result,
-        adapted_horizontal_offset_m, adapted_vertical_offset_m, adapted_timing_offset_sec, timing_impact_x_m, swing_error_x_m, swing_error_z_m, contact_offset_x_m, contact_offset_z_m, thickness_offset_m
+        adapted_horizontal_offset_m, adapted_vertical_offset_m, adapted_timing_offset_sec, timing_impact_x_m, swing_error_x_m, swing_error_z_m, contact_offset_x_m, contact_offset_z_m, thickness_offset_m,
+        decision_count_status, decision_location_x, decision_location_y, decision_count_factor, decision_approach_factor, decision_protection_factor, decision_zone_factor, decision_pitch_factor, decision_anticipation_factor, decision_aptitude_factor, decision_score, decision_probability, decision_swung
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37
+        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50
     )";
 
 const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding (
@@ -388,6 +389,7 @@ pub fn insert_player_game_batting(
     player_game_batting: &PlayerGameBatting,
 ) -> Result<usize, AppError> {
     info!("insert_player_game_batting() started");
+    let decision = player_game_batting.swing_decision.as_ref();
 
     let fielder_position_str: Option<&str> = player_game_batting
         .fielder_position
@@ -447,6 +449,20 @@ pub fn insert_player_game_batting(
             player_game_batting.contact_offset_x_m,
             player_game_batting.contact_offset_z_m,
             player_game_batting.thickness_offset_m,
+            decision.map(|d| d.count_status.as_ref()),
+            decision.map(|d| d.location_x),
+            decision.map(|d| d.location_y),
+            decision.map(|d| d.count_factor),
+            decision.map(|d| d.approach_factor),
+            decision.map(|d| d.protection_factor),
+            decision.map(|d| d.zone_factor),
+            decision.map(|d| d.pitch_factor),
+            decision.map(|d| d.anticipation_factor),
+            decision.map(|d| d.aptitude_factor),
+            decision.map(|d| d.score),
+            decision.map(|d| d.probability),
+            decision.map(|d| d.swung),
+
         ],
     )
 }
