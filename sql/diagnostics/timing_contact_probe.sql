@@ -22,7 +22,7 @@ WITH selected AS (
    AND length_offset_m IS NOT NULL AND thickness_offset_m IS NOT NULL
 ), scales(timing_scale) AS (VALUES (1.0),(0.75),(0.5),(0.0)), offsets AS (
  SELECT v.*, s.timing_scale,
-   contact_offset_x_m + (s.timing_scale-1.0)*timing_impact_x_m AS probe_x,
+   contact_offset_x_m + (s.timing_scale/COALESCE(timing_position_scale,1.0)-1.0)*timing_impact_x_m AS probe_x,
    contact_offset_z_m AS probe_z, actual_bat_angle_deg*ACOS(-1.0)/180.0 AS angle_rad
  FROM valid v CROSS JOIN scales s
 ), geometry AS (
@@ -39,7 +39,7 @@ WITH selected AS (
    CASE WHEN ABS(probe_length_m-length_offset_m)>1e-9 OR ABS(probe_thickness_m-thickness_offset_m)>1e-9
           OR ((probe_group='within_limits') <> (adjusted_contact_type<>'SwungAndMiss'))
         THEN 1 ELSE 0 END AS baseline_mismatch
- FROM classified WHERE timing_scale=1.0
+ FROM classified WHERE timing_scale=COALESCE(timing_position_scale,1.0)
 ), compared AS (
  SELECT c.*, b.baseline_group,b.baseline_mismatch
  FROM classified c JOIN baseline b USING(game_id,count_seq)
@@ -74,7 +74,7 @@ WITH selected AS (
    AND length_offset_m IS NOT NULL AND thickness_offset_m IS NOT NULL
 ), scales(timing_scale) AS (VALUES (1.0),(0.75),(0.5),(0.0)), offsets AS (
  SELECT v.*, s.timing_scale,
-   contact_offset_x_m + (s.timing_scale-1.0)*timing_impact_x_m AS probe_x,
+   contact_offset_x_m + (s.timing_scale/COALESCE(timing_position_scale,1.0)-1.0)*timing_impact_x_m AS probe_x,
    contact_offset_z_m AS probe_z, actual_bat_angle_deg*ACOS(-1.0)/180.0 AS angle_rad
  FROM valid v CROSS JOIN scales s
 ), geometry AS (
@@ -91,7 +91,7 @@ WITH selected AS (
    CASE WHEN ABS(probe_length_m-length_offset_m)>1e-9 OR ABS(probe_thickness_m-thickness_offset_m)>1e-9
           OR ((probe_group='within_limits') <> (adjusted_contact_type<>'SwungAndMiss'))
         THEN 1 ELSE 0 END AS baseline_mismatch
- FROM classified WHERE timing_scale=1.0
+ FROM classified WHERE timing_scale=COALESCE(timing_position_scale,1.0)
 ), compared AS (
  SELECT c.*, b.baseline_group,b.baseline_mismatch
  FROM classified c JOIN baseline b USING(game_id,count_seq)
@@ -126,7 +126,7 @@ WITH selected AS (
    AND length_offset_m IS NOT NULL AND thickness_offset_m IS NOT NULL
 ), scales(timing_scale) AS (VALUES (1.0),(0.75),(0.5),(0.0)), offsets AS (
  SELECT v.*, s.timing_scale,
-   contact_offset_x_m + (s.timing_scale-1.0)*timing_impact_x_m AS probe_x,
+   contact_offset_x_m + (s.timing_scale/COALESCE(timing_position_scale,1.0)-1.0)*timing_impact_x_m AS probe_x,
    contact_offset_z_m AS probe_z, actual_bat_angle_deg*ACOS(-1.0)/180.0 AS angle_rad
  FROM valid v CROSS JOIN scales s
 ), geometry AS (
@@ -143,7 +143,7 @@ WITH selected AS (
    CASE WHEN ABS(probe_length_m-length_offset_m)>1e-9 OR ABS(probe_thickness_m-thickness_offset_m)>1e-9
           OR ((probe_group='within_limits') <> (adjusted_contact_type<>'SwungAndMiss'))
         THEN 1 ELSE 0 END AS baseline_mismatch
- FROM classified WHERE timing_scale=1.0
+ FROM classified WHERE timing_scale=COALESCE(timing_position_scale,1.0)
 ), compared AS (
  SELECT c.*, b.baseline_group,b.baseline_mismatch
  FROM classified c JOIN baseline b USING(game_id,count_seq)
@@ -179,7 +179,7 @@ WITH selected AS (
    AND length_offset_m IS NOT NULL AND thickness_offset_m IS NOT NULL
 ), scales(timing_scale) AS (VALUES (1.0),(0.75),(0.5),(0.0)), offsets AS (
  SELECT v.*, s.timing_scale,
-   contact_offset_x_m + (s.timing_scale-1.0)*timing_impact_x_m AS probe_x,
+   contact_offset_x_m + (s.timing_scale/COALESCE(timing_position_scale,1.0)-1.0)*timing_impact_x_m AS probe_x,
    contact_offset_z_m AS probe_z, actual_bat_angle_deg*ACOS(-1.0)/180.0 AS angle_rad
  FROM valid v CROSS JOIN scales s
 ), geometry AS (
@@ -196,7 +196,7 @@ WITH selected AS (
    CASE WHEN ABS(probe_length_m-length_offset_m)>1e-9 OR ABS(probe_thickness_m-thickness_offset_m)>1e-9
           OR ((probe_group='within_limits') <> (adjusted_contact_type<>'SwungAndMiss'))
         THEN 1 ELSE 0 END AS baseline_mismatch
- FROM classified WHERE timing_scale=1.0
+ FROM classified WHERE timing_scale=COALESCE(timing_position_scale,1.0)
 ), compared AS (
  SELECT c.*, b.baseline_group,b.baseline_mismatch
  FROM classified c JOIN baseline b USING(game_id,count_seq)

@@ -49,10 +49,10 @@ const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
         fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
         fielder_position, result,
         adapted_horizontal_offset_m, adapted_vertical_offset_m, adapted_timing_offset_sec, timing_impact_x_m, swing_error_x_m, swing_error_z_m, contact_offset_x_m, contact_offset_z_m, thickness_offset_m,
-        decision_count_status, decision_location_x, decision_location_y, decision_count_factor, decision_approach_factor, decision_protection_factor, decision_zone_factor, decision_pitch_factor, decision_anticipation_factor, decision_aptitude_factor, decision_score, decision_probability, decision_swung, actual_bat_angle_deg
+        decision_count_status, decision_location_x, decision_location_y, decision_count_factor, decision_approach_factor, decision_protection_factor, decision_zone_factor, decision_pitch_factor, decision_anticipation_factor, decision_aptitude_factor, decision_score, decision_probability, decision_swung, actual_bat_angle_deg, timing_position_scale
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51
+        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52
     )";
 
 const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding (
@@ -463,6 +463,7 @@ pub fn insert_player_game_batting(
             decision.map(|d| d.probability),
             decision.map(|d| d.swung),
             player_game_batting.actual_bat_angle_deg,
+            player_game_batting.timing_position_scale,
 
         ],
     )
