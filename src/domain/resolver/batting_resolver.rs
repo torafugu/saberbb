@@ -187,7 +187,9 @@ pub fn calculate_swing_decision(
     let count_factor = count_status.prob();
     // Keep aggression; suspend a pre-two-strike take/patient preference when protecting.
     let approach_factor = if two_strikes { approach.prob().max(0.0) } else { approach.prob() };
-    let protection_factor = if two_strikes { 0.35 / (1.0 + 4.0 * outside) } else { 0.0 };
+    // +1.75 log-odds in the zone (about +1.40 over the previous policy).
+    // Exponential decay limits the extra incentive to chase outside pitches.
+    let protection_factor = if two_strikes { 1.75 * (-12.0 * outside).exp() } else { 0.0 };
     let zone_factor = -2.0 * outside;
     let pitch_factor = if pitch_type == PitchType::FourSeamFastball { 0.1 } else { -0.05 };
     let anticipation = batting_factor.zone_similarity + batting_factor.pitch_similarity;
@@ -1411,5 +1413,47 @@ mod swing_decision_tests {
         assert_eq!(early.approach_factor, -5.0);
         assert_eq!(late.approach_factor, 0.0);
         assert!(late.probability > early.probability);
+    }
+}
+
+#[cfg(test)]
+mod stronger_zone_protection_tests {
+    use super::*;
+    fn decision(count: CountStatus, distance: f64) -> SwingDecisionDiagnostics {
+        calculate_swing_decision(PlateApproach::Aggressive, count, PitchType::FourSeamFastball,
+            &BattingFactor { distance_from_zone_edge: distance, zone_similarity: -0.2,
+                pitch_similarity: -0.2, zone_aptitude: 0.1, total_modifier: 0.0 })
+    }
+    #[test]
+    fn zone_protection_is_strong_without_changing_other_score_components() {
+        for count in [CountStatus::C02, CountStatus::C12, CountStatus::C22, CountStatus::C32] {
+            let d = decision(count, 0.0);
+            assert_eq!(d.protection_factor, 1.75);
+            assert!(d.probability > 0.88 && d.probability < 0.93);
+            let other = d.count_factor + d.approach_factor + d.zone_factor + d.pitch_factor
+                + d.anticipation_factor + d.aptitude_factor;
+            assert!((d.score - other - 1.75).abs() < 1e-12);
+        }
+    }
+    #[test]
+    fn distant_balls_receive_no_more_protection_than_before() {
+        for distance in [0.25, 0.5, 1.0, 2.0] {
+            let d = decision(CountStatus::C02, distance);
+            assert!(d.protection_factor < 0.35 / (1.0 + 4.0 * distance));
+        }
+        let probabilities: Vec<_> = [0.0, 1e-8, 0.05, 0.1, 0.25, 0.5, 1.0].iter()
+            .map(|d| decision(CountStatus::C02, *d).probability).collect();
+        assert!(probabilities.windows(2).all(|p| p[0] > p[1]));
+        assert!((probabilities[0] - probabilities[1]).abs() < 1e-6);
+    }
+    #[test]
+    fn early_counts_have_no_protection_bonus() {
+        for count in [CountStatus::C00, CountStatus::C01, CountStatus::C10, CountStatus::C11,
+            CountStatus::C20, CountStatus::C21, CountStatus::C30, CountStatus::C31] {
+            let d = decision(count, 0.1);
+            assert_eq!(d.protection_factor, 0.0);
+            let expected = count.prob() + 0.2 - 0.2 + 0.1 - 0.4 + 0.1;
+            assert!((d.score - expected).abs() < 1e-12);
+        }
     }
 }

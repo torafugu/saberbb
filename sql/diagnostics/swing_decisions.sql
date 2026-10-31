@@ -10,6 +10,9 @@ WITH pitches AS (
 SELECT decision_count_status, zone_band, COUNT(*) AS pitches,
        SUM(decision_swung) AS swings,
        ROUND(100.0*AVG(decision_swung),2) AS swing_pct,
+       ROUND(100.0*SUM(CASE WHEN decision_swung=1 AND adjusted_contact_type IN
+           ('SolidContact','WeakContact','MarginalContact') THEN 1 ELSE 0 END)
+           / NULLIF(SUM(decision_swung),0),2) AS contact_pct,
        ROUND(AVG(decision_probability)*100,2) AS predicted_swing_pct,
        SUM(CASE WHEN result='Strikeout' AND decision_swung=0 THEN 1 ELSE 0 END) AS looking_strikeouts,
        SUM(CASE WHEN result='Strikeout' AND decision_swung=1 THEN 1 ELSE 0 END) AS swinging_strikeouts,
