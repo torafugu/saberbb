@@ -65,8 +65,8 @@ class TimingProbeTest(unittest.TestCase):
         self.assertEqual(self.query(0)[0]['baseline_mismatches'], 1)
 
     def test_trial_comparison_queries_use_contact_and_pa_denominators(self):
-        self.add(1, 0, 0.3, result='StrikeSwung', timing_position_scale=0.75, hla_handedness_sign=1)
-        self.add(2, 0, 0, result='Single', launch_speed=40, launch_angle=15, timing_position_scale=0.75, hla_handedness_sign=1)
+        self.add(1, 0, 0.3, result='StrikeSwung', timing_position_scale=0.75, hla_handedness_sign=1, hla_model_version=2)
+        self.add(2, 0, 0, result='Single', launch_speed=40, launch_angle=15, timing_position_scale=0.75, hla_handedness_sign=1, hla_model_version=2)
         sql = (ROOT / 'sql/diagnostics/compare_timing_position_trial.sql').read_text()
         queries = [q for q in re.sub(r'^--.*$', '', sql, flags=re.M).split(';') if q.strip()]
         params = dict(before_first_game_id=1, before_last_game_id=1,
@@ -81,19 +81,19 @@ class TimingProbeTest(unittest.TestCase):
         self.assertEqual(len(self.db.execute(queries[2], params).fetchall()), 1)
 
     def test_scaled_record_replays_at_its_applied_scale(self):
-        self.add(1, 0, 0.15, timing_position_scale=0.75, hla_handedness_sign=1)
+        self.add(1, 0, 0.15, timing_position_scale=0.75, hla_handedness_sign=1, hla_model_version=2)
         self.assertEqual(self.query(0)[0]['baseline_mismatches'], 0)
         rows = {r['timing_scale']: r for r in self.query(1)}
         self.assertEqual(rows[0.75]['possible_contacts'], 0)
         self.assertEqual(rows[0.5]['possible_contacts'], 1)
 
-    def test_repository_insert_includes_angle_as_parameter_53(self):
+    def test_repository_insert_includes_angle_as_parameter_56(self):
         source = (ROOT / 'src/repositories/sql_helper/game_stat_helper.rs').read_text()
         sql = re.search(r'const INSERT_PLAYER_GAME_BATTING_SQL: &str = "(.*?)";', source, re.S)[1]
         columns = [c.strip() for c in sql.split('(', 1)[1].split(')')[0].split(',')]
-        self.assertEqual(len(columns), 53)
+        self.assertEqual(len(columns), 56)
         values = dict.fromkeys(columns, 0)
-        values.update(game_id=1, count_seq=1, actual_bat_angle_deg=34.25, timing_position_scale=0.75, hla_handedness_sign=1)
+        values.update(game_id=1, count_seq=1, actual_bat_angle_deg=34.25, timing_position_scale=0.75, hla_handedness_sign=1, hla_model_version=2)
         self.db.execute(sql, list(values.values()))
         self.assertEqual(self.db.execute('SELECT actual_bat_angle_deg FROM player_game_batting').fetchone(), (34.25,))
 
@@ -106,11 +106,12 @@ class TimingProbeTest(unittest.TestCase):
                 self.assertEqual(rows, [])
         old = sqlite3.connect(':memory:')
         ddl = (ROOT / 'migrations/ddl/player_game_batting_table.sql').read_text()
-        ddl = re.sub(r'^DROP TABLE .*?;\s*', '', ddl).replace('    actual_bat_angle_deg REAL,\n', '').replace('    timing_position_scale REAL CHECK (timing_position_scale > 0),\n', '').replace('    hla_handedness_sign REAL CHECK (hla_handedness_sign IN (-1,1)),\n', '')
+        ddl = re.sub(r'^DROP TABLE .*?;\s*', '', ddl).replace('    actual_bat_angle_deg REAL,\n', '').replace('    timing_position_scale REAL CHECK (timing_position_scale > 0),\n', '').replace('    hla_handedness_sign REAL CHECK (hla_handedness_sign IN (-1,1)),\n', '').replace('    signed_length_offset_m REAL,\n','').replace('    signed_thickness_offset_m REAL,\n','').replace('    hla_model_version INTEGER CHECK (hla_model_version IN (1,2)),\n','')
         old.executescript(ddl)
         old.executescript((ROOT / 'migrations/upgrades/add_contact_bat_angle.sql').read_text())
         old.executescript((ROOT / 'migrations/upgrades/add_timing_position_scale.sql').read_text())
         old.executescript((ROOT / 'migrations/upgrades/add_hla_handedness_sign.sql').read_text())
+        old.executescript((ROOT / 'migrations/upgrades/add_contact_normal_hla.sql').read_text())
         self.assertEqual(old.execute('PRAGMA table_info(player_game_batting)').fetchall(),
                          self.db.execute('PRAGMA table_info(player_game_batting)').fetchall())
         old.close()

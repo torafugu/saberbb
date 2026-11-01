@@ -210,6 +210,10 @@ impl GameResult {
         batting_result: BattingResult,
     ) {
         let player_batting = PlayerGameBatting {
+            signed_length_offset_m: metrics.signed_length_offset_m,
+            signed_thickness_offset_m: metrics.signed_thickness_offset_m,
+            hla_model_version: metrics.hla_model_version,
+
             hla_handedness_sign: metrics.hla_handedness_sign,
             timing_position_scale: metrics.timing_position_scale,
             actual_bat_angle_deg: metrics.actual_bat_angle_deg,

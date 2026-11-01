@@ -320,9 +320,32 @@ pub fn calculate_swing_execution_error(
     }
 }
 
+/// Signed offsets in the bat's X/Z local frame. Magnitudes drive contact checks.
+fn project_contact_offsets(x: f64, z: f64, bat_angle_deg: f64) -> (f64, f64) {
+    let angle = bat_angle_deg.to_radians();
+    (x * angle.cos() + z * angle.sin(), -x * angle.sin() + z * angle.cos())
+}
+
+/// Trial horizontal projection of ideal elastic reflection from a cylindrical bat.
+/// Incoming reference direction is (0,-1,0); this does not replace EV or VLA.
+fn contact_normal_hla_deg(signed_thickness_m: f64, bat_angle_deg: f64) -> f64 {
+    let radial = (signed_thickness_m / 0.070).clamp(-1.0, 1.0);
+    let normal_y = (1.0 - radial * radial).max(0.0).sqrt();
+    let normal_x = -bat_angle_deg.to_radians().sin() * radial;
+    (2.0 * normal_y * normal_x).atan2(2.0 * normal_y * normal_y - 1.0).to_degrees()
+}
+
+fn wrap_hla_deg(angle: f64) -> f64 {
+    (angle + 180.0).rem_euclid(360.0) - 180.0
+}
+
 // Mismatch between the batter's swing prediction and the actual pitch
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
+    #[serde(default)]
+    pub signed_length_offset_m: Option<f64>,
+    #[serde(default)]
+    pub signed_thickness_offset_m: Option<f64>,
     #[serde(default)]
     pub timing_position_scale: Option<f64>,
     #[serde(default)]
@@ -406,15 +429,11 @@ fn evaluate_swing_contact_with_timing_scale(
         offset.horizontal_offset_m + swing_execution_error.additional_x_m + timing_impact_x_m;
     let offset_z_m = offset.vertical_offset_m + swing_execution_error.additional_z_m;
 
-    let rad = swing_execution_error.actual_bat_angle_deg.to_radians();
-
-    // Offset projected onto the bat's thickness direction (effective) using bat angle (bat_angle_deg)
-    // Project X/Z spatial offsets onto the bat's thickness direction
-    let thickness_offset_m = (-offset_x_m * rad.sin() + offset_z_m * rad.cos()).abs();
-
-    // Offset projected onto the bat's length direction (m) using bat angle (bat_angle_deg)
-    // Project X/Z spatial offsets onto the bat's length direction
-    let length_offset_m = (offset_x_m * rad.cos() + offset_z_m * rad.sin()).abs();
+    let (signed_length_offset_m, signed_thickness_offset_m) = project_contact_offsets(
+        offset_x_m, offset_z_m, swing_execution_error.actual_bat_angle_deg,
+    );
+    let length_offset_m = signed_length_offset_m.abs();
+    let thickness_offset_m = signed_thickness_offset_m.abs();
     let normalized_tip_offset = (length_offset_m / MAX_LENGTH_OFFSET_M).clamp(0.0, 1.0);
     let outer_tip = outer_tip_factor(normalized_tip_offset);
 
@@ -461,6 +480,8 @@ fn evaluate_swing_contact_with_timing_scale(
     };
 
     SwingContactResult {
+        signed_length_offset_m: Some(signed_length_offset_m),
+        signed_thickness_offset_m: Some(signed_thickness_offset_m),
         timing_position_scale: Some(timing_position_scale),
         actual_bat_angle_deg: Some(swing_execution_error.actual_bat_angle_deg),
         adapted_horizontal_offset_m: offset.horizontal_offset_m,
@@ -487,16 +508,6 @@ pub struct BattedBallAngles {
     pub pull_bias_deg: f64,
     pub timing_angle_error_deg: f64,
     pub angular_velocity_rad_s: f64,
-}
-
-fn sample_marginal_timing_error(rng: &mut dyn RandomProvider) -> f64 {
-    loop {
-        let value = rng.normal_std(1.0);
-
-        if (0.015..=0.030).contains(&value.abs()) {
-            return value;
-        }
-    }
 }
 
 fn calculate_timing_angle_error(
@@ -532,10 +543,7 @@ pub fn calculate_launch_angles(
     let vla_deg = contact.attack_angle_deg + (normal_angle_z_rad.to_degrees() * VLA_REBOUND_FACTOR);
 
     // 2. Calculate HLA (horizontal launch angle)
-    let timing_error_sec = match contact.adjusted_contact_type {
-        SwingContactType::MarginalContact => sample_marginal_timing_error(rng),
-        _ => contact.timing_offset_sec,
-    };
+    let timing_error_sec = contact.timing_offset_sec;
 
     // TODO: bat control should impact the variation range.
     let approach_variation_rad = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians();
@@ -555,20 +563,12 @@ pub fn calculate_launch_angles(
 
     let face_angle_rad = intended_face_angle_rad + timing_angle_error_rad;
 
-    // (B) Rebound deflection from the bat's cross-section curvature
-    let clamped_x_rad = contact
-        .offset_x_m
-        .clamp(-COLLISION_RADIUS_M, COLLISION_RADIUS_M);
-    let rebound_angle_x_rad = (clamped_x_rad / COLLISION_RADIUS_M).asin();
-
-    const HLA_FACE_FACTOR: f64 = 0.85;
-    const HLA_REBOUND_FACTOR: f64 = 0.25;
-
-    let raw_hla_deg = (face_angle_rad.to_degrees() * HLA_FACE_FACTOR)
-        + (rebound_angle_x_rad.to_degrees() * HLA_REBOUND_FACTOR);
-
-    // Flip the pull/opposite sign for left-handed batters
-    let hla_deg = raw_hla_deg * batter.batting_side.handedness_sign();
+    // Use the same local frame as the contact checks, retaining which side was hit.
+    let bat_angle = contact.actual_bat_angle_deg.unwrap_or(0.0);
+    let (_, signed_thickness) = project_contact_offsets(contact.offset_x_m, contact.offset_z_m, bat_angle);
+    let rebound_hla = contact_normal_hla_deg(signed_thickness, bat_angle);
+    let raw_hla_deg = face_angle_rad.to_degrees() * 0.85 + rebound_hla;
+    let hla_deg = wrap_hla_deg(raw_hla_deg * batter.batting_side.handedness_sign());
 
     Ok(BattedBallAngles {
         vla_deg,
@@ -1018,6 +1018,7 @@ pub fn calculate_batted_ball_with_metrics(
     let angles = calculate_launch_angles(rng, contact, batter)?;
     let batted_ball = calculate_batted_ball(batter, ball, contact, &angles, stadium)?;
     let metrics = PlayerGameBattingMetrics {
+        hla_model_version: Some(2),
         hla_handedness_sign: Some(batter.batting_side.handedness_sign()),
         bat_speed: batter.swing_speed,
         angular_velocity: angles.angular_velocity_rad_s,
@@ -1210,54 +1211,16 @@ mod tests {
 
     #[test]
     fn calculate_launch_angles_uses_contact_offsets_and_batting_side() -> TestResult {
-        let cases = [
-            (
-                SwingContactResult {
-                    timing_offset_sec: 0.0,
-                    timing_impact_x_m: 0.0,
-                    offset_x_m: 0.07,
-                    offset_z_m: 0.07,
-                    thickness_offset_m: 0.0,
-                    length_offset_m: 0.0,
-                    original_contact_type: SwingContactType::SolidContact,
-                    adjusted_contact_type: SwingContactType::SolidContact,
-                    attack_angle_deg: 5.0,
-                    ..Default::default()
-                },
-                RL::Right,
-                59.0,
-                22.5,
-            ),
-            (
-                SwingContactResult {
-                    timing_offset_sec: 0.0,
-                    timing_impact_x_m: 0.0,
-                    offset_x_m: 0.07,
-                    offset_z_m: -0.07,
-                    thickness_offset_m: 0.0,
-                    length_offset_m: 0.0,
-                    original_contact_type: SwingContactType::SolidContact,
-                    adjusted_contact_type: SwingContactType::SolidContact,
-                    attack_angle_deg: 5.0,
-                    ..Default::default()
-                },
-                RL::Left,
-                -49.0,
-                -22.5,
-            ),
-            (centered_contact(5.0), RL::Right, 5.0, 0.0),
-        ];
-
-        for (contact, batting_side, expected_vla, expected_hla) in cases {
-            let mut rng = FixedRng::new(0.5);
-            let angles = calculate_launch_angles(&mut rng, &contact, &batter(batting_side))?;
-            assert!((angles.vla_deg - expected_vla).abs() < 0.1);
-            assert!((angles.hla_deg - expected_hla).abs() < 0.1);
-            assert!(angles.approach_variation_deg.abs() < f64::EPSILON);
-            assert!(angles.pull_bias_deg.abs() < f64::EPSILON);
-            assert!(angles.angular_velocity_rad_s.is_finite());
-        }
-
+        let mut contact = centered_contact(5.0);
+        contact.actual_bat_angle_deg = Some(30.0);
+        contact.offset_x_m = -0.0175;
+        contact.offset_z_m = 0.035 * 30.0_f64.to_radians().cos();
+        let right = calculate_launch_angles(&mut FixedRng::new(0.5), &contact, &batter(RL::Right))?;
+        let left = calculate_launch_angles(&mut FixedRng::new(0.5), &contact, &batter(RL::Left))?;
+        assert!((right.hla_deg + 40.8933946491309).abs() < 1e-8);
+        assert!((right.hla_deg + left.hla_deg).abs() < 1e-8);
+        assert_eq!(right.vla_deg, left.vla_deg);
+        assert_eq!(right.timing_angle_error_deg, 0.0);
         Ok(())
     }
 
@@ -1510,5 +1473,41 @@ mod timing_position_trial_tests {
         assert_eq!(trial.timing_position_scale, Some(0.75));
         assert_eq!(calculate_timing_angle_error(trial.timing_offset_sec, 40.0, 1.1),
                    calculate_timing_angle_error(control.timing_offset_sec, 40.0, 1.1));
+    }
+}
+
+#[cfg(test)]
+mod contact_normal_tests {
+    use super::*;
+    use crate::domain::random_provider::FixedRng;
+    use crate::domain::shared::player::RL;
+    #[test]
+    fn local_projection_preserves_magnitude_and_signed_side() {
+        for angle in [0.0, 15.0, 30.0, 60.0] {
+            let (l,t) = project_contact_offsets(0.12,-0.03,angle);
+            assert!((l*l+t*t-(0.12_f64.powi(2)+0.03_f64.powi(2))).abs()<1e-12);
+            let opposite=project_contact_offsets(-0.12,0.03,angle);
+            assert!((l+opposite.0).abs()<1e-12 && (t+opposite.1).abs()<1e-12);
+        }
+    }
+    #[test]
+    fn centred_contacts_are_forward_and_grazing_contacts_can_go_foul() {
+        assert_eq!(contact_normal_hla_deg(0.0,30.0),0.0);
+        assert!(contact_normal_hla_deg(0.05,30.0).abs()>45.0);
+        for offset in [-0.070,-0.05,-0.02,0.0,0.02,0.05,0.070] {
+            assert!(contact_normal_hla_deg(offset,30.0).is_finite());
+        }
+    }
+    #[test]
+    fn contact_label_does_not_replace_original_timing() {
+        let batter=crate::domain::test_support::batter_info(RL::Right);
+        let mut contact=SwingContactResult { actual_bat_angle_deg:Some(30.0),
+            offset_x_m:0.01,offset_z_m:0.02,timing_offset_sec:0.003,
+            adjusted_contact_type:SwingContactType::WeakContact,..Default::default() };
+        let weak=calculate_launch_angles(&mut FixedRng::new(0.5),&contact,&batter).unwrap();
+        contact.adjusted_contact_type=SwingContactType::MarginalContact;
+        let marginal=calculate_launch_angles(&mut FixedRng::new(0.5),&contact,&batter).unwrap();
+        assert_eq!(weak.hla_deg,marginal.hla_deg);
+        assert_eq!(weak.timing_angle_error_deg,marginal.timing_angle_error_deg);
     }
 }

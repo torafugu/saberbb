@@ -2332,6 +2332,10 @@ mod tests {
             ],
             player_pitchings: Vec::new(),
             player_battings: vec![crate::domain::shared::game_stats::PlayerGameBatting {
+                signed_length_offset_m: None,
+                signed_thickness_offset_m: None,
+                hla_model_version: None,
+
                 hla_handedness_sign: None,
                 timing_position_scale: None,
                 actual_bat_angle_deg: None,

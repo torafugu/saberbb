@@ -5,18 +5,29 @@ WITH contacts AS (
  SELECT * FROM player_game_batting
  WHERE game_id BETWEEN :first_game_id AND :last_game_id
  AND adjusted_contact_type IN ('SolidContact','WeakContact','MarginalContact')
+), normals AS (
+ SELECT *, MAX(-1.0,MIN(1.0,(-contact_offset_x_m*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)
+    +contact_offset_z_m*COS(actual_bat_angle_deg*ACOS(-1.0)/180.0))/0.070)) AS radial
+ FROM contacts
 ), components AS (
  SELECT *, hla_handedness_sign*0.85*approach_variation_deg AS approach_component,
    hla_handedness_sign*0.85*pull_bias_deg AS pull_component,
    hla_handedness_sign*0.85*timing_angle_error AS timing_component,
-   hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) AS rebound_component,
+   CASE WHEN hla_model_version=2 THEN hla_handedness_sign*ATAN2(
+     -2.0*SQRT(MAX(0.0,1-radial*radial))*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)*radial,
+     1.0-2.0*radial*radial)*180.0/ACOS(-1.0)
+   ELSE hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) END AS rebound_component,
    hla_handedness_sign*0.85*angular_velocity*adapted_timing_offset_sec*180.0/ACOS(-1.0) AS original_timing_component
- FROM contacts WHERE hla_handedness_sign IN (-1,1) AND contact_offset_x_m IS NOT NULL
+ FROM normals WHERE hla_handedness_sign IN (-1,1) AND (COALESCE(hla_model_version,1)=1 OR (actual_bat_angle_deg IS NOT NULL AND contact_offset_z_m IS NOT NULL)) AND contact_offset_x_m IS NOT NULL
  AND adapted_timing_offset_sec IS NOT NULL
-), reconstructed AS (
- SELECT *,approach_component+pull_component+timing_component+rebound_component AS replay_hla,
-   approach_component+pull_component+original_timing_component+rebound_component AS original_timing_hla
+) , unwrapped AS (
+ SELECT *,approach_component+pull_component+timing_component+rebound_component AS raw_hla,
+ approach_component+pull_component+original_timing_component+rebound_component AS raw_original_hla
  FROM components
+), reconstructed AS (
+ SELECT *, CASE WHEN hla_model_version=2 THEN raw_hla-360*FLOOR((raw_hla+180)/360) ELSE raw_hla END AS replay_hla,
+ CASE WHEN hla_model_version=2 THEN raw_original_hla-360*FLOOR((raw_original_hla+180)/360) ELSE raw_original_hla END AS original_timing_hla
+ FROM unwrapped
 )
 SELECT (SELECT COUNT(*) FROM contacts) AS contacts,COUNT(*) AS comparable_contacts,
  (SELECT COUNT(*) FROM contacts)-COUNT(*) AS missing_inputs,
@@ -28,18 +39,29 @@ WITH contacts AS (
  SELECT * FROM player_game_batting
  WHERE game_id BETWEEN :first_game_id AND :last_game_id
  AND adjusted_contact_type IN ('SolidContact','WeakContact','MarginalContact')
+), normals AS (
+ SELECT *, MAX(-1.0,MIN(1.0,(-contact_offset_x_m*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)
+    +contact_offset_z_m*COS(actual_bat_angle_deg*ACOS(-1.0)/180.0))/0.070)) AS radial
+ FROM contacts
 ), components AS (
  SELECT *, hla_handedness_sign*0.85*approach_variation_deg AS approach_component,
    hla_handedness_sign*0.85*pull_bias_deg AS pull_component,
    hla_handedness_sign*0.85*timing_angle_error AS timing_component,
-   hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) AS rebound_component,
+   CASE WHEN hla_model_version=2 THEN hla_handedness_sign*ATAN2(
+     -2.0*SQRT(MAX(0.0,1-radial*radial))*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)*radial,
+     1.0-2.0*radial*radial)*180.0/ACOS(-1.0)
+   ELSE hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) END AS rebound_component,
    hla_handedness_sign*0.85*angular_velocity*adapted_timing_offset_sec*180.0/ACOS(-1.0) AS original_timing_component
- FROM contacts WHERE hla_handedness_sign IN (-1,1) AND contact_offset_x_m IS NOT NULL
+ FROM normals WHERE hla_handedness_sign IN (-1,1) AND (COALESCE(hla_model_version,1)=1 OR (actual_bat_angle_deg IS NOT NULL AND contact_offset_z_m IS NOT NULL)) AND contact_offset_x_m IS NOT NULL
  AND adapted_timing_offset_sec IS NOT NULL
-), reconstructed AS (
- SELECT *,approach_component+pull_component+timing_component+rebound_component AS replay_hla,
-   approach_component+pull_component+original_timing_component+rebound_component AS original_timing_hla
+) , unwrapped AS (
+ SELECT *,approach_component+pull_component+timing_component+rebound_component AS raw_hla,
+ approach_component+pull_component+original_timing_component+rebound_component AS raw_original_hla
  FROM components
+), reconstructed AS (
+ SELECT *, CASE WHEN hla_model_version=2 THEN raw_hla-360*FLOOR((raw_hla+180)/360) ELSE raw_hla END AS replay_hla,
+ CASE WHEN hla_model_version=2 THEN raw_original_hla-360*FLOOR((raw_original_hla+180)/360) ELSE raw_original_hla END AS original_timing_hla
+ FROM unwrapped
 )
 SELECT adjusted_contact_type,hla_handedness_sign,COUNT(*) AS contacts,
  ROUND(AVG(ABS(approach_component)),3) AS avg_abs_approach_deg,
@@ -49,7 +71,7 @@ SELECT adjusted_contact_type,hla_handedness_sign,COUNT(*) AS contacts,
  ROUND(AVG(ABS(rebound_component)),3) AS avg_abs_rebound_deg,
  ROUND(AVG(timing_component),3) AS avg_signed_timing_deg,
  ROUND(AVG(rebound_component),3) AS avg_signed_rebound_deg,
- SUM(CASE WHEN ABS(contact_offset_x_m)>=0.070 THEN 1 ELSE 0 END) AS rebound_clamped_contacts,
+ SUM(CASE WHEN (hla_model_version=2 AND ABS(radial)>=1.0) OR (COALESCE(hla_model_version,1)=1 AND ABS(contact_offset_x_m)>=0.070) THEN 1 ELSE 0 END) AS rebound_clamped_contacts,
  SUM(CASE WHEN ABS(final_hla_deg)>=45 THEN 1 ELSE 0 END) AS launch_foul_directions,
  SUM(CASE WHEN result='Foul' THEN 1 ELSE 0 END) AS result_fouls,
  SUM(CASE WHEN ABS(original_timing_hla)>=45 THEN 1 ELSE 0 END) AS original_timing_foul_directions
@@ -61,18 +83,29 @@ WITH contacts AS (
  SELECT * FROM player_game_batting
  WHERE game_id BETWEEN :first_game_id AND :last_game_id
  AND adjusted_contact_type IN ('SolidContact','WeakContact','MarginalContact')
+), normals AS (
+ SELECT *, MAX(-1.0,MIN(1.0,(-contact_offset_x_m*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)
+    +contact_offset_z_m*COS(actual_bat_angle_deg*ACOS(-1.0)/180.0))/0.070)) AS radial
+ FROM contacts
 ), components AS (
  SELECT *, hla_handedness_sign*0.85*approach_variation_deg AS approach_component,
    hla_handedness_sign*0.85*pull_bias_deg AS pull_component,
    hla_handedness_sign*0.85*timing_angle_error AS timing_component,
-   hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) AS rebound_component,
+   CASE WHEN hla_model_version=2 THEN hla_handedness_sign*ATAN2(
+     -2.0*SQRT(MAX(0.0,1-radial*radial))*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)*radial,
+     1.0-2.0*radial*radial)*180.0/ACOS(-1.0)
+   ELSE hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) END AS rebound_component,
    hla_handedness_sign*0.85*angular_velocity*adapted_timing_offset_sec*180.0/ACOS(-1.0) AS original_timing_component
- FROM contacts WHERE hla_handedness_sign IN (-1,1) AND contact_offset_x_m IS NOT NULL
+ FROM normals WHERE hla_handedness_sign IN (-1,1) AND (COALESCE(hla_model_version,1)=1 OR (actual_bat_angle_deg IS NOT NULL AND contact_offset_z_m IS NOT NULL)) AND contact_offset_x_m IS NOT NULL
  AND adapted_timing_offset_sec IS NOT NULL
-), reconstructed AS (
- SELECT *,approach_component+pull_component+timing_component+rebound_component AS replay_hla,
-   approach_component+pull_component+original_timing_component+rebound_component AS original_timing_hla
+) , unwrapped AS (
+ SELECT *,approach_component+pull_component+timing_component+rebound_component AS raw_hla,
+ approach_component+pull_component+original_timing_component+rebound_component AS raw_original_hla
  FROM components
+), reconstructed AS (
+ SELECT *, CASE WHEN hla_model_version=2 THEN raw_hla-360*FLOOR((raw_hla+180)/360) ELSE raw_hla END AS replay_hla,
+ CASE WHEN hla_model_version=2 THEN raw_original_hla-360*FLOOR((raw_original_hla+180)/360) ELSE raw_original_hla END AS original_timing_hla
+ FROM unwrapped
 )
 , variants AS (
  SELECT adjusted_contact_type,'current' AS variant,final_hla_deg AS hla FROM reconstructed
@@ -94,18 +127,29 @@ WITH contacts AS (
  SELECT * FROM player_game_batting
  WHERE game_id BETWEEN :first_game_id AND :last_game_id
  AND adjusted_contact_type IN ('SolidContact','WeakContact','MarginalContact')
+), normals AS (
+ SELECT *, MAX(-1.0,MIN(1.0,(-contact_offset_x_m*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)
+    +contact_offset_z_m*COS(actual_bat_angle_deg*ACOS(-1.0)/180.0))/0.070)) AS radial
+ FROM contacts
 ), components AS (
  SELECT *, hla_handedness_sign*0.85*approach_variation_deg AS approach_component,
    hla_handedness_sign*0.85*pull_bias_deg AS pull_component,
    hla_handedness_sign*0.85*timing_angle_error AS timing_component,
-   hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) AS rebound_component,
+   CASE WHEN hla_model_version=2 THEN hla_handedness_sign*ATAN2(
+     -2.0*SQRT(MAX(0.0,1-radial*radial))*SIN(actual_bat_angle_deg*ACOS(-1.0)/180.0)*radial,
+     1.0-2.0*radial*radial)*180.0/ACOS(-1.0)
+   ELSE hla_handedness_sign*0.25*ASIN(MAX(-1.0,MIN(1.0,contact_offset_x_m/0.070)))*180.0/ACOS(-1.0) END AS rebound_component,
    hla_handedness_sign*0.85*angular_velocity*adapted_timing_offset_sec*180.0/ACOS(-1.0) AS original_timing_component
- FROM contacts WHERE hla_handedness_sign IN (-1,1) AND contact_offset_x_m IS NOT NULL
+ FROM normals WHERE hla_handedness_sign IN (-1,1) AND (COALESCE(hla_model_version,1)=1 OR (actual_bat_angle_deg IS NOT NULL AND contact_offset_z_m IS NOT NULL)) AND contact_offset_x_m IS NOT NULL
  AND adapted_timing_offset_sec IS NOT NULL
-), reconstructed AS (
- SELECT *,approach_component+pull_component+timing_component+rebound_component AS replay_hla,
-   approach_component+pull_component+original_timing_component+rebound_component AS original_timing_hla
+) , unwrapped AS (
+ SELECT *,approach_component+pull_component+timing_component+rebound_component AS raw_hla,
+ approach_component+pull_component+original_timing_component+rebound_component AS raw_original_hla
  FROM components
+), reconstructed AS (
+ SELECT *, CASE WHEN hla_model_version=2 THEN raw_hla-360*FLOOR((raw_hla+180)/360) ELSE raw_hla END AS replay_hla,
+ CASE WHEN hla_model_version=2 THEN raw_original_hla-360*FLOOR((raw_original_hla+180)/360) ELSE raw_original_hla END AS original_timing_hla
+ FROM unwrapped
 )
 SELECT CASE WHEN ABS(final_hla_deg)>=45 THEN 'foul_direction' ELSE 'fair_direction' END AS current_direction,
  CASE WHEN ABS(original_timing_hla)>=45 THEN 'foul_direction' ELSE 'fair_direction' END AS original_timing_direction,

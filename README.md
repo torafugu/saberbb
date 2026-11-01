@@ -254,3 +254,6 @@ Timing-position sensitivity at 100/75/50/0% with fixed contact geometry:
 
 HLA component attribution and Marginal timing-resample comparison:
 [`docs/hla_components.md`](docs/hla_components.md).
+
+Signed contact-normal HLA trial, migration and before/after checks:
+[`docs/contact_normal_hla.md`](docs/contact_normal_hla.md).

@@ -1,3 +1,7 @@
+> この文書の旧式の説明はversion 1用。現在のversion 2は
+> [contact_normal_hla.md](contact_normal_hla.md) を参照。
+> SQLは記録のhla_model_versionを識別して両式を再現する。
+
 # HLA生成項とMarginal再抽選の診断
 
 75%のタイミング位置ずれ設定を維持したまま、HLAの要因を調べる。

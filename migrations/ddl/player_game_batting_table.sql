@@ -54,5 +54,8 @@ CREATE TABLE player_game_batting (
     actual_bat_angle_deg REAL,
     timing_position_scale REAL CHECK (timing_position_scale > 0),
     hla_handedness_sign REAL CHECK (hla_handedness_sign IN (-1,1)),
+    signed_length_offset_m REAL,
+    signed_thickness_offset_m REAL,
+    hla_model_version INTEGER CHECK (hla_model_version IN (1,2)),
     PRIMARY KEY (game_id, count_seq)
 );
