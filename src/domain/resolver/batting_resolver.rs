@@ -782,7 +782,8 @@ fn calculate_trajectory(
 
     // Initial velocity vector
     let mut v_x = launch_speed_ms * vla_rad.cos() * hla_rad.sin();
-    let mut v_y = launch_speed_ms * vla_rad.cos() * hla_rad.cos().abs();
+    // Preserve the sign: |HLA| > 90 degrees travels behind home plate.
+    let mut v_y = launch_speed_ms * vla_rad.cos() * hla_rad.cos();
     let mut v_z = launch_speed_ms * vla_rad.sin();
 
     // Contact height (impact position above ground: e.g. 0.9m)
@@ -896,17 +897,28 @@ fn calculate_trajectory(
         let current_spray_angle_deg = pos_x.atan2(pos_y).to_degrees();
         let current_distance_m = (pos_x.powi(2) + pos_y.powi(2)).sqrt();
 
-        let fence_distace = stadium.fence_distance_at_angle(current_spray_angle_deg)?;
+        let fence_distance = stadium.fence_distance_at_angle(current_spray_angle_deg)?;
 
         // 2. Fence clearing / impact judgment
-        if current_distance_m >= fence_distace {
+        if current_distance_m >= fence_distance {
+            // A foul-side boundary is out of play, including the backstop.
+            // Do not reflect it into fair territory or award a ground-rule double.
+            if current_spray_angle_deg.abs() >= FOUL_DEGREE {
+                if pos_z > 0.0
+                    && pos_z <= stadium.fence_height
+                    && fence_impact_position.is_none()
+                    && fence_impact_time_sec.is_none()
+                {
+                    fence_impact_position =
+                        Some(PolarPosition::new(fence_distance, current_spray_angle_deg));
+                    fence_impact_time_sec = Some(current_time);
+                }
+                result_type = OutboundResult::Foul;
+                break;
+            }
             if pos_z > stadium.fence_height {
                 result_type = if bounce_count == 0 {
-                    if current_spray_angle_deg.abs() >= FOUL_DEGREE {
-                        OutboundResult::Foul
-                    } else {
-                        OutboundResult::HomeRun
-                    }
+                    OutboundResult::HomeRun
                 } else {
                     OutboundResult::GroundRuleDouble
                 };
@@ -914,7 +926,7 @@ fn calculate_trajectory(
             } else if pos_z > 0.0 {
                 if fence_impact_position.is_none() && fence_impact_time_sec.is_none() {
                     fence_impact_position =
-                        Some(PolarPosition::new(fence_distace, current_spray_angle_deg));
+                        Some(PolarPosition::new(fence_distance, current_spray_angle_deg));
                     fence_impact_time_sec = Some(current_time);
                 }
                 // Fence impact: reverse the velocity in polar terms (bounce back toward the field)
@@ -1048,6 +1060,62 @@ mod tests {
     use crate::domain::util::Vector3D;
 
     type TestResult = Result<(), GameError>;
+
+    #[test]
+    fn backward_trajectories_preserve_launch_direction_before_bounce() -> TestResult {
+        let stadium = Stadium::default();
+        // Includes the 23266/158 diagnosis (HLA 157.557 degrees).
+        for hla in [
+            -180.0_f64, -175.0, -157.557, -135.0, -100.0,
+            100.0, 135.0, 157.557, 175.0, 180.0,
+        ] {
+            let ball = calculate_trajectory(3.3, 12.0, hla, 0.0, 0.0, &stadium)?;
+            let bounce = ball.first_bounce_position.expect("weak ball must bounce");
+            assert!(bounce.y < 0.0, "HLA {hla}: backward bounce {bounce:?}");
+            assert!(bounce.angle.abs() > 90.0);
+            assert!(ball.final_position.y < 0.0);
+            assert!(ball.is_foul());
+            assert_ne!(ball.outbound_result, OutboundResult::GroundRuleDouble);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn backward_backstop_contact_ends_foul_without_forward_reflection() -> TestResult {
+        let stadium = Stadium::default();
+        for hla in [-175.0, 175.0] {
+            let ball = calculate_trajectory(35.0, 0.0, hla, 0.0, 0.0, &stadium)?;
+            assert_eq!(ball.outbound_result, OutboundResult::Foul);
+            let impact = ball.fence_impact_position.expect("backstop impact");
+            assert!(impact.y < 0.0);
+            assert!(ball.final_position.y < 0.0);
+            assert!(ball.first_bounce_time.is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fence_clearance_checks_foul_direction_before_bounce_award() -> TestResult {
+        // A low fence exercises both airborne and post-bounce clearance.
+        let stadium = Stadium::new(1, "Low fence".into(), 20.0, 25.0, 0.0);
+        for hla in [-60.0, 0.0, 60.0] {
+            for vla in [-10.0, 30.0] {
+                let ball = calculate_trajectory(40.0, vla, hla, 0.0, 0.0, &stadium)?;
+                assert_eq!(ball.first_bounce_time.is_some(), vla < 0.0);
+                let expected = if hla == 0.0 {
+                    if vla < 0.0 {
+                        OutboundResult::GroundRuleDouble
+                    } else {
+                        OutboundResult::HomeRun
+                    }
+                } else {
+                    OutboundResult::Foul
+                };
+                assert_eq!(ball.outbound_result, expected, "HLA {hla}, VLA {vla}");
+            }
+        }
+        Ok(())
+    }
 
     fn batter(batting_side: RL) -> BatterInfo {
         BatterInfo {

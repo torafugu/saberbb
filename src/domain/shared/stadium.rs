@@ -693,6 +693,17 @@ mod tests {
     }
 
     #[test]
+    fn fence_distance_covers_backward_angles_and_backstop() {
+        let stadium = Stadium::default();
+        for angle in (-180..=180).step_by(5) {
+            let distance = stadium.fence_distance_at_angle(f64::from(angle)).unwrap();
+            assert!(distance.is_finite() && distance > 0.0, "angle {angle}");
+        }
+        assert_f64_approx_eq(stadium.fence_distance_at_angle(180.0).unwrap(), 10.0);
+        assert_f64_approx_eq(stadium.fence_distance_at_angle(-180.0).unwrap(), 10.0);
+    }
+
+    #[test]
     fn fence_distance_at_angle_uses_actual_fence_line() {
         let stadium = Stadium::new(1, "Test Stadium".to_string(), 98.0, 120.0, 2.0);
 
