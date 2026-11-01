@@ -210,6 +210,7 @@ impl GameResult {
         batting_result: BattingResult,
     ) {
         let player_batting = PlayerGameBatting {
+            timing_position_scale: metrics.timing_position_scale,
             actual_bat_angle_deg: metrics.actual_bat_angle_deg,
             swing_decision: None,
             count_seq: count_seq,

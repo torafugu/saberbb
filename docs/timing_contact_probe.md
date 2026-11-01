@@ -12,7 +12,7 @@ SQLiteのSIN/COS/ACOSを使用する。同じSQLを再実行しても同じ結�
 各スイングから4条件（1.0/0.75/0.5/0.0）を作り、次を計算する。
 
 ```
-probe_x = contact_offset_x_m + (timing_scale - 1) * timing_impact_x_m
+probe_x = contact_offset_x_m + (timing_scale / applied_scale - 1) * timing_impact_x_m
 probe_z = contact_offset_z_m
 length = abs(probe_x*cos(angle) + probe_z*sin(angle))
 thickness = abs(-probe_x*sin(angle) + probe_z*cos(angle))
@@ -40,3 +40,7 @@ thickness = abs(-probe_x*sin(angle) + probe_z*cos(angle))
 ファウル、安打、総K率までは再シミュレーションしない。
 75%・50%は原因調査用で、採用すべき補正値を決めたものではない。
 まず1〜3本目を比較し、必要に応じて4本目でどの空振り群が残るかを確認する。
+
+75%試験導入後はtiming_scaleを元の未縮小変位に対する絶対係数とする。
+applied_scaleは記録されたtiming_position_scale（旧NULLは1.0）。
+再現性は記録に適用された係数の行で検査する。4条件のいずれかの係数の記録を対象にする。

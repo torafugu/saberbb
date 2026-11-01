@@ -17,6 +17,8 @@ use strum_macros::{AsRefStr, EnumString};
 
 // 16cm from the sweet spot toward the end of the bat
 const MAX_LENGTH_OFFSET_M: f64 = 0.16;
+/// Trial setting: change to 1.0 for the unscaled control; recorded on every swing.
+const CONTACT_TIMING_POSITION_SCALE: f64 = 0.75;
 // Standard reference swing speed (m/s)
 const REF_SWING_SPEED: f64 = 33.333;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
@@ -322,6 +324,8 @@ pub fn calculate_swing_execution_error(
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SwingContactResult {
     #[serde(default)]
+    pub timing_position_scale: Option<f64>,
+    #[serde(default)]
     pub actual_bat_angle_deg: Option<f64>,
     #[serde(default)]
     pub adapted_horizontal_offset_m: f64,
@@ -383,8 +387,21 @@ pub fn evaluate_swing_contact(
     offset: &PitchDisplacement,
     swing_execution_error: &SwingExecutionError,
 ) -> SwingContactResult {
-    // Timing delay (seconds) × bat swing speed (m/s) = X-axis impact position shift due to timing delay (m)
-    let timing_impact_x_m = batter.swing_speed * offset.timing_offset_sec;
+    evaluate_swing_contact_with_timing_scale(
+        rng, batter, offset, swing_execution_error, CONTACT_TIMING_POSITION_SCALE,
+    )
+}
+
+fn evaluate_swing_contact_with_timing_scale(
+    rng: &mut dyn RandomProvider,
+    batter: &BatterInfo,
+    offset: &PitchDisplacement,
+    swing_execution_error: &SwingExecutionError,
+    timing_position_scale: f64,
+) -> SwingContactResult {
+    assert!(timing_position_scale.is_finite() && timing_position_scale > 0.0);
+    // Scale displacement only. Keep timing_offset_sec unchanged for face-angle generation.
+    let timing_impact_x_m = batter.swing_speed * offset.timing_offset_sec * timing_position_scale;
     let offset_x_m =
         offset.horizontal_offset_m + swing_execution_error.additional_x_m + timing_impact_x_m;
     let offset_z_m = offset.vertical_offset_m + swing_execution_error.additional_z_m;
@@ -444,6 +461,7 @@ pub fn evaluate_swing_contact(
     };
 
     SwingContactResult {
+        timing_position_scale: Some(timing_position_scale),
         actual_bat_angle_deg: Some(swing_execution_error.actual_bat_angle_deg),
         adapted_horizontal_offset_m: offset.horizontal_offset_m,
         adapted_vertical_offset_m: offset.vertical_offset_m,
@@ -1143,12 +1161,12 @@ mod tests {
             assert_eq!(metrics.actual_bat_angle_deg, Some(0.0));
             assert_eq!(metrics.swing_error_x_m, Some(-0.005));
             assert_eq!(metrics.swing_error_z_m, Some(0.003));
-            assert_eq!(metrics.timing_impact_x_m, Some(-0.001 * batter.swing_speed));
+            assert_eq!(metrics.timing_impact_x_m, Some(-0.001 * batter.swing_speed * CONTACT_TIMING_POSITION_SCALE));
             assert_eq!(metrics.contact_offset_x_m, Some(contact.offset_x_m));
             assert_eq!(metrics.contact_offset_z_m, Some(contact.offset_z_m));
             assert_eq!(metrics.thickness_offset_m, Some(contact.thickness_offset_m));
             assert!(
-                (contact.offset_x_m - (horizontal_offset_m - 0.005 - 0.001 * batter.swing_speed))
+                (contact.offset_x_m - (horizontal_offset_m - 0.005 - 0.001 * batter.swing_speed * CONTACT_TIMING_POSITION_SCALE))
                     .abs()
                     < 1e-12
             );
@@ -1469,5 +1487,27 @@ mod stronger_zone_protection_tests {
             let expected = count.prob() + 0.2 - 0.2 + 0.1 - 0.4 + 0.1;
             assert!((d.score - expected).abs() < 1e-12);
         }
+    }
+}
+
+#[cfg(test)]
+mod timing_position_trial_tests {
+    use super::*;
+    use crate::domain::random_provider::FixedRng;
+    #[test]
+    fn displacement_scales_but_time_and_face_rotation_do_not() {
+        let mut batter = crate::domain::test_support::batter_info(crate::domain::shared::player::RL::Right);
+        batter.swing_speed = 40.0;
+        let offset = PitchDisplacement { timing_offset_sec: 0.005, ..Default::default() };
+        let execution = SwingExecutionError { actual_bat_angle_deg: 30.0, ..Default::default() };
+        let control = evaluate_swing_contact_with_timing_scale(&mut FixedRng::new(0.5), &batter, &offset, &execution, 1.0);
+        let trial = evaluate_swing_contact_with_timing_scale(&mut FixedRng::new(0.5), &batter, &offset, &execution, 0.75);
+        assert_eq!(trial.timing_offset_sec, control.timing_offset_sec);
+        assert!((trial.timing_impact_x_m - 0.15).abs() < 1e-12);
+        assert!((trial.offset_x_m - control.offset_x_m * 0.75).abs() < 1e-12);
+        assert_eq!(trial.actual_bat_angle_deg, control.actual_bat_angle_deg);
+        assert_eq!(trial.timing_position_scale, Some(0.75));
+        assert_eq!(calculate_timing_angle_error(trial.timing_offset_sec, 40.0, 1.1),
+                   calculate_timing_angle_error(control.timing_offset_sec, 40.0, 1.1));
     }
 }
