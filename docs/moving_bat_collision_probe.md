@@ -39,11 +39,13 @@ DBの必要列は現在のmainのスキーマを前提とする。
 
 | ファイル | 内容 |
 |---|---|
-| coverage.csv | 指定範囲、観測された最小・最大試合ID、投球数、接触数、旧診断での比較可能数、全モデル共通の比較可能数、除外数、符号付き厚みの不一致数、probe_version=2 |
+| coverage.csv | 指定範囲、観測された最小・最大試合ID、投球数、接触数、旧診断での比較可能数、全モデル共通の比較可能数、除外数、符号付き厚みの不一致数、probe_version=3 |
 | direction_coverage.csv | 前回SQLの1番目。入力不足の接触も含む全接触の方向・結果件数 |
 | direction_transitions.csv | 前回SQLの2番目。全接触の方向・結果・捕球方法の遷移表 |
 | direction_gaps.csv | 前回SQLの3番目。方向と結果に差がある接触の全件集計 |
 | excluded_inputs.csv | 衝突比較できなかった入力不足・異常値の理由別件数 |
+| impact_parameter_summary.csv | 接触種別×打席符号×絶対b/R帯×b符号×variantの入力平均・EV/VLA・方向率 |
+| impact_parameter_distribution.csv | 上記分類にEV帯・VLA帯・方向を加えた同時分布 |
 | collision_summary.csv | 接触種別×現行／診断12設定の件数・平均EV/VLA・平均絶対HLA・ファウル方向率・後方方向率 |
 | geometry_checks.csv | 法線の長さ・軸との直交・接近条件・相対運動による接触半径の誤差。係数設定による重複なし |
 | collision_distribution.csv | 接触種別×モデル×EV帯×VLA帯×打ち出し方向の同時分布 |
@@ -122,6 +124,67 @@ EV  = length(outgoing_velocity)
 HLA = degrees(atan2(vx, vy))
 VLA = degrees(atan2(vz, hypot(vx, vy)))
 ```
+
+## b・R・b/Rの読み方
+
+**bは、相対運動から求めたボール中心とバット中心軸との符号付き最接近距離。**
+通常の距離としては`abs(b)`を使う。バット表面からの距離ではなく、中心軸からの距離。
+**Rは接触可能な距離の上限で、バット半径＋ボール半径。**
+現行の近似値は0.033m＋0.037m＝**0.070m（7cm）**。
+バット半径だけを使うものではない。
+`b/R`は無次元の比で、中心寄りか、かすり気味かを比較する。
+
+| b | b/R | 円柱モデルでの意味 |
+|---|---|---|
+| 0cm | 0 | ボール中心の相対軌道がバット中心軸を通る |
+| +3.5cm | +0.5 | 一方の側へ接触半径の半分だけずれる |
+| -3.5cm | -0.5 | 反対側へ同じ距離だけずれる |
+| ±6.3cm | ±0.9 | 表面をかする接触に近い |
+| ±7cm | ±1 | 接線上でぎりぎり触れる |
+| 絶対値7cm超 | 絶対値1超 | この近似では接触しない |
+
+符号は`cross(バット軸, 接近方向)`の向きで決める。
+バットの傾き・相対入射方向・打席符号に依存するため、単純にプラスが上、マイナスが下とは限らない。
+バットの長さ方向の芯からのずれ（length offset）とは別の量。
+軸方向に同じだけ位置を動かしても、無限長円柱への最接近距離bは変わらない。
+また、従来の固定X/Z断面の`signed_thickness_offset_m`と、相対運動によるbは一般には一致しない。
+
+個別CSVの対応は次のとおり。
+
+| 意味 | 列 |
+|---|---|
+| 符号付きb（m） | impact_parameter_m。relative行に記載 |
+| R（m） | collision_radius_m。全variantで0.070 |
+| 符号付きb/R | b_over_r。共通の層別値として全variantに記載 |
+| 絶対b/Rの帯 | b_abs_band |
+| bの符号 | b_sign（negative / zero / positive） |
+
+### b/R別集計
+
+`impact_parameter_summary.csv`は、絶対値の帯を
+`0..<0.2`、`0.2..<0.4`、`0.4..<0.6`、`0.6..<0.8`、`0.8..1`に分ける。
+1ちょうどは最後の帯。境界の浮動小数点差を吸収するため、帯インデックスに1e-12の許容を置く。
+各帯をbの符号・実打席符号・接触種別・variantで分け、上下や左右の相殺を確認できるようにする。
+
+全variantを**relativeで求めた同じb/R**で層別する。
+currentやmovingの独自のbを計算したという意味ではない。
+各variantについて全帯・全符号・全接触種別を合算すると、共通比較接触数に一致する。
+符号別の行を合算せず、currentとrelativeの率だけを直接平均しない。
+率をまとめる場合は、それぞれの件数を使って加重する。
+
+入力平均はバットのface回転前の`contact_offset_x_m/z_m`、固定断面の符号付き厚み、
+再構成attack angle、保存されたtiming offset・timing impactを表示する。
+これらは世界座標の実測位置ではない。
+`avg_abs_fixed_radial`と`avg_abs_b_over_r`で、固定断面と相対運動による接近距離の違いを比較できる。
+個別には`b_over_r`、集計では`avg_b_m`と`avg_abs_b_over_r`を使う。
+
+タイミング入力がNULLの場合は欠損として、その平均の分母から除く。
+`timing_offset_recorded_contacts` / `timing_impact_recorded_contacts`も出力する。
+角度が未定義の接触は方向率・VLA率の分母に含めず、有効件数を残す。
+`impact_parameter_distribution.csv`では同じ層別でEV/VLA/方向の同時分布を確認する。
+
+基準時刻・座標系と本体の今後の接続方針は
+[接触状態の座標・時刻の定義](contact_state_coordinates.md)を参照。
 
 ## 相対運動から作る接触法線（relative_*）
 

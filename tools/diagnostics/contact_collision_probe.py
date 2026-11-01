@@ -144,6 +144,67 @@ def vla_band(vla):
     return '<0' if vla < 0 else '0..<10' if vla < 10 else '10..<25' if vla < 25 else '25..<40' if vla < 40 else '40+'
 
 
+def impact_parameter_band(b, radius=RADIUS):
+    """Absolute band plus sign; a 1e-12 bin-index tolerance stabilizes edges."""
+    if not math.isfinite(b) or not math.isfinite(radius) or radius <= 0:
+        raise ValueError('Finite impact parameter and positive radius required')
+    q = b/radius
+    if abs(q) > 1+1e-9:
+        raise ValueError('Impact parameter outside contact radius')
+    index = min(4, int(math.floor(abs(q)*5+1e-12)))
+    label = ('0..<0.2','0.2..<0.4','0.4..<0.6','0.6..<0.8','0.8..1')[index]
+    return label, 'negative' if q < 0 else 'positive' if q > 0 else 'zero'
+
+
+class ImpactBandStats:
+    """Paired b/R summaries; nullable inputs keep a separate valid count."""
+    METRICS = ('ev_ms','vla_deg','abs_vla_deg','abs_hla_deg','b_m','abs_b_over_r',
+               'contact_x_m','abs_contact_x_m','contact_z_m','abs_contact_z_m',
+               'signed_thickness_m','abs_fixed_radial','attack_deg','abs_attack_deg',
+               'timing_offset_ms','timing_impact_x_m')
+
+    def __init__(self):
+        self.n = 0
+        self.sums = Counter()
+        self.valid = Counter()
+        self.rates = Counter()
+
+    def add(self, row, geometry, entry, ev, hla, vla):
+        self.n += 1
+        timing = row.get('adapted_timing_offset_sec')
+        values = dict(ev_ms=ev,vla_deg=vla,abs_vla_deg=abs(vla) if vla is not None else None,
+            abs_hla_deg=abs(hla) if hla is not None else None,b_m=entry['impact_parameter_m'],
+            abs_b_over_r=abs(entry['impact_parameter_m'])/RADIUS,
+            contact_x_m=row['contact_offset_x_m'],abs_contact_x_m=abs(row['contact_offset_x_m']),
+            contact_z_m=row['contact_offset_z_m'],abs_contact_z_m=abs(row['contact_offset_z_m']),
+            signed_thickness_m=geometry['signed_thickness_m'],
+            abs_fixed_radial=abs(geometry['signed_thickness_m'])/RADIUS,
+            attack_deg=geometry['attack_deg'],abs_attack_deg=abs(geometry['attack_deg']),
+            timing_offset_ms=timing*1000 if timing is not None else None,
+            timing_impact_x_m=row.get('timing_impact_x_m'))
+        for name,value in values.items():
+            if isinstance(value,(int,float)) and math.isfinite(value):
+                self.sums[name] += value
+                self.valid[name] += 1
+        self.rates['foul_direction'] += hla is not None and abs(hla) >= 45
+        self.rates['backward_direction'] += hla is not None and abs(hla) >= 90
+        self.rates['vla_lt0'] += vla is not None and vla < 0
+        self.rates['vla_10_25'] += vla is not None and 10 <= vla < 25
+
+    def report(self):
+        row = dict(contacts=self.n)
+        for name in self.METRICS:
+            row['avg_'+name] = self.sums[name]/self.valid[name] if self.valid[name] else None
+        row['defined_hla_contacts'] = self.valid['abs_hla_deg']
+        row['defined_vla_contacts'] = self.valid['vla_deg']
+        row['timing_offset_recorded_contacts'] = self.valid['timing_offset_ms']
+        row['timing_impact_recorded_contacts'] = self.valid['timing_impact_x_m']
+        for key,denom in [('foul_direction','abs_hla_deg'),('backward_direction','abs_hla_deg'),
+                          ('vla_lt0','vla_deg'),('vla_10_25','vla_deg')]:
+            row[key+'_pct'] = 100*self.rates[key]/self.valid[denom] if self.valid[denom] else None
+        return row
+
+
 def write_csv(path, fields, rows):
     with path.open('x', newline='', encoding='utf-8') as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
@@ -190,6 +251,8 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
         grouped = defaultdict(lambda: dict(n=0, ev=0.0, hla=0.0, hla_n=0, vla=0.0, vla_abs=0.0, vla_negative=0, vla_10_25=0, vla_n=0,
                                            foul=0, backward=0, separating=0, current_fouls=0))
         distribution = Counter()
+        impact_groups = defaultdict(ImpactBandStats)
+        impact_distribution = Counter()
         geometry_checks = defaultdict(lambda: dict(contacts=0, max_abs_normal_axis_dot=0.0,
             max_normal_length_error=0.0, max_positive_relative_normal_ms=0.0,
             max_contact_radius_error_m=None))
@@ -199,7 +262,7 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                   'nx','ny','nz','bat_vx_ms','bat_vy_ms','bat_vz_ms',
                   'geometry_model','axis_x','axis_y','axis_z','offset_x_m','offset_y_m','offset_z_m',
                   'impact_parameter_m','relative_transverse_speed_ms','closest_approach_time_sec',
-                  'first_contact_time_offset_sec','contact_radius_error_m',
+                  'first_contact_time_offset_sec','contact_radius_error_m','collision_radius_m','b_over_r','b_abs_band','b_sign',
                   'relative_normal_ms','normal_delta_v_ms','out_vx_ms','out_vy_ms','out_vz_ms',
                   'ev_ms','hla_deg','vla_deg','launch_direction','current_ev_ms','current_hla_deg',
                   'current_vla_deg','current_result']
@@ -219,6 +282,7 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                 if reason:
                     reasons[reason] += 1
                     continue
+                b_band, b_sign = impact_parameter_band(entry['impact_parameter_m'])
                 counts['comparable_contacts'] += 1
                 counts['signed_thickness_mismatches'] += geometry['signed_thickness_mismatch']
                 for model, normal in [('moving', geometry['normal']), ('relative', entry['normal'])]:
@@ -257,6 +321,9 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                     group['separating'] += relative is not None and relative >= 0
                     group['current_fouls'] += row['result'] == 'Foul'
                     distribution[(key[0],variant,ev_band(ev),vla_band(vla),direction(hla))] += 1
+                    impact_key = (key[0],row['hla_handedness_sign'],b_band,b_sign,variant)
+                    impact_groups[impact_key].add(row,geometry,entry,ev,hla,vla)
+                    impact_distribution[impact_key+(ev_band(ev),vla_band(vla),direction(hla))] += 1
                     record = dict(game_id=row['game_id'],count_seq=row['count_seq'],
                         adjusted_contact_type=key[0],hla_handedness_sign=row['hla_handedness_sign'],variant=variant,
                         restitution=e,effective_mass_kg=mass,pitch_speed_proxy_ms=row['pitch_speed'],
@@ -265,7 +332,8 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                         signed_thickness_mismatch=geometry['signed_thickness_mismatch'],
                         nx=normal[0] if model != 'current' else None,
                         ny=normal[1] if model != 'current' else None,nz=normal[2] if model != 'current' else None,
-                        geometry_model=model,
+                        geometry_model=model,collision_radius_m=RADIUS,
+                        b_over_r=entry['impact_parameter_m']/RADIUS,b_abs_band=b_band,b_sign=b_sign,
                         axis_x=geometry['axis'][0],axis_y=geometry['axis'][1],axis_z=geometry['axis'][2],
                         offset_x_m=geometry['offset'][0],offset_y_m=geometry['offset'][1],offset_z_m=geometry['offset'][2],
                         impact_parameter_m=entry['impact_parameter_m'] if model == 'relative' else None,
@@ -281,7 +349,7 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                         current_ev_ms=row['launch_speed'],current_hla_deg=row['final_hla_deg'],
                         current_vla_deg=row['launch_angle'],current_result=row['result'])
                     writer.writerow(record)
-        coverage = dict(probe_version=2,first_game_id=first,last_game_id=last,**pitch_info,
+        coverage = dict(probe_version=3,first_game_id=first,last_game_id=last,**pitch_info,
                         contacts=counts['contacts'],old_comparable_contacts=counts['old_comparable_contacts'],
                         comparable_contacts=counts['comparable_contacts'],
                         excluded_contacts=counts['contacts']-counts['comparable_contacts'],
@@ -314,6 +382,13 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                   ['adjusted_contact_type','variant','ev_band','vla_band','launch_direction','contacts'],
                   [dict(adjusted_contact_type=k[0],variant=k[1],ev_band=k[2],vla_band=k[3],
                         launch_direction=k[4],contacts=v) for k,v in sorted(distribution.items())])
+        impact_keys = ['adjusted_contact_type','hla_handedness_sign','b_abs_band','b_sign','variant']
+        impact_fields = impact_keys+list(ImpactBandStats().report())
+        write_csv(output/'impact_parameter_summary.csv',impact_fields,
+                  [dict(zip(impact_keys,k),**g.report()) for k,g in sorted(impact_groups.items())])
+        distribution_keys = impact_keys+['ev_band','vla_band','launch_direction']
+        write_csv(output/'impact_parameter_distribution.csv',distribution_keys+['contacts'],
+                  [dict(zip(distribution_keys,k),contacts=n) for k,n in sorted(impact_distribution.items())])
         return coverage
     finally:
         db.close()
