@@ -10,6 +10,8 @@ from pathlib import Path
 from contact_collision_probe import (angles, collide, direction, dot, ev_band,
                                      relative_contact_geometry, vla_band, write_csv)
 
+from contact_state_miss import diagnose, write_reports
+
 SOURCE = 'plate_constant_accel_linear_bat_world_aim_proxy_v1'
 
 
@@ -74,7 +76,7 @@ def run(db_path, first, last, output):
         output=Path(output)
         output.mkdir(parents=True,exist_ok=False)
         coverage=Counter();statuses=Counter();checks=defaultdict(float)
-        summary=defaultdict(Counter);dist=Counter();details=[]
+        summary=defaultdict(Counter);dist=Counter();details=[];miss_records=[]
         for row in rows:
             coverage['swings']+=1
             kind=row['adjusted_contact_type']
@@ -100,6 +102,7 @@ def run(db_path, first, last, output):
                 checks[key]=max(checks[key],value)
             source=state['input'];axis=state['bat_axis_world'];bat=state['bat_velocity_world_ms']
             entry,reason=relative_contact_geometry(source['ball_velocity_world_ms'],bat,axis,relative)
+            miss_records.append(diagnose(row,state,relative,entry,reason))
             if reason:
                 statuses[kind,reason]+=1
                 continue
@@ -164,6 +167,7 @@ def run(db_path, first, last, output):
                 'new_relative_y_m','new_relative_z_m','b_over_r','time_offset_sec','time_since_release_sec',
                 'axial_at_entry_m','within_legacy_axial_window']
         write_csv(output/'state_contacts.csv',fields,details)
+        write_reports(output,miss_records)
         return cover
     finally:
         db.close()

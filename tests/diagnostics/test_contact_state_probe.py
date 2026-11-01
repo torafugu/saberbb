@@ -91,6 +91,12 @@ class ContactStateTest(unittest.TestCase):
             self.assertFalse(any(r['variant']=='current' and r['adjusted_contact_type']=='SwungAndMiss' for r in summaries))
             self.assertEqual(sum(int(r['contacts']) for r in read('state_collision_distribution.csv')),19)
             self.assertEqual(len(read('state_contacts.csv')),3)
+            miss_rows=read('state_miss_contacts.csv')
+            self.assertEqual(len(miss_rows),3)
+            # Fixture deliberately has identical offsets with different saved classifications.
+            self.assertTrue(any(r['classification_consistent']=='0' for r in miss_rows))
+            totals=[r for r in read('state_miss_summary.csv') if r['timing_band']=='all']
+            self.assertEqual(sum(int(r['valid_states']) for r in totals),3)
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
             with self.assertRaises(FileExistsError):probe.run(path,10,10,output)
             empty=probe.run(path,20,30,folder/'empty')
