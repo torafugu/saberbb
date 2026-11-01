@@ -142,3 +142,86 @@ Rustでは位相反映・左右鏡映・不正入力・DB往復・旧GameResult�
 
 本体の接触結果をこの近似で置き換える実装、スイングの回転軌道・有限長・摩擦・スピンは次段階。
 元の試合結果との違いは診断として保持する。
+
+## 旧miss原因とタイミング位相の比較
+
+`contact_state_probe.py`は追加で次の2ファイルを出力する。
+保存済み状態を読むだけなので、状態v1が保存されている24112～24471については、
+DB更新・試合の再生成なしで実行できる。
+出力先には以前と異なる、新しいディレクトリを指定する。
+
+```sh
+python3 tools/diagnostics/contact_state_probe.py --db "/path/to/saberbb.db" --first-game-id 24112 --last-game-id 24471 --output-dir ../saberbb_contact_state_miss
+```
+
+| 出力 | 内容 |
+|---|---|
+| state_miss_summary.csv | 旧ContactType × 再構成した旧miss原因 × 絶対タイミング帯ごとの交差率・b/R・時刻・軸位置・相関 |
+| state_miss_contacts.csv | 有効状態1球1行。交差なしも残し、タイミング0との個別比較を出力 |
+
+旧判定の再構成は、保存した旧X/Zと実行バット角θから行う。
+旧接触判定に合わせ、ここでは打席符号を掛け直さない。
+
+```text
+length = old_x*cos(θ) + old_z*sin(θ)
+thickness = -old_x*sin(θ) + old_z*cos(θ)
+abs(length) > 0.16m       => length_miss
+上記以外でabs(thickness) > 0.07m => thickness_miss
+それ以外                  => contact
+```
+
+長さと厚みの両方が超過していても、現行コードの順序でlength_missとする。
+境界ちょうどは超過ではない。contact内のSolid/Weak/Marginal分類や乱数は再実行しない。
+`classification_mismatches`は旧幾何学判定と保存ContactTypeの接触／空振りが異なる件数。
+最初にこの値が0であることを確認する。UnrecordedBattingは照合対象外（NULL）とする。
+
+集計の`valid_states`は有効状態全体で、交差しなかった状態も分母に含む。
+欠損・無効状態は既存state_status.csvに残す。
+タイミング帯は絶対値の0..<2、2..<5、5..<10、10..<15、15..<25、25ms以上。
+`timing_band=all`は同じグループの全帯域合計なので、各帯域と合算しない。
+
+### 同じ球のタイミングだけ0にする比較
+
+世界座標の速度・バット軸・狙い誤差はそのままに、相対位置を
+`r = aim_error + v_bat*timing_offset`から`r0 = aim_error`に変える。
+旧Xや旧ContactTypeは変更しない。ゲーム結果を再生する比較ではない。
+
+| 主な列 | 定義・分母 |
+|---|---|
+| intersection_pct | 全有効状態に対する、実タイミングでの円柱交差率 |
+| zero_timing_intersections | タイミングだけ0にした場合の交差件数 |
+| gained_with_timing / lost_with_timing | 0では非交差→実タイミングで交差／その逆の件数 |
+| avg_abs_b_over_r / avg_abs_delta_b_over_r | 横断速度が非ゼロの状態について、実タイミングの絶対b/R／0との差の絶対値の平均 |
+| avg_first_entry_offset_ms | 交差した球の、基準時刻から初回進入までの符号付き時刻差 |
+| avg_delta_first_entry_ms | 両条件で交差した球のみについて、実タイミングの初回進入時刻−0条件の時刻 |
+| within_legacy_axial_window_pct | 実タイミングで交差した球のうち、交差時の軸方向位置が±0.16m内の割合 |
+| timing_entry_pearson_r / timing_entry_slope_ms_per_ms | 実タイミングで交差した球について、符号付きタイミング誤差と初回進入時刻差のPearson相関／切片ありOLS傾き |
+| timing_b_pearson_r / timing_b_slope_per_ms | 横断速度が非ゼロの状態について、符号付きタイミング誤差と符号付きb/Rの相関／OLS傾き |
+
+時刻の平均・相関の分母は`cylinder_intersections`、bの分母は`geometry_states`、
+両条件の時刻差の分母は`paired_intersections`。未定義の値は空欄にする。
+相関は異なる球の投球・スイング条件も含むので、因果効果そのものではない。
+同じ球の0条件との差と、次の解析的な感度を併せて読む。
+
+### 直線移動モデルにおける解析的な感度
+
+aを単位バット軸、uを相対速度、w=u−a(u·a)、V=|w|とする。
+接触面の接線は`tangent = cross(a, -w/V)`。
+
+```text
+b(Δ) = aim_error·tangent + (v_bat·tangent)*Δ
+closest_time(Δ) = -aim_error·w/V² - (v_bat·w/V²)*Δ
+```
+
+`db_dtiming_mm_per_ms`は各球の`v_bat·tangent`で、数値としてm/sとmm/msは同じ。
+`closest_time_slope_ms_per_ms`は各球の`-v_bat·w/V²`。
+これらと0条件を使った再構成誤差の最大値も集計に残す。
+初回進入時刻はbに依存する平方根項を持つため、最接近時刻の傾きとは区別する。
+
+例えばボール(0,-40,0)m/s、バット(0,40,0)m/s、軸(1,0,0)なら、
+タイミングを20ms遅らせてもbは変わらず、最接近と初回進入が10ms遅れる。
+固定軸の直線運動を無制限に延長すると、このように位相誤差が接触時刻へ吸収されうる。
+
+円柱は引き続き無限長・時間窓制限なしであり、±0.16mは参考フラグ。
+交差率をContact率に読み替えず、タイミング感度・軸位置・交差時刻を確認してから、
+回転軌道や有効な探索区間の設計へ進む。係数調整や本体の採否変更はこの診断には含めない。
