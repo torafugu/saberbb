@@ -54,15 +54,9 @@ def validate_state(state):
     return reconstructed_r,checks
 
 
-def run(db_path, first, last, output):
-    if first>last:
-        raise ValueError('Invalid game range')
-    db = sqlite3.connect(Path(db_path).resolve().as_uri()+'?mode=ro',uri=True)
-    db.row_factory=sqlite3.Row
-    try:
-        db.execute('PRAGMA query_only=ON')
-        db.execute('BEGIN')
-        rows=db.execute('''WITH keys AS (
+def read_rows(db, first, last):
+    """Union of swing-result keys and saved-state keys in one read snapshot."""
+    return db.execute('''WITH keys AS (
             SELECT game_id,count_seq FROM player_game_batting
             WHERE game_id BETWEEN ? AND ? AND adjusted_contact_type IN
               ('SwungAndMiss','SolidContact','WeakContact','MarginalContact')
@@ -73,6 +67,17 @@ def run(db_path, first, last, output):
             FROM keys k LEFT JOIN player_game_batting b ON b.game_id=k.game_id AND b.count_seq=k.count_seq
             LEFT JOIN player_game_contact_state s ON s.game_id=k.game_id AND s.count_seq=k.count_seq
             ORDER BY k.game_id,k.count_seq''',(first,last,first,last))
+
+
+def run(db_path, first, last, output):
+    if first>last:
+        raise ValueError('Invalid game range')
+    db = sqlite3.connect(Path(db_path).resolve().as_uri()+'?mode=ro',uri=True)
+    db.row_factory=sqlite3.Row
+    try:
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
+        rows=read_rows(db,first,last)
         output=Path(output)
         output.mkdir(parents=True,exist_ok=False)
         coverage=Counter();statuses=Counter();checks=defaultdict(float)
