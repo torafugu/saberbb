@@ -155,6 +155,12 @@ impl GameResultWriter for SqlGameRepository {
                 insert_player_game_batting(&self.db_client, tx, game.id, player_game_batting)?;
             }
 
+            for state in &game.player_contact_states {
+                crate::repositories::sql_helper::game_stat_helper::insert_contact_state(
+                    &self.db_client, tx, game.id, state,
+                )?;
+            }
+
             for player_game_fielding in &game.player_fieldings {
                 insert_player_game_fielding(&self.db_client, tx, game.id, player_game_fielding)?;
             }
@@ -1029,6 +1035,7 @@ mod tests {
         conn.execute_batch(include_str!(
             "../../migrations/ddl/player_game_fielding_candidate_table.sql"
         )).unwrap();
+        conn.execute_batch(include_str!("../../migrations/ddl/player_game_contact_state_table.sql")).unwrap();
         drop(conn);
 
         let manager = SqliteManager::from_path(path.clone());
@@ -1782,6 +1789,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
@@ -1949,6 +1957,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fielding_candidates: [filtered, evaluated, negative, selected, probed].into_iter()
                 .map(|diagnostics| PlayerGameFieldingCandidate { count_seq: 160, diagnostics })
                 .collect(),
@@ -2037,8 +2046,50 @@ mod tests {
         // Old serialized GameResult values remain readable without this new collection.
         let mut json = serde_json::to_value(&game).unwrap();
         json.as_object_mut().unwrap().remove("player_fielding_candidates");
+        json.as_object_mut().unwrap().remove("player_contact_states");
         let legacy: GameResult = serde_json::from_value(json).unwrap();
         assert!(legacy.player_fielding_candidates.is_empty());
+        assert!(legacy.player_contact_states.is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn contact_state_snapshot_and_invalid_row_round_trip() {
+        use crate::domain::shared::contact_state::{ContactStateInput, ContactStateRecord, snapshot};
+        let (repo, path) = setup_repo();
+        let state = snapshot(ContactStateInput {
+            reference_time_sec_since_release: 0.4,
+            ball_position_world_m: [0.0, 0.0, 0.9],
+            ball_velocity_world_ms: [1.0, -38.0, -2.0],
+            bat_speed_ms: 35.0, bat_angle_deg: 30.0, attack_angle_deg: 10.0,
+            handedness_sign: 1.0, aim_error_world_m: [0.003, 0.0, 0.001],
+            timing_offset_sec: 0.003, legacy_timing_impact_x_m: 0.1,
+            legacy_contact_offset_xz_m: [0.103, 0.001], legacy_timing_position_scale: Some(0.75),
+        }).unwrap();
+        let mut connection = conn(&repo);
+        let tx = connection.transaction().unwrap();
+        let valid = ContactStateRecord { count_seq: 1, state_version: 1,
+            state_source: "test".into(), invalid_reason: None, state: Some(state) };
+        let invalid = ContactStateRecord { count_seq: 2, state_version: 1,
+            state_source: "test".into(), invalid_reason: Some("invalid_pitch_flight_time".into()), state: None };
+        for record in [&valid, &invalid] {
+            crate::repositories::sql_helper::game_stat_helper::insert_contact_state(
+                &repo.db_client, &tx, 1, record,
+            ).unwrap();
+        }
+        tx.commit().unwrap();
+        let payload: String = connection.query_row(
+            "SELECT state_json FROM player_game_contact_state WHERE count_seq=1", [], |r| r.get(0),
+        ).unwrap();
+        let restored: crate::domain::shared::contact_state::ContactStateSnapshot =
+            serde_json::from_str(&payload).unwrap();
+        assert_eq!(restored.relative_position_world_m[0], 0.003);
+        assert!(restored.relative_position_world_m[1] > 0.0);
+        let invalid_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM player_game_contact_state WHERE invalid_reason IS NOT NULL AND state_json IS NULL", [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(invalid_count, 1);
+        drop(connection);
         std::fs::remove_file(path).ok();
     }
 
@@ -2135,6 +2186,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
@@ -2230,6 +2282,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
@@ -2369,6 +2422,7 @@ mod tests {
                 result: BattingResult::Single,
             }],
             player_fieldings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };
@@ -2447,6 +2501,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_fieldings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),
         };

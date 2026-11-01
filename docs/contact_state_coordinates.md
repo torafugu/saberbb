@@ -2,7 +2,8 @@
 
 本体の接触判定を3次元の衝突モデルへ接続するための設計整理。
 現状の実装と、今後採用する状態の契約を分ける。
-この文書によって本体の挙動やDB列を変更したわけではない。
+状態の近似生成・JSON保存は[同一時計の3D接触状態](contact_state_shadow.md)で実装した。
+以下の契約のうち、回転・有限長・実際の接触判定への適用は将来設計として残る。
 
 ## 現状の値は何を表すか
 
@@ -23,7 +24,7 @@
 実装の参照先:
 
 - `src/domain/resolver/pitching_resolver.rs`: calculate_flight_time、calculate_timing_offset、PitchDisplacement。
-- `src/domain/resolver/batting_resolver.rs`: adapt_pitch_offset、evaluate_swing_contact_with_timing_scale、calculate_launch_angles、calculate_effective_c_swing。
+- `src/domain/resolver/batting_resolver.rs`: adapt_to_pitch、evaluate_swing_contact_with_timing_scale、calculate_launch_angles、calculate_effective_c_swing。
 - `src/domain/shared/ball.rs`: PitchedBall::velocity_at_plate。
 
 現行の接触位置と角度は、判定モデル内の有効な値として保存されている。
@@ -63,7 +64,8 @@
 
 ### ボールとバットの状態
 
-以下は今後の候補フィールドであり、現行DBに追加済みの列ではない。
+以下は状態契約の候補名。近似実装では一部をstate_json内の項目として保存している。
+すべてが同名のDB列になったわけではない。
 
 | 候補 | 定義 |
 |---|---|
@@ -130,5 +132,6 @@ length方向の位置と、接触点のバット速度・有効質量との関�
 
 固定軸・一定速度の診断関数については、基準時刻をずらしても絶対接触時刻・位置・法線が一致する回帰テストを追加した。
 
-今回の改修で追加するのはb/R別の診断集計、この定義整理と診断関数の検証まで。
-上記の本体状態生成・保存・有限長バット探索は、未実装の次段階として扱う。
+b/R別の診断集計と、この定義に基づく固定軸・並進バットの近似状態生成・保存まで実装した。
+回転する有限長バットの探索や本体の接触判定の置き換えは未実装。
+生成方法の仮定と新規データの取得手順は[実装手順](contact_state_shadow.md)を参照。
