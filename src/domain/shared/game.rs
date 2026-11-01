@@ -113,6 +113,8 @@ pub struct GameResult {
     pub player_entries: Vec<PlayerGameEntry>,
     pub player_pitchings: Vec<PlayerGamePitching>,
     pub player_battings: Vec<PlayerGameBatting>,
+    #[serde(default)]
+    pub player_contact_states: Vec<super::contact_state::ContactStateRecord>,
     pub player_fieldings: Vec<PlayerGameFielding>,
     #[serde(default)]
     pub player_fielding_candidates: Vec<PlayerGameFieldingCandidate>,
@@ -135,6 +137,7 @@ impl GameResult {
             player_entries,
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
+            player_contact_states: Vec::new(),
             player_fieldings: Vec::new(),
             player_fielding_candidates: Vec::new(),
             player_runnings: Vec::new(),

@@ -915,6 +915,12 @@ impl GameState {
                 &batting_factor,
             );
 
+            self.game_result.player_contact_states.push(
+                crate::domain::shared::contact_state::build_contact_state(
+                    decision_count_seq, &batter, &pitched_ball, &swing_contact,
+                ),
+            );
+
             if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
                 self.resolve_swing_miss(pitcher_id, batter_id, &swing_contact);
             } else {

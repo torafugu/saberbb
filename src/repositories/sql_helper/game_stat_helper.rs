@@ -1020,3 +1020,21 @@ impl FromRow for PlayerGameRunningView {
         Ok(player_game_running_view)
     }
 }
+
+/// Persist the diagnostic snapshot in the same transaction as the game result.
+pub fn insert_contact_state(
+    db_client: &DbClient,
+    tx: &Transaction,
+    game_id: u32,
+    record: &crate::domain::shared::contact_state::ContactStateRecord,
+) -> Result<usize, AppError> {
+    let payload = record.state.as_ref().map(serde_json::to_string)
+        .transpose().map_err(anyhow::Error::from)?;
+    db_client.execute_tx(tx,
+        "INSERT INTO player_game_contact_state
+            (game_id,count_seq,state_version,state_source,invalid_reason,state_json)
+         VALUES (?1,?2,?3,?4,?5,?6)",
+        params![game_id, record.count_seq, record.state_version, record.state_source,
+            record.invalid_reason, payload],
+    )
+}
