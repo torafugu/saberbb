@@ -34,6 +34,31 @@ class HlaComponentsTest(unittest.TestCase):
         c=self.db.execute(self.queries[i],dict(first_game_id=1,last_game_id=1))
         return [dict(zip([x[0] for x in c.description],r)) for r in c]
 
+    def test_comparison_queries_run_on_both_versions(self):
+        self.add(1,'SolidContact',1,0,0,0)
+        self.add(2,'WeakContact',1,0,0,0)
+        self.db.execute('UPDATE player_game_batting SET game_id=2,hla_model_version=2 WHERE count_seq=2')
+        sql=(ROOT/'sql/diagnostics/compare_contact_normal_hla.sql').read_text()
+        queries=[q for q in re.sub(r'^--.*$', '', sql, flags=re.M).split(';') if q.strip()]
+        params=dict(before_first_game_id=1,before_last_game_id=1,after_first_game_id=2,after_last_game_id=2)
+        for q in queries:
+            self.assertEqual(len(self.db.execute(q,params).fetchall()),2)
+
+    def test_version_two_replay_uses_signed_local_geometry_and_wraps(self):
+        for seq, sign in [(1,1),(2,-1)]:
+            self.add(seq,'WeakContact',sign,10,.001,0.01)
+            angle=30.0
+            x,z=0.01,0.06
+            radial=(-x*math.sin(math.radians(angle))+z*math.cos(math.radians(angle)))/.07
+            ny=math.sqrt(1-radial*radial)
+            nx=-math.sin(math.radians(angle))*radial
+            rebound=math.degrees(math.atan2(2*ny*nx,2*ny*ny-1))
+            expected=(((2-3+10)*.85+rebound)*sign+180)%360-180
+            self.db.execute('UPDATE player_game_batting SET hla_model_version=2, actual_bat_angle_deg=?,contact_offset_z_m=?,final_hla_deg=? WHERE count_seq=?',
+                            (angle,z,expected,seq))
+        self.assertEqual(self.query(0)[0]['hla_mismatches'],0)
+        self.assertEqual(len(self.query(1)),2)
+
     def test_signed_replay_clamping_legacy_and_fixed_draw_comparison(self):
         self.add(1,'MarginalContact',1,40,.001,.1)
         self.add(2,'MarginalContact',-1,40,.001,.1)
