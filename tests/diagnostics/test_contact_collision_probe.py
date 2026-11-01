@@ -138,6 +138,22 @@ class RelativeGeometryTest(unittest.TestCase):
                     for actual,value in zip(mirrored['normal'],mirror(entry['normal'])):
                         self.assertAlmostEqual(actual,value)
 
+    def test_reference_time_shift_preserves_absolute_contact(self):
+        incoming,bat,axis,offset = (0,-40,0),(0,35,5),(1,0,0),(.04,0,.03)
+        entry,reason = probe.relative_contact_geometry(incoming,bat,axis,offset)
+        self.assertIsNone(reason)
+        dt = .002
+        relative = tuple(i-b for i,b in zip(incoming,bat))
+        shifted = tuple(o+v*dt for o,v in zip(offset,relative))
+        later,reason = probe.relative_contact_geometry(incoming,bat,axis,shifted)
+        self.assertIsNone(reason)
+        self.assertAlmostEqual(entry['first_contact_time_offset_sec'],dt+later['first_contact_time_offset_sec'])
+        for actual,expected in zip(entry['normal'],later['normal']):
+            self.assertAlmostEqual(actual,expected)
+        for o,v,new_o in zip(offset,relative,shifted):
+            self.assertAlmostEqual(o+v*entry['first_contact_time_offset_sec'],
+                                   new_o+v*later['first_contact_time_offset_sec'])
+
     def test_degenerate_and_no_intersection_are_explicit(self):
         geometry,reason = probe.relative_contact_geometry((1,0,0),(0,0,0),(1,0,0),(0,0,0))
         self.assertIsNone(geometry)
@@ -149,6 +165,40 @@ class RelativeGeometryTest(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertAlmostEqual(grazing['closest_approach_time_sec'],grazing['first_contact_time_offset_sec'])
         self.assertAlmostEqual(grazing['normal'][1],0)
+
+
+class ImpactParameterBandTest(unittest.TestCase):
+    def test_signed_bins_edges_and_radius_units(self):
+        for sign in (-1,1):
+            for q,expected in [(0,'0..<0.2'),(.199,'0..<0.2'),(.2,'0.2..<0.4'),
+                               (.4,'0.4..<0.6'),(.6,'0.6..<0.8'),(.8,'0.8..1'),(1,'0.8..1')]:
+                band,side = probe.impact_parameter_band(sign*q*.07)
+                self.assertEqual(band,expected)
+                self.assertEqual(side,'zero' if not q else 'negative' if sign<0 else 'positive')
+        self.assertEqual(probe.impact_parameter_band(.035),('0.4..<0.6','positive'))
+        for b,r in [(math.nan,.07),(.08,.07),(0,0)]:
+            with self.assertRaises(ValueError):
+                probe.impact_parameter_band(b,r)
+
+    def test_means_denominators_and_zero_vs_missing_inputs(self):
+        row = contact(contact_offset_z_m=.03)
+        geometry,_ = probe.prepare(row)
+        entry,_ = probe.relative_contact_geometry(geometry['incoming'],geometry['bat'],geometry['axis'],geometry['offset'])
+        stats = probe.ImpactBandStats()
+        stats.add(row,geometry,entry,40,None,None)
+        stats.add(dict(row,adapted_timing_offset_sec=0,timing_impact_x_m=0),geometry,entry,50,50,20)
+        stats.add(dict(row,adapted_timing_offset_sec=.01,timing_impact_x_m=.2),geometry,entry,60,0,-10)
+        report = stats.report()
+        self.assertEqual(report['contacts'],3)
+        self.assertEqual(report['avg_ev_ms'],50)
+        self.assertEqual(report['defined_hla_contacts'],2)
+        self.assertEqual(report['foul_direction_pct'],50)
+        self.assertEqual(report['vla_lt0_pct'],50)
+        self.assertEqual(report['avg_vla_deg'],5)
+        self.assertEqual(report['avg_abs_vla_deg'],15)
+        self.assertEqual(report['timing_offset_recorded_contacts'],2)
+        self.assertEqual(report['avg_timing_offset_ms'],5)
+        self.assertEqual(report['avg_timing_impact_x_m'],.1)
 
 
 class DatabaseReportTest(unittest.TestCase):
@@ -191,12 +241,26 @@ class DatabaseReportTest(unittest.TestCase):
             self.assertEqual(coverage['comparable_contacts'],3)
             self.assertEqual(coverage['excluded_contacts'],2)
             self.assertEqual(coverage['pitches'],5)
-            self.assertEqual(coverage['probe_version'],2)
+            self.assertEqual(coverage['probe_version'],3)
             self.assertEqual(coverage['trial_variants'],12)
             self.assertEqual(coverage['old_comparable_contacts'],4)
             def read(name):
                 with (out/name).open() as f:
                     return list(csv.DictReader(f))
+            impact_summary = read('impact_parameter_summary.csv')
+            impact_distribution = read('impact_parameter_distribution.csv')
+            from collections import Counter
+            totals = Counter()
+            for r in impact_summary:
+                totals[r['variant']] += int(r['contacts'])
+            self.assertEqual(len(totals),13)
+            self.assertTrue(all(n==3 for n in totals.values()))
+            distributed = Counter()
+            for r in impact_distribution:
+                distributed[r['variant']] += int(r['contacts'])
+            self.assertEqual(distributed,totals)
+            self.assertTrue(all(r['b_abs_band']=='0..<0.2' and r['b_sign']=='zero' for r in impact_summary))
+            self.assertTrue(all(r['avg_timing_offset_ms']=='' and r['timing_offset_recorded_contacts']=='0' for r in impact_summary))
             summaries = read('collision_summary.csv')
             self.assertEqual(len(summaries),39)
             self.assertTrue(all(int(r['contacts'])==1 for r in summaries))
