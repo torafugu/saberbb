@@ -14,18 +14,20 @@ Python標準ライブラリだけで実行でき、DB移行や試合の再生成
 リポジトリのルートで実行する。DBパスと試合IDの数値は実データに置き換える。
 範囲は両端を含み、**前回28,502接触を集計したafter範囲と同じ範囲**を指定する。
 添付例の23689だけを指定した117接触の範囲とは区別する。
+確認済みの修正後範囲は23689～24048（28,502接触）。
 
 ```sh
-python3 tools/diagnostics/contact_collision_probe.py --db /path/to/saberbb.db --first-game-id 100 --last-game-id 200 --output-dir ../saberbb_after_collision_probe
+python3 tools/diagnostics/contact_collision_probe.py --db /path/to/saberbb.db --first-game-id 23689 --last-game-id 24048 --output-dir ../saberbb_after_relative_probe
 ```
 
-100～200は構文例であり、実際のafter範囲ではない。
+上記の試合IDは今回確認済みのafter範囲。別のデータセットでは対応する範囲へ変更する。
 Windowsで`python3`がない場合は`python`に読み替える。
 パスに空白がある場合は引用符で囲む。出力先は新しいディレクトリを指定し、
 既存ディレクトリや前回の出力を上書きしない。
 DBの必要列は現在のmainのスキーマを前提とする。
 
 デフォルトは反発係数0.3 / 0.5 / 0.7と、有効バット質量0.3 / 0.6kgの6組。
+固定断面の`moving_*`と相対運動に基づく`relative_*`それぞれに適用するため、診断は計12設定。
 感度を見るための仮の値であり、現実の打球データで校正した値ではない。
 任意の組み合わせに変えるには次のオプションを追加する。
 
@@ -37,14 +39,15 @@ DBの必要列は現在のmainのスキーマを前提とする。
 
 | ファイル | 内容 |
 |---|---|
-| coverage.csv | 指定範囲、観測された最小・最大試合ID、投球数、接触数、比較可能数、除外数、符号付き厚みの不一致数 |
+| coverage.csv | 指定範囲、観測された最小・最大試合ID、投球数、接触数、旧診断での比較可能数、全モデル共通の比較可能数、除外数、符号付き厚みの不一致数、probe_version=2 |
 | direction_coverage.csv | 前回SQLの1番目。入力不足の接触も含む全接触の方向・結果件数 |
 | direction_transitions.csv | 前回SQLの2番目。全接触の方向・結果・捕球方法の遷移表 |
 | direction_gaps.csv | 前回SQLの3番目。方向と結果に差がある接触の全件集計 |
 | excluded_inputs.csv | 衝突比較できなかった入力不足・異常値の理由別件数 |
-| collision_summary.csv | 接触種別×現行／診断6組の件数・平均EV/VLA・平均絶対HLA・ファウル方向率・後方方向率 |
+| collision_summary.csv | 接触種別×現行／診断12設定の件数・平均EV/VLA・平均絶対HLA・ファウル方向率・後方方向率 |
+| geometry_checks.csv | 法線の長さ・軸との直交・接近条件・相対運動による接触半径の誤差。係数設定による重複なし |
 | collision_distribution.csv | 接触種別×モデル×EV帯×VLA帯×打ち出し方向の同時分布 |
-| collision_contacts.csv | 同一接触ごとの入力、法線、バット速度、衝突後速度、HLA/VLA/EV。現行を含む7行／比較可能接触 |
+| collision_contacts.csv | 同一接触ごとの入力、法線、バット速度、衝突後速度、HLA/VLA/EV。現行を含む13行／共通比較可能接触 |
 
 最初に`coverage.csv`で対象範囲と接触数を確認する。前回と同じデータなら接触数は28,502。
 投球数や接触数が一致しなければ、範囲や追加生成の有無を確認する。
@@ -58,7 +61,7 @@ DBの必要列は現在のmainのスキーマを前提とする。
 - ファウルフライ捕球によるOutと、ゴロ処理のOut/DoublePlayを分ける。
 
 最後に衝突比較を確認する。全モデルのcurrentと診断の分母は同じ比較可能接触で統一する。
-入力不足の接触は全variantから除外し、`excluded_inputs.csv`に理由を残す。
+入力不足や相対接触幾何を構成できない接触は全variantから除外し、`excluded_inputs.csv`に理由を残す。
 `defined_hla_contacts` / `defined_vla_contacts`は角度が定義できる件数。
 速度ゼロや鉛直方向では角度が未定義になり得るため、方向率は定義できる接触数を分母にする。
 
@@ -66,7 +69,7 @@ DBの必要列は現在のmainのスキーマを前提とする。
 診断モデルで再計算したFoulや安打の件数ではない。診断からK率・打率は計算できない。
 ファウル方向率とFoul結果率を混同しない。
 
-## 診断モデルの仮定
+## 共通の入力と固定断面モデル（moving_*）
 
 座標はXが右、Yが前方、Zが上。
 保存済みの実バット角度thetaと接触ずれx,zから、符号付き厚みを再構成する。
@@ -90,7 +93,7 @@ face = 0.85*(approach_variation_deg + pull_bias_deg + timing_angle_error)
 bat_velocity_local = (0, bat_speed*cos(attack), bat_speed*sin(attack))
 ```
 
-法線とバット速度をfaceだけ水平方向へ回転し、保存された実際の打席の符号でXを反転する。
+固定断面モデルでは法線とバット速度をfaceだけ水平方向へ回転し、保存された実際の打席の符号でXを反転する。
 左右打者の鏡映対称性を保つ。
 
 **接触直前の投球速度ベクトルは保存されていない。**
@@ -120,6 +123,63 @@ HLA = degrees(atan2(vx, vy))
 VLA = degrees(atan2(vz, hypot(vx, vy)))
 ```
 
+## 相対運動から作る接触法線（relative_*）
+
+旧モデルと同じ接触データ・速度・係数を使い、接触法線だけを置き換える。
+接触時のバット軸を`a_local=(cos(theta),0,sin(theta))`とし、
+固定断面モデルと同じface回転・打席符号で世界座標へ変換する。
+保存された位置ずれも`offset_local=(contact_offset_x_m,0,contact_offset_z_m)`から
+同じ変換を行う。**奥行き方向のずれは未保存なのでY=0と仮定する。**
+
+```text
+u = incoming_velocity - bat_velocity
+w = u - dot(u,a)*a                 # バット軸に垂直な相対速度
+V = length(w)
+d = -w/V                          # 接近する球を迎える方向
+tangent = cross(a,d)
+b = dot(offset,tangent)           # 符号付き最接近距離
+q = b / R
+n = sqrt(1-q*q)*d + q*tangent
+```
+
+これは一定の相対速度で、無限長の円柱へ最初に接触する側の法線。
+`V=0`では構成不能、`abs(b)>R`では円柱への接触なしとして除外理由を出す。
+どちらかの幾何で比較できない接触はcurrent・moving・relativeすべてから除外し、
+同じ分母にそろえる。全接触の方向診断は除外しない。
+旧モデルだけの比較可能数は`old_comparable_contacts`に残す。
+
+最接近と最初の表面接触の時刻も相対的に求める。
+
+```text
+t_closest = -dot(offset,w) / (V*V)
+t_entry = t_closest - sqrt(R*R-b*b)/V
+```
+
+`first_contact_time_offset_sec`は、仮定した保存位置ずれの基準に対する時刻差。
+負値はその基準より前の接触を意味する。投球からの経過時間や実際の打撃タイミングではない。
+バット軸方向の移動・有限のバット長・既存のlength miss判定の再計算は扱わない。
+既に接触した球だけを対象とし、空振りを接触へ変更する反実仮想でもない。
+
+この構成では`dot(u,n)=-V*sqrt(1-q*q)`となり、接近側であることは構成上保証される。
+したがって、relativeの`separating_contacts`が減ること自体を、
+元の入力や現実の衝突を正しく復元できた証拠にしない。
+接触半径・軸との直交・法線長さを数値検証し、入力仮定の妥当性とは分けて扱う。
+
+`geometry_checks.csv`のrelative行では次の値が数値誤差程度になることを確認する。
+
+- `max_abs_normal_axis_dot`：法線とバット軸の内積の絶対値。
+- `max_normal_length_error`：法線長さと1との差。
+- `max_positive_relative_normal_ms`：離反側へ向く相対速度成分（正値のみ）。
+- `max_contact_radius_error_m`：計算した最初の接触位置の半径とRとの差。
+
+個別CSVには世界座標の軸・仮定した位置ずれ・最接近距離・横断速度・時刻差を残す。
+current行の法線・接触時刻は未定義として空欄にし、旧幾何の値を現行の記録と混同させない。
+
+VLA平均の正負相殺も確認できるよう、summaryに`avg_abs_vla_deg`、
+`vla_lt0_pct`、`vla_10_25_pct`を追加した。EV/VLAの同時分布も引き続き出力する。
+28,502接触がすべて比較可能なら個別CSVは370,526行（ヘッダー除く）。
+集計評価にはまずcoverage、geometry_checks、collision_summaryを使う。
+
 ## 結果の限界
 
 これは保存済み接触に対する近似の比較であり、完成した衝突物理モデルではない。
@@ -127,9 +187,10 @@ VLA = degrees(atan2(vz, hypot(vx, vy)))
 長さ方向の接触位置による有効質量・バット速度の変化、接線方向の摩擦・スピン、
 球やバットの変形は扱わない。現行EVのずれによる減衰式も重ねない。
 
-バットの上向き速度があっても、中心接触の法線が水平なら法線衝撃は上向き成分を持たない。
+固定断面のmovingモデルでは、バットの上向き速度があっても、中心接触の法線が水平なら法線衝撃は上向き成分を持たない。
 したがって中心接触のVLAは現行のattack angleと一致するとは限らない。
-この差も接触幾何の仮定を評価する対象とする。
+この差も接触幾何の仮定を評価する対象とする。relativeモデルでは相対入射方向に応じて中心接触の法線も傾く。
+ただし、相対運動を正面入射・Yずれゼロ・直線運動で近似している限界は残る。
 
 診断後の軌道、風・スピン、守備、打席継続は再計算しない。
 極低EVの後方打球が前方へ動いた例23689/130についても、
@@ -149,3 +210,5 @@ python3 -m unittest discover -s tests/sql -p 'test_*.py'
 法線衝撃の運動量・反発条件、静止無限質量バットでの理想反射、ガリレイ不変性、
 離反接触、左右対称性、入力検証、同一分母、対象範囲、守備追加送球、
 DBの不変性、空の範囲、出力上書き防止を検証する。
+追加で、静止バットで旧法線へ一致する極限、上向きバット運動の中心接触、
+軸方向平行移動への不変性、左右鏡映、接触半径・直交・単位長さ、退化・非接触・接線接触を検証する。

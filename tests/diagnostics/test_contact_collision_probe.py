@@ -81,6 +81,76 @@ class CollisionPhysicsTest(unittest.TestCase):
             self.assertIsNotNone(probe.prepare(invalid)[1])
 
 
+class RelativeGeometryTest(unittest.TestCase):
+    def test_fixed_reference_limit_matches_old_cylinder_normal(self):
+        for theta_deg in (-60,0,30,75):
+            theta = math.radians(theta_deg)
+            axis = (math.cos(theta),0,math.sin(theta))
+            tangent = (-math.sin(theta),0,math.cos(theta))
+            for radial in (-.99,-.5,0,.5,.99):
+                offset = tuple(.12*a + radial*.07*t for a,t in zip(axis,tangent))
+                geometry,reason = probe.relative_contact_geometry((0,-40,0),(0,0,0),axis,offset)
+                self.assertIsNone(reason)
+                expected = (-math.sin(theta)*radial,math.sqrt(1-radial*radial),math.cos(theta)*radial)
+                for actual,value in zip(geometry['normal'],expected):
+                    self.assertAlmostEqual(actual,value)
+                self.assertLess(geometry['contact_radius_error_m'],1e-12)
+
+    def test_upward_motion_changes_center_normal_and_vla(self):
+        alpha = math.radians(15)
+        incoming = (0,-40,0)
+        bat = (0,35*math.cos(alpha),35*math.sin(alpha))
+        entry,reason = probe.relative_contact_geometry(incoming,bat,(1,0,0),(0,0,0))
+        self.assertIsNone(reason)
+        self.assertGreater(entry['normal'][2],0)
+        self.assertLess(entry['first_contact_time_offset_sec'],entry['closest_approach_time_sec'])
+        outgoing,relative,_ = probe.collide(incoming,bat,entry['normal'],.5,.6)
+        self.assertLess(relative,0)
+        self.assertGreater(probe.angles(outgoing)[2],0)
+        old,_,_ = probe.collide(incoming,bat,(0,1,0),.5,.6)
+        self.assertEqual(probe.angles(old)[2],0)
+
+    def test_normal_entry_geometry_invariance_and_mirroring(self):
+        # Multiple tilted axes, face phases and signed offsets, with the saved-data transform.
+        for sign in (-1,1):
+            for theta in (-45,0,35,70):
+                for z in (-.04,0,.04):
+                    row = contact(hla_handedness_sign=sign,actual_bat_angle_deg=theta,
+                                  contact_offset_x_m=.03,contact_offset_z_m=z,
+                                  approach_variation_deg=8)
+                    fixed,reason = probe.prepare(row)
+                    self.assertIsNone(reason)
+                    entry,reason = probe.relative_contact_geometry(fixed['incoming'],fixed['bat'],fixed['axis'],fixed['offset'])
+                    self.assertIsNone(reason)
+                    self.assertAlmostEqual(probe.dot(entry['normal'],entry['normal']),1)
+                    self.assertAlmostEqual(probe.dot(entry['normal'],fixed['axis']),0)
+                    self.assertLess(entry['contact_radius_error_m'],1e-12)
+                    relative = tuple(i-b for i,b in zip(fixed['incoming'],fixed['bat']))
+                    self.assertLessEqual(probe.dot(entry['normal'],relative),1e-10)
+                    shifted = tuple(o+.2*a for o,a in zip(fixed['offset'],fixed['axis']))
+                    invariant,_ = probe.relative_contact_geometry(fixed['incoming'],fixed['bat'],fixed['axis'],shifted)
+                    for actual,value in zip(invariant['normal'],entry['normal']):
+                        self.assertAlmostEqual(actual,value)
+                    # Mirror all world X coordinates, including axis and saved offset.
+                    mirror = lambda v: (-v[0],v[1],v[2])
+                    mirrored,_ = probe.relative_contact_geometry(mirror(fixed['incoming']),mirror(fixed['bat']),
+                                                                 mirror(fixed['axis']),mirror(fixed['offset']))
+                    for actual,value in zip(mirrored['normal'],mirror(entry['normal'])):
+                        self.assertAlmostEqual(actual,value)
+
+    def test_degenerate_and_no_intersection_are_explicit(self):
+        geometry,reason = probe.relative_contact_geometry((1,0,0),(0,0,0),(1,0,0),(0,0,0))
+        self.assertIsNone(geometry)
+        self.assertEqual(reason,'relative_no_transverse_motion')
+        geometry,reason = probe.relative_contact_geometry((0,-40,0),(0,0,0),(1,0,0),(0,0,.08))
+        self.assertIsNone(geometry)
+        self.assertEqual(reason,'relative_outside_contact_radius')
+        grazing,reason = probe.relative_contact_geometry((0,-40,0),(0,0,0),(1,0,0),(0,0,.07))
+        self.assertIsNone(reason)
+        self.assertAlmostEqual(grazing['closest_approach_time_sec'],grazing['first_contact_time_offset_sec'])
+        self.assertAlmostEqual(grazing['normal'][1],0)
+
+
 class DatabaseReportTest(unittest.TestCase):
     def test_paired_population_coverage_reports_and_read_only_database(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -103,6 +173,11 @@ class DatabaseReportTest(unittest.TestCase):
                 insert('player_game_batting',values)
                 insert('player_game_pitching',dict(game_id=1,count_seq=seq,speed=40))
             insert('player_game_batting',dict(game_id=1,count_seq=4,adjusted_contact_type='WeakContact'))
+            degenerate = contact(bat_speed=0, pitch_speed=0)
+            degenerate.pop('pitch_speed')
+            degenerate.update(game_id=1,count_seq=5,adjusted_contact_type='SolidContact')
+            insert('player_game_batting',degenerate)
+            insert('player_game_pitching',dict(game_id=1,count_seq=5,speed=0))
             insert('player_game_batting',dict(game_id=2,count_seq=1,adjusted_contact_type='SolidContact'))
             # Extra throws must not increase the direction population.
             for seq in (1,2):
@@ -112,20 +187,33 @@ class DatabaseReportTest(unittest.TestCase):
             before = hashlib.sha256(path.read_bytes()).hexdigest()
             out = folder/'reports'
             coverage = probe.run(path,1,1,out)
-            self.assertEqual(coverage['contacts'],4)
+            self.assertEqual(coverage['contacts'],5)
             self.assertEqual(coverage['comparable_contacts'],3)
-            self.assertEqual(coverage['excluded_contacts'],1)
-            self.assertEqual(coverage['pitches'],4)
+            self.assertEqual(coverage['excluded_contacts'],2)
+            self.assertEqual(coverage['pitches'],5)
+            self.assertEqual(coverage['probe_version'],2)
+            self.assertEqual(coverage['trial_variants'],12)
+            self.assertEqual(coverage['old_comparable_contacts'],4)
             def read(name):
                 with (out/name).open() as f:
                     return list(csv.DictReader(f))
             summaries = read('collision_summary.csv')
-            self.assertEqual(len(summaries),21)
+            self.assertEqual(len(summaries),39)
             self.assertTrue(all(int(r['contacts'])==1 for r in summaries))
-            self.assertEqual(len(read('collision_contacts.csv')),21)
-            self.assertEqual(sum(int(r['contacts']) for r in read('direction_coverage.csv')),4)
-            self.assertEqual(sum(int(r['contacts']) for r in read('direction_transitions.csv')),4)
-            self.assertEqual(len(read('excluded_inputs.csv')),1)
+            self.assertEqual(len(read('collision_contacts.csv')),39)
+            self.assertEqual(sum(int(r['contacts']) for r in read('direction_coverage.csv')),5)
+            self.assertEqual(sum(int(r['contacts']) for r in read('direction_transitions.csv')),5)
+            self.assertEqual(len(read('excluded_inputs.csv')),2)
+            checks = read('geometry_checks.csv')
+            self.assertEqual(len(checks),2)
+            self.assertTrue(all(int(r['contacts'])==3 for r in checks))
+            self.assertTrue(all(float(r['max_normal_length_error']) < 1e-12 for r in checks))
+            details = read('collision_contacts.csv')
+            relatives = [r for r in details if r['geometry_model']=='relative']
+            self.assertTrue(all(float(r['relative_normal_ms']) <= 1e-10 for r in relatives))
+            self.assertTrue(all(float(r['contact_radius_error_m']) < 1e-12 for r in relatives))
+            currents = [r for r in details if r['variant']=='current']
+            self.assertTrue(all(r['nx']=='' and r['first_contact_time_offset_sec']=='' for r in currents))
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
             with self.assertRaises(FileExistsError):
                 probe.run(path,1,1,out)

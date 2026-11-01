@@ -23,6 +23,43 @@ def dot(a, b):
     return sum(x*y for x, y in zip(a, b))
 
 
+def cross(a, b):
+    return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+
+
+def relative_contact_geometry(incoming, bat_velocity, axis, offset):
+    """First entry into an infinite cylinder under straight relative motion.
+
+    offset is the saved X/Z displacement with assumed Y=0, expressed in world
+    coordinates. Times are offsets from that assumed reference, not game times.
+    """
+    relative = tuple(i-b for i, b in zip(incoming, bat_velocity))
+    along_axis = dot(relative, axis)
+    transverse = tuple(v-along_axis*a for v, a in zip(relative, axis))
+    speed = math.sqrt(dot(transverse, transverse))
+    if speed <= EPS:
+        return None, 'relative_no_transverse_motion'
+    toward = tuple(-v/speed for v in transverse)
+    tangent = cross(axis, toward)
+    # A unit axis and perpendicular toward form an orthonormal contact plane.
+    impact = dot(offset, tangent)
+    if abs(impact) > RADIUS+1e-9:
+        return None, 'relative_outside_contact_radius'
+    impact = max(-RADIUS, min(RADIUS, impact))
+    radial = impact/RADIUS
+    entry_depth = math.sqrt(max(0, 1-radial*radial))
+    normal = tuple(entry_depth*d+radial*t for d, t in zip(toward, tangent))
+    closest_time = -dot(offset, transverse)/(speed*speed)
+    first_contact_time = closest_time-RADIUS*entry_depth/speed
+    perpendicular_offset = tuple(o-dot(offset, axis)*a for o, a in zip(offset, axis))
+    entry_position = tuple(o+v*first_contact_time for o, v in zip(perpendicular_offset, transverse))
+    radius_error = abs(math.sqrt(dot(entry_position, entry_position))-RADIUS)
+    return dict(normal=normal, impact_parameter_m=impact,
+                relative_transverse_speed_ms=speed, closest_approach_time_sec=closest_time,
+                first_contact_time_offset_sec=first_contact_time,
+                contact_radius_error_m=radius_error), None
+
+
 def angles(velocity):
     """Y is forward, X is right; zero velocity has undefined directions."""
     x, y, z = velocity
@@ -85,6 +122,8 @@ def prepare(row):
     stored = row.get('signed_thickness_offset_m')
     mismatch = stored is not None and (not math.isfinite(stored) or abs(stored-signed_thickness) > 1e-9)
     return dict(normal=normal, bat=bat, incoming=(0, -row['pitch_speed'], 0),
+                axis=world((math.cos(theta), 0, math.sin(theta))),
+                offset=world((row['contact_offset_x_m'], 0, row['contact_offset_z_m'])),
                 attack_deg=math.degrees(attack), signed_thickness_m=signed_thickness,
                 signed_thickness_mismatch=int(mismatch)), None
 
@@ -117,7 +156,8 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
         raise ValueError('first_game_id must be <= last_game_id')
     if not restitutions or not masses or not all(math.isfinite(e) and 0 <= e <= 1 for e in restitutions) or not all(math.isfinite(m) and m > 0 for m in masses):
         raise ValueError('Use finite restitution in [0,1] and positive effective mass')
-    variants = [(f'moving_e{e:g}_m{m:g}', e, m) for e in restitutions for m in masses]
+    variants = [(f'{model}_e{e:g}_m{m:g}', model, e, m)
+                for model in ('moving', 'relative') for e in restitutions for m in masses]
     if len({v[0] for v in variants}) != len(variants):
         raise ValueError('Duplicate or indistinguishable parameter variants')
     # Resolve/encode file URI so spaces, # and ? in paths cannot alter URI options.
@@ -147,13 +187,19 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
         for name, (fields, rows) in zip(('direction_coverage.csv', 'direction_transitions.csv', 'direction_gaps.csv'), reports):
             write_csv(output/name, fields, rows)
         counts, reasons = Counter(), Counter()
-        grouped = defaultdict(lambda: dict(n=0, ev=0.0, hla=0.0, hla_n=0, vla=0.0, vla_n=0,
+        grouped = defaultdict(lambda: dict(n=0, ev=0.0, hla=0.0, hla_n=0, vla=0.0, vla_abs=0.0, vla_negative=0, vla_10_25=0, vla_n=0,
                                            foul=0, backward=0, separating=0, current_fouls=0))
         distribution = Counter()
+        geometry_checks = defaultdict(lambda: dict(contacts=0, max_abs_normal_axis_dot=0.0,
+            max_normal_length_error=0.0, max_positive_relative_normal_ms=0.0,
+            max_contact_radius_error_m=None))
         fields = ['game_id','count_seq','adjusted_contact_type','hla_handedness_sign','variant',
                   'restitution','effective_mass_kg','pitch_speed_proxy_ms','bat_speed_ms',
                   'reconstructed_attack_deg','signed_thickness_m','signed_thickness_mismatch',
                   'nx','ny','nz','bat_vx_ms','bat_vy_ms','bat_vz_ms',
+                  'geometry_model','axis_x','axis_y','axis_z','offset_x_m','offset_y_m','offset_z_m',
+                  'impact_parameter_m','relative_transverse_speed_ms','closest_approach_time_sec',
+                  'first_contact_time_offset_sec','contact_radius_error_m',
                   'relative_normal_ms','normal_delta_v_ms','out_vx_ms','out_vy_ms','out_vz_ms',
                   'ev_ms','hla_deg','vla_deg','launch_direction','current_ev_ms','current_hla_deg',
                   'current_vla_deg','current_result']
@@ -167,15 +213,31 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                 if reason:
                     reasons[reason] += 1
                     continue
+                counts['old_comparable_contacts'] += 1
+                entry, reason = relative_contact_geometry(geometry['incoming'], geometry['bat'],
+                                                         geometry['axis'], geometry['offset'])
+                if reason:
+                    reasons[reason] += 1
+                    continue
                 counts['comparable_contacts'] += 1
                 counts['signed_thickness_mismatches'] += geometry['signed_thickness_mismatch']
-                options = [('current', None, None)] + variants
-                for variant, e, mass in options:
+                for model, normal in [('moving', geometry['normal']), ('relative', entry['normal'])]:
+                    check = geometry_checks[model]
+                    check['contacts'] += 1
+                    check['max_abs_normal_axis_dot'] = max(check['max_abs_normal_axis_dot'], abs(dot(normal,geometry['axis'])))
+                    check['max_normal_length_error'] = max(check['max_normal_length_error'], abs(math.sqrt(dot(normal,normal))-1))
+                    rel = tuple(i-b for i,b in zip(geometry['incoming'],geometry['bat']))
+                    check['max_positive_relative_normal_ms'] = max(check['max_positive_relative_normal_ms'], dot(rel,normal))
+                    if model == 'relative':
+                        check['max_contact_radius_error_m'] = max(check['max_contact_radius_error_m'] or 0, entry['contact_radius_error_m'])
+                options = [('current', 'current', None, None)] + variants
+                for variant, model, e, mass in options:
+                    normal = entry['normal'] if model == 'relative' else geometry['normal']
                     outgoing = relative = delta = None
                     if variant == 'current':
                         ev, hla, vla = row['launch_speed'], row['final_hla_deg'], row['launch_angle']
                     else:
-                        outgoing, relative, delta = collide(geometry['incoming'], geometry['bat'], geometry['normal'], e, mass)
+                        outgoing, relative, delta = collide(geometry['incoming'], geometry['bat'], normal, e, mass)
                         ev, hla, vla = angles(outgoing)
                     key = (row['adjusted_contact_type'], variant)
                     group = grouped[key]
@@ -188,6 +250,9 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                         group['backward'] += abs(hla) >= 90
                     if vla is not None:
                         group['vla'] += vla
+                        group['vla_abs'] += abs(vla)
+                        group['vla_negative'] += vla < 0
+                        group['vla_10_25'] += 10 <= vla < 25
                         group['vla_n'] += 1
                     group['separating'] += relative is not None and relative >= 0
                     group['current_fouls'] += row['result'] == 'Foul'
@@ -198,7 +263,16 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                         bat_speed_ms=row['bat_speed'],reconstructed_attack_deg=geometry['attack_deg'],
                         signed_thickness_m=geometry['signed_thickness_m'],
                         signed_thickness_mismatch=geometry['signed_thickness_mismatch'],
-                        nx=geometry['normal'][0],ny=geometry['normal'][1],nz=geometry['normal'][2],
+                        nx=normal[0] if model != 'current' else None,
+                        ny=normal[1] if model != 'current' else None,nz=normal[2] if model != 'current' else None,
+                        geometry_model=model,
+                        axis_x=geometry['axis'][0],axis_y=geometry['axis'][1],axis_z=geometry['axis'][2],
+                        offset_x_m=geometry['offset'][0],offset_y_m=geometry['offset'][1],offset_z_m=geometry['offset'][2],
+                        impact_parameter_m=entry['impact_parameter_m'] if model == 'relative' else None,
+                        relative_transverse_speed_ms=entry['relative_transverse_speed_ms'] if model == 'relative' else None,
+                        closest_approach_time_sec=entry['closest_approach_time_sec'] if model == 'relative' else None,
+                        first_contact_time_offset_sec=entry['first_contact_time_offset_sec'] if model == 'relative' else None,
+                        contact_radius_error_m=entry['contact_radius_error_m'] if model == 'relative' else None,
                         bat_vx_ms=geometry['bat'][0],bat_vy_ms=geometry['bat'][1],bat_vz_ms=geometry['bat'][2],
                         relative_normal_ms=relative,normal_delta_v_ms=delta,
                         out_vx_ms=outgoing[0] if outgoing else None,
@@ -207,24 +281,32 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
                         current_ev_ms=row['launch_speed'],current_hla_deg=row['final_hla_deg'],
                         current_vla_deg=row['launch_angle'],current_result=row['result'])
                     writer.writerow(record)
-        coverage = dict(first_game_id=first,last_game_id=last,**pitch_info,
-                        contacts=counts['contacts'],comparable_contacts=counts['comparable_contacts'],
+        coverage = dict(probe_version=2,first_game_id=first,last_game_id=last,**pitch_info,
+                        contacts=counts['contacts'],old_comparable_contacts=counts['old_comparable_contacts'],
+                        comparable_contacts=counts['comparable_contacts'],
                         excluded_contacts=counts['contacts']-counts['comparable_contacts'],
                         signed_thickness_mismatches=counts['signed_thickness_mismatches'],trial_variants=len(variants))
         write_csv(output/'coverage.csv',list(coverage),[coverage])
         write_csv(output/'excluded_inputs.csv',['reason','contacts'],
                   [dict(reason=k,contacts=v) for k,v in sorted(reasons.items())])
+        check_fields = ['geometry_model','contacts','max_abs_normal_axis_dot','max_normal_length_error',
+                        'max_positive_relative_normal_ms','max_contact_radius_error_m']
+        write_csv(output/'geometry_checks.csv',check_fields,
+                  [dict(geometry_model=k,**v) for k,v in sorted(geometry_checks.items())])
         summaries = []
         for (kind,variant), g in sorted(grouped.items()):
             summaries.append(dict(adjusted_contact_type=kind,variant=variant,contacts=g['n'],
                 avg_ev_ms=g['ev']/g['n'],avg_abs_hla_deg=g['hla']/g['hla_n'] if g['hla_n'] else None,
                 avg_vla_deg=g['vla']/g['vla_n'] if g['vla_n'] else None,
+                avg_abs_vla_deg=g['vla_abs']/g['vla_n'] if g['vla_n'] else None,
+                vla_lt0_pct=100*g['vla_negative']/g['vla_n'] if g['vla_n'] else None,
+                vla_10_25_pct=100*g['vla_10_25']/g['vla_n'] if g['vla_n'] else None,
                 defined_hla_contacts=g['hla_n'],defined_vla_contacts=g['vla_n'],
                 launch_foul_direction_pct=100*g['foul']/g['hla_n'] if g['hla_n'] else None,
                 launch_backward_direction_pct=100*g['backward']/g['hla_n'] if g['hla_n'] else None,
                 separating_contacts=g['separating'],current_result_fouls=g['current_fouls']))
         summary_fields = ['adjusted_contact_type','variant','contacts','avg_ev_ms','avg_abs_hla_deg',
-                          'avg_vla_deg','defined_hla_contacts','defined_vla_contacts',
+                          'avg_vla_deg','avg_abs_vla_deg','vla_lt0_pct','vla_10_25_pct','defined_hla_contacts','defined_vla_contacts',
                           'launch_foul_direction_pct','launch_backward_direction_pct',
                           'separating_contacts','current_result_fouls']
         write_csv(output/'collision_summary.csv',summary_fields,summaries)
