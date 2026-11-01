@@ -251,3 +251,6 @@ Timing-position sensitivity at 100/75/50/0% with fixed contact geometry:
 
 75% timing-position trial and before/after contact-quality checks:
 [`docs/timing_position_trial.md`](docs/timing_position_trial.md).
+
+HLA component attribution and Marginal timing-resample comparison:
+[`docs/hla_components.md`](docs/hla_components.md).

@@ -53,5 +53,6 @@ CREATE TABLE player_game_batting (
     decision_swung INTEGER,
     actual_bat_angle_deg REAL,
     timing_position_scale REAL CHECK (timing_position_scale > 0),
+    hla_handedness_sign REAL CHECK (hla_handedness_sign IN (-1,1)),
     PRIMARY KEY (game_id, count_seq)
 );

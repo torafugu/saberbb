@@ -1018,6 +1018,7 @@ pub fn calculate_batted_ball_with_metrics(
     let angles = calculate_launch_angles(rng, contact, batter)?;
     let batted_ball = calculate_batted_ball(batter, ball, contact, &angles, stadium)?;
     let metrics = PlayerGameBattingMetrics {
+        hla_handedness_sign: Some(batter.batting_side.handedness_sign()),
         bat_speed: batter.swing_speed,
         angular_velocity: angles.angular_velocity_rad_s,
         approach_variation_deg: angles.approach_variation_deg,

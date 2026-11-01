@@ -141,6 +141,8 @@ pub struct PlayerGamePitching {
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingMetrics {
     #[serde(default)]
+    pub hla_handedness_sign: Option<f64>,
+    #[serde(default)]
     pub timing_position_scale: Option<f64>,
     #[serde(default)]
     pub actual_bat_angle_deg: Option<f64>,
@@ -191,6 +193,7 @@ impl PlayerGameBattingMetrics {
 impl Default for PlayerGameBattingMetrics {
     fn default() -> Self {
         Self {
+            hla_handedness_sign: None,
             timing_position_scale: None,
             actual_bat_angle_deg: None,
             adapted_horizontal_offset_m: None,
@@ -218,6 +221,8 @@ impl Default for PlayerGameBattingMetrics {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBatting {
+    #[serde(default)]
+    pub hla_handedness_sign: Option<f64>,
     #[serde(default)]
     pub timing_position_scale: Option<f64>,
     #[serde(default)]
