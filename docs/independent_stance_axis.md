@@ -118,3 +118,8 @@ python3 -m unittest discover -s tests/sql -p 'test_*.py'
 ```
 
 実行後はmetadata以外の6つのCSVを添付する。全試行明細・JSONLは新たに生成しない。
+
+## 有効質量の追加診断
+
+[打点・衝突方向と有効質量](contact_effective_mass.md)では、保存済みの観測更新の接触を使い、
+質量・重心・慣性と衝突中の境界条件を明示して、一定有効質量との差を比較できる。
