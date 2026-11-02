@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Audit saved contact CSV and compare constant/free/pivot normal effective mass."""
 import argparse
-import csv
 import json
 import math
 import sqlite3
-import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -13,7 +11,8 @@ from contact_3d import ContactGeometry, band
 from contact_collision_probe import write_csv
 from contact_point_speed_probe import digest
 from contact_recoil import inverse_mass, solve, recoil_checks
-from forecast_contact_geometry import REQUIRED, audit, vec, signed_band
+from forecast_contact_geometry import vec, signed_band
+from observation_contact_source import ContactSource
 from rotating_bat_probe import norm, sub
 from bat_mass_presets import PRESET, measured_wood
 
@@ -147,38 +146,14 @@ def run(input_dir,output,gyrations=None,body_mass=None,cm_offset=None,*,preset=N
         body_mass=.6 if body_mass is None else body_mass;cm_offset=0. if cm_offset is None else cm_offset
     if (not gyrations or len(set(gyrations))!=len(gyrations) or any(not math.isfinite(k) or k<=0 for k in gyrations)
         or not all(math.isfinite(x) for x in (body_mass,cm_offset)) or body_mass<=0):raise ValueError('invalid_mass_parameters')
-    source=Path(input_dir);output=Path(output)
-    paths={n:source/n for n in ('observation_update_contacts.csv','observation_update_metadata.json','observation_update_coverage.csv')}
-    hashes={n:digest(p) for n,p in paths.items()}
-    meta=json.loads(paths['observation_update_metadata.json'].read_text())
-    if meta.get('version')!=1 or meta.get('restitution')!=.5 or meta.get('effective_mass_kg')!=.6:raise ValueError('unsupported_source_metadata')
-    with paths['observation_update_coverage.csv'].open(newline='') as f:coverage=list(csv.DictReader(f))
-    if len(coverage)!=1:raise ValueError('invalid_source_coverage')
-    expected=int(coverage[0]['trial_rows']);conditions={'prior_only','exact_observation_control'}|{f'observed_sigma_{s:g}' for s in meta['sensor_sigma_m']}
-    if expected!=int(coverage[0]['valid_histories'])*len(meta['levers_m'])*len(conditions):raise ValueError('invalid_source_count')
+    output=Path(output);source=ContactSource(input_dir)
+    meta=source.meta;hashes=source.hashes
     configs=models(gyrations) if provenance is None else [('constant_0.6kg','constant',.25)]+[(f'{model}_{PRESET}',model,gyrations[0]) for model in ('free','pivot')]
     output.mkdir(parents=True,exist_ok=False);checks=defaultdict(float);counts=Counter();status=Counter();agg=Aggregate()
-    with tempfile.TemporaryDirectory(prefix='saberbb_mass_') as temp:
-        db=sqlite3.connect(str(Path(temp)/'keys.db'))
-        try:
-            db.execute('CREATE TABLE keys(game INTEGER, seq INTEGER, lever REAL, condition TEXT, PRIMARY KEY(game,seq,lever,condition))')
-            with paths['observation_update_contacts.csv'].open(newline='') as f:
-                reader=csv.DictReader(f);required=REQUIRED+['omega_'+a+'_rad_s' for a in 'xyz']
-                if not set(required)<=set(reader.fieldnames or []) or len(reader.fieldnames)!=len(set(reader.fieldnames)):raise ValueError('missing_or_duplicate_csv_columns')
-                for line,raw in enumerate(reader,2):
-                    try:
-                        r=audit(raw,checks)
-                        if (r['forecast_condition'] not in conditions or r['lever_m'] not in meta['levers_m'] or r['half_length_m']!=meta['half_length_m']
-                            or r['effective_radius_m']!=meta['radius_m']):raise ValueError('source_geometry_mismatch')
-                        db.execute('INSERT INTO keys VALUES(?,?,?,?)',(r['game_id'],r['count_seq'],r['lever_m'],r['forecast_condition']))
-                        results=evaluate(r,configs,body_mass,cm_offset,checks);agg.add(r,results)
-                    except (ValueError,TypeError,KeyError,sqlite3.IntegrityError) as exc:raise ValueError(f'CSV line {line}: {exc}') from exc
-                    counts['trial_rows']+=1;counts['geometry_contacts']+=r['status']=='contact'
-                    for name,m in results.items():status[r['variant'],name,r['status'],m['collision_status']]+=1
-            if counts['trial_rows']!=expected:raise ValueError('source_coverage_mismatch')
-            groups=db.execute('SELECT COUNT(*) FROM keys GROUP BY game,seq,lever').fetchall()
-            if any(n!=len(conditions) for (n,) in groups) or len(groups)!=int(coverage[0]['valid_histories'])*len(meta['levers_m']):raise ValueError('incomplete_source_keys')
-        finally:db.close()
+    for r in source.rows(checks):
+        results=evaluate(r,configs,body_mass,cm_offset,checks);agg.add(r,results)
+        counts['trial_rows']+=1;counts['geometry_contacts']+=r['status']=='contact'
+        for name,m in results.items():status[r['variant'],name,r['status'],m['collision_status']]+=1
     agg.write(output)
     keys=['variant','mass_model','search_status','collision_status']
     write_csv(output/'effective_mass_status.csv',keys+['states'],[dict(zip(keys,k),states=n) for k,n in sorted(status.items())])
