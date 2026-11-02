@@ -70,10 +70,13 @@ python3 tools/diagnostics/restitution_bounds_probe.py \
 | restitution_bounds_checks.csv | 元の一定質量結果の再現、文献値の反動、e=0/0.5の反発則・保存則・解析式の残差 |
 | restitution_bounds_summary.csv | 条件別・打点帯別の件数、分母、EV下限・接線速度下限の平均 |
 | restitution_bounds_diagnoses.csv | 条件別・打点帯別の可能/不可能の理由 |
+| restitution_bounds_weak_hi.csv | 弱打区間の上限e帯×開閉、下限e・必要低下量の平均、基準フェア/強打の件数 |
+| restitution_bounds_fixed.csv | 共通のe=0/0.1/0.2/0.3/0.4/0.5でのEV・方向・弱打/強打率・同一フェア集合の比較 |
+| restitution_bounds_fixed_transitions.csv | 基準e=0.5→各eの方向×EV帯の件数 |
 | restitution_bounds_contacts.csv | 1球×予測条件×Lの個別判定・eの区間・開閉フラグ・EV下限 |
 | restitution_bounds_metadata.json | 入力ハッシュ、文献値、反発係数範囲、厳密境界の定義 |
 
-最初は上の**coverage・checks・summary・diagnosesの4 CSV**を添付する。
+最初は**coverage・checks・summary・diagnoses・weak_hi・fixed・fixed_transitionsの7 CSV**を添付する。
 contactsは大きくなるため、個別追跡が必要な場合に対象を抽出する。
 例として、次で「元の文献値e=0.5でもフェアだったが、減衰で初めて弱打を作れる球」を抽出できる。
 
@@ -127,3 +130,48 @@ e=0の結果だけで弱打の可能性を判断しない。
 
 解析式は現行の摩擦なし衝突式をeについて整理したもので、損失曲線の文献フィットではない。
 この診断の後、必要な反発低下の範囲が妥当か、あるいは接触点速度・法線・接線応答を調べるかを判断する。
+
+## 必要な反発低下の大きさ
+
+`weak_e_hi`は「弱いフェア方向となるeの区間の上限」。最大EVを表す値でも、
+EVを最小にする`fair_infimum_e`でもない。上限が高いほど、小さな反発低下で弱打にできる。
+`weak_e_hi_open=True`なら、その上限ちょうどでは弱打にできない。
+下限も残し、eを下げすぎてファウル方向や弱打区間外へ出る場合を区別する。
+
+weak_hiの帯は[0,0.1)、[0.1,0.2)、[0.2,0.3)、[0.3,0.4)、[0.4,0.5)、ちょうど0.5。
+上限の開閉は別の行として数える。弱打不可能はnot_possible、未評価はnot_evaluatedへ分ける。
+`avg_required_reduction_infimum = avg(0.5 - weak_e_hi)`は必要な**反発係数低下量の下限**。
+上限が開いていれば、その低下量ちょうどでは足りない。これはエネルギー損失率ではない。
+0.5→0.2を「エネルギーを60%失う」と解釈しない。
+
+各行の`pct_of_weak_possible`は、同じscope/variant/stage/band_1/band_2で弱打可能な試行を分母とする。
+不可能・未評価行では区間平均・割合を空欄とする。
+元からフェアだった球だけを見る場合は`baseline_fair_contacts`と
+`pct_of_baseline_fair_weak_possible`を使う。
+`stratum_...`列の分母は各上限帯へ繰り返し記載されるので合計しない。
+同じ既存のsigned_axial・baseline_impact帯で集計するため、軸方向打点と局所b/Rを混同せずに比較できる。
+baseline_impactのband_2は基準の法線速度比。新しいeごとに帯を動かさない。
+
+## 全接触へ共通のeを適用した場合
+
+fixedのeは球ごとに選ばず、同じ集合の全接触へ共通に適用する。
+解析式の弱打可能区間を求める方法は従来通りで、この6点の比較に置き換えるものではない。
+狭い弱打区間が6点の間にあれば、弱打可能でも固定eでは弱打0件になり得る。
+
+- `fair_contacts`と`foul_contacts`はそのeでの方向。水平速度0はundefined_directionへ分ける。
+- `weak_pct_of_fair`と`strong_pct_of_fair`の分母はそのeのfair_contacts。EV<25を弱打、EV>=40を強打とする。
+- `before_paired_fair_ev_ms`と`after_paired_fair_ev_ms`は、基準e=0.5と比較先eの**両方でフェア**となる同じ球の平均。
+- `baseline_fair_to_weak_pct`は、元からフェアだった固定集合のうち、比較先で弱いフェアとなる割合。
+- `strong_to_weak_pct`は、元からフェアかつEV>=40だった固定集合に対する弱いフェアへの変化率。
+
+元から強打だった集合は、strong_to_weak_fair、strong_to_medium_fair（25<=EV<40）、
+strong_to_strong_fair、strong_to_nonfairへ分かれる。最後はファウルと未定義方向を含む。
+方向を跨ぐ球の詳細はfixed_transitionsを使う。EV帯は全方向で分けているため、
+EV<25でもafter_directionがfoul_directionなら弱いフェアとして数えない。
+未評価はnot_evaluatedとし、EV平均は空欄。0 m/sを埋めて平均を下げない。
+
+まず同じscope/variant/stageでe=0.5の件数とEVが前回を再現するかを確認し、
+次にe=0.4/0.3/0.2/0.1でどれだけ弱打が増え、強打が減り、方向が変わるかを見る。
+e=0は極限の比較として追加し、本体への採用候補と決めない。
+eごとの行は同じ試行を繰り返した比較なので合算しない。
+個別contactsと従来の解析集計は維持し、checksへ固定eの保存則残差を追加する。
