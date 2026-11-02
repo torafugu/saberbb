@@ -257,3 +257,6 @@ HLA component attribution and Marginal timing-resample comparison:
 
 Signed contact-normal HLA trial, migration and before/after checks:
 [`docs/contact_normal_hla.md`](docs/contact_normal_hla.md).
+
+EV x VLA, first-ground response and energy-audited tangential collision prototypes:
+[`docs/ground_spin_diagnostics.md`](docs/ground_spin_diagnostics.md).
