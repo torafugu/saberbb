@@ -240,7 +240,7 @@ pub fn adapt_to_pitch(
     }
 }
 
-fn calculate_bat_angle(location: &BallLocation) -> f64 {
+pub(crate) fn calculate_bat_angle(location: &BallLocation) -> f64 {
     const CENTER_ANGLE_DEG: f64 = 30.0; // Standard tilt angle at zone center
     const HIGH_LOW_RANGE_DEG: f64 = 15.0; // Angle variation range based on height
 
@@ -275,26 +275,31 @@ pub struct SwingExecutionError {
     pub actual_attack_angle_deg: f64,
 }
 
-// Calculate the actual bat_angle_deg the batter swings through based on the real trajectory and their prediction
+// Deterministic angular execution error at the supplied perceived/actual course. No RNG.
+pub(crate) fn calculate_execution_angle_error_deg(batter: &BatterInfo, location: &BallLocation) -> f64 {
+    let zone_modifier = 1.0 - batter.zone_modifier(location);
+    let bat_control_modifier = batter.bat_control / 20.0;
+
+    // 1. Calculate the difference between intended and ideal angle (angle error)
+    let intended_location = BallLocation {
+        x: location.x + location.x * bat_control_modifier * zone_modifier,
+        y: location.y + location.y * bat_control_modifier * zone_modifier,
+    };
+    let intended_angle = calculate_bat_angle(&intended_location);
+    let ideal_angle = calculate_bat_angle(location);
+
+    // Lower contact skill leaves a larger Δθ because the swing can't correct toward the ideal angle
+    let unadjusted_ratio = (1.0 - sigmoid(batter.bat_control)).clamp(0.1, 1.0);
+    (intended_angle - ideal_angle) * unadjusted_ratio
+}
+
 pub fn calculate_swing_execution_error(
     rng: &mut dyn RandomProvider,
     batter: &BatterInfo,
     actual_location: &BallLocation,
 ) -> SwingExecutionError {
-    let zone_modifier = 1.0 - batter.zone_modifier(actual_location);
-    let bat_control_modifier = batter.bat_control / 20.0;
-
-    // 1. Calculate the difference between intended and ideal angle (angle error)
-    let intended_location = BallLocation {
-        x: actual_location.x + actual_location.x * bat_control_modifier * zone_modifier,
-        y: actual_location.y + actual_location.y * bat_control_modifier * zone_modifier,
-    };
-    let intended_angle = calculate_bat_angle(&intended_location);
     let ideal_angle = calculate_bat_angle(actual_location);
-
-    // Lower contact skill leaves a larger Δθ because the swing can't correct toward the ideal angle
-    let unadjusted_ratio = (1.0 - sigmoid(batter.bat_control)).clamp(0.1, 1.0);
-    let delta_angle_deg = (intended_angle - ideal_angle) * unadjusted_ratio;
+    let delta_angle_deg = calculate_execution_angle_error_deg(batter, actual_location);
 
     // 2. Convert angle error (deg) to spatial meter error (Δx, Δz)
     let delta_rad = delta_angle_deg.to_radians();

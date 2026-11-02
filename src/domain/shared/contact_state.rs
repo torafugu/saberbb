@@ -37,6 +37,8 @@ pub struct ContactStateInput {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContactStateSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swing_prediction: Option<crate::domain::shared::swing_prediction::SwingPredictionRecord>,
     pub input: ContactStateInput,
     pub bat_ideal_position_world_m: [f64; 3],
     pub bat_position_world_m: [f64; 3],
@@ -77,6 +79,7 @@ pub fn snapshot(input: ContactStateInput) -> Result<ContactStateSnapshot, &'stat
         return Err("non_finite_derived_state");
     }
     Ok(ContactStateSnapshot {
+        swing_prediction: None,
         bat_ideal_position_world_m: ideal,
         bat_position_world_m: bat,
         bat_axis_world: [input.handedness_sign * angle.cos(), 0.0, angle.sin()],
@@ -137,6 +140,24 @@ mod tests {
             timing_offset_sec: delay, legacy_timing_impact_x_m: 0.1,
             legacy_contact_offset_xz_m: [0.103, -0.002], legacy_timing_position_scale: Some(0.75),
         }
+    }
+
+    #[test]
+    fn optional_prediction_preserves_old_json_and_new_payloads() {
+        let state = snapshot(input(0.0)).unwrap();
+        let old = serde_json::to_value(&state).unwrap();
+        assert!(old.get("swing_prediction").is_none());
+        let decoded: ContactStateSnapshot = serde_json::from_value(old).unwrap();
+        assert!(decoded.swing_prediction.is_none());
+        let mut state = state;
+        state.swing_prediction = Some(crate::domain::shared::swing_prediction::SwingPredictionRecord {
+            version: 1,
+            source: crate::domain::shared::swing_prediction::PREDICTION_SOURCE.to_string(),
+            invalid_reason: Some("invalid_observation_clock".to_string()), input: None,
+        });
+        let encoded = serde_json::to_string(&state).unwrap();
+        let decoded: ContactStateSnapshot = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.swing_prediction.unwrap().invalid_reason.as_deref(), Some("invalid_observation_clock"));
     }
 
     #[test]

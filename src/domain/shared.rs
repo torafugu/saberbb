@@ -9,3 +9,4 @@ pub mod stadium;
 pub mod stats;
 pub mod team;
 pub mod contact_state;
+pub mod swing_prediction;

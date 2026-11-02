@@ -915,11 +915,13 @@ impl GameState {
                 &batting_factor,
             );
 
-            self.game_result.player_contact_states.push(
-                crate::domain::shared::contact_state::build_contact_state(
-                    decision_count_seq, &batter, &pitched_ball, &swing_contact,
-                ),
+            let mut contact_state = crate::domain::shared::contact_state::build_contact_state(
+                decision_count_seq, &batter, &pitched_ball, &swing_contact,
             );
+            crate::domain::shared::swing_prediction::attach_prediction(
+                &mut contact_state, &batter, &pitched_ball, &expected_ball,
+            );
+            self.game_result.player_contact_states.push(contact_state);
 
             if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
                 self.resolve_swing_miss(pitcher_id, batter_id, &swing_contact);
