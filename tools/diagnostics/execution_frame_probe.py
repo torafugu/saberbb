@@ -122,7 +122,7 @@ class Paired:
         if before['normal_speed_fraction'] is not None and after['normal_speed_fraction'] is not None:
             g['fraction_n']+=1;g['fraction_before']+=before['normal_speed_fraction'];g['fraction_after']+=after['normal_speed_fraction']
 
-    def write(self,output):
+    def write(self,output,prefix="execution_frame"):
         keys=['adjusted_contact_type','legacy_group','lever_m','contrast']
         rows=[]
         for key,g in sorted(self.groups.items()):
@@ -141,9 +141,9 @@ class Paired:
         fields=keys+['states','paired_impulse_contacts','ev_ms_pairs','avg_ev_ms_before','avg_ev_ms_after','avg_abs_delta_ev_ms',
             'vla_deg_pairs','avg_vla_deg_before','avg_vla_deg_after','avg_abs_delta_vla_deg','hla_pairs','avg_abs_delta_hla_deg',
             'foul_direction_before_pct','foul_direction_after_pct','normal_fraction_pairs','avg_normal_fraction_before','avg_normal_fraction_after']
-        write_csv(output/'execution_frame_pairs.csv',fields,rows)
+        write_csv(output/(prefix+'_pairs.csv'),fields,rows)
         fields=keys+['before_status','after_status']
-        write_csv(output/'execution_frame_transitions.csv',fields+['states'],
+        write_csv(output/(prefix+'_transitions.csv'),fields+['states'],
             [dict(zip(fields,key),states=n) for key,n in sorted(self.transitions.items())])
 
 
