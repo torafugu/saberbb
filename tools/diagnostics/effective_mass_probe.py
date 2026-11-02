@@ -15,6 +15,7 @@ from contact_point_speed_probe import digest
 from contact_recoil import inverse_mass, solve, recoil_checks
 from forecast_contact_geometry import REQUIRED, audit, vec, signed_band
 from rotating_bat_probe import norm, sub
+from bat_mass_presets import PRESET, measured_wood
 
 METRICS=['ev_ms','hla_deg','vla_deg','effective_mass_kg','inverse_effective_mass_kg_inv',
          'normal_impulse_kg_ms','incoming_z_ms','impulse_z_ms','outgoing_z_ms']
@@ -133,7 +134,17 @@ class Aggregate:
         write_csv(output/'effective_mass_transitions.csv',keys+['states'],[dict(zip(keys,k),states=n) for k,n in sorted(self.transitions.items())])
 
 
-def run(input_dir,output,gyrations=(.15,.25,.35),body_mass=.6,cm_offset=0.):
+def run(input_dir,output,gyrations=None,body_mass=None,cm_offset=None,*,preset=None):
+    provenance=None
+    if preset is not None:
+        if preset!=PRESET:raise ValueError('unknown_bat_preset')
+        if any(x is not None for x in (gyrations,body_mass,cm_offset)):raise ValueError('preset_cannot_be_combined_with_mass_overrides')
+        provenance=measured_wood()
+        body_mass=provenance['body_mass_kg'];cm_offset=provenance['cm_offset_from_reference_m']
+        gyrations=(provenance['gyration_radius_m'],)
+    else:
+        gyrations=(.15,.25,.35) if gyrations is None else gyrations
+        body_mass=.6 if body_mass is None else body_mass;cm_offset=0. if cm_offset is None else cm_offset
     if (not gyrations or len(set(gyrations))!=len(gyrations) or any(not math.isfinite(k) or k<=0 for k in gyrations)
         or not all(math.isfinite(x) for x in (body_mass,cm_offset)) or body_mass<=0):raise ValueError('invalid_mass_parameters')
     source=Path(input_dir);output=Path(output)
@@ -145,7 +156,8 @@ def run(input_dir,output,gyrations=(.15,.25,.35),body_mass=.6,cm_offset=0.):
     if len(coverage)!=1:raise ValueError('invalid_source_coverage')
     expected=int(coverage[0]['trial_rows']);conditions={'prior_only','exact_observation_control'}|{f'observed_sigma_{s:g}' for s in meta['sensor_sigma_m']}
     if expected!=int(coverage[0]['valid_histories'])*len(meta['levers_m'])*len(conditions):raise ValueError('invalid_source_count')
-    output.mkdir(parents=True,exist_ok=False);configs=models(gyrations);checks=defaultdict(float);counts=Counter();status=Counter();agg=Aggregate()
+    configs=models(gyrations) if provenance is None else [('constant_0.6kg','constant',.25)]+[(f'{model}_{PRESET}',model,gyrations[0]) for model in ('free','pivot')]
+    output.mkdir(parents=True,exist_ok=False);checks=defaultdict(float);counts=Counter();status=Counter();agg=Aggregate()
     with tempfile.TemporaryDirectory(prefix='saberbb_mass_') as temp:
         db=sqlite3.connect(str(Path(temp)/'keys.db'))
         try:
@@ -174,9 +186,11 @@ def run(input_dir,output,gyrations=(.15,.25,.35),body_mass=.6,cm_offset=0.):
     result={k:counts[k] for k in ('trial_rows','geometry_contacts')};result.update(mass_models=len(configs),collision_trial_rows=counts['trial_rows']*len(configs))
     write_csv(output/'effective_mass_coverage.csv',list(result),[result])
     (output/'effective_mass_metadata.json').write_text(json.dumps(dict(version=1,input_sha256=hashes,input_metadata=meta,
+        bat_preset=provenance,model_names=[name for name,_,_ in configs],
         body_mass_kg=body_mass,cm_offset_from_reference_m=cm_offset,gyration_radii_m=list(gyrations),
         free_transverse_inertias_kg_m2=[body_mass*k*k for k in gyrations],pivot_inertias_kg_m2={str(l):[body_mass*(k*k+(l+cm_offset)**2) for k in gyrations] for l in meta['levers_m']},
-        assumptions='central-equivalent sensitivity hypotheses, NOT measured bat parameters; frozen contact geometry and velocities',
+        assumptions=('published mass properties with explicit reference mapping; frozen contact geometry and velocities' if provenance else
+                     'user-specified sensitivity hypotheses, NOT measured bat parameters; frozen contact geometry and velocities'),
         infinite_mass='inverse mass zero is an exact limit, no arbitrary mass cap',
         note='Free recoil permits center-of-mass motion during impact; prescribed pivot has no translational recoil. No vibrations/spin/tangential impulse.'),indent=2)+'\n')
     return result
@@ -184,7 +198,8 @@ def run(input_dir,output,gyrations=(.15,.25,.35),body_mass=.6,cm_offset=0.):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--input-dir',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
-    p.add_argument('--gyration-radii-m',type=float,nargs='+',default=[.15,.25,.35]);p.add_argument('--body-mass-kg',type=float,default=.6)
-    p.add_argument('--cm-offset-m',type=float,default=0.);a=p.parse_args()
-    try:print(run(a.input_dir,a.output_dir,a.gyration_radii_m,a.body_mass_kg,a.cm_offset_m))
+    p.add_argument('--preset',choices=[PRESET],help='Published wood-bat mass properties; incompatible with manual mass/CM/gyration overrides')
+    p.add_argument('--gyration-radii-m',type=float,nargs='+');p.add_argument('--body-mass-kg',type=float)
+    p.add_argument('--cm-offset-m',type=float);a=p.parse_args()
+    try:print(run(a.input_dir,a.output_dir,a.gyration_radii_m,a.body_mass_kg,a.cm_offset_m,preset=a.preset))
     except (OSError,ValueError,sqlite3.Error) as exc:p.exit(1,f'Diagnostic failed: {exc}\n')
