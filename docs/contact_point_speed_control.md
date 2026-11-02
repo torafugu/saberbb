@@ -147,3 +147,8 @@ python3 -m unittest discover -s tests/sql -p 'test_*.py'
 
 実行後はcoverage/status/checks/summary/pairs/transitionsの6つのCSVを添付する。
 巨大な元明細・計画JSONLの添付は不要。
+
+## 次段の上下対称対照
+
+[同一球の上下対称の高さ誤差と軸の診断](symmetric_height_probe.md)では、
+一定速度の平行移動を使い、法線の生成・軸の高さ依存・接触の選別を切り分ける。
