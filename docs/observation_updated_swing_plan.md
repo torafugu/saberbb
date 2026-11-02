@@ -114,3 +114,8 @@ python3 -m unittest discover -s tests/diagnostics -p 'test_*.py'
 python3 -m unittest discover -s tests/sql -p 'test_*.py'
 cargo test swing_prediction
 ```
+
+## 接触幾何への追加集計
+
+前回の全試行CSVから[予測誤差→接触幾何→打球品質](forecast_contact_geometry.md)を追加集計できる。
+試合の再生成は不要。局所b/R、軸方向位置、衝突法線と鉛直力積の対応を確認する。
