@@ -142,3 +142,8 @@ python3 -m unittest discover -s tests/sql -p 'test_*.py'
 ```
 
 実行後はmetadata以外の7つのCSVを添付する。大きな全試行明細は生成しない。
+
+## 回転モデルへの比較
+
+[狙い位置と予定軸を分離する診断](independent_stance_axis.md)で、元の回転モデルに戻り、
+同じ観測誤差と予測を共有して高さ依存軸と独立した基準軸を比較できる。
