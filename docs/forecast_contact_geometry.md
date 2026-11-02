@@ -133,3 +133,8 @@ python3 -m unittest discover -s tests/sql -p 'test_*.py'
 
 初回評価にはcoverage/status/checks/chain/pairs/geometry_pairs/transitionsの7つのCSVを添付する。
 元の巨大なcontacts.csvやinputs.jsonlは添付不要。
+
+## 接触点速度の対照
+
+次段の[接触点速度を計画の基準速度に固定する診断](contact_point_speed_control.md)では、
+同じ接触幾何で速度だけを差し替える。元の観測更新出力を使い、試合の再生成は不要。
