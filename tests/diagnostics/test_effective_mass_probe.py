@@ -9,9 +9,65 @@ from test_forecast_contact_geometry import fixture, csv_rows, replace_csv
 import effective_mass_probe as probe
 from contact_recoil import inverse_mass, solve, recoil_checks
 from contact_3d import ContactGeometry, solve_contact
+from bat_mass_presets import PRESET, measured_wood
 
 
 class EffectiveMassTest(unittest.TestCase):
+    def test_measured_preset_units_axis_and_reference_sign(self):
+        p=measured_wood();m=p['body_mass_kg'];c=p['cm_offset_from_reference_m'];k=p['gyration_radius_m']
+        self.assertAlmostEqual(m,.83375947510625)
+        self.assertAlmostEqual(p['transverse_cm_inertia_kg_m2'],.043347248664200255)
+        self.assertAlmostEqual(c,-.17272)
+        self.assertAlmostEqual(k,.2280134035681508)
+        self.assertAlmostEqual(m*k*k,p['transverse_cm_inertia_kg_m2'])
+        self.assertAlmostEqual(p['published_radius_at_impact_m'],.029464)
+        a=(1.,0.,0.);n=(0.,1.,0.)
+        inv,arm,i=inverse_mass(a,n,0.,.9,'free',m,k,c)
+        # At the mapped published impact, not the CM: 1/Meff=1/M+b^2/I0.
+        self.assertAlmostEqual(arm[0],.17272)
+        self.assertAlmostEqual(1/inv,.5297729719775672)
+        near,_,_=inverse_mass(a,n,-.1,.9,'free',m,k,c)
+        far,_,_=inverse_mass(a,n,.1,.9,'free',m,k,c)
+        self.assertLess(near,inv);self.assertGreater(far,inv)
+        _,_,ip=inverse_mass(a,n,0.,.9,'pivot',m,k,c)
+        self.assertAlmostEqual(ip,.4843528158068796)
+        for model in ('free','pivot'):
+            inv,arm,i=inverse_mass(a,n,.1,.9,model,m,k,c)
+            g=ContactGeometry(.4,a,n,.1,.1,.16,'side')
+            vin=(0.,-40.,-2.);vbat=(0.,35.,5.)
+            checks=recoil_checks(solve(g,vin,vbat,inv),vin,vbat,(0.,-3.,20.),n,arm,i,model,m)
+            self.assertLess(max(checks.values()),1e-10)
+
+    def test_measured_pipeline_keeps_events_baseline_and_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=fixture(root)
+            hashes={p.name:probe.digest(p) for p in source.iterdir()}
+            before=probe.run(source,root/'synthetic')
+            after=probe.run(source,root/'measured',preset=PRESET)
+            self.assertEqual(before['mass_models'],7);self.assertEqual(after['mass_models'],3)
+            self.assertEqual(after['collision_trial_rows'],18)
+            self.assertEqual(before['geometry_contacts'],after['geometry_contacts'])
+            old=csv_rows(root/'synthetic/effective_mass_summary.csv')
+            new=csv_rows(root/'measured/effective_mass_summary.csv')
+            self.assertEqual([r for r in old if r['mass_model']=='constant_0.6kg'],[r for r in new if r['mass_model']=='constant_0.6kg'])
+            meta=json.loads((root/'measured/effective_mass_metadata.json').read_text())
+            self.assertEqual(meta['bat_preset'],measured_wood())
+            self.assertEqual(meta['model_names'],['constant_0.6kg','free_'+PRESET,'pivot_'+PRESET])
+            self.assertEqual(meta['input_sha256'],{name:hashes[name] for name in (
+                'observation_update_contacts.csv','observation_update_metadata.json','observation_update_coverage.csv')})
+            self.assertEqual(hashes,{p.name:probe.digest(p) for p in source.iterdir()})
+            self.assertTrue(all(float(r['max_error'])<1e-7 for r in csv_rows(root/'measured/effective_mass_checks.csv')))
+
+    def test_preset_rejects_mixed_parameters_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for kwargs in (dict(body_mass=.6),dict(cm_offset=0.),dict(gyrations=(.25,))):
+                with self.assertRaisesRegex(ValueError,'preset_cannot_be_combined'):
+                    probe.run(root/'missing',root/'out',preset=PRESET,**kwargs)
+            with self.assertRaisesRegex(ValueError,'unknown_bat_preset'):
+                probe.run(root/'missing',root/'out',preset='unknown')
+            self.assertFalse((root/'out').exists())
+
     def test_free_center_and_offcenter_parallel_axis_and_cap(self):
         a=(1.,0.,0.);n=(0.,1.,0.)
         center,_,i=inverse_mass(a,n,0.,.9,'free',.6,.25)
