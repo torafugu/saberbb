@@ -15,6 +15,7 @@ from effective_mass_probe import evaluate, strata
 from forecast_contact_geometry import vec
 from observation_contact_source import ContactSource
 from restitution_bounds import analyze
+from restitution_sensitivity import SensitivityAggregate, FIXED_E
 
 FLAGS=['fair_exists','baseline_fair','baseline_weak_fair','weak_fair_possible','possible_only_after_reduction','e0_fair']
 METRICS=['baseline_ev_ms','e0_ev_ms','tangent_floor_ms','min_any_ev_ms','fair_ev_infimum_ms','fair_infimum_e']
@@ -57,12 +58,12 @@ class Aggregate:
             [dict(zip(KEYS+['diagnosis'],key),states=n) for key,n in sorted(self.diagnoses.items())])
 
 
-def event(r,preset,checks):
+def evaluated_event(r,preset,checks,include_fixed=False):
     configs=[('constant_0.6kg','constant',.25),('free','free',preset['gyration_radius_m'])]
     result=evaluate(r,configs,preset['body_mass_kg'],preset['cm_offset_from_reference_m'],checks)['free']
     if result['collision_status']!='impulse_contact':
-        return {k:('not_evaluated:'+r['status'] if k=='diagnosis' and r['status']!='contact' else
-                   'not_evaluated:non_approaching' if k=='diagnosis' else None) for k in BOUNDS}
+        return ({k:('not_evaluated:'+r['status'] if k=='diagnosis' and r['status']!='contact' else
+                    'not_evaluated:non_approaching' if k=='diagnosis' else None) for k in BOUNDS},{})
     vin=vec(r,'ball_velocity_');vbat=vec(r,'point_velocity_');n=vec(r,'normal_')
     inv=result['inverse_effective_mass_kg_inv'];m=analyze(vin,vbat,n,inv)
     geometry=ContactGeometry(r['entry_since_release_sec'],vec(r,'axis_at_entry_'),n,r['axial_at_entry_m'],
@@ -71,13 +72,17 @@ def event(r,preset,checks):
         preset['body_mass_kg'],preset['gyration_radius_m'],preset['cm_offset_from_reference_m'])
     omega=tuple(float(r['omega_'+a+'_rad_s']) for a in 'xyz')
     # Reuse the collision solver independently at both endpoints and an interior witness.
-    for e in (0.,.5):
+    fixed={}
+    for e in FIXED_E if include_fixed else (0.,.5):
         solved=solve(geometry,vin,vbat,inv,e)
-        label='e0' if e==0 else 'baseline'
-        error=abs(solved['ev_ms']-m[label+'_ev_ms']);checks['bounds_endpoint_ev_ms']=max(checks['bounds_endpoint_ev_ms'],error)
-        if error>1e-7:raise ValueError('bounds_endpoint_ev_mismatch')
+        fixed[e]=solved
+        if e in (0.,.5):
+            label='e0' if e==0 else 'baseline'
+            error=abs(solved['ev_ms']-m[label+'_ev_ms']);checks['bounds_endpoint_ev_ms']=max(checks['bounds_endpoint_ev_ms'],error)
+            if error>1e-7:raise ValueError('bounds_endpoint_ev_mismatch')
         for key,error in recoil_checks(solved,vin,vbat,omega,n,arm,inertia,'free',preset['body_mass_kg'],e).items():
-            checks['bounds_'+key]=max(checks['bounds_'+key],error)
+            prefix='bounds_' if e in (0.,.5) else 'fixed_'
+            checks[prefix+key]=max(checks[prefix+key],error)
             if error>1e-7:raise ValueError('bounds_recoil_mismatch:'+key)
     if m['weak_fair_possible']:
         e=(m['weak_e_lo']+m['weak_e_hi'])/2
@@ -85,26 +90,33 @@ def event(r,preset,checks):
         # Allow only numerical verification tolerance; interval endpoints remain strictly open.
         if witness['ev_ms']>=25.+1e-9 or not abs(witness['hla_deg'])<45.+1e-9:
             raise ValueError('weak_interval_witness_mismatch')
-    return m
+    return m,fixed
+
+
+def event(r,preset,checks):
+    return evaluated_event(r,preset,checks)[0]
 
 
 def run(input_dir,output):
     source=ContactSource(input_dir);output=Path(output);output.mkdir(parents=True,exist_ok=False)
-    preset=measured_wood();checks=defaultdict(float);counts=Counter();agg=Aggregate()
+    preset=measured_wood();checks=defaultdict(float);counts=Counter();agg=Aggregate();sensitivity=SensitivityAggregate()
     with (output/'restitution_bounds_contacts.csv').open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=IDS+BOUNDS);writer.writeheader()
         for r in source.rows(checks):
-            m=event(r,preset,checks);agg.add(r,m)
+            m,fixed=evaluated_event(r,preset,checks,include_fixed=True);agg.add(r,m);sensitivity.add(r,m,fixed)
             ids={k:r[k] for k in IDS if k not in ('search_status',)};ids['search_status']=r['status']
             writer.writerow(dict(ids,**m));counts['trial_rows']+=1
             counts['geometry_contacts']+=r['status']=='contact';counts['impulse_contacts']+=r['collision_status']=='impulse_contact'
             counts['weak_fair_possible']+=m['weak_fair_possible'] or 0
     agg.write(output)
+    sensitivity.write(output)
     coverage={k:counts[k] for k in ('trial_rows','geometry_contacts','impulse_contacts','weak_fair_possible')}
     write_csv(output/'restitution_bounds_coverage.csv',list(coverage),[coverage])
     write_csv(output/'restitution_bounds_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
     (output/'restitution_bounds_metadata.json').write_text(json.dumps(dict(version=1,input_sha256=source.hashes,
         input_metadata=source.meta,bat_preset=preset,mass_model='free_'+PRESET,restitution_range=[0,.5],weak_ev_threshold_ms=25.,
+        fixed_restitution_values=list(FIXED_E),weak_hi_bands='[0,0.1),[0.1,0.2),[0.2,0.3),[0.3,0.4),[0.4,0.5),exactly 0.5; plus not_possible/not_evaluated',
+        reduction_infimum='0.5-weak_e_hi; not an attained reduction when the upper endpoint is open, and does not remove the lower-e fair/weak constraint',
         fair_definition='outgoing_y > abs(outgoing_x), strictly; both +/-45-degree boundaries excluded',
         solver='analytic affine velocity, linear fair constraints and convex quadratic speed; no e grid',
         infimum='Open fair endpoints are limits, not attained fair minima; check fair_min_attained',
