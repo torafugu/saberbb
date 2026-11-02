@@ -127,6 +127,13 @@ class RotatingBatTest(unittest.TestCase):
             allrows=[r for r in read('rotating_summary.csv') if r['timing_band']=='all']
             self.assertEqual(sum(int(r['valid_states']) for r in allrows),6)
             self.assertEqual(sum(int(r['swings']) for r in read('rotating_transitions.csv')),3)
+            quality=read('contact_3d_quality.csv')
+            for variant in ('linear_finite','rotating_r0.9'):
+                expected=sum(int(r['impulse_contacts']) for r in allrows if r['variant']==variant)
+                for dimension in ('axial_fraction','normal_speed_fraction','normal_elevation_deg','bat_point_speed_ms'):
+                    self.assertEqual(sum(int(r['contacts']) for r in quality if r['variant']==variant
+                        and r['adjusted_contact_type']=='all' and r['dimension']==dimension),expected)
+            self.assertEqual(sum(int(r['states']) for r in read('contact_3d_status.csv')),6)
             self.assertTrue(any(r['adjusted_contact_type']=='UnrecordedBatting' for r in allrows))
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
             self.assertEqual(json.loads((output/'rotating_metadata.json').read_text())['levers_m'],[.9])

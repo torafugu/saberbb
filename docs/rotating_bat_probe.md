@@ -139,3 +139,10 @@ python3 -m unittest discover -s tests/sql -p 'test_*.py'
 実データでは3半径の感度と、旧miss群の接触→非接触遷移、タイミング0との差を比較する。
 未解決が残る場合は反復上限を増やし、必要なら許容差を1e-7mへ縮めて別出力先で比較する。
 本体適用の前には、打者のスイング幾何・投球速度推定・狙い誤差の座標の妥当性を検討する。
+
+## 共通3D接触仕様と品質集計
+
+probe v2は[3D接触仕様](contact_3d_contract.md)の共通処理からEV/HLA/VLAを生成し、
+球の入力・出力速度XYZと品質記述量を明細へ追加する。
+`contact_3d_status.csv`と`contact_3d_quality.csv`も出力する。
+既存のprobe v1 CSVをDBなしで検証・集計するコマンドも同仕様に記載している。

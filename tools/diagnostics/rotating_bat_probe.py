@@ -9,7 +9,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from contact_collision_probe import angles, collide, cross, dot, relative_contact_geometry, write_csv
+from contact_collision_probe import cross, dot, relative_contact_geometry, write_csv
+from contact_3d import CONTRACT_VERSION, ContactGeometry, QualityAccumulator, solve_contact
 from contact_state_miss import legacy_group, timing_band
 from contact_state_probe import SOURCE, read_rows, validate_state
 
@@ -125,10 +126,15 @@ FIELDS=['game_id','count_seq','adjusted_contact_type','legacy_group','timing_ban
     'iterations','zero_timing_iterations','min_evaluated_clearance_m',
     'phase_position_difference_m','phase_velocity_difference_ms',
     'omega_rad_s','omega_x_rad_s','omega_y_rad_s','omega_z_rad_s','anchor_position_error_m','anchor_velocity_error_ms','anchor_axis_error',
-    'linear_infinite_status','linear_infinite_entry_offset_ms']
+    'linear_infinite_status','linear_infinite_entry_offset_ms',
+    'contact_contract_version','collision_status','collision_invalid_reason','closest_axial_at_entry_m',
+    'ball_velocity_x_ms','ball_velocity_y_ms','ball_velocity_z_ms',
+    'outgoing_velocity_x_ms','outgoing_velocity_y_ms','outgoing_velocity_z_ms',
+    'normal_impulse_kg_ms','relative_speed_ms','approach_speed_ms','normal_speed_fraction','axial_fraction',
+    'normal_elevation_deg','bat_point_speed_ms','restitution_residual_ms','tangential_impulse_residual_ms']
 
 
-def result_record(row,state,motion,variant,start,end,tolerance,max_iterations):
+def result_record(row,state,motion,variant,start,end,tolerance,max_iterations,quality=None):
     source=state['input'];delay=source['timing_offset_sec']
     actual=search(motion,delay,start,end,tolerance,max_iterations)
     zero=search(motion,0,start,end,tolerance,max_iterations)
@@ -160,14 +166,28 @@ def result_record(row,state,motion,variant,start,end,tolerance,max_iterations):
         r['zero_timing_entry_offset_ms']=zero['time_offset_sec']*1000
     if actual['status']=='contact' and zero['status']=='contact':
         r['delta_entry_ms']=(actual['time_offset_sec']-zero['time_offset_sec'])*1000
+    metrics=None
+    r['contact_contract_version']=CONTRACT_VERSION
+    r['collision_status']='not_evaluated:'+actual['status']
     # Initial overlaps lack a resolved first-contact normal and are not used for EV/VLA.
     if actual['status']=='contact' and actual['normal'] is not None:
         for axis,value in zip('xyz',actual['normal']): r['normal_'+axis]=value
         for axis,value in zip('xyz',actual['bat_velocity']): r['point_velocity_'+axis+'_ms']=value
-        outgoing,relative_normal,impulse=collide(motion.ball_velocity,actual['bat_velocity'],actual['normal'],.5,.6)
-        r.update(relative_normal_ms=relative_normal,impulse_delta_ms=impulse)
-        if impulse>0:
-            r['ev_ms'],r['hla_deg'],r['vla_deg']=angles(outgoing)
+        r['closest_axial_at_entry_m']=actual['closest_axial_m']
+        for axis,value in zip('xyz',motion.ball_velocity): r['ball_velocity_'+axis+'_ms']=value
+        geometry=ContactGeometry(r['entry_since_release_sec'],tuple(actual['axis']),tuple(actual['normal']),
+            actual['axial_m'],actual['closest_axial_m'],motion.half_length,actual['contact_region'])
+        try:
+            metrics=solve_contact(geometry,motion.ball_velocity,actual['bat_velocity'])
+        except ValueError as exc:
+            r['collision_status']='invalid_contact';r['collision_invalid_reason']=str(exc)
+            metrics={'collision_status':'invalid_contact'}
+        else:
+            for field,value in metrics.items():
+                if field in FIELDS:r[field]=value
+            if metrics['outgoing_world_ms'] is not None:
+                for axis,value in zip('xyz',metrics['outgoing_world_ms']): r['outgoing_velocity_'+axis+'_ms']=value
+    if quality is not None:quality.add(r,metrics)
     return r
 
 
@@ -223,7 +243,7 @@ def run(db_path,first,last,output,levers=(.6,.9,1.2),window=.06,half_length=.16,
     try:
         db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         output.mkdir(parents=True,exist_ok=False)
-        counts=Counter();statuses=Counter();groups=defaultdict(list);transitions=Counter()
+        counts=Counter();statuses=Counter();groups=defaultdict(list);transitions=Counter();quality=QualityAccumulator()
         with (output/'rotating_contacts.csv').open('x',newline='',encoding='utf-8') as stream:
             writer=csv.DictWriter(stream,fieldnames=FIELDS);writer.writeheader()
             for row in read_rows(db,first,last):
@@ -244,7 +264,7 @@ def run(db_path,first,last,output,levers=(.6,.9,1.2),window=.06,half_length=.16,
                 baseline=None
                 for variant,lever in trials:
                     motion=Motion(state,lever,half_length)
-                    record=result_record(row,state,motion,variant,start,end,tolerance,max_iterations)
+                    record=result_record(row,state,motion,variant,start,end,tolerance,max_iterations,quality)
                     writer.writerow(record)
                     for band in (record['timing_band'],'all'):
                         groups[kind,record['legacy_group'],band,variant].append(record)
@@ -259,7 +279,8 @@ def run(db_path,first,last,output,levers=(.6,.9,1.2),window=.06,half_length=.16,
         fields=['adjusted_contact_type','legacy_group','variant','linear_status','rotating_status']
         write_csv(output/'rotating_transitions.csv',fields+['swings'],
             [dict(zip(fields,k),swings=v) for k,v in sorted(transitions.items())])
-        (output/'rotating_metadata.json').write_text(json.dumps(dict(probe_version=1,state_source=SOURCE,
+        quality.write(output)
+        (output/'rotating_metadata.json').write_text(json.dumps(dict(probe_version=2,contact_contract_version=CONTRACT_VERSION,state_source=SOURCE,
             levers_m=list(levers),half_length_m=half_length,effective_radius_m=.07,
             half_window_sec=window,contact_tolerance_m=tolerance,max_iterations=max_iterations,
             restitution=.5,effective_mass_kg=.6,solver='conservative_advancement_global_speed_bound',
