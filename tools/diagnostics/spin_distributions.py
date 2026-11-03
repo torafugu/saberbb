@@ -40,6 +40,8 @@ class SpinDistributions:
                 if any(not math.isfinite(m[k]) for k in DELTA_EDGES):
                     raise ValueError('nonfinite_spin_distribution_metric')
             cohorts = ['all_common']
+            if direction(right) == 'fair_direction':
+                cohorts.append('input_fair_common')
             if reference_fair:
                 cohorts.append('reference_fair_common')
             if direction(left) == direction(right) == 'fair_direction':
