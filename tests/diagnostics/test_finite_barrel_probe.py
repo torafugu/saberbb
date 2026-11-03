@@ -162,6 +162,14 @@ class FiniteBarrelTest(unittest.TestCase):
             self.assertTrue(all(float(r['max_error'])<1e-7 for r in csv_rows(out/'finite_barrel_checks.csv')))
             self.assertLessEqual(len(csv_rows(out/'finite_barrel_examples.csv')),2)
             meta=json.loads((out/'finite_barrel_metadata.json').read_text())
+            tilt=csv_rows(out/'finite_barrel_tilt_outcomes.csv')
+            for r in overall:
+                xs=[x for x in tilt if x['scope']==r['scope'] and x['variant']==r['variant'] and x['outcome_basis']==r['model'] and x['collision_status']=='impulse_contact']
+                for stage in ('overall','tilt','tilt_impact','tilt_impact_normal_z'):
+                    ys=[x for x in xs if x['stratum']==stage]
+                    self.assertEqual(sum(int(x['contacts']) for x in ys),int(r['impulse_contacts']))
+                    self.assertEqual(sum(int(x['contacts']) for x in ys if x['direction']=='fair_direction'),int(r['fair_contacts']))
+            self.assertTrue(all(float(x['max_error'])<1e-8 for x in csv_rows(out/'finite_barrel_tilt_checks.csv')))
             horizontal=csv_rows(out/'finite_barrel_horizontal_summary.csv')
             for r in overall:
                 xs=[x for x in horizontal if x['scope']==r['scope'] and x['variant']==r['variant'] and x['outcome_basis']==r['model'] and x['stratum']=='overall']

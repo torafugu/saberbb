@@ -285,3 +285,9 @@ python3 tools/diagnostics/finite_barrel_probe.py \
 [水平力積診断](horizontal_impulse_diagnostics.md)で、b/Rが大きい接触の
 入射速度・法線/接線速度変化・打ち出し速度とバット軸/法線を確認できる。
 +Y前方の不足と横速度優勢を区別し、ソルバーの実力積から速度閉合を検証する。
+
+## バット軸の傾きと法線
+
+[バット傾き診断](bat_tilt_diagnostics.md)で、各接触の傾き×b/R×法線z別に
+法線の左右成分と各モデルの方向・打球指標を確認する。
+側面の直交性と法線分解を検証するが、姿勢や衝突計算は変更しない。
