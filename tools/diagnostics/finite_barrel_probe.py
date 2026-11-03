@@ -24,6 +24,7 @@ from contact_selection_audit import SelectionAudit
 from geometry_direction_audit import DirectionAudit
 from horizontal_impulse_audit import HorizontalAudit
 from bat_tilt_audit import TiltAudit
+from speed_axial_audit import SpeedAxialAudit
 
 KEYS = ['scope','variant','stage','band_1','band_2']
 METRICS = ['incoming_spin_rpm','incoming_spin_x_rad_s','incoming_spin_y_rad_s','incoming_spin_z_rad_s','ev_ms','vla_deg','spin_rpm','spin_x_rad_s','spin_y_rad_s','spin_z_rad_s',
@@ -196,7 +197,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
         or invalid_spin_policy not in ('error','exclude') or (pitch_db is None and invalid_spin_policy!='error')
         or (pitch_db is None and gyro_sign!=0) or (pitch_db is not None and any(ball_spin))):raise ValueError('invalid_probe_parameters')
     selected=set(diagnostics) if diagnostics is not None else {'core','spin','selection','direction','horizontal','tilt'}
-    if not selected or not selected <= {'core','spin','selection','direction','horizontal','tilt'}:
+    if not selected or not selected <= {'core','spin','selection','direction','horizontal','tilt','speed_axial'}:
         raise ValueError('invalid_diagnostics')
     source=ContactSource(input_dir)
     allowed={f'{c}_r{lever:g}' for c in source.conditions for lever in source.meta['levers_m']}
@@ -214,6 +215,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     selection=SelectionAudit() if 'selection' in selected else None
     horizontal=HorizontalAudit(sample_limit) if 'horizontal' in selected else None
     tilt=TiltAudit() if 'tilt' in selected else None
+    speed_axial=SpeedAxialAudit() if 'speed_axial' in selected else None
     from pitch_spin_source import PitchSpinSource
     spin_source=PitchSpinSource(pitch_db,gyro_sign,output/'finite_barrel_invalid_spin.csv') if pitch_db is not None else None
     direction_audit=None
@@ -225,7 +227,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
             if variants is not None and r['variant'] not in variants:continue
             prepared=baseline.event(r,checks)
             results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy,prepared,include_ground)
-            for accumulator in (aggregate,selection,direction_audit,horizontal,tilt):
+            for accumulator in (aggregate,selection,direction_audit,horizontal,tilt,speed_axial):
                 if accumulator is not None:accumulator.add(r,results)
             if distributions is not None and (spin_source is not None or any(ball_spin)):
                 zero,_=event(r,checks,models,(0.,0.,0.),height,prepared=prepared,include_ground=include_ground)
@@ -237,7 +239,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     finally:
         if direction_audit is not None:direction_audit.close()
         if spin_source is not None:spin_source.close()
-    for accumulator in (aggregate,distributions,selection,horizontal,tilt):
+    for accumulator in (aggregate,distributions,selection,horizontal,tilt,speed_axial):
         if accumulator is not None:accumulator.write(output)
     if distributions is not None:write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
     coverage={k:counts[k] for k in ('trial_rows','source_geometry_contacts','eligible','not_evaluated:unsupported_cap',
@@ -245,7 +247,9 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     coverage['models']=len(models)
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
-    metadata=dict(version=9,execution=dict(diagnostics=sorted(selected),variants=sorted(variants) if variants is not None else None,
+    metadata=dict(version=10,speed_axial_audit=dict(opt_in=True,speed_edges_ms=[20,25,30,35,40,45],
+        axial_edges_m=[-.12,-.08,-.04,0,.04,.08,.12],
+        note="Contact-centerline speed; signed axial coordinate positive toward tip; input geometry is counted once, output cohorts overlap. Synthetic sweep minima are not imputed onto actual contacts."),execution=dict(diagnostics=sorted(selected),variants=sorted(variants) if variants is not None else None,
         source_trial_rows=source.expected,processed_trial_rows=counts['trial_rows'],ground_evaluated=include_ground,
         zero_spin_counterpart_evaluated=distributions is not None and (pitch_db is not None or any(ball_spin))),tilt_audit='unsigned axis elevation per contact; +Y projected normal basis; algebraic association, not pose counterfactual',horizontal_audit='world +Y forward; velocity closure from solver normal/tangent vectors; normal-only intermediate uses actual coupled normal impulse, not an independent frictionless solution',direction_audit='source vs each successful model; observation transitions use source outcomes, no inferred after geometry',selection_audit=dict(
         source_basis='audited source constant 0.6kg normal collision, restitution 0.5; not finite-barrel imputation',
@@ -275,7 +279,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--input-dir',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
-    p.add_argument('--diagnostics',nargs='+',choices=('core','spin','selection','direction','horizontal','tilt'),default=None)
+    p.add_argument('--diagnostics',nargs='+',choices=('core','spin','selection','direction','horizontal','tilt','speed_axial'),default=None)
     p.add_argument('--models',nargs='+',default=None,help='Model names; normal_profile and finite_mu0 controls are always retained')
     p.add_argument('--variants',nargs='+',default=None,help='Solve selected variants; source audit remains complete; unavailable with direction diagnostics')
     p.add_argument('--axial-inertias',type=float,nargs='+',default=(.00015,.0003))

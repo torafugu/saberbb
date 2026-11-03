@@ -37,8 +37,10 @@ source_constant_mass_normalの行は保存元の基準応答で、モデルを�
 | direction | 幾何×方向、EV×VLA×HLA、観測条件間遷移 |
 | horizontal | 水平速度と法線/接線力積の分解 |
 | tilt | 軸の傾きと法線の幾何・方向別応答 |
+| speed_axial | 実接触の点速度×軸方向打点、b/R・傾き別の分布と応答（明示指定時のみ） |
 
---diagnostics未指定なら従来どおり全種類を出力する。
+--diagnostics未指定なら従来のcore/spin/selection/direction/horizontal/tiltを出力する。
+speed_axialは追加負荷を避けるため明示指定時のみ実行する。詳細は[speed/axial診断](speed_axial_contact_audit.md)。
 core/spinのどちらも指定しない場合、集計に使わない接地後応答を計算しない。
 spin未指定ならゼロ回転との再計算と比較集計を行わない。
 未指定診断のCSVを空ファイルとして作らず、出力自体を省略する。
@@ -63,7 +65,7 @@ python3 tools/diagnostics/finite_barrel_probe.py \
   --models finite_I0.00015_et0.4
 ```
 
-metadata version=9のexecutionに診断種類、variant選択、元試行数、処理試行数、
+metadata version=10のexecutionに診断種類、variant選択、元試行数、処理試行数、
 地面計算の有無、ゼロ回転対照の有無を記録する。coverageのtrial_rowsは処理した試行数。
 モデルとvariantを絞った出力を以前の全件coverageと同じ分母として読まない。
 不正回転のDB照合は選択された評価接触に対して行うため、未選択投球の回転値までは検証しない。
