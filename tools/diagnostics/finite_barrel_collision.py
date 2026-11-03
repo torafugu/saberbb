@@ -112,5 +112,6 @@ def solve(geometry, vin, centerline_velocity, ball_omega, bat_omega, mass, trans
         bat_before_j=before_bat,bat_after_j=after_bat,total_loss_j=loss,
         system_before_j=before_bat+before_ball,system_after_j=after_bat+after_ball,
         normal_impulse_kg_ms=jn,tangent_impulse_kg_ms=math.hypot(ja,jt),
+        normal_impulse_world_kg_ms=mul(n,jn),tangent_impulse_world_kg_ms=add(mul(a,ja),mul(t,jt)),
         post_tangent_slip_ms=math.hypot(post_components[1],post_components[2]),
         tangent_target_residual_ms=tangent_error,tangent_regime=regime,checks=checks)
