@@ -162,3 +162,6 @@ summaryは `all_swings / observed_sigma_0.005_r0.9 / height_m=0.9` を起点に�
 
 scopes、モデル、高さ、variant、集計stageは同じ入力の別の見方なので合算しない。
 接地後水平速度が閾値未満というだけで、従来の弱打率へ直接加算しない。
+
+中心線近似を有限半径・軸回転・法線接線連成へ拡張した比較は、
+[有限バレル衝突診断](finite_barrel_diagnostics.md)で実行できる。
