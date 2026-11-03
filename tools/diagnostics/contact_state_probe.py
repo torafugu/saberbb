@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read saved release-clock contact states; never modify the database."""
 import argparse
+from diagnostic_db import add_db_argument
 import json
 import math
 import sqlite3
@@ -180,7 +181,7 @@ def run(db_path, first, last, output):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--db',type=Path,required=True)
+    add_db_argument(parser)
     parser.add_argument('--first-game-id',type=int,required=True)
     parser.add_argument('--last-game-id',type=int,required=True)
     parser.add_argument('--output-dir',type=Path,required=True)

@@ -5,13 +5,14 @@
 ```bash
 python3 tools/diagnostics/bat_pivot_orientation_probe.py \
   --input-dir ../saberbb_observation_update_new \
-  --db /実際の保存先/saberbb.db \
   --output-dir ../saberbb_pivot_orientation \
   --variant observed_sigma_0.005_r0.9 \
   --gyro-sign 0
 ```
 
 入力ディレクトリは観測更新診断の保存先で、`observation_update_inputs.jsonl`、`observation_update_contacts.csv`、`observation_update_metadata.json`、`observation_update_coverage.csv` が必要。DBはその入力を作ったときの `player_game_contact_state` と `player_game_pitching` を含むものを指定する。選手再生成・試合再実行は不要。既存の出力ディレクトリへの上書きは拒否する。
+
+DBパスは事前に `export SABERBB_DB="/実際の保存先/saberbb.db"` で設定する。明示した `--db` も使用可能。詳細は[診断用DB設定](diagnostic_database.md)。
 
 ## 固定するものと変更するもの
 

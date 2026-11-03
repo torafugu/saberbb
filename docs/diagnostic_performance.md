@@ -3,13 +3,14 @@
 既定の全診断では、8モデル×複数観測条件の衝突、入力回転とゼロ回転の比較、接地後応答、
 これまで追加した全診断集計を毎回計算する。傾きだけを確認する場合はこの全処理は不要。
 
+DBパスは `export SABERBB_DB="/実際の保存先/saberbb.db"` で一度設定する。明示した `--pitch-db` も使用可能。詳細は[診断用DB設定](diagnostic_database.md)。
+
 ## 今回の傾き診断だけを実行
 
 ```sh
 python3 tools/diagnostics/finite_barrel_probe.py \
   --input-dir ../saberbb_observation_update_new \
   --output-dir ../saberbb_finite_tilt_fast \
-  --pitch-db "/path/to/saberbb.db" \
   --gyro-sign 0 \
   --diagnostics tilt \
   --models finite_I0.00015_et0.4 \
@@ -57,7 +58,6 @@ directionには条件間の結合が必要なので--variantsとの併用はエ�
 python3 tools/diagnostics/finite_barrel_probe.py \
   --input-dir ../saberbb_observation_update_new \
   --output-dir ../saberbb_finite_direction_fast \
-  --pitch-db "/path/to/saberbb.db" \
   --gyro-sign 0 \
   --diagnostics direction \
   --models finite_I0.00015_et0.4

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only, causal three-position forecast experiment; sensor assumptions are uncalibrated."""
 import argparse
+from diagnostic_db import add_db_argument
 import copy
 import csv
 import hashlib
@@ -201,7 +202,7 @@ def run(db_path,first,last,output,sigmas=(.002,.005,.01),levers=(.6,.9,1.2)):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--db',type=Path,required=True);parser.add_argument('--first-game-id',type=int,required=True)
+    add_db_argument(parser);parser.add_argument('--first-game-id',type=int,required=True)
     parser.add_argument('--last-game-id',type=int,required=True);parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--sensor-sigma-m',type=float,nargs='+',default=[.002,.005,.01])
     parser.add_argument('--levers-m',type=float,nargs='+',default=[.6,.9,1.2]);args=parser.parse_args()
