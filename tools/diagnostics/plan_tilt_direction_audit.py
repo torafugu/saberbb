@@ -258,8 +258,9 @@ class Audit:
         write_csv(out/'plan_tilt_direction_transitions.csv',keys+['trials'],[dict(zip(keys,k),trials=n) for k,n in sorted(self.transitions.items())])
 
 
-def run(input_dirs,output):
-    audit=Audit();datasets={};inputs={};contract=None
+def load_inputs(input_dirs,audit):
+    """Stream and validate cached pitches into an audit; never replay physics."""
+    datasets={};inputs={};contract=None
     for folder in map(Path,input_dirs):
         meta=json.loads((folder/'plan_tilt_metadata.json').read_text())
         if meta['version'] not in (1,2,3) or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
@@ -312,6 +313,11 @@ def run(input_dirs,output):
         for filename in ('plan_tilt_metadata.json','plan_tilt_sample.csv','plan_tilt_states.jsonl','plan_tilt_summary.csv','plan_tilt_ev_vla.csv','plan_tilt_kinematics.csv'):
             inputs[str(folder/filename)]=digest(folder/filename)
     if not datasets:raise ValueError('no_input_datasets')
+    return datasets,inputs
+
+
+def run(input_dirs,output):
+    audit=Audit();datasets,inputs=load_inputs(input_dirs,audit)
     out=Path(output);out.mkdir(parents=True,exist_ok=False);audit.write(out)
     write_csv(out/'plan_tilt_direction_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(audit.checks.items())])
     metadata=dict(version=1,status='cached_direction_audit_not_calibrated',new_searches=0,db_reads=0,datasets=datasets,inputs=inputs,
