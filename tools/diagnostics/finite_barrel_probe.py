@@ -213,7 +213,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
     metadata=dict(version=4,spin_distributions=dict(
-        cohorts=['all_common','reference_fair_common','both_fair_common'],
+        cohorts=['all_common','reference_fair_common','both_fair_common','input_fair_common'],
         bins='lower inclusive, upper exclusive; blank bounds mean infinity; sparse nonzero cells',
         denominator='common successful contacts per scope/variant/cohort/model; zero and input share denominator'),invalid_spin_policy=invalid_spin_policy,input_sha256=source.hashes,input_metadata=source.meta,bat=profile.metadata(),models=models,
         incoming_ball_spin_world_rad_s=ball_spin if pitch_db is None else None,pitch_spin_source=spin_metadata,ground_height_m=height,ground_e=.45,ground_mu=.25,sample_limit=sample_limit,
