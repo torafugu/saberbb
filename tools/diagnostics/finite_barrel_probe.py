@@ -18,6 +18,7 @@ from forecast_contact_geometry import vec
 from ground_spin_probe import check_metrics
 from observation_contact_source import ContactSource
 from rotating_bat_probe import norm, sub
+from spin_distributions import SpinDistributions
 
 KEYS = ['scope','variant','stage','band_1','band_2']
 METRICS = ['incoming_spin_rpm','incoming_spin_x_rad_s','incoming_spin_y_rad_s','incoming_spin_z_rad_s','ev_ms','vla_deg','spin_rpm','spin_x_rad_s','spin_y_rad_s','spin_z_rad_s',
@@ -189,6 +190,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
         or (pitch_db is None and gyro_sign!=0) or (pitch_db is not None and any(ball_spin))):raise ValueError('invalid_probe_parameters')
     source=ContactSource(input_dir);output=Path(output);output.mkdir(parents=True,exist_ok=False)
     models=configs(inertias);checks=defaultdict(float);counts=Counter();aggregate=Aggregate(models,sample_limit);spin_pairs=defaultdict(Counter)
+    distributions=SpinDistributions()
     from pitch_spin_source import PitchSpinSource
     spin_source=PitchSpinSource(pitch_db,gyro_sign,output/'finite_barrel_invalid_spin.csv') if pitch_db is not None else None
     try:
@@ -197,18 +199,23 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
             if spin_source is not None or any(ball_spin):
                 zero,_=event(r,checks,models,(0.,0.,0.),height)
                 add_spin_pairs(spin_pairs,r,zero,results)
+                distributions.add(r,zero,results)
             counts['trial_rows']+=1;counts['source_geometry_contacts']+=r['status']=='contact';counts[eligibility]+=1
         spin_metadata=spin_source.metadata() if spin_source is not None else dict(source='constant_world_vector_scenario',vector_rad_s=ball_spin)
     finally:
         if spin_source is not None:spin_source.close()
     aggregate.write(output)
     write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
+    distributions.write(output)
     coverage={k:counts[k] for k in ('trial_rows','source_geometry_contacts','eligible','not_evaluated:unsupported_cap',
         'not_evaluated:out_of_curve','not_evaluated:invalid_pitch_spin','not_evaluated:non_approaching','not_evaluated:no_contact','not_evaluated:overlap_at_start','not_evaluated:unresolved')}
     coverage['models']=len(models)
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
-    metadata=dict(version=3,invalid_spin_policy=invalid_spin_policy,input_sha256=source.hashes,input_metadata=source.meta,bat=profile.metadata(),models=models,
+    metadata=dict(version=4,spin_distributions=dict(
+        cohorts=['all_common','reference_fair_common','both_fair_common'],
+        bins='lower inclusive, upper exclusive; blank bounds mean infinity; sparse nonzero cells',
+        denominator='common successful contacts per scope/variant/cohort/model; zero and input share denominator'),invalid_spin_policy=invalid_spin_policy,input_sha256=source.hashes,input_metadata=source.meta,bat=profile.metadata(),models=models,
         incoming_ball_spin_world_rad_s=ball_spin if pitch_db is None else None,pitch_spin_source=spin_metadata,ground_height_m=height,ground_e=.45,ground_mu=.25,sample_limit=sample_limit,
         assumptions=[
             'Saved contact point velocity is on the centerline. Add omega cross (R*n) for the surface point; infer CM velocity from the centerline point.',

@@ -126,6 +126,25 @@ class LiteratureSpinValidationTest(unittest.TestCase):
             self.assertEqual({round(float(r['incoming_spin_rpm'])) for r in examples},{2000,2500})
             pairs=csv_rows(output/'finite_barrel_spin_pairs.csv')
             self.assertTrue(pairs)
+            stats=csv_rows(output/'finite_barrel_spin_delta_stats.csv')
+            self.assertTrue(stats)
+            lookup={(x['scope'],x['variant'],x['after_model'].split(':')[0]):x
+                    for x in pairs if x['stage']=='overall'}
+            for x in stats:
+                if x['cohort']!='all_common':continue
+                pair=lookup[x['scope'],x['variant'],x['model']]
+                self.assertEqual(int(x['paired_contacts']),int(pair['paired_contacts']))
+                self.assertAlmostEqual(float(x['mean_delta']),float(pair['avg_delta_'+x['metric']]))
+            joint=csv_rows(output/'finite_barrel_spin_ev_vla.csv')
+            totals={}
+            for x in joint:
+                key=tuple(x[k] for k in ['scope','variant','cohort','model','side'])
+                totals[key]=totals.get(key,0)+int(x['count'])
+            for x in stats:
+                if x['metric']!='ev_ms':continue
+                key=tuple(x[k] for k in ['scope','variant','cohort','model'])
+                for side in ('zero','input_spin'):
+                    self.assertEqual(totals[key+(side,)],int(x['paired_contacts']))
             self.assertTrue(any(abs(float(r['avg_delta_spin_rpm']))>1 for r in pairs if int(r['n_spin_rpm'])))
             for r in pairs:
                 self.assertLessEqual(int(r['paired_contacts']),int(r['states']))

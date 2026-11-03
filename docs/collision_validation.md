@@ -210,3 +210,51 @@ NaN・無限大は生成エラーです。
 
 既存データの解析は、従来の `--invalid-spin-policy exclude` と
 `finite_barrel_invalid_spin.csv` による明示的な除外・記録を維持します。
+
+## 入射回転による差の分布とEV×VLA
+
+平均差の相殺を確認するため、非ゼロ固定回転または `--pitch-db` を指定した
+有限半径診断で、以下の3ファイルを追加出力する。衝突計算そのものは変更しない。
+
+| ファイル | 内容 |
+|---|---|
+| `finite_barrel_spin_delta_stats.csv` | EV・VLA・回転数の符号付き平均差、平均絶対差、RMS、正・負・厳密ゼロの件数 |
+| `finite_barrel_spin_delta_hist.csv` | 同じ3指標の差のヒストグラム |
+| `finite_barrel_spin_ev_vla.csv` | ゼロ回転と入力回転のEV×VLA二次元度数・割合 |
+
+差はすべて「入力回転−ゼロ回転」。各scope/variant/modelについて両条件で衝突成功した
+接触だけを使い、未評価をゼロ補完しない。比較集合cohortは以下の3種類。
+
+- `all_common`: 全方向の共通成功集合。
+- `reference_fair_common`: ゼロ回転のnormal_profileがフェア方向となる共通成功集合。
+  各接線モデルの方向による選び直しを避ける比較の主軸。
+- `both_fair_common`: 当該モデルの両回転条件でフェア方向となる集合。
+  境界をまたぐ打球を除く選択が入るため、主比較とは別に読む。
+
+ゼロ回転・入力回転のEV×VLAは同じ分母paired_contactsを使う。
+列fractionは各モデル・集合の共通接触数に対する割合であり、全スイングに対する率ではない。
+scope・variant・cohort・modelは重複するため合算しない。
+これはフェア方向の接触集合であり、バント除外などを揃えた実測BBE集合ではない。
+
+EV区切りは0〜70 m/sを5 m/s刻み、VLAは−90〜90度を10度刻み。
+差の区切りはEVが−2/−0.5/−0.1/0/0.1/0.5/2 m/s、
+VLAが−10/−5/−2/−1/0/1/2/5/10度、
+回転数が−2000/−1000/−500/−100/0/100/500/1000/2000 rpm。
+すべて下限を含み上限を含まない。空の下限・上限はそれぞれ負・正の無限大。
+CSVは非ゼロのセルだけを出力し、省略セルは度数0。
+正負件数は厳密比較のため、対照モデルの微小な数値誤差にも注意する。
+個々の値や分位点は保存せず、既存の平均CSVからこの分布を復元することはできない。
+
+試合や観測更新CSVの作り直しは不要。同じ入力CSVとその元DBを指定して再実行する。
+
+```sh
+python3 tools/diagnostics/finite_barrel_probe.py \
+  --input-dir ../saberbb_observation_update_new \
+  --output-dir ../saberbb_finite_pitch_spin_distribution \
+  --pitch-db "/path/to/saberbb.db" \
+  --gyro-sign 0
+```
+
+出力先は未作成のディレクトリを指定する。回転比較を指定しない実行では
+3ファイルはヘッダーのみとなる。DBは読み取り専用。ジャイロの仮定、
+投球軌道や接触探索を固定する比較、実測未校正という制約は従来どおり。
