@@ -49,11 +49,17 @@ def contrasts(models):
             yield f"centerline_et{m['et']:g}",m['name']
 
 
-def event(r,checks,models,ball_spin,height,spin_source=None):
+def event(r,checks,models,ball_spin,height,spin_source=None,invalid_spin_policy='error'):
     old,eligibility = baseline.event(r,checks)
     if eligibility!='eligible':
         return {m['name']:dict(collision_status=eligibility,ev_ms=None) for m in models},eligibility
-    if spin_source is not None:ball_spin=spin_source.get(r)
+    if spin_source is not None:
+        from pitch_spin_source import InvalidPitchSpin
+        try:ball_spin=spin_source.get(r)
+        except InvalidPitchSpin:
+            if invalid_spin_policy!='exclude':raise
+            return {m['name']:dict(collision_status='not_evaluated:invalid_pitch_spin',ev_ms=None) for m in models},'not_evaluated:invalid_pitch_spin'
+
     g = ContactGeometry(r['entry_since_release_sec'],vec(r,'axis_at_entry_'),vec(r,'normal_'),
         r['axial_at_entry_m'],r['closest_axial_at_entry_m'],r['half_length_m'],'side')
     vin,vbat = vec(r,'ball_velocity_'),vec(r,'point_velocity_')
@@ -175,18 +181,19 @@ class Aggregate:
 
 
 def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,sample_limit=500,
-        pitch_db=None,gyro_sign=0):
+        pitch_db=None,gyro_sign=0,invalid_spin_policy='error'):
     if (not inertias or len(set(inertias))!=len(inertias) or any(not math.isfinite(x) or x<=0 for x in inertias)
         or not vector(ball_spin) or not math.isfinite(height) or height<=0
         or not isinstance(sample_limit,int) or sample_limit<0 or gyro_sign not in (-1,0,1)
+        or invalid_spin_policy not in ('error','exclude') or (pitch_db is None and invalid_spin_policy!='error')
         or (pitch_db is None and gyro_sign!=0) or (pitch_db is not None and any(ball_spin))):raise ValueError('invalid_probe_parameters')
     source=ContactSource(input_dir);output=Path(output);output.mkdir(parents=True,exist_ok=False)
     models=configs(inertias);checks=defaultdict(float);counts=Counter();aggregate=Aggregate(models,sample_limit);spin_pairs=defaultdict(Counter)
     from pitch_spin_source import PitchSpinSource
-    spin_source=PitchSpinSource(pitch_db,gyro_sign) if pitch_db is not None else None
+    spin_source=PitchSpinSource(pitch_db,gyro_sign,output/'finite_barrel_invalid_spin.csv') if pitch_db is not None else None
     try:
         for r in source.rows(checks):
-            results,eligibility=event(r,checks,models,ball_spin,height,spin_source);aggregate.add(r,results)
+            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy);aggregate.add(r,results)
             if spin_source is not None or any(ball_spin):
                 zero,_=event(r,checks,models,(0.,0.,0.),height)
                 add_spin_pairs(spin_pairs,r,zero,results)
@@ -197,11 +204,11 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     aggregate.write(output)
     write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
     coverage={k:counts[k] for k in ('trial_rows','source_geometry_contacts','eligible','not_evaluated:unsupported_cap',
-        'not_evaluated:out_of_curve','not_evaluated:non_approaching','not_evaluated:no_contact','not_evaluated:overlap_at_start','not_evaluated:unresolved')}
+        'not_evaluated:out_of_curve','not_evaluated:invalid_pitch_spin','not_evaluated:non_approaching','not_evaluated:no_contact','not_evaluated:overlap_at_start','not_evaluated:unresolved')}
     coverage['models']=len(models)
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
-    metadata=dict(version=2,input_sha256=source.hashes,input_metadata=source.meta,bat=profile.metadata(),models=models,
+    metadata=dict(version=3,invalid_spin_policy=invalid_spin_policy,input_sha256=source.hashes,input_metadata=source.meta,bat=profile.metadata(),models=models,
         incoming_ball_spin_world_rad_s=ball_spin if pitch_db is None else None,pitch_spin_source=spin_metadata,ground_height_m=height,ground_e=.45,ground_mu=.25,sample_limit=sample_limit,
         assumptions=[
             'Saved contact point velocity is on the centerline. Add omega cross (R*n) for the surface point; infer CM velocity from the centerline point.',
@@ -228,7 +235,8 @@ if __name__=='__main__':
     spin=p.add_mutually_exclusive_group()
     spin.add_argument('--ball-spin-rad-s',type=float,nargs=3,default=None,metavar=('X','Y','Z'))
     spin.add_argument('--pitch-db',type=Path)
+    p.add_argument('--invalid-spin-policy',choices=('error','exclude'),default='error')
     p.add_argument('--gyro-sign',type=int,choices=(-1,0,1),default=0)
     p.add_argument('--height-m',type=float,default=.9);p.add_argument('--sample-limit',type=int,default=500);a=p.parse_args()
-    try:print(run(a.input_dir,a.output_dir,tuple(a.axial_inertias),tuple(a.ball_spin_rad_s or (0.,0.,0.)),a.height_m,a.sample_limit,a.pitch_db,a.gyro_sign))
+    try:print(run(a.input_dir,a.output_dir,tuple(a.axial_inertias),tuple(a.ball_spin_rad_s or (0.,0.,0.)),a.height_m,a.sample_limit,a.pitch_db,a.gyro_sign,a.invalid_spin_policy))
     except (OSError,ValueError,sqlite3.Error) as exc:p.exit(1,f'Diagnostic failed: {exc}\n')
