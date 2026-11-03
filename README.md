@@ -263,3 +263,6 @@ EV x VLA, first-ground response and energy-audited tangential collision prototyp
 
 Axial impact attribution: local velocity, rigid recoil and positional effective restitution:
 [`docs/axial_response_diagnostics.md`](docs/axial_response_diagnostics.md).
+
+Finite-barrel coupled normal/tangential impulses and spin consistency:
+[`docs/finite_barrel_diagnostics.md`](docs/finite_barrel_diagnostics.md).
