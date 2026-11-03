@@ -44,9 +44,9 @@ def motion_for(state,plan):
         plan['pivot_velocity_world_ms'],plan['actual_axis_world'],plan['actual_omega_world_rad_s'])
 
 
-def evaluate(row,state,plan,checks):
+def evaluate(row,state,plan,checks,motion=None):
     """One timed search; no zero-delay replay or ground calculation."""
-    m = motion_for(state,plan)
+    m = motion if motion is not None else motion_for(state,plan)
     delay = plan['nominal_time_sec']-state['input']['reference_time_sec_since_release']
     actual = search(m,delay,row['window_start_ms']/1000,row['window_end_ms']/1000)
     r = dict(row,status=actual['status'],collision_status='not_evaluated:'+actual['status'],
@@ -62,7 +62,9 @@ def evaluate(row,state,plan,checks):
     for prefix,values in [('axis_at_entry_',actual['axis']),('normal_',actual['normal']),
         ('point_velocity_',actual['bat_velocity']),('ball_velocity_',m.ball_velocity)]:
         for a,v in zip('xyz',values):r[prefix+a+('_ms' if 'velocity' in prefix else '')]=v
-    for a,v in zip('xyz',m.omega):r['omega_'+a+'_rad_s']=v
+    omega=m.angular_velocity(t,delay) if hasattr(m,'angular_velocity') else m.omega
+    r['omega_rad_s']=norm(omega)
+    for a,v in zip('xyz',omega):r['omega_'+a+'_rad_s']=v
     g = ContactGeometry(r['entry_since_release_sec'],actual['axis'],actual['normal'],
         actual['axial_m'],actual['closest_axial_m'],m.half_length,actual['contact_region'])
     result = solve_contact(g,m.ball_velocity,actual['bat_velocity'])
@@ -86,13 +88,14 @@ def observations(r,plan,result):
 
 
 class Aggregate:
-    def __init__(self):
+    def __init__(self,before='saved_up',after='matched_down'):
+        self.before=before;self.after=after
         self.summary=defaultdict(Counter);self.pairs=defaultdict(Counter);self.transitions=Counter()
         self.histogram=Counter();self.histogram_totals=Counter()
     def add(self,row,plans,rows,results):
         for scope in ('all_swings','recorded_batting_only'):
             if scope=='recorded_batting_only' and row['adjusted_contact_type']=='UnrecordedBatting':continue
-            theta=tilt(plans['saved_up']['ideal_axis_world'])
+            theta=tilt(plans[self.before]['ideal_axis_world'])
             for stratum,b in [('overall','all'),('planned_tilt',band(theta,(10,20,30,40,50,60,75,90)))]:
                 for model in MODEL_NAMES:
                     key=(scope,row['variant'],stratum,b)
@@ -114,8 +117,8 @@ class Aggregate:
                                     self.histogram_totals[hk]+=1
                                     self.histogram[hk+(band(result['ev_ms'],(0,10,20,25,30,35,40,45,50,55,60)),
                                         band(result['vla_deg'],(-90,-60,-30,0,10,20,30,40,50,60,90)))]+=1
-                    l,r=(results[o][model] for o in ('saved_up','matched_down'))
-                    self.transitions[key+(model,rows['saved_up']['status'],rows['matched_down']['status'],
+                    l,r=(results[o][model] for o in (self.before,self.after))
+                    self.transitions[key+(model,rows[self.before]['status'],rows[self.after]['status'],
                         l['collision_status'],r['collision_status'],direction(l),direction(r))]+=1
                     p=self.pairs[key+(model,)];p['trials']+=1
                     if l['collision_status']==r['collision_status']=='impulse_contact':
