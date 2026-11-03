@@ -88,7 +88,10 @@ def solve_side(geometry, vin, vbat, ball_omega, bat_omega, mass, inertia, cm_off
                 ball_rotation_after_j=.5*BALL_INERTIA*dot(spin,spin),
                 system_before_j=before, system_after_j=after, normal_loss_j=normal_loss,
                 tangent_loss_j=tangent_loss, total_loss_j=loss, normal_impulse_kg_ms=jn,
-                tangent_impulse_kg_ms=math.hypot(*jt), tangent_regime=regime, checks=checks)
+                tangent_impulse_kg_ms=math.hypot(*jt),
+                normal_impulse_world_kg_ms=mul(n,jn),
+                tangent_impulse_world_kg_ms=add(mul(axis,jt[0]),mul(t,jt[1])),
+                tangent_regime=regime, checks=checks)
 
 
 def ground_impact(velocity, omega, restitution=.45, mu=.25):

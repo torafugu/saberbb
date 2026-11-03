@@ -162,6 +162,15 @@ class FiniteBarrelTest(unittest.TestCase):
             self.assertTrue(all(float(r['max_error'])<1e-7 for r in csv_rows(out/'finite_barrel_checks.csv')))
             self.assertLessEqual(len(csv_rows(out/'finite_barrel_examples.csv')),2)
             meta=json.loads((out/'finite_barrel_metadata.json').read_text())
+            horizontal=csv_rows(out/'finite_barrel_horizontal_summary.csv')
+            for r in overall:
+                xs=[x for x in horizontal if x['scope']==r['scope'] and x['variant']==r['variant'] and x['outcome_basis']==r['model'] and x['stratum']=='overall']
+                self.assertEqual(sum(int(x['contacts']) for x in xs),int(r['impulse_contacts']))
+                self.assertEqual(sum(int(x['contacts']) for x in xs if x['final_direction']=='fair_direction'),int(r['fair_contacts']))
+                for x in xs:
+                    for axis in 'xyz':
+                        self.assertAlmostEqual(float(x['avg_outgoing_'+axis]),sum(float(x['avg_'+name+'_'+axis]) for name in ('incoming','normal_delta','tangent_delta')))
+            self.assertTrue(all(float(x['max_error'])<1e-7 for x in csv_rows(out/'finite_barrel_horizontal_checks.csv')))
             transitions=csv_rows(out/'finite_barrel_observation_transitions.csv')
             source_meta=json.loads((source/'observation_update_metadata.json').read_text())
             expected=2*len(source_meta['sensor_sigma_m'])*int(coverage['trial_rows'])/(len(source_meta['sensor_sigma_m'])+2)

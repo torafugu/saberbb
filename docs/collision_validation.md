@@ -279,3 +279,9 @@ python3 tools/diagnostics/finite_barrel_probe.py \
 [接触幾何と方向の診断](geometry_direction_diagnostics.md)を追加した。
 局所b/R×法線z、打点位置×水平法線角、EV×VLA×HLAを方向別に集計する。
 同じ投球・レバー長の観測条件間で接触状態を追い、非接触や探索未収束へ打球値を補完しない。
+
+## 水平速度と法線・接線力積
+
+[水平力積診断](horizontal_impulse_diagnostics.md)で、b/Rが大きい接触の
+入射速度・法線/接線速度変化・打ち出し速度とバット軸/法線を確認できる。
++Y前方の不足と横速度優勢を区別し、ソルバーの実力積から速度閉合を検証する。
