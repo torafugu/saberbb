@@ -266,3 +266,10 @@ python3 tools/diagnostics/finite_barrel_probe.py \
 [Statcast比較手順](statcast_distribution_comparison.md)を参照。
 フェア方向と実際のフェア打球の差などを記録する探索比較であり、
 比較集合の完全一致や校正完了は主張しない。
+
+## 接触集合の選別監査
+
+全接触・適用可能・モデル成功・フェア方向のEV×VLAと除外理由を追加出力する。
+[接触選別診断](contact_selection_diagnostics.md)を参照。
+同じ保存基準応答による集合間比較と、同じ集合での入力回転モデル比較を区別する。
+端面・曲線範囲外へ有限半径モデルを外挿しない。
