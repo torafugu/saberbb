@@ -53,13 +53,16 @@ def hla_class(m):
 
 def scenario_names(meta):
     if meta['version']==1:return ['saved_tilt']+[f'tilt_{a:g}deg' for a in meta['angles_deg']]
-    if meta['version']==2 and meta.get('scenarios'):
-        pairs=set()
+    if meta['version'] in (2,3) and meta.get('scenarios'):
+        conditions=set()
         for name,c in meta['scenarios'].items():
             tilt=number(c['tilt_deg']);yaw=number(c['yaw_batter_deg'])
-            if not 0<=tilt<=60 or abs(yaw)>45 or name!=f'tilt_{tilt:g}deg_yaw_{yaw:g}deg':raise ValueError('invalid_yaw_metadata_scenario')
-            pairs.add((tilt,yaw))
-        if pairs!={(x,y) for x in meta['angles_deg'] for y in meta['yaws_deg']}:raise ValueError('missing_yaw_metadata_scenarios')
+            aim=number(c['aim_z_offset_m']) if meta['version']==3 else None
+            label=f'tilt_{tilt:g}deg_yaw_{yaw:g}deg'+(f'_aim_z_{aim*1000:g}mm' if aim is not None else '')
+            if not 0<=tilt<=60 or abs(yaw)>45 or name!=label:raise ValueError('invalid_axis_metadata_scenario')
+            conditions.add((tilt,yaw,aim))
+        aims=meta['aim_z_offsets_m'] if meta['version']==3 else [None]
+        if conditions!={(x,y,z) for x in meta['angles_deg'] for y in meta['yaws_deg'] for z in aims}:raise ValueError('missing_axis_metadata_scenarios')
         return ['saved_tilt']+list(meta['scenarios'])
     raise ValueError('unsupported_tilt_metadata')
 
@@ -259,7 +262,7 @@ def run(input_dirs,output):
     audit=Audit();datasets={};inputs={};contract=None
     for folder in map(Path,input_dirs):
         meta=json.loads((folder/'plan_tilt_metadata.json').read_text())
-        if meta['version'] not in (1,2) or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
+        if meta['version'] not in (1,2,3) or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
         dataset='seed:'+meta['sample_seed']
         if dataset in datasets:raise ValueError('duplicate_seed_dataset')
         identity={k:meta[k] for k in ('variant','models','duration_sec','anchor_fraction','plan_effort','execution_ratio','start_delay_sec')}
@@ -285,11 +288,17 @@ def run(input_dirs,output):
             for line in f:
                 r=json.loads(line);key=(r['game_id'],r['count_seq']);name=r['scenario']
                 if key not in manifest or name not in scenarios:raise ValueError('unknown_cached_trial')
-                if meta['version']==2 and name!='saved_tilt':
+                if meta['version'] in (2,3) and name!='saved_tilt':
                     axis=vector(r['forecast_plan']['ideal_axis_world']);side=1 if axis[0]>0 else -1
                     c=meta['scenarios'][name]
                     check(audit.checks,'declared_planned_tilt_deg',abs(math.degrees(math.asin(max(-1,min(1,axis[2]))))-c['tilt_deg']))
                     check(audit.checks,'declared_planned_yaw_deg',abs(math.degrees(math.atan2(axis[1],side*axis[0]))-c['yaw_batter_deg']))
+                    if meta['version']==3:
+                        plan=r['forecast_plan'];offset=(0.,0.,c['aim_z_offset_m'])
+                        same(offset,plan['planned_aim_offset_world_m'],audit.checks,'declared_aim_offset')
+                        aim=tuple(a+b for a,b in zip(vector(plan['forecast_position_world_m']),offset))
+                        same(aim,plan['planned_aim_point_world_m'],audit.checks,'declared_aim_point')
+                        same(aim,plan['ideal_point_world_m'],audit.checks,'ideal_aim_point')
                 if key!=current:
                     if current is not None:flush()
                     if key in seen:raise ValueError('noncontiguous_or_duplicate_cached_pitch')

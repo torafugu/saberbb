@@ -85,3 +85,7 @@ HLAが中央に集まることでフェア方向率が上がっているのか�
 ## yawを含む保存計画
 
 [傾斜×yaw診断](plan_tilt_yaw_sweep.md)のmetadata version=2も読める。scenario名はmetadataのscenariosから取得し、宣言した傾斜・yawと保存理想軸の一致を検査する。旧version=1のファイルも従来どおり読める。同じseedのフォルダを複数渡すことはできないため、旧標本と新しいyaw標本は別の出力先で監査する。
+
+## 上下狙い打点を含む保存計画
+
+[上下狙い診断](plan_aim_height_sweep.md)のmetadata version=3にも対応する。宣言した上下オフセットと `planned_aim_offset_world_m`、予測球中心から生成される `planned_aim_point_world_m` の一致を検査する。高さ別集計は変更していない予測球中心を使い、狙い位置の移動によって高さ帯の所属を変えない。
