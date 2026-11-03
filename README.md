@@ -260,3 +260,6 @@ Signed contact-normal HLA trial, migration and before/after checks:
 
 EV x VLA, first-ground response and energy-audited tangential collision prototypes:
 [`docs/ground_spin_diagnostics.md`](docs/ground_spin_diagnostics.md).
+
+Axial impact attribution: local velocity, rigid recoil and positional effective restitution:
+[`docs/axial_response_diagnostics.md`](docs/axial_response_diagnostics.md).
