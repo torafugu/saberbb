@@ -337,7 +337,9 @@ impl<R: PlayerRepository> PlayerFactory<R> {
                         .rng
                         .normal(pitch_skill_prob.spin_angle)
                         .clamp(-180.0, 180.0),
-                    spin_efficiency: self.rng.normal(pitch_skill_prob.spin_efficiency),
+                    spin_efficiency: bounded_spin_efficiency(
+                        self.rng.normal(pitch_skill_prob.spin_efficiency),
+                    )?,
                     usage: self.rng.normal(pitch_skill_prob.usage),
                 };
                 pitch_skills.push(pitch_skill);
@@ -348,5 +350,40 @@ impl<R: PlayerRepository> PlayerFactory<R> {
 
     fn assign_team(&self, player: &Player) -> Result<Team, AppError> {
         self.service.next_team(player.defense_skills.position)
+    }
+}
+
+// Clamp finite normal samples at generation only; do not repair persisted skills.
+fn bounded_spin_efficiency(sample: f64) -> Result<f64, AppError> {
+    if !sample.is_finite() {
+        return Err(AppError::InvalidInput(format!(
+            "generated spin_efficiency must be finite, got {sample}"
+        )));
+    }
+    Ok(sample.clamp(0.0, 1.0))
+}
+
+#[cfg(test)]
+mod spin_efficiency_tests {
+    use super::*;
+
+    #[test]
+    fn bounds_generated_efficiency_without_changing_valid_samples() {
+        for (sample, expected) in [
+            (-0.1, 0.0),
+            (0.0, 0.0),
+            (0.73, 0.73),
+            (1.0, 1.0),
+            (1.032204, 1.0),
+        ] {
+            assert_eq!(bounded_spin_efficiency(sample).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn rejects_non_finite_generated_efficiency() {
+        for sample in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(bounded_spin_efficiency(sample).is_err());
+        }
     }
 }
