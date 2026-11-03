@@ -49,13 +49,14 @@ def configs(inertias):
 
 def contrasts(models):
     yield 'normal_profile','finite_mu0'
+    names={m['name'] for m in models}
     for m in models:
-        if m['kind']=='finite' and m['mu']>0:
+        if m['kind']=='finite' and m['mu']>0 and f"centerline_et{m['et']:g}" in names:
             yield f"centerline_et{m['et']:g}",m['name']
 
 
-def event(r,checks,models,ball_spin,height,spin_source=None,invalid_spin_policy='error'):
-    old,eligibility = baseline.event(r,checks)
+def event(r,checks,models,ball_spin,height,spin_source=None,invalid_spin_policy='error',prepared=None,include_ground=True):
+    old,eligibility = prepared if prepared is not None else baseline.event(r,checks)
     if eligibility!='eligible':
         return {m['name']:dict(collision_status=eligibility,ev_ms=None) for m in models},eligibility
     if spin_source is not None:
@@ -86,9 +87,10 @@ def event(r,checks,models,ball_spin,height,spin_source=None,invalid_spin_policy=
             m['incoming_spin_rpm']=norm(ball_spin)*30/math.pi
             for axis,value in zip('xyz',ball_spin):m['incoming_spin_'+axis+'_rad_s']=value
             for axis,value in zip('xyz',m['outgoing_spin_rad_s']):m['spin_'+axis+'_rad_s'] = value
-            ground = first_ground(m['outgoing_world_ms'],m['outgoing_spin_rad_s'],height)
-            check_metrics(checks,'', {k:ground[k] for k in ('ground_energy_balance_j','ground_negative_dissipation_j','flight_energy_balance_j')})
-            m.update(ground)
+            if include_ground:
+                ground = first_ground(m['outgoing_world_ms'],m['outgoing_spin_rad_s'],height)
+                check_metrics(checks,'', {k:ground[k] for k in ('ground_energy_balance_j','ground_negative_dissipation_j','flight_energy_balance_j')})
+                m.update(ground)
         results[name] = m
     # A finite-radius normal force acts along n, so both surface correction and
     # extra radius torque vanish in the normal response (same input geometry).
@@ -186,42 +188,65 @@ class Aggregate:
 
 
 def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,sample_limit=500,
-        pitch_db=None,gyro_sign=0,invalid_spin_policy='error'):
+        pitch_db=None,gyro_sign=0,invalid_spin_policy='error',diagnostics=None,model_names=None,variants=None):
     if (not inertias or len(set(inertias))!=len(inertias) or any(not math.isfinite(x) or x<=0 for x in inertias)
         or not vector(ball_spin) or not math.isfinite(height) or height<=0
         or not isinstance(sample_limit,int) or sample_limit<0 or gyro_sign not in (-1,0,1)
         or invalid_spin_policy not in ('error','exclude') or (pitch_db is None and invalid_spin_policy!='error')
         or (pitch_db is None and gyro_sign!=0) or (pitch_db is not None and any(ball_spin))):raise ValueError('invalid_probe_parameters')
-    source=ContactSource(input_dir);output=Path(output);output.mkdir(parents=True,exist_ok=False)
-    models=configs(inertias);checks=defaultdict(float);counts=Counter();aggregate=Aggregate(models,sample_limit);spin_pairs=defaultdict(Counter)
-    distributions=SpinDistributions();selection=SelectionAudit();direction_audit=DirectionAudit();horizontal=HorizontalAudit(sample_limit);tilt=TiltAudit()
+    selected=set(diagnostics) if diagnostics is not None else {'core','spin','selection','direction','horizontal','tilt'}
+    if not selected or not selected <= {'core','spin','selection','direction','horizontal','tilt'}:
+        raise ValueError('invalid_diagnostics')
+    source=ContactSource(input_dir)
+    allowed={f'{c}_r{lever:g}' for c in source.conditions for lever in source.meta['levers_m']}
+    if variants is not None and (not variants or not set(variants)<=allowed):raise ValueError('invalid_variants')
+    if variants is not None and 'direction' in selected:raise ValueError('direction_diagnostics_requires_all_variants_for_condition_pairs')
+    models=configs(inertias)
+    if model_names is not None:
+        if not model_names or not set(model_names)<={m['name'] for m in models}:raise ValueError('invalid_models')
+        keep=set(model_names)|{'normal_profile','finite_mu0'}
+        models=[m for m in models if m['name'] in keep]
+    output=Path(output);output.mkdir(parents=True,exist_ok=False)
+    checks=defaultdict(float);counts=Counter();spin_pairs=defaultdict(Counter)
+    aggregate=Aggregate(models,sample_limit) if 'core' in selected else None
+    distributions=SpinDistributions() if 'spin' in selected else None
+    selection=SelectionAudit() if 'selection' in selected else None
+    horizontal=HorizontalAudit(sample_limit) if 'horizontal' in selected else None
+    tilt=TiltAudit() if 'tilt' in selected else None
     from pitch_spin_source import PitchSpinSource
     spin_source=PitchSpinSource(pitch_db,gyro_sign,output/'finite_barrel_invalid_spin.csv') if pitch_db is not None else None
+    direction_audit=None
+    include_ground=bool(selected & {'core','spin'})
     try:
+        direction_audit=DirectionAudit() if 'direction' in selected else None
         for r in source.rows(checks):
-            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy);aggregate.add(r,results);selection.add(r,results);direction_audit.add(r,results);horizontal.add(r,results);tilt.add(r,results)
-            if spin_source is not None or any(ball_spin):
-                zero,_=event(r,checks,models,(0.,0.,0.),height)
+            # Still exhaust/audit the complete source, even when solving one variant.
+            if variants is not None and r['variant'] not in variants:continue
+            prepared=baseline.event(r,checks)
+            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy,prepared,include_ground)
+            for accumulator in (aggregate,selection,direction_audit,horizontal,tilt):
+                if accumulator is not None:accumulator.add(r,results)
+            if distributions is not None and (spin_source is not None or any(ball_spin)):
+                zero,_=event(r,checks,models,(0.,0.,0.),height,prepared=prepared,include_ground=include_ground)
                 add_spin_pairs(spin_pairs,r,zero,results)
                 distributions.add(r,zero,results)
             counts['trial_rows']+=1;counts['source_geometry_contacts']+=r['status']=='contact';counts[eligibility]+=1
         spin_metadata=spin_source.metadata() if spin_source is not None else dict(source='constant_world_vector_scenario',vector_rad_s=ball_spin)
-        direction_audit.write(output)
+        if direction_audit is not None:direction_audit.write(output)
     finally:
-        direction_audit.close()
+        if direction_audit is not None:direction_audit.close()
         if spin_source is not None:spin_source.close()
-    aggregate.write(output)
-    write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
-    distributions.write(output)
-    selection.write(output)
-    horizontal.write(output)
-    tilt.write(output)
+    for accumulator in (aggregate,distributions,selection,horizontal,tilt):
+        if accumulator is not None:accumulator.write(output)
+    if distributions is not None:write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
     coverage={k:counts[k] for k in ('trial_rows','source_geometry_contacts','eligible','not_evaluated:unsupported_cap',
         'not_evaluated:out_of_curve','not_evaluated:invalid_pitch_spin','not_evaluated:non_approaching','not_evaluated:no_contact','not_evaluated:overlap_at_start','not_evaluated:unresolved')}
     coverage['models']=len(models)
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
-    metadata=dict(version=8,tilt_audit='unsigned axis elevation per contact; +Y projected normal basis; algebraic association, not pose counterfactual',horizontal_audit='world +Y forward; velocity closure from solver normal/tangent vectors; normal-only intermediate uses actual coupled normal impulse, not an independent frictionless solution',direction_audit='source vs each successful model; observation transitions use source outcomes, no inferred after geometry',selection_audit=dict(
+    metadata=dict(version=9,execution=dict(diagnostics=sorted(selected),variants=sorted(variants) if variants is not None else None,
+        source_trial_rows=source.expected,processed_trial_rows=counts['trial_rows'],ground_evaluated=include_ground,
+        zero_spin_counterpart_evaluated=distributions is not None and (pitch_db is not None or any(ball_spin))),tilt_audit='unsigned axis elevation per contact; +Y projected normal basis; algebraic association, not pose counterfactual',horizontal_audit='world +Y forward; velocity closure from solver normal/tangent vectors; normal-only intermediate uses actual coupled normal impulse, not an independent frictionless solution',direction_audit='source vs each successful model; observation transitions use source outcomes, no inferred after geometry',selection_audit=dict(
         source_basis='audited source constant 0.6kg normal collision, restitution 0.5; not finite-barrel imputation',
         comparison='compare source basis across stages for selection; compare bases only on same cohort'),spin_distributions=dict(
         cohorts=['all_common','reference_fair_common','both_fair_common','input_fair_common'],
@@ -249,6 +274,9 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--input-dir',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
+    p.add_argument('--diagnostics',nargs='+',choices=('core','spin','selection','direction','horizontal','tilt'),default=None)
+    p.add_argument('--models',nargs='+',default=None,help='Model names; normal_profile and finite_mu0 controls are always retained')
+    p.add_argument('--variants',nargs='+',default=None,help='Solve selected variants; source audit remains complete; unavailable with direction diagnostics')
     p.add_argument('--axial-inertias',type=float,nargs='+',default=(.00015,.0003))
     spin=p.add_mutually_exclusive_group()
     spin.add_argument('--ball-spin-rad-s',type=float,nargs=3,default=None,metavar=('X','Y','Z'))
@@ -256,5 +284,5 @@ if __name__=='__main__':
     p.add_argument('--invalid-spin-policy',choices=('error','exclude'),default='error')
     p.add_argument('--gyro-sign',type=int,choices=(-1,0,1),default=0)
     p.add_argument('--height-m',type=float,default=.9);p.add_argument('--sample-limit',type=int,default=500);a=p.parse_args()
-    try:print(run(a.input_dir,a.output_dir,tuple(a.axial_inertias),tuple(a.ball_spin_rad_s or (0.,0.,0.)),a.height_m,a.sample_limit,a.pitch_db,a.gyro_sign,a.invalid_spin_policy))
+    try:print(run(a.input_dir,a.output_dir,tuple(a.axial_inertias),tuple(a.ball_spin_rad_s or (0.,0.,0.)),a.height_m,a.sample_limit,a.pitch_db,a.gyro_sign,a.invalid_spin_policy,a.diagnostics,a.models,a.variants))
     except (OSError,ValueError,sqlite3.Error) as exc:p.exit(1,f'Diagnostic failed: {exc}\n')
