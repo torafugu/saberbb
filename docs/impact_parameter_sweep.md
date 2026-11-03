@@ -21,6 +21,10 @@ python3 tools/diagnostics/impact_parameter_sweep.py \
 
 投球は世界-Y、速度角はバット点速度のY/Zから構成する。投球回転の既定値は2200rpm・角度0度・効率0.9、gyroなし。これらは実験用の仮定で、実データから推定していない。`--spin-rpm`、`--spin-angle-deg`、`--spin-efficiency`、`--gyro-sign` で変更できる。従来のpitch_spin_sourceと同じ世界ベクトル再構成式を使う。
 
+## 並進・角速度を固定する追加モード
+
+`--velocity-model rigid_body` では、同じ姿勢の軸方向掃引中に重心速度と角速度を保持し、打点ごとの点速度を導く。`--velocity-model both` で従来のfixed_pointと比較できる。詳細と初回結果は[剛体運動の掃引](rigid_body_impact_sweep.md)。既定モードは従来のfixed_point。CSVにはvelocity_model列を追加し、metadataはversion=2へ更新した。
+
 ## 幾何とモデル
 
 軸aと接触点の相対中心速度uから、軸に垂直な接近基底 `f=-normalize(u-a*(u·a))`、円周基底 `c=a×f` を作り、`n=sqrt(1-b*b)*f+b*c` を法線に使う。各グリッド点で法線の単位長・軸との直交・局所bの再構成を検査する。
