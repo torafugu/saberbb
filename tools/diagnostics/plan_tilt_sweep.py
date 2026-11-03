@@ -48,7 +48,7 @@ def sample_keys(path,variant,size,seed):
     return {key:ranks[key] for key in selected},len(ranks)
 
 
-def replan(saved,angle,checks,yaw=0.):
+def replan(saved,angle,checks,yaw=0.,aim_z_m=None):
     """Use only the original forecast, intended speed/attack, handedness and angular error."""
     velocity=saved['ideal_velocity_world_ms']
     check(checks,'planned_lateral_velocity_ms',abs(velocity[0]))
@@ -56,7 +56,12 @@ def replan(saved,angle,checks,yaw=0.):
         handedness_sign=1 if saved['ideal_axis_world'][0]>0 else -1,
         planned_bat_angle_deg=angle,planned_attack_angle_deg=math.degrees(math.atan2(velocity[2],velocity[1])),
         bat_speed_ms=norm(velocity),execution_angle_error_deg=saved['execution_angle_error_deg'],residual_execution_delay_sec=0.)
-    result=plan_axis_swing(prediction,saved['lever_m'],saved['half_length_m'],yaw)
+    result=plan_axis_swing(prediction,saved['lever_m'],saved['half_length_m'],yaw,
+        None if aim_z_m is None else (0.,0.,aim_z_m))
+    if aim_z_m is not None:
+        expected=add(saved['forecast_position_world_m'],(0.,0.,aim_z_m))
+        same(expected,result['planned_aim_point_world_m'],checks,'planned_aim_point')
+        same(expected,result['ideal_point_world_m'],checks,'ideal_planned_aim')
     same(saved['forecast_position_world_m'],result['forecast_position_world_m'],checks,'common_forecast')
     same(saved['nominal_time_sec'],result['nominal_time_sec'],checks,'common_nominal_time')
     same(velocity,result['ideal_velocity_world_ms'],checks,'common_planned_velocity')
@@ -76,14 +81,23 @@ def kinematics(saved,plan,motion):
 
 
 def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,15.,30.),sample_size=2000,
-        sample_seed='0',duration=.18,fraction=.5,gyro_sign=0,yaws=None):
+        sample_seed='0',duration=.18,fraction=.5,gyro_sign=0,yaws=None,aim_z_offsets=None):
     if (not angles or len(set(angles))!=len(angles) or any(not math.isfinite(x) or not 0<=x<=60 for x in angles)
         or gyro_sign not in (-1,0,1)):raise ValueError('invalid_tilt_scenarios')
     if yaws is not None and (not yaws or len(set(yaws))!=len(yaws) or any(not math.isfinite(y) or abs(y)>45 for y in yaws)):raise ValueError('invalid_yaw_scenarios')
-    names=({f'tilt_{x:g}deg':(x,0.) for x in angles} if yaws is None else
-           {f'tilt_{x:g}deg_yaw_{y:g}deg':(x,y) for x,y in product(angles,yaws)})
-    if len(names)!=len(angles)*(len(yaws) if yaws is not None else 1):raise ValueError('tilt_label_collision')
-    kinematic_fields=KINEMATICS+(('planned_axis_yaw_batter_deg','reference_axis_yaw_batter_deg') if yaws is not None else ())
+    if aim_z_offsets is not None and (not aim_z_offsets or len(set(aim_z_offsets))!=len(aim_z_offsets)
+        or any(not math.isfinite(z) for z in aim_z_offsets)):raise ValueError('invalid_aim_z_scenarios')
+    yaw_values=(0.,) if yaws is None else yaws
+    aim_values=(None,) if aim_z_offsets is None else aim_z_offsets
+    names={}
+    for x,y,z in product(angles,yaw_values,aim_values):
+        name=(f'tilt_{x:g}deg_yaw_{y:g}deg_aim_z_{z*1000:g}mm' if z is not None else
+              f'tilt_{x:g}deg_yaw_{y:g}deg' if yaws is not None else f'tilt_{x:g}deg')
+        if name in names:raise ValueError('tilt_label_collision')
+        names[name]=(x,y,z)
+    kinematic_fields=KINEMATICS+(('planned_axis_yaw_batter_deg','reference_axis_yaw_batter_deg') if yaws is not None or aim_z_offsets is not None else ())
+    if aim_z_offsets is not None:
+        kinematic_fields+=('planned_aim_z_offset_m','planned_aim_z_m','reference_aim_error_m')
     SwingExecution(0,0,10.,1.,duration,fraction,0.)
     input_dir=Path(input_dir);output=Path(output)
     selected,population=sample_keys(input_dir/'observation_update_contacts.csv',variant,sample_size,str(sample_seed))
@@ -118,7 +132,7 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
                 # Recovering the original angle must reproduce the entire original reference plan.
                 source_angle=math.degrees(math.atan2(source['ideal_axis_world'][2],abs(source['ideal_axis_world'][0])))
                 same(source,replan(source,source_angle,checks),checks,'saved_plan_identity')
-                plans={'saved_tilt':source,**{name:replan(source,x,checks,y) for name,(x,y) in names.items()}}
+                plans={'saved_tilt':source,**{name:replan(source,x,checks,y,z) for name,(x,y,z) in names.items()}}
                 scopes=['all_swings']+(['recorded_batting_only'] if row['adjusted_contact_type']!='UnrecordedBatting' else [])
                 outcomes={};plan_records={}
                 for name,saved in plans.items():
@@ -141,10 +155,14 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
                         check(checks,'reference_position_m',norm(sub(point,plan.reference_point_world_m)))
                         check(checks,'reference_axis',norm(sub(axis,plan.reference_axis_world)))
                         values=kinematics(saved,plan,motion)
-                        if yaws is not None:
+                        if yaws is not None or aim_z_offsets is not None:
                             h=truth['handedness_sign'];a=saved['ideal_axis_world'];b=plan.reference_axis_world
                             values.update(planned_axis_yaw_batter_deg=math.degrees(math.atan2(a[1],h*a[0])),
                                 reference_axis_yaw_batter_deg=math.degrees(math.atan2(b[1],h*b[0])))
+                        if aim_z_offsets is not None:
+                            aim=saved.get('planned_aim_point_world_m',saved['ideal_point_world_m'])
+                            values.update(planned_aim_z_offset_m=saved.get('planned_aim_offset_world_m',(0.,0.,0.))[2],
+                                planned_aim_z_m=aim[2],reference_aim_error_m=norm(sub(plan.reference_point_world_m,aim)))
                         for scope in scopes:
                             g=metrics[name,scope];g['evaluable_trials']+=1;g['pulse_pivot_below_ground']+=values['pulse_min_pivot_z_m']<0
                             for k,v in values.items():g[k]+=v
@@ -209,17 +227,19 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
         write_csv(output/'plan_tilt_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
         write_csv(output/'plan_tilt_coverage.csv',['metric','trials'],[dict(metric=k,trials=v) for k,v in sorted(counts.items())])
         paths=[input_dir/f for f in ('observation_update_contacts.csv','observation_update_inputs.jsonl')]+[output/'plan_tilt_sample.csv']
-        metadata=dict(version=1 if yaws is None else 2,status='sampled_sensitivity_not_calibrated',variant=variant,models=list(MODEL_NAMES),
+        metadata=dict(version=3 if aim_z_offsets is not None else 1 if yaws is None else 2,status='sampled_sensitivity_not_calibrated',variant=variant,models=list(MODEL_NAMES),
             population_trials=population,sampled_trials=len(selected),requested_sample_size=sample_size,sample_seed=str(sample_seed),
             sampling='lowest SHA256(plan-tilt-v1:seed:game_id:count_seq); all matching-variant pitches, before clock/contact/outcome selection; zero sample-size means full population',
-            angles_deg=list(angles),**(dict(yaws_deg=list(yaws),kinematics_fields=list(kinematic_fields),
-                scenarios={name:dict(tilt_deg=x,yaw_batter_deg=y) for name,(x,y) in names.items()},
-                yaw_convention='World Z rotation = handedness_sign * planned yaw. Saved inclination error rotates with this local plane; yaw is not output HLA.') if yaws is not None else {}),baseline='original saved planned tilt, executed with the same sin-squared pulse',
+            angles_deg=list(angles),**(dict(yaws_deg=list(yaw_values),kinematics_fields=list(kinematic_fields),
+                scenarios={name:dict(tilt_deg=x,yaw_batter_deg=y,**(dict(aim_z_offset_m=z) if z is not None else {})) for name,(x,y,z) in names.items()},
+                yaw_convention='World Z rotation = handedness_sign * planned yaw. Saved inclination error rotates with this local plane; yaw is not output HLA.') if yaws is not None or aim_z_offsets is not None else {}),
+            **(dict(aim_z_offsets_m=list(aim_z_offsets),aim_convention='Intended bat reference = predicted ball center + world-z offset; negative is below. Forecast/time/ideal velocity are unchanged.') if aim_z_offsets is not None else {}),
+            baseline='original saved planned tilt and zero aim offset, executed with the same sin-squared pulse',
             plan_effort=1.,execution_ratio=1.,start_delay_sec=0.,duration_sec=duration,anchor_fraction=fraction,
             new_searches=counts['new_searches'],maximum_searches=len(selected)*(len(names)+1),spin=spin.metadata(),
             inputs={str(p):digest(p) for p in paths},
             limitations=['Angles are explicit intended-plan sensitivity hypotheses, not inferred player choices or recommended values.',
-                'Common predicted target/time and ideal velocity; saved angular execution error is retained, so actual reference positions may differ slightly.',
+                'Predicted ball center/time and ideal velocity are common; explicit intended aim offset and retained angular execution error can move the actual reference position.',
                 'Each intended tilt/yaw generates its own initial pose, then integrates forward; no actual contact used to re-anchor or choose a plan.',
                 'Changed axes require new contact searches. Baseline is searched once per sampled pitch and reused across contrasts.',
                 'No-saved-contact/clock invalidity/cap/curve failures are not successful EV/VLA cases; compare denominators and paired sets.',
