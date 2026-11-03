@@ -55,8 +55,15 @@ def evaluate(row,state,plan,checks,motion=None):
     for k in ('entry_since_release_sec','entry_time_offset_ms','axial_at_entry_m'):
         r[k]=None
     if actual['status'] != 'contact': return r
-    t = actual['time_offset_sec']
-    r.update(entry_since_release_sec=state['input']['reference_time_sec_since_release']+t,
+    return contact_at_time(row,m,delay,actual['time_offset_sec'],actual)
+
+
+def contact_at_time(row,m,delay,t,actual=None):
+    """Reconstruct one saved entry time; this function never searches for contact."""
+    actual = m.evaluate(t,delay) if actual is None else actual
+    r = dict(row,status='contact',collision_status='not_evaluated:contact',
+        min_evaluated_clearance_m=actual['clearance_m'])
+    r.update(entry_since_release_sec=m.state['input']['reference_time_sec_since_release']+t,
         entry_time_offset_ms=t*1000,axial_at_entry_m=actual['axial_m'],
         closest_axial_at_entry_m=actual['closest_axial_m'],contact_region=actual['contact_region'])
     for prefix,values in [('axis_at_entry_',actual['axis']),('normal_',actual['normal']),

@@ -4,11 +4,11 @@
 
 ## 実行
 
-前回の `swing_execution_probe.py` の出力フォルダを指定する。以下の `../saberbb_execution_ratios` は、実際に保存したフォルダ名に合わせる。
+前回の `swing_execution_probe.py` の出力フォルダを指定する。以下の `../saberbb_execution_ratio_sweep` は、実際に保存したフォルダ名に合わせる。
 
 ```sh
 python3 tools/diagnostics/swing_execution_mixture_compare.py \
-  --input-dir ../saberbb_execution_ratios \
+  --input-dir ../saberbb_execution_ratio_sweep \
   --statcast-csv ../saberbb_finite_statcast_input/savant_data.csv \
   --mixtures-json tools/diagnostics/execution_mixtures.example.json \
   --output-dir ../saberbb_execution_mixture_comparison
