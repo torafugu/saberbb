@@ -266,3 +266,6 @@ Axial impact attribution: local velocity, rigid recoil and positional effective 
 
 Finite-barrel coupled normal/tangential impulses and spin consistency:
 [`docs/finite_barrel_diagnostics.md`](docs/finite_barrel_diagnostics.md).
+
+Single-experiment collision references and read-only per-pitch spin reconstruction:
+[`docs/collision_validation.md`](docs/collision_validation.md).
