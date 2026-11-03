@@ -273,3 +273,9 @@ python3 tools/diagnostics/finite_barrel_probe.py \
 [接触選別診断](contact_selection_diagnostics.md)を参照。
 同じ保存基準応答による集合間比較と、同じ集合での入力回転モデル比較を区別する。
 端面・曲線範囲外へ有限半径モデルを外挿しない。
+
+## 接触幾何と左右方向・観測条件の遷移
+
+[接触幾何と方向の診断](geometry_direction_diagnostics.md)を追加した。
+局所b/R×法線z、打点位置×水平法線角、EV×VLA×HLAを方向別に集計する。
+同じ投球・レバー長の観測条件間で接触状態を追い、非接触や探索未収束へ打球値を補完しない。

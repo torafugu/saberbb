@@ -162,6 +162,16 @@ class FiniteBarrelTest(unittest.TestCase):
             self.assertTrue(all(float(r['max_error'])<1e-7 for r in csv_rows(out/'finite_barrel_checks.csv')))
             self.assertLessEqual(len(csv_rows(out/'finite_barrel_examples.csv')),2)
             meta=json.loads((out/'finite_barrel_metadata.json').read_text())
+            transitions=csv_rows(out/'finite_barrel_observation_transitions.csv')
+            source_meta=json.loads((source/'observation_update_metadata.json').read_text())
+            expected=2*len(source_meta['sensor_sigma_m'])*int(coverage['trial_rows'])/(len(source_meta['sensor_sigma_m'])+2)
+            overall_transitions=[x for x in transitions if x['scope']=='all_swings' and x['stratum']=='overall']
+            self.assertEqual(sum(int(x['paired_trials']) for x in overall_transitions),expected)
+            direction_summary=csv_rows(out/'finite_barrel_direction_summary.csv')
+            for r in overall:
+                xs=[x for x in direction_summary if x['scope']==r['scope'] and x['variant']==r['variant'] and x['outcome_basis']==r['model'] and x['stratum']=='overall']
+                self.assertEqual(sum(int(x['contacts']) for x in xs),int(r['impulse_contacts']))
+                self.assertEqual(sum(int(x['contacts']) for x in xs if x['direction']=='fair_direction'),int(r['fair_contacts']))
             self.assertEqual(meta['incoming_ball_spin_world_rad_s'],[0.,0.,0.])
             self.assertEqual(hashes,{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in source.iterdir()})
             with self.assertRaises(FileExistsError):probe.run(source,out)

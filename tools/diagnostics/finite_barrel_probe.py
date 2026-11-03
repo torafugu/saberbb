@@ -20,6 +20,7 @@ from observation_contact_source import ContactSource
 from rotating_bat_probe import norm, sub
 from spin_distributions import SpinDistributions
 from contact_selection_audit import SelectionAudit
+from geometry_direction_audit import DirectionAudit
 
 KEYS = ['scope','variant','stage','band_1','band_2']
 METRICS = ['incoming_spin_rpm','incoming_spin_x_rad_s','incoming_spin_y_rad_s','incoming_spin_z_rad_s','ev_ms','vla_deg','spin_rpm','spin_x_rad_s','spin_y_rad_s','spin_z_rad_s',
@@ -191,19 +192,21 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
         or (pitch_db is None and gyro_sign!=0) or (pitch_db is not None and any(ball_spin))):raise ValueError('invalid_probe_parameters')
     source=ContactSource(input_dir);output=Path(output);output.mkdir(parents=True,exist_ok=False)
     models=configs(inertias);checks=defaultdict(float);counts=Counter();aggregate=Aggregate(models,sample_limit);spin_pairs=defaultdict(Counter)
-    distributions=SpinDistributions();selection=SelectionAudit()
+    distributions=SpinDistributions();selection=SelectionAudit();direction_audit=DirectionAudit()
     from pitch_spin_source import PitchSpinSource
     spin_source=PitchSpinSource(pitch_db,gyro_sign,output/'finite_barrel_invalid_spin.csv') if pitch_db is not None else None
     try:
         for r in source.rows(checks):
-            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy);aggregate.add(r,results);selection.add(r,results)
+            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy);aggregate.add(r,results);selection.add(r,results);direction_audit.add(r,results)
             if spin_source is not None or any(ball_spin):
                 zero,_=event(r,checks,models,(0.,0.,0.),height)
                 add_spin_pairs(spin_pairs,r,zero,results)
                 distributions.add(r,zero,results)
             counts['trial_rows']+=1;counts['source_geometry_contacts']+=r['status']=='contact';counts[eligibility]+=1
         spin_metadata=spin_source.metadata() if spin_source is not None else dict(source='constant_world_vector_scenario',vector_rad_s=ball_spin)
+        direction_audit.write(output)
     finally:
+        direction_audit.close()
         if spin_source is not None:spin_source.close()
     aggregate.write(output)
     write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
@@ -214,7 +217,7 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     coverage['models']=len(models)
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
-    metadata=dict(version=5,selection_audit=dict(
+    metadata=dict(version=6,direction_audit='source vs each successful model; observation transitions use source outcomes, no inferred after geometry',selection_audit=dict(
         source_basis='audited source constant 0.6kg normal collision, restitution 0.5; not finite-barrel imputation',
         comparison='compare source basis across stages for selection; compare bases only on same cohort'),spin_distributions=dict(
         cohorts=['all_common','reference_fair_common','both_fair_common','input_fair_common'],
