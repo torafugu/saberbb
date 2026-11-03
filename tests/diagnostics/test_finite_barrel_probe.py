@@ -137,6 +137,18 @@ class FiniteBarrelTest(unittest.TestCase):
                 self.assertEqual(int(r['states']),int(r['impulse_contacts'])+int(r['unavailable_states']))
                 self.assertLessEqual(int(r['fair_contacts']),int(r['impulse_contacts']))
             overall=[r for r in ss if r['stage']=='overall']
+            selection=csv_rows(out/'finite_barrel_selection_summary.csv')
+            audit=csv_rows(out/'finite_barrel_selection_coverage.csv')
+            self.assertEqual(sum(int(r['trial_rows']) for r in audit if r['scope']=='all_swings'),6*8)
+            for r in overall:
+                selected=[x for x in selection if all(x[k]==r[k] for k in ('scope','variant','model'))]
+                success=[x for x in selected if x['stage']=='model_success' and x['outcome_basis']=='input_spin_model']
+                self.assertEqual(sum(int(x['contacts']) for x in success),int(r['impulse_contacts']))
+                fair=[x for x in selected if x['stage']=='model_fair' and x['outcome_basis']=='input_spin_model']
+                self.assertEqual(sum(int(x['contacts']) for x in fair),int(r['fair_contacts']))
+                source_all=[x for x in selected if x['stage']=='all_geometry_contacts' and x['outcome_basis']=='source_constant_mass_normal']
+                source_reasons=[x for x in selected if x['stage'].startswith('reason:') and x['outcome_basis']=='source_constant_mass_normal']
+                self.assertEqual(sum(int(x['contacts']) for x in source_all),sum(int(x['contacts']) for x in source_reasons))
             self.assertEqual(sum(int(r['states']) for r in overall if r['scope']=='all_swings'),6*8)
             for r in overall:
                 for stage in ('source_z','source_z_reference_direction','baseline_impact'):

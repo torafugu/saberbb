@@ -19,6 +19,7 @@ from ground_spin_probe import check_metrics
 from observation_contact_source import ContactSource
 from rotating_bat_probe import norm, sub
 from spin_distributions import SpinDistributions
+from contact_selection_audit import SelectionAudit
 
 KEYS = ['scope','variant','stage','band_1','band_2']
 METRICS = ['incoming_spin_rpm','incoming_spin_x_rad_s','incoming_spin_y_rad_s','incoming_spin_z_rad_s','ev_ms','vla_deg','spin_rpm','spin_x_rad_s','spin_y_rad_s','spin_z_rad_s',
@@ -190,12 +191,12 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
         or (pitch_db is None and gyro_sign!=0) or (pitch_db is not None and any(ball_spin))):raise ValueError('invalid_probe_parameters')
     source=ContactSource(input_dir);output=Path(output);output.mkdir(parents=True,exist_ok=False)
     models=configs(inertias);checks=defaultdict(float);counts=Counter();aggregate=Aggregate(models,sample_limit);spin_pairs=defaultdict(Counter)
-    distributions=SpinDistributions()
+    distributions=SpinDistributions();selection=SelectionAudit()
     from pitch_spin_source import PitchSpinSource
     spin_source=PitchSpinSource(pitch_db,gyro_sign,output/'finite_barrel_invalid_spin.csv') if pitch_db is not None else None
     try:
         for r in source.rows(checks):
-            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy);aggregate.add(r,results)
+            results,eligibility=event(r,checks,models,ball_spin,height,spin_source,invalid_spin_policy);aggregate.add(r,results);selection.add(r,results)
             if spin_source is not None or any(ball_spin):
                 zero,_=event(r,checks,models,(0.,0.,0.),height)
                 add_spin_pairs(spin_pairs,r,zero,results)
@@ -207,12 +208,15 @@ def run(input_dir,output,inertias=(.00015,.0003),ball_spin=(0.,0.,0.),height=.9,
     aggregate.write(output)
     write_pair_groups(output,'finite_barrel_spin_pairs.csv',spin_pairs)
     distributions.write(output)
+    selection.write(output)
     coverage={k:counts[k] for k in ('trial_rows','source_geometry_contacts','eligible','not_evaluated:unsupported_cap',
         'not_evaluated:out_of_curve','not_evaluated:invalid_pitch_spin','not_evaluated:non_approaching','not_evaluated:no_contact','not_evaluated:overlap_at_start','not_evaluated:unresolved')}
     coverage['models']=len(models)
     write_csv(output/'finite_barrel_coverage.csv',list(coverage),[coverage])
     write_csv(output/'finite_barrel_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
-    metadata=dict(version=4,spin_distributions=dict(
+    metadata=dict(version=5,selection_audit=dict(
+        source_basis='audited source constant 0.6kg normal collision, restitution 0.5; not finite-barrel imputation',
+        comparison='compare source basis across stages for selection; compare bases only on same cohort'),spin_distributions=dict(
         cohorts=['all_common','reference_fair_common','both_fair_common','input_fair_common'],
         bins='lower inclusive, upper exclusive; blank bounds mean infinity; sparse nonzero cells',
         denominator='common successful contacts per scope/variant/cohort/model; zero and input share denominator'),invalid_spin_policy=invalid_spin_policy,input_sha256=source.hashes,input_metadata=source.meta,bat=profile.metadata(),models=models,
