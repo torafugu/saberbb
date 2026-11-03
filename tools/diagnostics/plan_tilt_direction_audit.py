@@ -51,13 +51,26 @@ def hla_class(m):
     return 'central_abs_lt10' if abs(h)<10 else 'negative_fair' if h<0 else 'positive_fair'
 
 
+def scenario_names(meta):
+    if meta['version']==1:return ['saved_tilt']+[f'tilt_{a:g}deg' for a in meta['angles_deg']]
+    if meta['version']==2 and meta.get('scenarios'):
+        pairs=set()
+        for name,c in meta['scenarios'].items():
+            tilt=number(c['tilt_deg']);yaw=number(c['yaw_batter_deg'])
+            if not 0<=tilt<=60 or abs(yaw)>45 or name!=f'tilt_{tilt:g}deg_yaw_{yaw:g}deg':raise ValueError('invalid_yaw_metadata_scenario')
+            pairs.add((tilt,yaw))
+        if pairs!={(x,y) for x in meta['angles_deg'] for y in meta['yaws_deg']}:raise ValueError('missing_yaw_metadata_scenarios')
+        return ['saved_tilt']+list(meta['scenarios'])
+    raise ValueError('unsupported_tilt_metadata')
+
+
 class Audit:
     def __init__(self):
         self.selection=defaultdict(Counter);self.summary=defaultdict(Counter);self.hist=Counter()
         self.pairs=defaultdict(Counter);self.transitions=Counter();self.replay=defaultdict(Counter)
         self.ev_hist=Counter();self.kin=defaultdict(Counter);self.checks=defaultdict(float)
 
-    def add(self,dataset,records,models):
+    def add(self,dataset,records,models,kinematic_fields=KINEMATICS):
         baseline=records['saved_tilt'];reference=baseline['forecast_plan'];target=vector(reference['forecast_position_world_m'])
         axis=vector(reference['ideal_axis_world']);check(self.checks,'ideal_axis_unit',abs(norm(axis)-1))
         if abs(axis[0])<1e-8:raise ValueError('ambiguous_saved_batting_side')
@@ -81,7 +94,7 @@ class Audit:
                 if status=='contact' and r['entry_time_sec'] is None:raise ValueError('contact_without_entry')
                 if status!='contact' and r['entry_time_sec'] is not None:raise ValueError('noncontact_with_entry')
                 kin=r['kinematics'];kg['evaluable_trials']+=1
-                for metric in KINEMATICS:kg[metric]+=number(kin[metric])
+                for metric in kinematic_fields:kg[metric]+=number(kin[metric])
                 kg['pulse_pivot_below_ground']+=kin['pulse_min_pivot_z_m']<0
             for model,m in results.items():
                 success=m['collision_status']=='impulse_contact';fair=direction(m)=='fair_direction'
@@ -149,7 +162,7 @@ class Audit:
                             g['defined_pairs']+=1;g['abs_delta_hla']+=abs((after['hla_deg']-before['hla_deg']+180)%360-180)
 
     def validate(self,dataset,folder,meta):
-        expected_keys={(dataset,s,m) for s in ['saved_tilt']+[f'tilt_{a:g}deg' for a in meta['angles_deg']] for m in meta['models']}
+        expected_keys={(dataset,s,m) for s in scenario_names(meta) for m in meta['models']}
         found=set();origins=set()
         fields=['trials','execution_clock_invalid_trials','evaluable_trials','geometry_contacts','evaluable_geometry_contacts',
                 'successful_contacts','fair_contacts','low_ev','high_ev','downward','high_vla','fair_low_ev','fair_high_ev','fair_downward','fair_high_vla']
@@ -158,7 +171,7 @@ class Audit:
             origin=(r['scenario'],r['orientation'],r['model'])
             if origin in origins:raise ValueError('duplicate_source_summary_row')
             origins.add(origin)
-            if r['scenario'] not in [f'tilt_{a:g}deg' for a in meta['angles_deg']] or r['orientation'] not in ('saved_tilt','planned_tilt'):raise ValueError('invalid_summary_condition')
+            if r['scenario'] not in scenario_names(meta)[1:] or r['orientation'] not in ('saved_tilt','planned_tilt'):raise ValueError('invalid_summary_condition')
             name='saved_tilt' if r['orientation']=='saved_tilt' else r['scenario']
             key=(dataset,name,r['model'])
             if key not in expected_keys or r['variant']!=meta['variant']:raise ValueError('unknown_summary_key')
@@ -169,7 +182,7 @@ class Audit:
                 n=g['successful_contacts']
                 if int(r['n_'+f])!=n:raise ValueError('summary_metric_count_mismatch')
                 if n:check(self.checks,'summary_avg_'+f,abs(float(r['avg_'+f])-g[f]/n),1e-7)
-        expected_origins={(f'tilt_{a:g}deg',o,m) for a in meta['angles_deg'] for o in ('saved_tilt','planned_tilt') for m in meta['models']}
+        expected_origins={(name,o,m) for name in scenario_names(meta)[1:] for o in ('saved_tilt','planned_tilt') for m in meta['models']}
         if found!=expected_keys or origins!=expected_origins:raise ValueError('missing_summary_states')
         expected=Counter();seen=set();group_counts=Counter()
         for r in load_csv(folder/'plan_tilt_ev_vla.csv',['scenario','scope','model','orientation','cohort','ev_band_ms','vla_band_deg','contacts','cohort_contacts','fraction']):
@@ -200,7 +213,7 @@ class Audit:
             found.add(key);g=self.kin[key]
             for f in ('trials','evaluable_trials','clock_invalid_trials','pulse_pivot_below_ground'):
                 if int(r[f])!=g[f]:raise ValueError('kinematics_count_mismatch')
-            for f in KINEMATICS:
+            for f in meta.get('kinematics_fields',KINEMATICS):
                 if g['evaluable_trials']:check(self.checks,'kinematics_avg_'+f,abs(float(r['avg_'+f])-g[f]/g['evaluable_trials']),1e-7)
         if found!={k for k in self.kin if k[0]==dataset}:raise ValueError('missing_kinematics_states')
 
@@ -246,14 +259,14 @@ def run(input_dirs,output):
     audit=Audit();datasets={};inputs={};contract=None
     for folder in map(Path,input_dirs):
         meta=json.loads((folder/'plan_tilt_metadata.json').read_text())
-        if meta['version']!=1 or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
+        if meta['version'] not in (1,2) or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
         dataset='seed:'+meta['sample_seed']
         if dataset in datasets:raise ValueError('duplicate_seed_dataset')
         identity={k:meta[k] for k in ('variant','models','duration_sec','anchor_fraction','plan_effort','execution_ratio','start_delay_sec')}
         identity['source_hashes']={Path(k).name:v for k,v in meta['inputs'].items() if Path(k).name!='plan_tilt_sample.csv'}
         if contract is not None and contract!=identity:raise ValueError('incompatible_tilt_datasets')
         contract=identity
-        scenarios=['saved_tilt']+[f'tilt_{a:g}deg' for a in meta['angles_deg']]
+        scenarios=scenario_names(meta)
         if len(set(scenarios))!=len(scenarios) or len(set(meta['models']))!=len(meta['models']):raise ValueError('duplicate_metadata_conditions')
         manifest={}
         for r in load_csv(folder/'plan_tilt_sample.csv',['game_id','count_seq','selection_hash']):
@@ -267,11 +280,16 @@ def run(input_dirs,output):
         seen=set();group={};current=None
         def flush():
             if set(group)!=set(scenarios):raise ValueError('missing_pitch_scenarios')
-            audit.add(dataset,group,meta['models'])
+            audit.add(dataset,group,meta['models'],meta.get('kinematics_fields',KINEMATICS))
         with (folder/'plan_tilt_states.jsonl').open() as f:
             for line in f:
                 r=json.loads(line);key=(r['game_id'],r['count_seq']);name=r['scenario']
                 if key not in manifest or name not in scenarios:raise ValueError('unknown_cached_trial')
+                if meta['version']==2 and name!='saved_tilt':
+                    axis=vector(r['forecast_plan']['ideal_axis_world']);side=1 if axis[0]>0 else -1
+                    c=meta['scenarios'][name]
+                    check(audit.checks,'declared_planned_tilt_deg',abs(math.degrees(math.asin(max(-1,min(1,axis[2]))))-c['tilt_deg']))
+                    check(audit.checks,'declared_planned_yaw_deg',abs(math.degrees(math.atan2(axis[1],side*axis[0]))-c['yaw_batter_deg']))
                 if key!=current:
                     if current is not None:flush()
                     if key in seen:raise ValueError('noncontiguous_or_duplicate_cached_pitch')

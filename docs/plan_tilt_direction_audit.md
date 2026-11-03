@@ -81,3 +81,7 @@ world HLAは `atan2(vx, vy)`、VLAは `atan2(vz, hypot(vx, vy))`、上下軸はw
 HLAが中央に集まることでフェア方向率が上がっているのか、高VLAの増加が特定の予測高さ・左右打席に偏っていないかを確認する。これだけで意図した打ち分け、身体の実行可能性、実際の打球方向分布との一致を保証しない。Statcastへの自動フィットや本体の係数変更は行わない。
 
 実行後はsummary、selection、histogram、pairs、checks、metadataの6ファイルを共有する。遷移を詳しく見る場合はtransitionsも共有する。
+
+## yawを含む保存計画
+
+[傾斜×yaw診断](plan_tilt_yaw_sweep.md)のmetadata version=2も読める。scenario名はmetadataのscenariosから取得し、宣言した傾斜・yawと保存理想軸の一致を検査する。旧version=1のファイルも従来どおり読める。同じseedのフォルダを複数渡すことはできないため、旧標本と新しいyaw標本は別の出力先で監査する。

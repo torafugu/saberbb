@@ -8,6 +8,7 @@ import hashlib
 import sqlite3
 from collections import Counter,defaultdict
 from pathlib import Path
+from itertools import product
 
 from bat_axis_origin_audit import check, inspect, tilt
 from bat_pivot_orientation_probe import Aggregate, evaluate, MODEL_NAMES, KEYS
@@ -23,7 +24,7 @@ from pitch_spin_source import PitchSpinSource
 from rotating_bat_probe import norm,sub,add,mul
 from swing_execution import SwingPlan,ExecutionDeviation,PlanExecutionMotion,SwingExecution
 from swing_execution_probe import write_aggregates
-from swing_prediction_probe import plan_swing
+from planned_axis import plan_axis_swing
 
 KINEMATICS=('planned_tilt_deg','reference_axis_elevation_deg','planned_speed_ms','reference_point_speed_ms',
     'reference_pivot_z_m','start_pivot_z_m','pulse_min_pivot_z_m','pulse_max_pivot_z_m',
@@ -47,7 +48,7 @@ def sample_keys(path,variant,size,seed):
     return {key:ranks[key] for key in selected},len(ranks)
 
 
-def replan(saved,angle,checks):
+def replan(saved,angle,checks,yaw=0.):
     """Use only the original forecast, intended speed/attack, handedness and angular error."""
     velocity=saved['ideal_velocity_world_ms']
     check(checks,'planned_lateral_velocity_ms',abs(velocity[0]))
@@ -55,7 +56,7 @@ def replan(saved,angle,checks):
         handedness_sign=1 if saved['ideal_axis_world'][0]>0 else -1,
         planned_bat_angle_deg=angle,planned_attack_angle_deg=math.degrees(math.atan2(velocity[2],velocity[1])),
         bat_speed_ms=norm(velocity),execution_angle_error_deg=saved['execution_angle_error_deg'],residual_execution_delay_sec=0.)
-    result=plan_swing(prediction,saved['lever_m'],saved['half_length_m'])
+    result=plan_axis_swing(prediction,saved['lever_m'],saved['half_length_m'],yaw)
     same(saved['forecast_position_world_m'],result['forecast_position_world_m'],checks,'common_forecast')
     same(saved['nominal_time_sec'],result['nominal_time_sec'],checks,'common_nominal_time')
     same(velocity,result['ideal_velocity_world_ms'],checks,'common_planned_velocity')
@@ -75,11 +76,14 @@ def kinematics(saved,plan,motion):
 
 
 def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,15.,30.),sample_size=2000,
-        sample_seed='0',duration=.18,fraction=.5,gyro_sign=0):
+        sample_seed='0',duration=.18,fraction=.5,gyro_sign=0,yaws=None):
     if (not angles or len(set(angles))!=len(angles) or any(not math.isfinite(x) or not 0<=x<=60 for x in angles)
         or gyro_sign not in (-1,0,1)):raise ValueError('invalid_tilt_scenarios')
-    names={f'tilt_{x:g}deg':x for x in angles}
-    if len(names)!=len(angles):raise ValueError('tilt_label_collision')
+    if yaws is not None and (not yaws or len(set(yaws))!=len(yaws) or any(not math.isfinite(y) or abs(y)>45 for y in yaws)):raise ValueError('invalid_yaw_scenarios')
+    names=({f'tilt_{x:g}deg':(x,0.) for x in angles} if yaws is None else
+           {f'tilt_{x:g}deg_yaw_{y:g}deg':(x,y) for x,y in product(angles,yaws)})
+    if len(names)!=len(angles)*(len(yaws) if yaws is not None else 1):raise ValueError('tilt_label_collision')
+    kinematic_fields=KINEMATICS+(('planned_axis_yaw_batter_deg','reference_axis_yaw_batter_deg') if yaws is not None else ())
     SwingExecution(0,0,10.,1.,duration,fraction,0.)
     input_dir=Path(input_dir);output=Path(output)
     selected,population=sample_keys(input_dir/'observation_update_contacts.csv',variant,sample_size,str(sample_seed))
@@ -114,7 +118,7 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
                 # Recovering the original angle must reproduce the entire original reference plan.
                 source_angle=math.degrees(math.atan2(source['ideal_axis_world'][2],abs(source['ideal_axis_world'][0])))
                 same(source,replan(source,source_angle,checks),checks,'saved_plan_identity')
-                plans={'saved_tilt':source,**{name:replan(source,x,checks) for name,x in names.items()}}
+                plans={'saved_tilt':source,**{name:replan(source,x,checks,y) for name,(x,y) in names.items()}}
                 scopes=['all_swings']+(['recorded_batting_only'] if row['adjusted_contact_type']!='UnrecordedBatting' else [])
                 outcomes={};plan_records={}
                 for name,saved in plans.items():
@@ -137,6 +141,10 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
                         check(checks,'reference_position_m',norm(sub(point,plan.reference_point_world_m)))
                         check(checks,'reference_axis',norm(sub(axis,plan.reference_axis_world)))
                         values=kinematics(saved,plan,motion)
+                        if yaws is not None:
+                            h=truth['handedness_sign'];a=saved['ideal_axis_world'];b=plan.reference_axis_world
+                            values.update(planned_axis_yaw_batter_deg=math.degrees(math.atan2(a[1],h*a[0])),
+                                reference_axis_yaw_batter_deg=math.degrees(math.atan2(b[1],h*b[0])))
                         for scope in scopes:
                             g=metrics[name,scope];g['evaluable_trials']+=1;g['pulse_pivot_below_ground']+=values['pulse_min_pivot_z_m']<0
                             for k,v in values.items():g[k]+=v
@@ -163,6 +171,12 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
                                     g=aggregate.summary[scope,variant,stratum,b,orientation,model]
                                     g['fair_low_ev']+=m['ev_ms']<25;g['fair_high_ev']+=m['ev_ms']>=45
                                     g['fair_downward']+=m['vla_deg']<0;g['fair_high_vla']+=m['vla_deg']>=50
+                                    hla=m['hla_deg'];bh=truth['handedness_sign']*hla
+                                    g['fair_abs_hla_deg']+=abs(hla);g['fair_batter_hla_deg']+=bh;g['fair_central10']+=abs(hla)<10
+                                    if m['vla_deg']>=50:
+                                        g['fair_high_vla_negative_batter_hla']+=bh<0
+                                        g['fair_high_vla_zero_batter_hla']+=bh==0
+                                        g['fair_high_vla_positive_batter_hla']+=bh>0
         if seen!=set(selected):raise ValueError('missing_sample_source_rows')
         expected=sum(g['evaluable_trials'] for (name,scope),g in metrics.items() if scope=='all_swings')
         if counts['new_searches']!=expected:raise ValueError('search_count_mismatch')
@@ -171,36 +185,42 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
         path=output/'plan_tilt_summary.csv'
         with path.open(newline='') as f:
             reader=csv.DictReader(f);fields=reader.fieldnames;summary_rows=list(reader)
-        fair_fields=['fair_low_ev','fair_high_ev','fair_downward','fair_high_vla']
+        fair_fields=['fair_low_ev','fair_high_ev','fair_downward','fair_high_vla',
+            'fair_high_vla_negative_batter_hla','fair_high_vla_zero_batter_hla','fair_high_vla_positive_batter_hla']
+        direction_fields=['fair_avg_abs_hla_deg','fair_avg_batter_hla_deg','fair_central_abs_lt10_fraction']
         for r in summary_rows:
             g=groups[r['scenario']].summary[tuple(r[k] for k in KEYS)]
             r.update({k:g[k] for k in fair_fields})
+            for label,metric in zip(direction_fields,('fair_abs_hla_deg','fair_batter_hla_deg','fair_central10')):
+                r[label]=g[metric]/g['fair_contacts'] if g['fair_contacts'] else None
         with path.open('w',newline='') as f:
-            writer=csv.DictWriter(f,fieldnames=fields+fair_fields);writer.writeheader();writer.writerows(summary_rows)
+            writer=csv.DictWriter(f,fieldnames=fields+fair_fields+direction_fields);writer.writeheader();writer.writerows(summary_rows)
         rows=[]
         for (name,scope),g in sorted(metrics.items()):
             n=g['evaluable_trials'];r=dict(scenario=name,scope=scope,trials=g['trials'],evaluable_trials=n,
                 clock_invalid_trials=g['clock_invalid_trials'],pulse_pivot_below_ground=g['pulse_pivot_below_ground'],
                 min_pulse_pivot_z_m=g.get('min_pulse_pivot_z_m') if n else None,
                 max_reference_point_speed_ms=g['max_reference_point_speed_ms'] if n else None)
-            for k in KINEMATICS:r['avg_'+k]=g[k]/n if n else None
+            for k in kinematic_fields:r['avg_'+k]=g[k]/n if n else None
             rows.append(r)
         fields=['scenario','scope','trials','evaluable_trials','clock_invalid_trials','pulse_pivot_below_ground',
-                'min_pulse_pivot_z_m','max_reference_point_speed_ms']+['avg_'+k for k in KINEMATICS]
+                'min_pulse_pivot_z_m','max_reference_point_speed_ms']+['avg_'+k for k in kinematic_fields]
         write_csv(output/'plan_tilt_kinematics.csv',fields,rows)
         write_csv(output/'plan_tilt_checks.csv',['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
         write_csv(output/'plan_tilt_coverage.csv',['metric','trials'],[dict(metric=k,trials=v) for k,v in sorted(counts.items())])
         paths=[input_dir/f for f in ('observation_update_contacts.csv','observation_update_inputs.jsonl')]+[output/'plan_tilt_sample.csv']
-        metadata=dict(version=1,status='sampled_sensitivity_not_calibrated',variant=variant,models=list(MODEL_NAMES),
+        metadata=dict(version=1 if yaws is None else 2,status='sampled_sensitivity_not_calibrated',variant=variant,models=list(MODEL_NAMES),
             population_trials=population,sampled_trials=len(selected),requested_sample_size=sample_size,sample_seed=str(sample_seed),
             sampling='lowest SHA256(plan-tilt-v1:seed:game_id:count_seq); all matching-variant pitches, before clock/contact/outcome selection; zero sample-size means full population',
-            angles_deg=list(angles),baseline='original saved planned tilt, executed with the same sin-squared pulse',
+            angles_deg=list(angles),**(dict(yaws_deg=list(yaws),kinematics_fields=list(kinematic_fields),
+                scenarios={name:dict(tilt_deg=x,yaw_batter_deg=y) for name,(x,y) in names.items()},
+                yaw_convention='World Z rotation = handedness_sign * planned yaw. Saved inclination error rotates with this local plane; yaw is not output HLA.') if yaws is not None else {}),baseline='original saved planned tilt, executed with the same sin-squared pulse',
             plan_effort=1.,execution_ratio=1.,start_delay_sec=0.,duration_sec=duration,anchor_fraction=fraction,
             new_searches=counts['new_searches'],maximum_searches=len(selected)*(len(names)+1),spin=spin.metadata(),
             inputs={str(p):digest(p) for p in paths},
             limitations=['Angles are explicit intended-plan sensitivity hypotheses, not inferred player choices or recommended values.',
                 'Common predicted target/time and ideal velocity; saved angular execution error is retained, so actual reference positions may differ slightly.',
-                'Each intended tilt generates its own initial pose, then integrates forward; no actual contact used to re-anchor or choose a plan.',
+                'Each intended tilt/yaw generates its own initial pose, then integrates forward; no actual contact used to re-anchor or choose a plan.',
                 'Changed axes require new contact searches. Baseline is searched once per sampled pitch and reused across contrasts.',
                 'No-saved-contact/clock invalidity/cap/curve failures are not successful EV/VLA cases; compare denominators and paired sets.',
                 'Pivot height is a geometric proxy, not a human-body feasibility model. Below-ground cases are audited, not silently filtered.',
