@@ -80,3 +80,7 @@ python3 tools/diagnostics/swing_execution_probe.py \
 計画開始時刻と実際の開始時刻の両方が、計画に使用した観測より後であることを要求する。時計が成立しなければ前回と同じ未評価理由で保持。接触率の比較は同じ投球を除外した `contact_fraction_of_evaluable_trials` を使い、時計不成立を空振りとみなさない。EV等は各条件の成功例、共通集合はpairsで確認する。その他の分母・端部/曲線範囲外の扱いは[既存診断](swing_execution_probe.md)と同じ。
 
 実行後は通常summary、deviationのpairs/transitions/ev_vla、kinematics、checks、coverage、metadataを共有する。実データの影響を確認してから、計画・実行ずれをどの条件で発生させるかを決める。
+
+## 保存結果の混合比較
+
+実行比率別の保存結果が揃ったら、[実行状態の混合とStatcast比較](swing_execution_mixture_compare.md)で任意の試行重みを評価できる。接触探索の再実行やDB指定は不要。通常実行と各失敗状態の単独結果も残し、選択後の打球構成比を監査する。付属の混合比は感度比較用の仮定で、ゲームの発生確率には反映しない。
