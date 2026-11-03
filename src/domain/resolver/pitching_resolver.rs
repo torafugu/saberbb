@@ -57,9 +57,18 @@ pub fn create_pitch_for_call(
     hanging_pitch_effect: Option<f64>,
     base_four_seam_speed: f64,
 ) -> Result<PitchedBall, AppError> {
+    let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
+    // Reject corrupt/legacy skills before generating a trajectory or consuming RNG.
+    if !pitch_skill.spin_efficiency.is_finite()
+        || !(0.0..=1.0).contains(&pitch_skill.spin_efficiency)
+    {
+        return Err(AppError::InvalidInput(format!(
+            "spin_efficiency for {:?} must be finite and in [0, 1], got {}. Regenerate player skills before creating new game data",
+            pitch_skill.pitch_type, pitch_skill.spin_efficiency
+        )));
+    }
     let pitch_effect = hanging_pitch_effect.unwrap_or_else(|| rng.normal_factor_std_1_percent());
     let base_spin_angle = pitcher.base_spin_angle();
-    let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
     let pitch_spin_angle = (pitch_skill.spin_angle * pitch_effect).clamp(-180.0, 180.0);
 
     let final_spin_angle = if pitcher.throw_side == RL::Left {
@@ -427,6 +436,41 @@ mod tests {
             timing_bias_sec: 0.0,
             spatial_bias_x: 0.0,
             spatial_bias_y: 0.0,
+        }
+    }
+
+    #[test]
+    fn create_pitch_rejects_invalid_skill_efficiency() {
+        for efficiency in [-0.01, 1.032204, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut skill = pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0);
+            skill.spin_efficiency = efficiency;
+            let pitcher = pitcher(RL::Right, vec![skill]);
+            let error = create_pitch(
+                &mut FixedRng::new(0.0),
+                &pitcher,
+                None,
+                TEST_BASE_FOUR_SEAM_SPEED,
+            )
+            .unwrap_err();
+            assert!(matches!(error, AppError::InvalidInput(_)));
+            assert!(error.to_string().contains("spin_efficiency"));
+        }
+    }
+
+    #[test]
+    fn create_pitch_preserves_valid_efficiency_including_boundaries() {
+        for efficiency in [0.0, 0.73, 1.0] {
+            let mut skill = pitch_skill(PitchType::FourSeamFastball, 20.0, 2300.0);
+            skill.spin_efficiency = efficiency;
+            let pitcher = pitcher(RL::Right, vec![skill]);
+            let ball = create_pitch(
+                &mut FixedRng::new(0.0),
+                &pitcher,
+                None,
+                TEST_BASE_FOUR_SEAM_SPEED,
+            )
+            .unwrap();
+            assert_eq!(ball.spin_efficiency, efficiency);
         }
     }
 
