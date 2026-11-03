@@ -291,3 +291,9 @@ python3 tools/diagnostics/finite_barrel_probe.py \
 [バット傾き診断](bat_tilt_diagnostics.md)で、各接触の傾き×b/R×法線z別に
 法線の左右成分と各モデルの方向・打球指標を確認する。
 側面の直交性と法線分解を検証するが、姿勢や衝突計算は変更しない。
+
+## 処理時間の短縮
+
+[診断の高速実行](diagnostic_performance.md)を参照。
+--diagnostics、--models、--variantsで必要な集計と衝突計算を選べる。
+未指定時は従来の全診断を出力し、基準応答の重複計算だけを共用する。
