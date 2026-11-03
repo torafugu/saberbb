@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "mixtures": {
+    "sensitivity_failure_10pct": {
+      "plan_1_execution_1_anchor_0.5_delay_0ms": 0.9,
+      "plan_1_execution_0.95_anchor_0.5_delay_0ms": 0.05,
+      "plan_1_execution_0.9_anchor_0.5_delay_0ms": 0.03,
+      "plan_1_execution_0.85_anchor_0.5_delay_0ms": 0.02
+    },
+    "sensitivity_failure_25pct": {
+      "plan_1_execution_1_anchor_0.5_delay_0ms": 0.75,
+      "plan_1_execution_0.95_anchor_0.5_delay_0ms": 0.125,
+      "plan_1_execution_0.9_anchor_0.5_delay_0ms": 0.075,
+      "plan_1_execution_0.85_anchor_0.5_delay_0ms": 0.05
+    }
+  }
+}
