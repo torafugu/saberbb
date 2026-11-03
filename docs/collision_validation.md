@@ -143,3 +143,50 @@ metadataはversion=2とし、回転の取得元・再構成方法・ジャイロ
 次の解析では、まず **finite_barrel_coverage/checks/status/summary/spin_pairs の5 CSV** を確認する。
 文献比較のCSVも保持するが、ゲーム分布の診断値と文献の撮影面の値を混ぜて平均しない。
 現在のNathanバットに、文献の木製バットex=0.464をそのまま移植して採用しない。
+
+## invalid_pitch_spinで止まった場合
+
+既定の検証は、回転数が非負、回転効率が0〜1、各値が有限であることを要求する。
+旧版の一律invalid_pitch_spinを、原因とキー・保存値を含むメッセージへ変更した。
+例えば次の形で表示する。
+
+```text
+Diagnostic failed: spin_efficiency_out_of_range: game_id=..., count_seq=..., spin_rate=..., spin_angle=..., spin_efficiency=...
+```
+
+現行の選手生成コードはspin_efficiencyを正規分布からサンプリングし、その場で0〜1へ制限していない。
+投球作成時もその値をコピーしているため、既存DBに範囲外値が入っている可能性がある。
+ただし、この生成経路だけでは個々のエラーの原因を確定できない。必ず保存値のレポートで確認する。
+今回の修正ではゲームの生成処理・既存DB値・入力回転を変更しない。
+
+DB回転を使うと、出力先にfinite_barrel_invalid_spin.csvを作成する。
+問題のgame_id/count_seq、最初に検出したvariant、原因、保存スカラー、入射速度を記録する。
+同じ球・同じ原因は1行にまとめる。エラー時もこのレポートは逐次書き込み・flush済みなので読める。
+厳密モードで停止した出力先の他の部分ファイルを、完成した診断結果として使わない。
+
+不正スカラーや再構成不能な回転の球を明示的に除外して続ける場合は、次を指定する。
+
+```sh
+python3 tools/diagnostics/finite_barrel_probe.py \
+  --input-dir ../saberbb_observation_update \
+  --output-dir ../saberbb_finite_pitch_spin_checked \
+  --pitch-db path/to/game.db \
+  --gyro-sign 0 \
+  --invalid-spin-policy exclude
+```
+
+途中で作成された以前の出力先は再利用せず、新しい出力先を指定する。
+既定は引き続き `--invalid-spin-policy error` である。
+excludeでもキー欠落・重複、DBスキーマ不備、元接触CSVの破損は停止する。
+これらを不正回転として除外すると、DBの取り違えなどを隠すためである。
+
+除外した接触は全8モデルで `not_evaluated:invalid_pitch_spin` とする。
+0回転・EV=0へ置き換えず、spin_pairsの共通成功集合にも含めない。
+coverage/statusには除外した試行件数、metadataには不正な一意投球数とレポートのハッシュを記録する。
+metadataのused_scalar_rows_sha256とunique_pitchesは、実際に再構成に成功した保存行を対象とする。
+除外CSVの行数は同じ球の複数条件をまとめた数なので、除外試行数とは異なる。
+metadataはversion=3へ更新した。
+
+除外が多い場合、有効な球だけの結果には選択の偏りが生じ得る。
+最終的な回転分布の評価前に、finite_barrel_invalid_spin.csvとcoverageを併せて確認する。
+効率を1へ丸める、負の回転数を絶対値へ変える、といった自動修正は行わない。
