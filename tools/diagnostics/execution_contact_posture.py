@@ -54,11 +54,12 @@ def same(expected,actual,checks,label):
     elif expected!=actual:raise ValueError('saved_state_mismatch:'+label)
 
 
-def source_rows(folder,variant):
+def source_rows(folder,variant,selected_keys=None):
     with (folder/'observation_update_inputs.jsonl').open() as jf, (folder/'observation_update_contacts.csv').open(newline='') as cf:
         for raw,row in zip_longest(jf,csv.DictReader(cf)):
             if raw is None or row is None:raise ValueError('source_row_alignment_mismatch')
             if row['variant']!=variant:continue
+            if selected_keys is not None and (int(row['game_id']),int(row['count_seq'])) not in selected_keys:continue
             record=json.loads(raw)
             if (record['game_id'],record['count_seq'],f"{record['condition']}_r{record['plan']['lever_m']:g}") != (int(row['game_id']),int(row['count_seq']),row['variant']):
                 raise ValueError('source_key_alignment_mismatch')
