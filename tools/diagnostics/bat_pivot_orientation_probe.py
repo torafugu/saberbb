@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Paired signed-tilt trial with matched saved anchor position, velocity and clock."""
 import argparse
+from diagnostic_db import add_db_argument
 import csv
 import json
 import math
@@ -207,7 +208,7 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',gyro_sign=0
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--input-dir',type=Path,required=True);p.add_argument('--db',type=Path,required=True)
+    p.add_argument('--input-dir',type=Path,required=True);add_db_argument(p)
     p.add_argument('--output-dir',type=Path,required=True)
     p.add_argument('--variant',default='observed_sigma_0.005_r0.9')
     p.add_argument('--gyro-sign',type=int,choices=(-1,0,1),default=0);a=p.parse_args()

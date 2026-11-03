@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Paired execution-frame v2 trials from validated, unchanged saved contact states v1."""
 import argparse
+from diagnostic_db import add_db_argument
 import csv
 import json
 import math
@@ -268,7 +269,7 @@ def run(db_path,first,last,output,levers=(.6,.9,1.2),window=.06,half_length=.16,
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--db',type=Path,required=True);p.add_argument('--first-game-id',type=int,required=True)
+    add_db_argument(p);p.add_argument('--first-game-id',type=int,required=True)
     p.add_argument('--last-game-id',type=int,required=True);p.add_argument('--output-dir',type=Path,required=True)
     p.add_argument('--levers-m',type=float,nargs='+',default=[.6,.9,1.2])
     p.add_argument('--half-window-ms',type=float,default=60);p.add_argument('--half-length-m',type=float,default=.16)

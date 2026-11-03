@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare normal, centerline-spin and coupled finite-barrel responses on frozen contacts."""
 import argparse
+from diagnostic_db import add_db_argument
 import json
 import math
 import sqlite3
@@ -280,9 +281,10 @@ if __name__=='__main__':
     p.add_argument('--axial-inertias',type=float,nargs='+',default=(.00015,.0003))
     spin=p.add_mutually_exclusive_group()
     spin.add_argument('--ball-spin-rad-s',type=float,nargs=3,default=None,metavar=('X','Y','Z'))
-    spin.add_argument('--pitch-db',type=Path)
+    add_db_argument(spin,'--pitch-db',required=False)
     p.add_argument('--invalid-spin-policy',choices=('error','exclude'),default='error')
     p.add_argument('--gyro-sign',type=int,choices=(-1,0,1),default=0)
     p.add_argument('--height-m',type=float,default=.9);p.add_argument('--sample-limit',type=int,default=500);a=p.parse_args()
+    if a.ball_spin_rad_s is not None: a.pitch_db=None
     try:print(run(a.input_dir,a.output_dir,tuple(a.axial_inertias),tuple(a.ball_spin_rad_s or (0.,0.,0.)),a.height_m,a.sample_limit,a.pitch_db,a.gyro_sign,a.invalid_spin_policy,a.diagnostics,a.models,a.variants))
     except (OSError,ValueError,sqlite3.Error) as exc:p.exit(1,f'Diagnostic failed: {exc}\n')

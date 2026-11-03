@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only, deterministic paired collision diagnostics; standard library only."""
 import argparse
+from diagnostic_db import add_db_argument
 import csv
 import math
 import re
@@ -396,7 +397,7 @@ def run(db_path, first, last, output, restitutions=(.3, .5, .7), masses=(.3, .6)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--db', required=True, type=Path)
+    add_db_argument(parser)
     parser.add_argument('--first-game-id', required=True, type=int)
     parser.add_argument('--last-game-id', required=True, type=int)
     parser.add_argument('--output-dir', required=True, type=Path, help='New directory; must not already exist')

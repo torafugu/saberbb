@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only symmetric vertical aim errors with constant translating bat velocity."""
 import argparse
+from diagnostic_db import add_db_argument
 import copy
 import json
 import math
@@ -209,7 +210,7 @@ def run(db_path,first,last,output,heights=(.01,.03,.05),levers=(.6,.9,1.2)):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--db',type=Path,required=True)
+    p=argparse.ArgumentParser(description=__doc__);add_db_argument(p)
     p.add_argument('--first-game-id',type=int,required=True);p.add_argument('--last-game-id',type=int,required=True)
     p.add_argument('--output-dir',type=Path,required=True);p.add_argument('--heights-m',type=float,nargs='+',default=[.01,.03,.05])
     p.add_argument('--levers-m',type=float,nargs='+',default=[.6,.9,1.2]);a=p.parse_args()
