@@ -53,16 +53,21 @@ def hla_class(m):
 
 def scenario_names(meta):
     if meta['version']==1:return ['saved_tilt']+[f'tilt_{a:g}deg' for a in meta['angles_deg']]
-    if meta['version'] in (2,3) and meta.get('scenarios'):
+    if meta['version'] in (2,3,4) and meta.get('scenarios'):
         conditions=set()
         for name,c in meta['scenarios'].items():
             tilt=number(c['tilt_deg']);yaw=number(c['yaw_batter_deg'])
-            aim=number(c['aim_z_offset_m']) if meta['version']==3 else None
+            aim=number(c['aim_z_offset_m']) if meta['version']>=3 else None
             label=f'tilt_{tilt:g}deg_yaw_{yaw:g}deg'+(f'_aim_z_{aim*1000:g}mm' if aim is not None else '')
+            speed=number(c['planned_speed_ratio']) if meta['version']==4 else None
+            if speed is not None:
+                if not 0<speed<=1:raise ValueError('invalid_metadata_speed_ratio')
+                label+=f'_speed_r{speed:g}'
             if not 0<=tilt<=60 or abs(yaw)>45 or name!=label:raise ValueError('invalid_axis_metadata_scenario')
-            conditions.add((tilt,yaw,aim))
-        aims=meta['aim_z_offsets_m'] if meta['version']==3 else [None]
-        if conditions!={(x,y,z) for x in meta['angles_deg'] for y in meta['yaws_deg'] for z in aims}:raise ValueError('missing_axis_metadata_scenarios')
+            conditions.add((tilt,yaw,aim,speed))
+        aims=meta['aim_z_offsets_m'] if meta['version']>=3 else [None]
+        speeds=meta['planned_speed_ratios'] if meta['version']==4 else [None]
+        if conditions!={(x,y,z,r) for x in meta['angles_deg'] for y in meta['yaws_deg'] for z in aims for r in speeds}:raise ValueError('missing_axis_metadata_scenarios')
         return ['saved_tilt']+list(meta['scenarios'])
     raise ValueError('unsupported_tilt_metadata')
 
@@ -80,8 +85,12 @@ class Audit:
         side=1 if axis[0]>0 else -1
         for name,r in records.items():
             plan=r['forecast_plan']
-            for field in ('forecast_position_world_m','nominal_time_sec','ideal_velocity_world_ms','execution_angle_error_deg'):
+            for field in ('forecast_position_world_m','nominal_time_sec','execution_angle_error_deg'):
                 same(reference[field],plan[field],self.checks,'common_'+field)
+            ratio=number(plan.get('planned_speed_ratio',1.))
+            if not 0<ratio<=1:raise ValueError('invalid_cached_speed_ratio')
+            same(reference['ideal_velocity_world_ms'],tuple(v/ratio for v in vector(plan['ideal_velocity_world_ms'])),
+                 self.checks,'common_unscaled_ideal_velocity_world_ms')
             a=vector(plan['ideal_axis_world']);check(self.checks,'candidate_axis_unit',abs(norm(a)-1))
             if a[0]*side<=0:raise ValueError('inconsistent_saved_batting_side')
             invalid=r.get('invalid_reason')
@@ -263,7 +272,7 @@ def load_inputs(input_dirs,audit):
     datasets={};inputs={};contract=None
     for folder in map(Path,input_dirs):
         meta=json.loads((folder/'plan_tilt_metadata.json').read_text())
-        if meta['version'] not in (1,2,3) or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
+        if meta['version'] not in (1,2,3,4) or meta['status']!='sampled_sensitivity_not_calibrated':raise ValueError('unsupported_tilt_metadata')
         dataset='seed:'+meta['sample_seed']
         if dataset in datasets:raise ValueError('duplicate_seed_dataset')
         identity={k:meta[k] for k in ('variant','models','duration_sec','anchor_fraction','plan_effort','execution_ratio','start_delay_sec')}
@@ -289,17 +298,21 @@ def load_inputs(input_dirs,audit):
             for line in f:
                 r=json.loads(line);key=(r['game_id'],r['count_seq']);name=r['scenario']
                 if key not in manifest or name not in scenarios:raise ValueError('unknown_cached_trial')
-                if meta['version'] in (2,3) and name!='saved_tilt':
+                if meta['version'] in (2,3,4) and name!='saved_tilt':
                     axis=vector(r['forecast_plan']['ideal_axis_world']);side=1 if axis[0]>0 else -1
                     c=meta['scenarios'][name]
                     check(audit.checks,'declared_planned_tilt_deg',abs(math.degrees(math.asin(max(-1,min(1,axis[2]))))-c['tilt_deg']))
                     check(audit.checks,'declared_planned_yaw_deg',abs(math.degrees(math.atan2(axis[1],side*axis[0]))-c['yaw_batter_deg']))
-                    if meta['version']==3:
+                    if meta['version']>=3:
                         plan=r['forecast_plan'];offset=(0.,0.,c['aim_z_offset_m'])
                         same(offset,plan['planned_aim_offset_world_m'],audit.checks,'declared_aim_offset')
                         aim=tuple(a+b for a,b in zip(vector(plan['forecast_position_world_m']),offset))
                         same(aim,plan['planned_aim_point_world_m'],audit.checks,'declared_aim_point')
                         same(aim,plan['ideal_point_world_m'],audit.checks,'ideal_aim_point')
+                if meta['version']==4:
+                    ratio=1. if name=='saved_tilt' else meta['scenarios'][name]['planned_speed_ratio']
+                    same(ratio,r['forecast_plan'].get('planned_speed_ratio',1.),audit.checks,'declared_planned_speed_ratio')
+                elif 'planned_speed_ratio' in r['forecast_plan']:raise ValueError('undeclared_planned_speed_ratio')
                 if key!=current:
                     if current is not None:flush()
                     if key in seen:raise ValueError('noncontiguous_or_duplicate_cached_pitch')
