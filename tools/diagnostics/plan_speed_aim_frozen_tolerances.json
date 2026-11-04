@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "max_abs_delta_pp": {
+    "ev_lt25": 1.0,
+    "ev_ge45": 5.0,
+    "vla_lt0": 5.0,
+    "vla_ge50": 3.0
+  },
+  "max_grid_total_variation": 0.25
+}

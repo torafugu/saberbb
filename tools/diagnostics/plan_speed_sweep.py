@@ -19,10 +19,11 @@ if __name__=='__main__':
     p.add_argument('--yaws-deg',type=float,nargs='+',default=[0.])
     p.add_argument('--aim-z-mm',type=float,nargs='+',default=[0.])
     p.add_argument('--sample-size',type=int,default=1000);p.add_argument('--sample-seed',default='0')
+    p.add_argument('--exclude-sample',type=Path,help='Prior plan_tilt_sample.csv; exclude its pitch keys before sampling')
     p.add_argument('--duration-sec',type=float,default=.18);p.add_argument('--anchor-fraction',type=float,default=.5)
     p.add_argument('--gyro-sign',type=int,choices=(-1,0,1),default=0)
     a=p.parse_args()
     try:print(json.dumps(run(a.input_dir,a.db,a.output_dir,a.variant,a.tilts_deg,a.sample_size,a.sample_seed,
         a.duration_sec,a.anchor_fraction,a.gyro_sign,yaws=a.yaws_deg,
-        aim_z_offsets=tuple(x/1000 for x in a.aim_z_mm),speed_ratios=a.speed_ratios),indent=2))
+        aim_z_offsets=tuple(x/1000 for x in a.aim_z_mm),speed_ratios=a.speed_ratios,exclude_sample=a.exclude_sample),indent=2))
     except (OSError,ValueError,KeyError,TypeError,sqlite3.Error) as exc:p.exit(1,f'Planned speed sweep failed: {exc}\n')
