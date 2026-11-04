@@ -53,7 +53,14 @@ def sample_keys(path,variant,size,seed,excluded_keys=None):
 
 
 def exclusion_manifest(path):
+    """Read one manifest or merge multiple manifests, retaining each source for audit."""
     if path is None:return None
+    if isinstance(path,(list,tuple)):
+        if not path:return None
+        sources=[exclusion_manifest(p) for p in path]
+        if len(sources)==1:return sources[0]
+        keys=sorted({tuple(k) for source in sources for k in source['excluded_keys']})
+        return dict(manifests=sources,excluded_count=len(keys),excluded_keys=keys)
     keys=set()
     with Path(path).open(newline='') as f:
         reader=csv.DictReader(f)

@@ -70,3 +70,5 @@ frozen_originalが前回の固定構成比を再現することを先に確認�
 - `statcast_coverage.csv`
 
 今回は残差を比較するため、envelopeの代わりにEV×VLA格子を共有する。大きい元states JSONLの共有は不要。
+
+両方の中間値を含む候補を固定して別標本で再検証する手順は、[seed2固定検証](plan_midpoint_holdout.md)を参照。

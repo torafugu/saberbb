@@ -19,7 +19,7 @@ if __name__=='__main__':
     p.add_argument('--yaws-deg',type=float,nargs='+',default=[0.])
     p.add_argument('--aim-z-mm',type=float,nargs='+',default=[0.])
     p.add_argument('--sample-size',type=int,default=1000);p.add_argument('--sample-seed',default='0')
-    p.add_argument('--exclude-sample',type=Path,help='Prior plan_tilt_sample.csv; exclude its pitch keys before sampling')
+    p.add_argument('--exclude-sample',type=Path,action='append',help='Prior plan_tilt_sample.csv; repeat to exclude the union of multiple samples')
     p.add_argument('--duration-sec',type=float,default=.18);p.add_argument('--anchor-fraction',type=float,default=.5)
     p.add_argument('--gyro-sign',type=int,choices=(-1,0,1),default=0)
     a=p.parse_args()
