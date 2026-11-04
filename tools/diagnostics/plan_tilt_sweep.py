@@ -31,7 +31,7 @@ KINEMATICS=('planned_tilt_deg','reference_axis_elevation_deg','planned_speed_ms'
     'start_point_z_m','reference_target_error_m','peak_omega_rad_s')
 
 
-def sample_keys(path,variant,size,seed):
+def sample_keys(path,variant,size,seed,excluded_keys=None):
     if isinstance(size,bool) or not isinstance(size,int) or size<0:raise ValueError('invalid_sample_size')
     ranks={}
     with Path(path).open(newline='') as f:
@@ -43,9 +43,27 @@ def sample_keys(path,variant,size,seed):
             if min(key)<0 or key in ranks:raise ValueError('invalid_or_duplicate_population_key')
             ranks[key]=hashlib.sha256(f'plan-tilt-v1:{seed}:{key[0]}:{key[1]}'.encode()).hexdigest()
     if not ranks:raise ValueError('empty_sample_population')
+    excluded=set(excluded_keys or ())
+    if excluded-set(ranks):raise ValueError('exclusion_contains_unknown_population_keys')
+    ranks={k:v for k,v in ranks.items() if k not in excluded}
+    if not ranks:raise ValueError('empty_population_after_exclusion')
     ordered=sorted(ranks,key=lambda k:(ranks[k],k))
     selected=ordered if size==0 else ordered[:size]
     return {key:ranks[key] for key in selected},len(ranks)
+
+
+def exclusion_manifest(path):
+    if path is None:return None
+    keys=set()
+    with Path(path).open(newline='') as f:
+        reader=csv.DictReader(f)
+        if not {'game_id','count_seq'}<=set(reader.fieldnames or []):raise ValueError('missing_exclusion_columns')
+        for r in reader:
+            key=int(r['game_id']),int(r['count_seq'])
+            if min(key)<0 or key in keys:raise ValueError('invalid_or_duplicate_exclusion_key')
+            keys.add(key)
+    if not keys:raise ValueError('empty_exclusion_manifest')
+    return dict(path=str(path),sha256=digest(path),excluded_count=len(keys),excluded_keys=sorted(keys))
 
 
 def replan(saved,angle,checks,yaw=0.,aim_z_m=None):
@@ -81,7 +99,7 @@ def kinematics(saved,plan,motion):
 
 
 def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,15.,30.),sample_size=2000,
-        sample_seed='0',duration=.18,fraction=.5,gyro_sign=0,yaws=None,aim_z_offsets=None,speed_ratios=None):
+        sample_seed='0',duration=.18,fraction=.5,gyro_sign=0,yaws=None,aim_z_offsets=None,speed_ratios=None,exclude_sample=None):
     if (not angles or len(set(angles))!=len(angles) or any(not math.isfinite(x) or not 0<=x<=60 for x in angles)
         or gyro_sign not in (-1,0,1)):raise ValueError('invalid_tilt_scenarios')
     if yaws is not None and (not yaws or len(set(yaws))!=len(yaws) or any(not math.isfinite(y) or abs(y)>45 for y in yaws)):raise ValueError('invalid_yaw_scenarios')
@@ -106,7 +124,9 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
     if speed_ratios is not None:kinematic_fields+=('planned_speed_ratio',)
     SwingExecution(0,0,10.,1.,duration,fraction,0.)
     input_dir=Path(input_dir);output=Path(output)
-    selected,population=sample_keys(input_dir/'observation_update_contacts.csv',variant,sample_size,str(sample_seed))
+    exclusion=exclusion_manifest(exclude_sample)
+    selected,population=sample_keys(input_dir/'observation_update_contacts.csv',variant,sample_size,str(sample_seed),
+                                   exclusion['excluded_keys'] if exclusion else None)
     output.mkdir(parents=True,exist_ok=False)
     write_csv(output/'plan_tilt_sample.csv',['game_id','count_seq','selection_hash'],[
         dict(game_id=k[0],count_seq=k[1],selection_hash=v) for k,v in selected.items()])
@@ -251,6 +271,7 @@ def run(input_dir,db_path,output,variant='observed_sigma_0.005_r0.9',angles=(0.,
             plan_effort=1.,execution_ratio=1.,start_delay_sec=0.,duration_sec=duration,anchor_fraction=fraction,
             new_searches=counts['new_searches'],maximum_searches=len(selected)*(len(names)+1),spin=spin.metadata(),
             inputs={str(p):digest(p) for p in paths},
+            **(dict(sampling_exclusion=exclusion,population_trials_before_exclusion=population+exclusion['excluded_count']) if exclusion else {}),
             limitations=['Angles are explicit intended-plan sensitivity hypotheses, not inferred player choices or recommended values.',
                 'Predicted ball center/time and ideal velocity direction are common; intended speed is scaled only when declared; explicit intended aim offset and retained angular execution error can move the actual reference position.',
                 'Each intended tilt/yaw generates its own initial pose, then integrates forward; no actual contact used to re-anchor or choose a plan.',

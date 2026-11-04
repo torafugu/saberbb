@@ -290,6 +290,15 @@ def load_inputs(input_dirs,audit):
         expected_hash=[v for k,v in meta['inputs'].items() if Path(k).name=='plan_tilt_sample.csv']
         if len(expected_hash)!=1 or digest(folder/'plan_tilt_sample.csv')!=expected_hash[0]:raise ValueError('sample_manifest_hash_mismatch')
         if len(manifest)!=meta['sampled_trials'] or not manifest:raise ValueError('sample_size_mismatch')
+        if 'sampling_exclusion' in meta:
+            ex=meta['sampling_exclusion'];excluded=set()
+            for key in ex['excluded_keys']:
+                if not isinstance(key,list) or len(key)!=2 or any(type(v) is not int or v<0 for v in key):raise ValueError('invalid_excluded_key')
+                if tuple(key) in excluded:raise ValueError('duplicate_excluded_key')
+                excluded.add(tuple(key))
+            if not excluded or len(excluded)!=ex['excluded_count']:raise ValueError('exclusion_count_mismatch')
+            if excluded&set(manifest):raise ValueError('holdout_overlaps_excluded_sample')
+            if meta['population_trials_before_exclusion']!=meta['population_trials']+len(excluded):raise ValueError('exclusion_population_mismatch')
         seen=set();group={};current=None
         def flush():
             if set(group)!=set(scenarios):raise ValueError('missing_pitch_scenarios')

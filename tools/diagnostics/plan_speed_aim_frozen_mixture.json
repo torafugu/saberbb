@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "mixtures": {
+    "seed0_frozen_tilt15_speed60_20_20_aim80_20": {
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r1": 0.48,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r1": 0.12,
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r0.8": 0.16,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r0.8": 0.04,
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r0.6": 0.16,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r0.6": 0.04
+    }
+  }
+}
