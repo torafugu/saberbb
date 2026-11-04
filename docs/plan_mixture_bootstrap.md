@@ -69,3 +69,5 @@ SABERBB_DBの設定や選手・試合の再生成は不要。DB読み取り・�
 - `statcast_coverage.csv`
 
 全反復の値は`plan_speed_mixture_bootstrap_replicates.csv`にも保存するが、最初の結果確認では共有不要。大きい元states JSONLの共有も不要。
+
+固定構成比を保って高角度打球の発生条件を分解するには、[高角度打球の寄与・狙い対応比較](plan_high_vla_audit.md)を使う。元の計算キャッシュから実行できる。
