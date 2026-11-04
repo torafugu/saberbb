@@ -34,7 +34,8 @@ impl Default for AppConfig {
 }
 
 pub fn load_app_config() -> anyhow::Result<AppConfig> {
-    let mut app_config = confy::load::<AppConfig>("saberbb", None).unwrap_or_default();
+    let config_path = proj_dirs().config_dir().join("default-config.toml");
+    let mut app_config = confy::load_path::<AppConfig>(config_path).unwrap_or_default();
     merge_default_keybindings(&mut app_config.keybindings);
     Ok(app_config)
 }
