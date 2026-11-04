@@ -1,4 +1,4 @@
-DROP TABLE normal_param;
+DROP TABLE IF EXISTS normal_param;
 
 CREATE TABLE normal_param (
     category1 TEXT,

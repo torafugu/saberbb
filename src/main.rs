@@ -8,7 +8,7 @@ use saberbb::domain::player_factory::PlayerFactory;
 use saberbb::domain::player_service::PlayerService;
 use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::i18n::I18nManager;
-use saberbb::repositories::db::{SqlDb, maintenance};
+use saberbb::repositories::db::{SqlDb, maintenance, setup};
 use saberbb::repositories::game_repository::SqlGameRepository;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
@@ -20,6 +20,8 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
+    let args = Args::parse();
+
     // load default-config.toml and initialize I18nManager
     let cfg = load_app_config()?;
     I18nManager::init(&cfg.language);
@@ -43,6 +45,11 @@ fn main() -> Result<()> {
         tracing::error!(%panic_info, %backtrace, "panic occurred");
     }));
 
+    if args.setup {
+        setup()?;
+        println!("Database setup completed.");
+    }
+
     let ctx = AppContext {
         game_repository: SqlGameRepository::new()?,
         player_repository: SqlPlayerRepository::new()?,
@@ -50,8 +57,6 @@ fn main() -> Result<()> {
         statistics_repository: SqlStatRepository::new()?,
     };
     init_app_context(ctx);
-
-    let args = Args::parse();
 
     info!("game started.");
 
@@ -169,6 +174,10 @@ fn schedule_games(num_of_schedules: u8) -> Result<()> {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Recreate database tables and load seed data from migrations/ddl and migrations/dml
+    #[arg(long)]
+    setup: bool,
+
     /// Clear game data, reset to the current year, schedule a season, and process 40 rounds
     #[arg(short = 'n', long)]
     sampleyear: bool,
@@ -280,6 +289,16 @@ mod tests {
             })
             .unwrap();
         assert_eq!(year, 2020);
+    }
+
+    #[test]
+    fn setup_flag_can_be_combined_with_other_commands() {
+        assert!(!Args::try_parse_from(["saberbb"]).unwrap().setup);
+        let args =
+            Args::try_parse_from(["saberbb", "--setup", "--generate", "100", "-s", "1"]).unwrap();
+        assert!(args.setup);
+        assert_eq!(args.generate, Some(100));
+        assert_eq!(args.schedule, Some(1));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-DROP TABLE fielder_info;
+DROP TABLE IF EXISTS fielder_info;
 
 CREATE TABLE fielder_info (
     player_id INTEGER,

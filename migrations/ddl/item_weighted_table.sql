@@ -1,4 +1,4 @@
-DROP TABLE item_weighted;
+DROP TABLE IF EXISTS item_weighted;
 
 CREATE TABLE item_weighted (
     category1 TEXT,

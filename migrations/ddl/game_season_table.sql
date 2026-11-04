@@ -1,4 +1,4 @@
-DROP TABLE game_season;
+DROP TABLE IF EXISTS game_season;
 
 CREATE TABLE game_season (
     season_start_date TEXT NOT NULL,

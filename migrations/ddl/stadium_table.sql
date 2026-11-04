@@ -1,4 +1,4 @@
-DROP TABLE stadium;
+DROP TABLE IF EXISTS stadium;
 
 CREATE TABLE stadium (
     id INTEGER PRIMARY KEY,

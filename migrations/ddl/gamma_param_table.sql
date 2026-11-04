@@ -1,4 +1,4 @@
-DROP TABLE gamma_param;
+DROP TABLE IF EXISTS gamma_param;
 
 CREATE TABLE gamma_param (
     category1 TEXT,

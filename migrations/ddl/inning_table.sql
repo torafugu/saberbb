@@ -1,4 +1,4 @@
-DROP TABLE inning;
+DROP TABLE IF EXISTS inning;
 
 CREATE TABLE inning (
     game_id INTEGER,

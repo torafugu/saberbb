@@ -1,4 +1,4 @@
-DROP TABLE count;
+DROP TABLE IF EXISTS count;
 
 CREATE TABLE count (
     game_id INTEGER,

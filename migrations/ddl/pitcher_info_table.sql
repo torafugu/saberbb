@@ -1,4 +1,4 @@
-DROP TABLE pitcher_info;
+DROP TABLE IF EXISTS pitcher_info;
 
 CREATE TABLE pitcher_info(
     player_id INTEGER PRIMARY KEY,

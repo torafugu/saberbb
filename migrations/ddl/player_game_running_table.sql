@@ -1,4 +1,4 @@
-DROP TABLE player_game_running;
+DROP TABLE IF EXISTS player_game_running;
 
 CREATE TABLE player_game_running (
     game_id INTEGER,

@@ -1,10 +1,11 @@
 use crate::config::load_app_config;
 use crate::error::AppError;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use rusqlite::Connection;
 use rusqlite::types::FromSql;
 use std::fs;
+use std::path::Path;
 use tracing::info;
 
 #[derive(Clone, Debug)]
@@ -268,6 +269,98 @@ impl DbClient {
         }
 
         Ok(result)
+    }
+}
+
+/// Run the schema and seed scripts against the configured database.
+pub fn setup() -> Result<()> {
+    let mut conn = SqlDb::new()?.get_conn()?;
+    setup_database(&mut conn, Path::new("migrations"))
+}
+
+fn setup_database(conn: &mut Connection, migrations_dir: &Path) -> Result<()> {
+    let tx = conn.transaction()?;
+    for directory in ["ddl", "dml"] {
+        let directory = migrations_dir.join(directory);
+        let mut scripts = Vec::new();
+        for entry in fs::read_dir(&directory)
+            .with_context(|| format!("Failed to read {}", directory.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.file_type()?.is_file() && path.extension().is_some_and(|ext| ext == "sql") {
+                scripts.push(path);
+            }
+        }
+        scripts.sort();
+
+        for path in scripts {
+            let sql = fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+            info!(script = %path.display(), "Executing setup SQL");
+            tx.execute_batch(&sql)
+                .with_context(|| format!("Failed to execute {}", path.display()))?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod setup_tests {
+    use super::*;
+
+    fn migrations_dir() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations")
+    }
+
+    #[test]
+    fn setup_creates_schema_and_loads_all_seed_data() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        setup_database(&mut conn, &migrations_dir()).unwrap();
+
+        for (table, expected) in [
+            ("league", 1),
+            ("team", 6),
+            ("stadium", 1),
+            ("game_season", 1),
+        ] {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, expected, "Unexpected seed count for {table}");
+        }
+        for table in ["normal_param", "gamma_param", "item_weighted"] {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert!(count > 0, "Missing seed data for {table}");
+        }
+        conn.prepare("SELECT * FROM player_info, player_game_batting, player_game_pitching")
+            .unwrap();
+    }
+
+    #[test]
+    fn setup_rolls_back_schema_and_data_on_sql_failure() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE batter_info (id INTEGER);
+             INSERT INTO batter_info VALUES (42);
+             CREATE VIEW league AS SELECT 1 AS id;",
+        )
+        .unwrap();
+
+        let err = setup_database(&mut conn, &migrations_dir()).unwrap_err();
+        assert!(err.to_string().contains("league_table.sql"));
+        let id: i64 = conn
+            .query_row("SELECT id FROM batter_info", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(id, 42);
+        assert!(conn.prepare("SELECT * FROM count").is_err());
     }
 }
 

@@ -1,4 +1,4 @@
-DROP TABLE defense_skills;
+DROP TABLE IF EXISTS defense_skills;
 
 CREATE TABLE defense_skills (
     player_id INTEGER PRIMARY KEY,

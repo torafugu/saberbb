@@ -1,4 +1,4 @@
-DROP TABLE player_info;
+DROP TABLE IF EXISTS player_info;
 
 CREATE TABLE player_info (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

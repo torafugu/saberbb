@@ -35,8 +35,19 @@ cargo test
 cargo run -- --help
 ```
 
-Initialize a database with the SQL files under [`migrations/`](migrations/),
-then run a typical simulation flow. For an existing database created before
+Initialize the configured database from the project root:
+
+```sh
+cargo run -- --setup
+```
+
+This runs all `.sql` files in `migrations/ddl` followed by `migrations/dml`,
+in filename order within each directory, in a single transaction. If a script
+fails, the changes are rolled back. The scripts recreate tables and reset their
+data, so use this command for a fresh database or an intentional reset. Setup
+runs before any other options supplied in the same invocation.
+
+For an existing database created before
 `pitcher_character` was added, run
 [`migrations/upgrades/add_pitcher_character.sql`](migrations/upgrades/add_pitcher_character.sql)
 once instead of rebuilding the tables. This preserves existing pitchers and assigns
@@ -119,6 +130,7 @@ cargo run -- --help
 Available commands:
 
 ```sh
+cargo run -- --setup           # Recreate tables and load seed data
 cargo run -- --generate 10     # Generate 10 players
 cargo run -- --schedule 1      # Schedule 1 season
 cargo run -- --process 5       # Process 5 game rounds

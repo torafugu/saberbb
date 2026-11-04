@@ -1,4 +1,4 @@
-DROP TABLE test_pitched_ball;
+DROP TABLE IF EXISTS test_pitched_ball;
 
 CREATE TABLE test_pitched_ball (
     pitch_type TEXT NOT NULL,

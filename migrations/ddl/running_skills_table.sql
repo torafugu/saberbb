@@ -1,4 +1,4 @@
-DROP TABLE running_skills;
+DROP TABLE IF EXISTS running_skills;
 
 CREATE TABLE running_skills (
     player_id INTEGER PRIMARY KEY,

@@ -1,4 +1,4 @@
-DROP TABLE test_batted_ball;
+DROP TABLE IF EXISTS test_batted_ball;
 
 CREATE TABLE test_batted_ball (
     horizontal_offset_m REAL NOT NULL,
