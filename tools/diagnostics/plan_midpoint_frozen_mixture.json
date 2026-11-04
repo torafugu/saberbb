@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "mixtures": {
+    "both_midpoints_same_means": {
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r0.6": 0.14,
+      "tilt_15deg_yaw_0deg_aim_z_-15mm_speed_r0.6": 0.04,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r0.6": 0.02,
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r0.8": 0.07,
+      "tilt_15deg_yaw_0deg_aim_z_-15mm_speed_r0.8": 0.02,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r0.8": 0.01,
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r0.9": 0.14,
+      "tilt_15deg_yaw_0deg_aim_z_-15mm_speed_r0.9": 0.04,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r0.9": 0.02,
+      "tilt_15deg_yaw_0deg_aim_z_-30mm_speed_r1": 0.35,
+      "tilt_15deg_yaw_0deg_aim_z_-15mm_speed_r1": 0.1,
+      "tilt_15deg_yaw_0deg_aim_z_0mm_speed_r1": 0.05
+    }
+  }
+}

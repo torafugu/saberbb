@@ -297,6 +297,21 @@ def load_inputs(input_dirs,audit):
                 if tuple(key) in excluded:raise ValueError('duplicate_excluded_key')
                 excluded.add(tuple(key))
             if not excluded or len(excluded)!=ex['excluded_count']:raise ValueError('exclusion_count_mismatch')
+            if 'manifests' in ex:
+                sources=ex['manifests'];union=set()
+                if not isinstance(sources,list) or not sources:raise ValueError('empty_exclusion_sources')
+                for source in sources:
+                    keys=set()
+                    for key in source['excluded_keys']:
+                        if not isinstance(key,list) or len(key)!=2 or any(type(v) is not int or v<0 for v in key):raise ValueError('invalid_excluded_key')
+                        if tuple(key) in keys:raise ValueError('duplicate_excluded_key')
+                        keys.add(tuple(key))
+                    if not keys or len(keys)!=source['excluded_count']:raise ValueError('exclusion_count_mismatch')
+                    if not isinstance(source['path'],str) or not source['path']:raise ValueError('invalid_exclusion_path')
+                    sha=source['sha256']
+                    if not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha):raise ValueError('invalid_exclusion_hash')
+                    union.update(keys)
+                if union!=excluded:raise ValueError('exclusion_union_mismatch')
             if excluded&set(manifest):raise ValueError('holdout_overlaps_excluded_sample')
             if meta['population_trials_before_exclusion']!=meta['population_trials']+len(excluded):raise ValueError('exclusion_population_mismatch')
         seen=set();group={};current=None
