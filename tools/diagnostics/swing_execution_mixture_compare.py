@@ -160,7 +160,7 @@ def run(input_dir, statcast_csv, output, mixtures_json=None, scope='all_swings',
 
 def compare(states,source,paths,statcast_csv,output,mixtures_json=None,scope='all_swings',
             variant=DEFAULT_VARIANT,model=DEFAULT_MODEL,bunt_labels=None,default_mixtures=None,
-            prefix='execution_mixture',comparison_kind='execution'):
+            prefix='execution_mixture',comparison_kind='execution',emit_grid=True):
     paths=list(paths)
     mixtures = {'state:'+name:{name:1.} for name in states}
     for label,weights in (default_mixtures or {}).items():
@@ -191,7 +191,7 @@ def compare(states,source,paths,statcast_csv,output,mixtures_json=None,scope='al
             mass,probability = mix(states,weights,cohort)
             comparable = cohort == 'fair_direction' and probability > 0
             fractions = {key:value/probability for key,value in mass.items()} if probability else {}
-            for ei,ev in enumerate(ev_labels):
+            for ei,ev in enumerate(ev_labels if emit_grid else []):
                 for vi,vla in enumerate(vla_labels):
                     a = fractions.get((ei,vi),0.) if probability else None
                     b = obs[ei,vi]/no if cohort == 'fair_direction' else None
@@ -239,6 +239,7 @@ def compare(states,source,paths,statcast_csv,output,mixtures_json=None,scope='al
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
     for filename,rows in [(prefix+'_summary.csv',summary),(prefix+'_ev_vla.csv',grids),
                           (prefix+'_components.csv',components)]:
+        if filename==prefix+'_ev_vla.csv' and not emit_grid:continue
         write_csv(output/filename,list(rows[0]),rows)
     write_csv(output/'statcast_coverage.csv',['metric','count'],[dict(metric=k,count=v) for k,v in sorted(audit.items())])
     (output/(prefix+'_metadata.json')).write_text(json.dumps(metadata,indent=2)+'\n')
