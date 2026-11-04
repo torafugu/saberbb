@@ -81,6 +81,33 @@ def tolerances(path):
     return c
 
 
+def joint_mixtures(states,step=.1,min_full=.6):
+    """Explicit independent speed/aim trial weights, separately for each tilt/yaw."""
+    families=defaultdict(dict)
+    for name,state in states.items():
+        c=state['config'];key=(c['tilt_deg'],c['yaw_batter_deg'])
+        cell=(c['aim_z_offset_m'],c['planned_speed_ratio'])
+        if cell in families[key]:raise ValueError('duplicate_speed_aim_cell')
+        families[key][cell]=name
+    result={}
+    for family,cells in sorted(families.items()):
+        aims=sorted({a for a,r in cells});speeds=sorted({r for a,r in cells})
+        if len(aims)<2:raise ValueError('joint_mixture_requires_multiple_aim_offsets')
+        if set(cells)!={(a,r) for a in aims for r in speeds}:raise ValueError('missing_speed_aim_cell')
+        representative={cells[aims[0],r]:states[cells[aims[0],r]] for r in speeds}
+        speed_mixes=default_mixtures(representative,step,min_full)
+        units=round(1/step);aim_count=math.comb(units+len(aims)-1,len(aims)-1)
+        if len(result)+len(speed_mixes)*aim_count>10000:raise ValueError('too_many_mixtures_use_coarser_step')
+        for i,weights in enumerate(speed_mixes.values()):
+            speed_weights={states[n]['config']['planned_speed_ratio']:w for n,w in weights.items()}
+            for parts in compositions(units,len(aims)):
+                joint={cells[a,r]:speed_weights.get(r,0.)*part/units
+                       for a,part in zip(aims,parts) for r in speeds if part and speed_weights.get(r,0.)}
+                label=f'joint_tilt_{family[0]:g}_yaw_{family[1]:g}_speed_{i}_aim_units_'+ '_'.join(map(str,parts))
+                result[label]=engine.validate_weights(joint,states)
+    return result
+
+
 def assess(output,criteria):
     with (output/(PREFIX+'_summary.csv')).open(newline='') as f:
         rows=[r for r in csv.DictReader(f) if r['cohort']=='fair_direction']
@@ -114,18 +141,22 @@ def assess(output,criteria):
 
 
 def run(input_dir,statcast_csv,output,mixtures_json=None,tolerances_json=None,step=.05,min_full=.6,
-        model=engine.DEFAULT_MODEL,bunt_labels=None):
+        model=engine.DEFAULT_MODEL,bunt_labels=None,mix_aim_offsets=False):
     criteria=tolerances(tolerances_json)
     states,source,paths,checks=load_states(Path(input_dir),model)
-    defaults=None if mixtures_json else default_mixtures(states,step,min_full)
+    if mix_aim_offsets and mixtures_json:raise ValueError('choose_explicit_mixtures_or_independent_grid')
+    defaults=None if mixtures_json else (joint_mixtures(states,step,min_full) if mix_aim_offsets else default_mixtures(states,step,min_full))
     result=engine.compare(states,source,paths,statcast_csv,output,mixtures_json,
         variant=source['variant'],model=model,bunt_labels=bunt_labels,default_mixtures=defaults,
-        prefix=PREFIX,comparison_kind='planned_speed_trial_mixture')
+        prefix=PREFIX,comparison_kind='planned_speed_aim_trial_mixture' if mix_aim_offsets else 'planned_speed_trial_mixture',
+        emit_grid=not mix_aim_offsets)
     out=Path(output);counts=assess(out,criteria)
     write_csv(out/(PREFIX+'_checks.csv'),['metric','max_error'],[dict(metric=k,max_error=v) for k,v in sorted(checks.items())])
     path=out/(PREFIX+'_metadata.json');meta=engine.read_json(path)
     meta.update(new_searches=0,db_reads=0,collision_replays=0,tolerances=criteria,assessment_counts=dict(counts),
         default_grid=None if mixtures_json else dict(weight_step=step,minimum_full_speed_trial_weight=min_full),
+        speed_aim_weight_assumption='independent_trial_weights_within_tilt_yaw' if mix_aim_offsets else None,
+        ev_vla_grid_written=not mix_aim_offsets,
         interpretation='Hypothetical trial composition only; no batter strategy, RNG, fitted frequency, or automatic best-mixture selection.')
     if tolerances_json:meta['inputs'][str(tolerances_json)]=digest(tolerances_json)
     meta['limitations']+=['Default grid bounds are explicit sensitivity assumptions, not measured MLB swing-speed frequencies.',
@@ -142,8 +173,9 @@ if __name__=='__main__':
     p.add_argument('--output-dir',type=Path,required=True);p.add_argument('--mixtures-json',type=Path)
     p.add_argument('--tolerances-json',type=Path);p.add_argument('--weight-step',type=float,default=.05)
     p.add_argument('--minimum-full-speed-weight',type=float,default=.6)
+    p.add_argument('--mix-aim-offsets',action='store_true',help='Cross speed weights with independent aim weights within each tilt/yaw; omit full grid CSV')
     p.add_argument('--model',default=engine.DEFAULT_MODEL);p.add_argument('--bunt-labels',type=Path)
     a=p.parse_args()
     try:print(json.dumps(run(a.input_dir,a.statcast_csv,a.output_dir,a.mixtures_json,a.tolerances_json,
-        a.weight_step,a.minimum_full_speed_weight,a.model,a.bunt_labels),indent=2))
+        a.weight_step,a.minimum_full_speed_weight,a.model,a.bunt_labels,a.mix_aim_offsets),indent=2))
     except (OSError,ValueError,KeyError,TypeError,ZeroDivisionError) as exc:p.exit(1,f'Planned-speed mixture comparison failed: {exc}\n')
