@@ -183,7 +183,12 @@ def compare(states,source,paths,statcast_csv,output,mixtures_json=None,scope='al
     regions = dict(ev_lt25=lambda e,v:e<=EV_EDGES.index(25),
                    ev_ge45=lambda e,v:e>EV_EDGES.index(45),
                    vla_lt0=lambda e,v:v<=VLA_EDGES.index(0),
-                   vla_ge50=lambda e,v:v>VLA_EDGES.index(50))
+                   vla_ge50=lambda e,v:v>VLA_EDGES.index(50),
+                   ev_40to45=lambda e,v:EV_EDGES.index(40)<e<=EV_EDGES.index(45),
+                   ev_25to35=lambda e,v:EV_EDGES.index(25)<e<=EV_EDGES.index(35),
+                   vla_0to30=lambda e,v:VLA_EDGES.index(0)<v<=VLA_EDGES.index(30),
+                   vla_neg60to_neg30=lambda e,v:VLA_EDGES.index(-60)<v<=VLA_EDGES.index(-30),
+                   vla_40to50=lambda e,v:VLA_EDGES.index(40)<v<=VLA_EDGES.index(50))
     grids,summary,components = [],[],[]
     ev_labels,vla_labels = labels(EV_EDGES),labels(VLA_EDGES)
     for name,weights in mixtures.items():
@@ -206,10 +211,7 @@ def compare(states,source,paths,statcast_csv,output,mixtures_json=None,scope='al
                 clock_invalid_trials=counts['execution_clock_invalid_trials'],geometry_contact_probability=contact,
                 cohort_probability_per_evaluable_trial=probability,statcast_n=no if cohort=='fair_direction' else None,
                 grid_total_variation=.5*sum(abs(fractions.get(key,0.)-obs[key]/no) for key in set(fractions)|set(obs)) if comparable else None,
-                ev_lt25_fraction=region(lambda e,v:e<=EV_EDGES.index(25)),
-                ev_ge45_fraction=region(lambda e,v:e>EV_EDGES.index(45)),
-                vla_lt0_fraction=region(lambda e,v:v<=VLA_EDGES.index(0)),
-                vla_ge50_fraction=region(lambda e,v:v>VLA_EDGES.index(50)),
+                **{label+'_fraction':region(predicate) for label,predicate in regions.items()},
                 **{'statcast_'+label+'_fraction':sum(c for (e,v),c in obs.items() if predicate(e,v))/no
                    if cohort=='fair_direction' else None for label,predicate in regions.items()}))
             for state,weight in weights.items():
