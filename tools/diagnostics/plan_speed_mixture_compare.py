@@ -16,8 +16,9 @@ PREFIX='plan_speed_mixture'
 REGIONS=('ev_lt25','ev_ge45','vla_lt0','vla_ge50')
 
 
-def load_states(folder,model):
-    audit=Audit();datasets,inputs=load_inputs([folder],audit)
+def load_states(folder,model,audit=None):
+    if audit is None:audit=Audit()
+    datasets,inputs=load_inputs([folder],audit)
     dataset,record=next(iter(datasets.items()));meta=record['source_metadata']
     if meta['version']!=4 or model not in meta['models']:raise ValueError('requires_planned_speed_v4_and_matching_model')
     if (meta['plan_effort'],meta['execution_ratio'],meta['start_delay_sec'])!=(1.,1.,0.):raise ValueError('unsupported_execution_contract')
