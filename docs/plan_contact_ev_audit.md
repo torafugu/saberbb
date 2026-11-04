@@ -10,7 +10,7 @@ python3 tools/diagnostics/plan_contact_ev_audit.py \
   --output-dir ../saberbb_plan_contact_ev_audit
 ```
 
-選手・試合の再生成、`SABERBB_DB` の設定は不要。出力先は新しいフォルダを指定する。入力は傾斜・yaw・上下狙いの診断出力（metadata version 1/2/3）に対応する。
+選手・試合の再生成、`SABERBB_DB` の設定は不要。出力先は新しいフォルダを指定する。入力は傾斜・yaw・上下狙いの診断出力（metadata version 1/2/3/4）に対応する。
 
 入力フォルダの metadata、sample、states、summary、EV/VLAヒストグラム、kinematics を読む。投球manifestのハッシュとキー、全条件の存在、保存EV/HLA/VLAとベクトル、元集計・ヒストグラム・運動学を照合する。接触フレーム、相対速度、保存インパルスによる速度の閉合も検証する。異常時は出力フォルダの作成前に停止する。
 

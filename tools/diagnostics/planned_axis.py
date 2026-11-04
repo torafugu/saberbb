@@ -40,3 +40,12 @@ def with_planned_aim(plan,offset):
         ideal_point_world_m=add(plan['ideal_point_world_m'],offset),
         actual_point_world_m=add(plan['actual_point_world_m'],offset),
         pivot_world_m=add(plan['pivot_world_m'],offset))
+
+
+def with_planned_speed(plan,ratio):
+    """Change intended velocities before constructing the pulse's initial pose."""
+    if isinstance(ratio,bool) or not isinstance(ratio,(int,float)) or not math.isfinite(ratio) or not 0<ratio<=1:
+        raise ValueError('invalid_planned_speed_ratio')
+    fields=('ideal_velocity_world_ms','actual_velocity_world_ms','pivot_velocity_world_ms',
+            'ideal_omega_world_rad_s','actual_omega_world_rad_s')
+    return dict(plan,planned_speed_ratio=ratio,**{k:mul(plan[k],ratio) for k in fields})
