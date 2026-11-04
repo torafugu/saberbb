@@ -155,7 +155,16 @@ def rebin_observed(grid):
 def run(input_dir, statcast_csv, output, mixtures_json=None, scope='all_swings',
         variant=DEFAULT_VARIANT, model=DEFAULT_MODEL, bunt_labels=None, histogram=None):
     states,source,paths = load_states(input_dir,scope,variant,model,histogram)
+    return compare(states,source,paths,statcast_csv,output,mixtures_json,scope,variant,model,bunt_labels)
+
+
+def compare(states,source,paths,statcast_csv,output,mixtures_json=None,scope='all_swings',
+            variant=DEFAULT_VARIANT,model=DEFAULT_MODEL,bunt_labels=None,default_mixtures=None,
+            prefix='execution_mixture',comparison_kind='execution'):
+    paths=list(paths)
     mixtures = {'state:'+name:{name:1.} for name in states}
+    for label,weights in (default_mixtures or {}).items():
+        mixtures['mixture:'+label]=validate_weights(weights,states)
     if mixtures_json:
         config = read_json(mixtures_json)
         if config['version'] != 1 or not isinstance(config['mixtures'],dict) or not config['mixtures']:
@@ -210,7 +219,7 @@ def run(input_dir, statcast_csv, output, mixtures_json=None, scope='all_swings',
                     evaluable_trials=n,cohort_contacts=c,cohort_probability=c/n,
                     selected_cohort_weight=weight*c/n/probability if probability else None))
     metadata = dict(version=1,status='exploratory_not_calibrated',scope=scope,variant=variant,model=model,
-        source_metadata=source,mixtures=mixtures,statcast_n=no,
+        source_metadata=source,mixtures=mixtures,statcast_n=no,comparison_kind=comparison_kind,
         statcast_complete_pair_rate=no/audit['selected_in_play'],
         bunt_policy='explicit_complete_labels' if bunt_labels else 'unknown_included',
         ev_conversion='launch_speed mph multiplied by 0.44704 to m/s',
@@ -219,7 +228,7 @@ def run(input_dir, statcast_csv, output, mixtures_json=None, scope='all_swings',
         limitations=[
             'Weights are user-specified trial-state probabilities, independent of pitch/player/context; no frequencies fitted or inferred.',
             'Conditional contact distributions use sum(weight * cell_count / evaluable_trials), then normalize after selection.',
-            'Clock-invalid trials are excluded, not misses. Mixing requires identical plan and clock parameters.',
+            'Clock-invalid trials are excluded, not misses. Execution mixtures require identical plan/clock parameters; planned-speed mixtures require a shared validated evaluation set.',
             'Fair direction is not a full fair-ball classification; cap/curve and collision failures are not EV/VLA observations.',
             'Only fair_direction is compared with Statcast in-play complete pairs; all_successful is a separate diagnostic.',
             'Simulation bunt labels and equivalent player/league/season cohorts are not established.',
@@ -228,11 +237,11 @@ def run(input_dir, statcast_csv, output, mixtures_json=None, scope='all_swings',
             'No significance, parameter fit, automatic winner selection, or production probability change is implied.',
         ])
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
-    for filename,rows in [('execution_mixture_summary.csv',summary),('execution_mixture_ev_vla.csv',grids),
-                          ('execution_mixture_components.csv',components)]:
+    for filename,rows in [(prefix+'_summary.csv',summary),(prefix+'_ev_vla.csv',grids),
+                          (prefix+'_components.csv',components)]:
         write_csv(output/filename,list(rows[0]),rows)
     write_csv(output/'statcast_coverage.csv',['metric','count'],[dict(metric=k,count=v) for k,v in sorted(audit.items())])
-    (output/'execution_mixture_metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
+    (output/(prefix+'_metadata.json')).write_text(json.dumps(metadata,indent=2)+'\n')
     return dict(status=metadata['status'],states=len(states),custom_mixtures=len(mixtures)-len(states),statcast_n=no)
 
 
