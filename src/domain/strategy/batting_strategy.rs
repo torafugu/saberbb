@@ -4,6 +4,35 @@ use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::strategy::pitching_strategy::TargetZone;
 use crate::domain::util::GaussianPeak;
 use strum_macros::AsRefStr;
+use serde::{Deserialize, Serialize};
+
+/// Explicit pre-swing intent. Selection from count/runner context is a separate layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BattedBallIntent {
+    ContactFirst,
+    LineDrive,
+}
+
+impl BattedBallIntent {
+    pub fn aim_policy(self) -> &'static str {
+        match self {
+            Self::ContactFirst => "contact_center",
+            Self::LineDrive => "line_drive_low_center",
+        }
+    }
+
+    /// Frozen seed2 hypothesis: world-height cutoff, not normalized strike-zone height.
+    pub fn aim_z_offset_m(self, forecast_height_m: f64) -> Result<f64, &'static str> {
+        if !forecast_height_m.is_finite() {
+            return Err("invalid_intent_forecast_height");
+        }
+        Ok(match self {
+            Self::LineDrive if forecast_height_m >= 0.6 => -0.015,
+            _ => 0.0,
+        })
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, AsRefStr)]
 pub enum SwingExecution {

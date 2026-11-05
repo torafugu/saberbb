@@ -101,3 +101,5 @@ python3 -m unittest discover -s tests/diagnostics -p 'test_*.py'
 この接続確認の後、打者戦略が状況に応じて`BattedBallIntent`を返す処理を追加できる。
 その処理はスイング前に利用可能なカウント・走者・打者特性・予測等を入力とし、打球結果は評価側だけで扱う。
 Rust本体への適用には、予測ベース計画・実行・接触検証の移植範囲を別途明示する必要がある。
+
+Rustでの計画生成と診断記録への接続は[予測計画のRust診断記録](rust_intent_plan_shadow.md)を参照。
