@@ -13,3 +13,5 @@ pub mod swing_prediction;
 pub mod forecast_swing_plan;
 pub mod observation_update;
 pub mod intent_execution_contact;
+pub mod finite_bat_collision;
+pub mod intent_collision_response;
