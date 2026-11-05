@@ -157,6 +157,8 @@ pub fn attach_prediction(record: &mut ContactStateRecord, batter: &BatterInfo,
             Ok(input) => (Some(input), None),
             Err(reason) => (None, Some(reason.to_string())),
         };
+        state.intent_plans = input.as_ref().map(
+            crate::domain::shared::forecast_swing_plan::diagnostic_intent_plans);
         state.swing_prediction = Some(SwingPredictionRecord {
             version: 1, source: PREDICTION_SOURCE.to_string(), input, invalid_reason,
         });
@@ -191,6 +193,14 @@ mod tests {
             residual_execution_delay_sec: 0.0,
         };
         let mut json = serde_json::to_value(&input).unwrap();
+        let shadow = crate::domain::shared::forecast_swing_plan::diagnostic_intent_plans(&input);
+        assert_eq!(shadow.plans.len(), 2);
+        assert!(shadow.plans.iter().all(|p| p.invalid_reason.is_none() && p.execution_plan.is_some()));
+        let mut late_observation = input.clone();
+        late_observation.observation.time_sec = 0.35;
+        let shadow = crate::domain::shared::forecast_swing_plan::diagnostic_intent_plans(&late_observation);
+        assert!(shadow.plans.iter().all(|p| p.invalid_reason.as_deref() == Some("execution_starts_before_plan")
+            && p.plan.is_some() && p.execution_plan.is_none()));
         let decoded: SwingPredictionInput = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(decoded.observation_history.unwrap().len(), 3);
         json.as_object_mut().unwrap().remove("observation_history");

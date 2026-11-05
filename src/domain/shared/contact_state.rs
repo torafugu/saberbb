@@ -38,6 +38,8 @@ pub struct ContactStateInput {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContactStateSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent_plans: Option<crate::domain::shared::forecast_swing_plan::IntentPlanDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swing_prediction: Option<crate::domain::shared::swing_prediction::SwingPredictionRecord>,
     pub input: ContactStateInput,
     pub bat_ideal_position_world_m: [f64; 3],
@@ -79,6 +81,7 @@ pub fn snapshot(input: ContactStateInput) -> Result<ContactStateSnapshot, &'stat
         return Err("non_finite_derived_state");
     }
     Ok(ContactStateSnapshot {
+        intent_plans: None,
         swing_prediction: None,
         bat_ideal_position_world_m: ideal,
         bat_position_world_m: bat,
@@ -147,8 +150,10 @@ mod tests {
         let state = snapshot(input(0.0)).unwrap();
         let old = serde_json::to_value(&state).unwrap();
         assert!(old.get("swing_prediction").is_none());
+        assert!(old.get("intent_plans").is_none());
         let decoded: ContactStateSnapshot = serde_json::from_value(old).unwrap();
         assert!(decoded.swing_prediction.is_none());
+        assert!(decoded.intent_plans.is_none());
         let mut state = state;
         state.swing_prediction = Some(crate::domain::shared::swing_prediction::SwingPredictionRecord {
             version: 1,
@@ -158,6 +163,33 @@ mod tests {
         let encoded = serde_json::to_string(&state).unwrap();
         let decoded: ContactStateSnapshot = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.swing_prediction.unwrap().invalid_reason.as_deref(), Some("invalid_observation_clock"));
+    }
+
+    #[test]
+    fn attaching_prediction_records_intent_plans_without_changing_contact_state() {
+        use crate::domain::shared::ball::BallLocation;
+        use crate::domain::shared::player::{PitchType, RL};
+        use crate::domain::strategy::pitching_strategy::TargetZone;
+        use crate::domain::util::Vector3D;
+        let state = snapshot(input(0.0)).unwrap();
+        let before = serde_json::to_value(&state).unwrap();
+        let mut record = ContactStateRecord { count_seq: 1, state_version: 1,
+            state_source: CONTACT_STATE_SOURCE.into(), invalid_reason: None, state: Some(state) };
+        let ball = PitchedBall { pitch_type: PitchType::FourSeamFastball, speed: 40.0, spin_rate: 2200.0,
+            spin_angle: 0.0, spin_efficiency: 0.9, release_point: Vector3D { x: 0.0, y: 16.0, z: 1.8 },
+            flight_time: 0.4, aim_zone: TargetZone::Center,
+            aim_location: BallLocation { x: 0.0, y: 0.0 }, actual_location: BallLocation { x: 0.0, y: 0.0 } };
+        let batter = crate::domain::test_support::batter_info(RL::Right);
+        crate::domain::shared::swing_prediction::attach_prediction(&mut record, &batter, &ball, &ball);
+        let state = record.state.unwrap();
+        assert_eq!(state.intent_plans.as_ref().unwrap().plans.len(), 2);
+        let encoded = serde_json::to_value(&state).unwrap();
+        let decoded: ContactStateSnapshot = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded.intent_plans.unwrap().plans.len(), 2);
+        let mut existing_fields = encoded;
+        existing_fields.as_object_mut().unwrap().remove("swing_prediction");
+        existing_fields.as_object_mut().unwrap().remove("intent_plans");
+        assert_eq!(existing_fields, before);
     }
 
     #[test]
