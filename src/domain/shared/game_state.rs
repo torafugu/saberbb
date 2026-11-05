@@ -930,6 +930,7 @@ impl GameState {
                 &mut contact_state, self.game_result.id, batting_intent_decision,
             );
             crate::domain::shared::intent_execution_contact::attach_execution_contacts(&mut contact_state);
+            crate::domain::shared::intent_collision_response::attach_collision_responses(&mut contact_state, &pitched_ball);
             self.game_result.player_contact_states.push(contact_state);
 
             if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
