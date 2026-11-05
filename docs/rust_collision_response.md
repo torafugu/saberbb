@@ -97,6 +97,8 @@ matched_responsesは実際に応答成功となった件数。selected_plansは�
 下向き・高角度・ライナー窓と共通フェア集団を比較する。結果を見て同じ標本で狙いや係数を再調整しない。
 元のbootstrapの限界（ゲーム間で繰り返す選手・チームの依存、個別区間、モデル内評価）も保持する。
 
+明示seedでの生成・保存入力のreplay・DBへの結び付けは[seed付きholdout評価](seeded_intent_holdout.md)を参照。
+
 ## 共通ケースとテスト
 
 Pythonで生成した`tests/fixtures/finite_collision_contract.json`をRustとPythonの両方で照合する。

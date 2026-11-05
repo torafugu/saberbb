@@ -1,4 +1,5 @@
 pub mod game_service;
+pub mod seeded_diagnostic;
 pub mod player_factory;
 pub mod player_service;
 pub mod random_provider;
