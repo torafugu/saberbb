@@ -135,6 +135,11 @@ metadataのsource_metadataへseed・生成証跡・応答のcoverageを含める
 `--batting-profile mixed-id-v1`で、チームIDによる監督指示と選手IDによる打者選好を生成前に固定できる。
 [混在診断](mixed_batter_intent.md)に、新しいseedでの実行と打者別の選択・上書き理由の監査を示す。
 
+## 6. チーム・選手ごとの設定を明示する
+
+`--batting-config PATH`で、チーム目的と選手選好をJSONから診断経路へ渡せる。
+[明示設定](explicit_batting_configuration.md)にテンプレート作成、設定の優先順位、生成前の凍結・監査を示す。
+
 ## DBなしで一つの試合を再実行する
 
 ```sh

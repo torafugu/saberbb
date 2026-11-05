@@ -1,27 +1,66 @@
 """Frozen ID-only diagnostic assignments and per-batter decision provenance (no DB access)."""
 from collections import Counter, defaultdict
+import json
 from rust_observed_intent_audit import decide
 
 STRATEGIES = ('let_batter_decide', 'put_ball_in_play', 'seek_line_drive')
-PROFILES = ('default', 'mixed-id-v1')
+PROFILES = ('default', 'mixed-id-v1', 'configured-v1')
 
 
-def settings_for(profile, schedule):
+def validate_config(config):
+    fields = {'version', 'default_strategy', 'default_preferred_intent', 'team_strategies', 'player_preferences'}
+    if not isinstance(config, dict) or set(config) != fields or type(config['version']) is not int or config['version'] != 1:
+        raise ValueError('invalid_batting_configuration_schema')
+    intents = ('contact_first', 'line_drive')
+    if config['default_strategy'] not in STRATEGIES or config['default_preferred_intent'] not in intents:
+        raise ValueError('invalid_batting_configuration_defaults')
+    for name, id_field, choice, allowed, maximum in (
+        ('team_strategies', 'team_id', 'strategy', STRATEGIES, 65535),
+        ('player_preferences', 'player_id', 'preferred_intent', intents, 2**63-1)):
+        if not isinstance(config[name], list):
+            raise ValueError('invalid_batting_configuration_list')
+        seen = set()
+        for item in config[name]:
+            if (not isinstance(item, dict) or set(item) != {id_field, choice} or type(item[id_field]) is not int
+                or not 0 < item[id_field] <= maximum or item[id_field] in seen or item[choice] not in allowed):
+                raise ValueError('invalid_or_duplicate_batting_configuration_entry')
+            seen.add(item[id_field])
+    return config
+
+
+def parse_config(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate_batting_configuration_field')
+            result[key] = value
+        return result
+    return validate_config(json.loads(raw, object_pairs_hook=unique))
+
+
+def settings_for(profile, schedule, configuration=None):
     if profile not in PROFILES:
         raise ValueError('unsupported_batting_profile')
     if profile == 'default':
         return dict(away_strategy='let_batter_decide', home_strategy='let_batter_decide', player_preferences={})
+    if profile == 'configured-v1':
+        validate_config(configuration)
+        objectives = {t['team_id']: t['strategy'] for t in configuration['team_strategies']}
+        preferences = {p['player_id']: p['preferred_intent'] for p in configuration['player_preferences']}
     settings = dict(player_preferences={})
     for side in ('away', 'home'):
         team = schedule[side + '_team']
         if type(team['id']) is not int or not 0 <= team['id'] <= 65535:
             raise ValueError('invalid_profile_team_id')
-        settings[side + '_strategy'] = STRATEGIES[team['id'] % 3]
+        settings[side + '_strategy'] = (objectives.get(team['id'], configuration['default_strategy'])
+            if profile == 'configured-v1' else STRATEGIES[team['id'] % 3])
         for player in team['players']:
             pid = player['info']['id']
             if type(pid) is not int or not 0 < pid < 2**63 or str(pid) in settings['player_preferences']:
                 raise ValueError('invalid_or_duplicate_profile_player_id')
-            settings['player_preferences'][str(pid)] = dict(preferred_intent='line_drive' if pid % 2 else 'contact_first')
+            settings['player_preferences'][str(pid)] = dict(preferred_intent=(preferences.get(pid, configuration['default_preferred_intent'])
+                if profile == 'configured-v1' else 'line_drive' if pid % 2 else 'contact_first'))
     return settings
 
 

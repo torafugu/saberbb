@@ -11,7 +11,7 @@ from diagnostic_db import db_from_env
 from execution_contact_posture import digest
 from batting_intent import FROZEN_POLICIES
 import rust_collision_response_audit as response
-from mixed_intent_profile import settings_for
+from mixed_intent_profile import settings_for,parse_config
 
 
 def derive_seed(master,game):
@@ -33,10 +33,22 @@ def load_run(folder):
     if manifest['completed_rounds']!=manifest['requested_rounds'] or manifest['completed_rounds']<1 or manifest.get('error') is not None:
         raise ValueError('run_rounds_incomplete')
     master=integer(manifest['master_seed'],'master_seed',2**64-1)
+    configuration=None;config_path=None
+    if manifest.get('batting_profile','default')=='configured-v1':
+        source=manifest.get('batting_config')
+        if not isinstance(source,dict) or set(source)!={'file','sha256'} or source['file']!='batting_config.json':
+            raise ValueError('invalid_frozen_batting_configuration_reference')
+        config_path=folder/source['file'];raw=config_path.read_bytes()
+        if hashlib.sha256(raw).hexdigest()!=source['sha256']:
+            raise ValueError('frozen_batting_configuration_hash_mismatch')
+        configuration=parse_config(raw)
+    elif manifest.get('batting_config') is not None:
+        raise ValueError('configuration_profile_mismatch')
     if manifest['model']!=response.collision.MODEL:raise ValueError('holdout_model_mismatch')
     if manifest['frozen_policy_sha256']!=digest(FROZEN_POLICIES):raise ValueError('holdout_frozen_policy_mismatch')
     if not 0<manifest['max_pitches']<65535:raise ValueError('holdout_budget_invalid')
     expected={};inputs={str(path):digest(path)};rounds=set()
+    if config_path is not None:inputs[str(config_path)]=manifest['batting_config']['sha256']
     for game in manifest['games']:
         game_id=game['game_id']
         if type(game_id) is not int or not 0<game_id<2**32 or game_id<=manifest['exclude_through_game_id'] or game_id in expected:
@@ -54,7 +66,7 @@ def load_run(folder):
         if case['engine_source_sha256']!=manifest['engine_source_sha256']:raise ValueError('mixed_engine_fingerprints')
         if case['build_sha256']!=manifest['build_sha256']:raise ValueError('mixed_build_fingerprints')
         if case['max_pitches']!=manifest['max_pitches']:raise ValueError('mixed_pitch_budgets')
-        if case['batting_settings']!=settings_for(manifest.get('batting_profile','default'),case['schedule']):
+        if case['batting_settings']!=settings_for(manifest.get('batting_profile','default'),case['schedule'],configuration):
             raise ValueError('holdout_strategy_changed')
         rounds.add((case['schedule']['season'],case['schedule']['round_seq']))
         if type(game['contact_states']) is not int or game['contact_states']<0:raise ValueError('invalid_contact_state_count')

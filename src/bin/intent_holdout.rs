@@ -5,6 +5,8 @@ use saberbb::repositories::game_repository::SqlGameRepository;
 use std::path::PathBuf;
 use saberbb::domain::holdout_schedule;
 use saberbb::repositories::db::SqlDb;
+use saberbb::domain::diagnostic_batting_config::DiagnosticBattingConfig;
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(about="Generate explicit-seed intent holdout records, or replay a frozen case without DB writes")]
@@ -22,7 +24,11 @@ enum Command {
         #[arg(long)] prepare_schedule:bool,
         /// Diagnostic assignments from team/player IDs; frozen in the manifest before generation.
         #[arg(long,default_value="default",value_parser=["default","mixed-id-v1"])] batting_profile:String,
+        /// Explicit team objectives/player preferences, copied and hashed before generation.
+        #[arg(long,conflicts_with="batting_profile")] batting_config:Option<PathBuf>,
     },
+    /// Write a new editable config with the current DB team/player IDs (read-only DB).
+    ConfigTemplate { #[arg(long)] output_file:PathBuf },
     /// Inspect pending rounds and the active season cursor; never changes the database.
     Status { #[arg(long,default_value_t=40)] rounds:u32 },
     /// Re-execute one saved input with the same build fingerprint; never opens a database.
@@ -31,17 +37,22 @@ enum Command {
 fn main()->Result<()> {
     let args=Args::parse();
     match args.command {
-        Command::Run {seed,rounds,exclude_through_game_id,output_dir,max_pitches,prepare_schedule,batting_profile}=>{
+        Command::Run {seed,rounds,exclude_through_game_id,output_dir,max_pitches,prepare_schedule,batting_profile,batting_config}=>{
             anyhow::ensure!(!output_dir.exists(),"output directory already exists; preserve the previous run and use a new directory");
             anyhow::ensure!(max_pitches>0&&max_pitches<65535,"invalid pitch budget");
             let cfg=saberbb::config::load_app_config()?;
+            // Parse and check all explicit IDs before scheduling or opening a run directory.
+            let configuration=batting_config.map(|path|->Result<Vec<u8>> {
+                let bytes=std::fs::read(path)?;DiagnosticBattingConfig::parse(&bytes)?.validate_database(&cfg.database_path)?;Ok(bytes)
+            }).transpose()?;
             saberbb::I18nManager::init(&cfg.language);
             let (status,plan)=holdout_schedule::prepare(&cfg.database_path,rounds,exclude_through_game_id,prepare_schedule,||{
                 let mut service=saberbb::domain::schedule_service::ScheduleService {repo:saberbb::repositories::schedule_repository::SqlScheduleRepository::new()?};
                 service.schedule_season()
             })?;
             let mut recorder=RunRecorder::start(output_dir,seed,rounds,exclude_through_game_id,max_pitches,cfg.database_path,cfg.language)?;
-            recorder.set_batting_profile(&batting_profile)?;
+            if let Some(bytes)=configuration { recorder.freeze_batting_config(&bytes)?; }
+            else { recorder.set_batting_profile(&batting_profile)?; }
             recorder.set_round_plan(plan.clone())?;
             let mut repo=SqlGameRepository::new()?;
             let cursor_db=SqlDb::new()?;let mut expected=(status.current_season,status.current_round_seq);
@@ -54,6 +65,13 @@ fn main()->Result<()> {
                 Ok(())
             })?;
             println!("{}",serde_json::json!({"status":"complete","manifest":recorder.output.join("manifest.json"),"games":recorder.manifest.games.len()}));
+        }
+        Command::ConfigTemplate {output_file}=>{
+            let cfg=saberbb::config::load_app_config()?;
+            let config=DiagnosticBattingConfig::template(&cfg.database_path)?;
+            let mut file=std::fs::OpenOptions::new().create_new(true).write(true).open(&output_file)?;
+            file.write_all(&serde_json::to_vec_pretty(&config)?)?;file.sync_all()?;
+            println!("{}",serde_json::json!({"status":"template_created","output_file":output_file,"teams":config.team_strategies.len(),"players":config.player_preferences.len()}));
         }
         Command::Status {rounds}=>{
             let cfg=saberbb::config::load_app_config()?;let status=holdout_schedule::read_status(&cfg.database_path)?;
@@ -68,4 +86,16 @@ fn main()->Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn config_works_with_implicit_default_but_conflicts_with_explicit_profile() {
+        let mut args=vec!["intent_holdout","run","--seed","1","--rounds","1","--exclude-through-game-id","0","--output-dir","new-run","--batting-config","config.json"];
+        assert!(Args::try_parse_from(&args).is_ok());
+        args.extend(["--batting-profile","mixed-id-v1"]);assert!(Args::try_parse_from(&args).is_err());
+        assert!(Args::try_parse_from(["intent_holdout","config-template","--output-file","config.json"]).is_ok());
+    }
 }
