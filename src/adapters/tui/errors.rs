@@ -1,4 +1,3 @@
-use std::env;
 use tracing::error;
 
 pub fn init() -> color_eyre::Result<()> {
@@ -18,13 +17,6 @@ pub fn init() -> color_eyre::Result<()> {
             }
         }
 
-        #[cfg(not(debug_assertions))]
-        {
-            use human_panic::{handle_dump, metadata};
-            let metadata = metadata!();
-            let file_path = handle_dump(&metadata, panic_info);
-            error!("Panic report written to {}", file_path.display());
-        }
         let msg = format!("{}", panic_hook.panic_report(panic_info));
         error!("Error: {}", strip_ansi_escapes::strip_str(msg));
 
