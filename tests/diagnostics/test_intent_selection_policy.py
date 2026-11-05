@@ -1,7 +1,8 @@
-from collections import Counter
+from collections import Counter, defaultdict
 import copy
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -35,6 +36,42 @@ def aggregates():
 
 
 class IntentSelectionPolicyTest(unittest.TestCase):
+    def test_large_spin_sum_roundoff_is_checked_per_observation(self):
+        values = [2200.123456789 + (i % 17) * .001 for i in range(32000)]
+        source_sum = 0.
+        for value in values:
+            source_sum += value
+        game_sum = 0.
+        for start in range(0, len(values), 89):
+            block = 0.
+            for value in values[start:start+89]:
+                block += value
+            game_sum += block
+        self.assertGreater(abs(source_sum-game_sum), 1e-7)
+        expected = Counter(plans=len(values), fair_n_spin_rpm=len(values), fair_sum_spin_rpm=source_sum)
+        actual = expected.copy()
+        actual['fair_sum_spin_rpm'] = game_sum
+        checks = defaultdict(float)
+        policy.audit_game_counts(expected, actual, checks, 'large')
+        self.assertLess(checks['large.fair_sum_spin_rpm.per_observation'], 1e-8)
+        self.assertAlmostEqual(policy.metrics(expected)['mean_fair_spin_rpm'],
+                               policy.metrics(actual)['mean_fair_spin_rpm'], places=8)
+
+    def test_sum_normalization_does_not_hide_count_corruption_or_material_changes(self):
+        expected = Counter(plans=32000, fair_n_spin_rpm=32000, fair_sum_spin_rpm=70400000.)
+        for field, value in [('plans', 32001), ('fair_n_spin_rpm', 31999),
+                             ('fair_sum_spin_rpm', 70400001.), ('fair_sum_spin_rpm', math.nan),
+                             ('fair_sum_spin_rpm', math.inf)]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                actual = expected.copy()
+                actual[field] = value
+                policy.audit_game_counts(expected, actual, defaultdict(float), 'corrupt')
+        # Signed VLA sums may cancel; comparison is scaled by count, never by net sum.
+        policy.audit_game_counts(Counter(fair_n_vla_deg=32000),
+            Counter(fair_n_vla_deg=32000, fair_sum_vla_deg=1e-7), defaultdict(float), 'cancelled')
+        with self.assertRaises(ValueError):
+            policy.audit_game_counts(Counter(), Counter(fair_sum_spin_rpm=1.), defaultdict(float), 'empty')
+
     def test_coach_and_player_choices_are_separate_and_take_no_outcome_input(self):
         expected = ['contact_first', 'line_drive', 'contact_first', 'contact_first', 'line_drive', 'line_drive']
         self.assertEqual([policy.selection(s, '', '')['selected_intent'] for s in policy.SCENARIOS[1:]], expected)
