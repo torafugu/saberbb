@@ -45,6 +45,14 @@ class PreSwingAimTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_policies(c)
 
+        frozen = json.loads((TOOLS / 'pre_swing_aim_seed2_frozen.json').read_text())
+        self.assertEqual(frozen['height_edges_m'], config()['height_edges_m'])
+        for name, rule in config()['policies'].items():
+            self.assertEqual(frozen['policies'][name], rule)
+        revised = next(p for p in read_policies(frozen) if p.name == 'line_drive_low_center')
+        for height, expected in [(.59999, 0), (.6, -15), (.89999, -15), (.9, -15), (1.5, -15)]:
+            self.assertEqual(revised.choose(Forecast(height)), expected)
+
     def test_evaluation_keeps_invalid_and_unresolved_separate(self):
         invalid = probe.outcome(dict(invalid_reason='execution_starts_before_plan'), 'm')
         self.assertEqual(invalid['clock_invalid'], 1)
@@ -79,9 +87,21 @@ class PreSwingAimTest(unittest.TestCase):
                  patch.object(sweep, 'evaluate', side_effect=AssertionError('search')), \
                  patch.object(sweep, 'event', side_effect=AssertionError('collision solve')):
                 result = probe.run(root / 'cache', root / 'out')
+                frozen_path = TOOLS / 'pre_swing_aim_seed2_frozen.json'
+                revised = probe.run(root / 'cache', root / 'frozen', frozen_path)
             self.assertEqual(result['policies'], 5); self.assertEqual(result['families'], 2)
+            self.assertEqual(revised['policies'], 6)
             self.assertEqual(result['new_searches'], 0)
             summary = csv_rows(root / 'out' / 'pre_swing_aim_summary.csv')
+            revised_summary = csv_rows(root / 'frozen' / 'pre_swing_aim_summary.csv')
+            self.assertEqual(summary, [r for r in revised_summary if r['policy'] != 'line_drive_low_center'])
+            metadata = json.loads((root / 'frozen' / 'pre_swing_aim_metadata.json').read_text())
+            self.assertEqual(metadata['policies'], json.loads(frozen_path.read_text()))
+            self.assertEqual(metadata['inputs'][str(frozen_path)], probe.digest(frozen_path))
+            original_pairs = csv_rows(root / 'out' / 'pre_swing_aim_pairs.csv')
+            frozen_pairs = csv_rows(root / 'frozen' / 'pre_swing_aim_pairs.csv')
+            self.assertEqual(original_pairs, [r for r in frozen_pairs if 'line_drive_low_center' not in
+                                             (r['before_policy'], r['after_policy'])])
             overall = [r for r in summary if r['stratum'] == 'overall']
             self.assertEqual(len(overall), 10)
             source_summary = csv_rows(root / 'cache' / 'plan_tilt_summary.csv')
