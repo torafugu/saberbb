@@ -125,3 +125,57 @@ python3 -m unittest discover -s tests/diagnostics -p 'test_*.py'
 
 次の段階は、このトレードオフを読んで戦略の意図と狙い量の関係を検討すること。
 カウント・打者特性・予測誤差に応じた意図選択やRust本体への組み込み、実際の戦略構成比の推定は別に検討する。
+
+## seed2を見て固定した次の仮説
+
+seed2の1,000投球（評価可能994投球）では、通常速度の旧ライナー志向のライナー帯発生率は13.88%で、
+中心狙い14.99%を下回った。特に予測高0.6 m未満で、中心→−30 mmにするとフェア方向率が
+61.90%→47.62%、ライナー帯発生率が17.37%→11.20%となった。
+中間・高めでは−15 mmが次の検証候補になったため、次の1条件を追加して固定する。
+
+| 戦略 | 予測高 <0.6 m | 0.6≤予測高<0.9 m | 予測高≥0.9 m |
+| --- | --- | --- | --- |
+| line_drive_low_center | 0 mm | −15 mm | −15 mm |
+
+設定は `tools/diagnostics/pre_swing_aim_seed2_frozen.json`。
+旧5戦略を同じ名前・定義で残し、新条件を加えた6戦略で比較する。
+従来の既定ファイルは変更しない。新しい検証では必ず`--policies-json`でこの固定ファイルを指定する。
+選択器・高さ境界・物理係数・速度条件は従来と共通で、狙いの構成比は調整しない。
+
+これは**seed2の結果を見て作った仮説**であり、seed2での再集計は独立した検証ではない。
+次の手順で、seed0・seed1・seed2の投球をすべて除外したseed3を作成する。
+以前にほかの標本も見ている場合は、対応するsample CSVも`--exclude-sample`に追加する。
+
+```sh
+python3 tools/diagnostics/plan_speed_sweep.py \
+  --input-dir ../saberbb_observation_update_new \
+  --output-dir ../saberbb_aim_policy_holdout_seed3 \
+  --sample-size 1000 --sample-seed 3 \
+  --exclude-sample ../saberbb_plan_speed_aim_sample/plan_tilt_sample.csv \
+  --exclude-sample ../saberbb_plan_speed_aim_holdout_seed1/plan_tilt_sample.csv \
+  --exclude-sample ../saberbb_plan_midpoint_holdout_seed2/plan_tilt_sample.csv \
+  --tilts-deg 15 --yaws-deg 0 \
+  --speed-ratios 0.6 0.8 0.9 1 --aim-z-mm -30 -15 0
+
+python3 tools/diagnostics/pre_swing_aim_probe.py \
+  --input-dir ../saberbb_aim_policy_holdout_seed3 \
+  --output-dir ../saberbb_aim_policy_frozen_results_seed3 \
+  --policies-json tools/diagnostics/pre_swing_aim_seed2_frozen.json
+```
+
+seed3キャッシュが既にある場合は、それが今回の仮説を固定する前に未確認だった標本か、
+metadataの除外元に使用済みの全標本が入っているかを確認する。単にseedを変えただけでは投球重複を除外できない。
+上の出力先が既存なら上書きせず、別の新しい名前を使う。キャッシュ作成時のみDBが必要。
+
+評価する主指標は、速度比1.0における新条件と中心狙いの**評価可能投球あたりのライナー帯発生率の差**。
+接触率・フェア方向率・高角度打球発生率も併記し、ライナー帯が増えても接触損失などの代償を確認する。
+固定−15 mmとの比較は「低めを中心狙いに戻す効果」を、旧ライナー志向との比較は変更前後を調べる補助比較とする。
+速度比0.6/0.8/0.9と予測高別の結果は感度確認として別々に読む。
+条件付き割合だけで判断せず、pairsのgained/lostとcommon_fairも確認する。
+
+新しい許容幅や合否判定は設定していない。差の符号・大きさと代償を記録する段階であり、
+改善方向の差だけで有意差や最適性を主張しない。seed3の結果を見てこの固定ファイルを調整しない。
+変更が必要なら別名の仮説と次の未使用標本を用意する。同じ選手・試合由来の依存は引き続き残る。
+
+`saberbb_aim_policy_frozen_results_seed3`から、前述のsummary・pairs・selections・checks・metadataの5ファイルを共有する。
+この作業環境には実データの元キャッシュとDBがないため、seed3での数値評価は未実行。

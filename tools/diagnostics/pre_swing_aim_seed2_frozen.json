@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "height_edges_m": [0.6, 0.9],
+  "policies": {
+    "contact_center": {
+      "intent": "Contact-first hypothesis: aim the bat reference at the forecast ball center.",
+      "aim_z_mm": [0, 0, 0]
+    },
+    "fixed_under15": {
+      "intent": "Control: use the same moderate undercut at every forecast height.",
+      "aim_z_mm": [-15, -15, -15]
+    },
+    "fixed_under30": {
+      "intent": "Control: use the same deeper undercut at every forecast height.",
+      "aim_z_mm": [-30, -30, -30]
+    },
+    "line_drive_height": {
+      "intent": "Line-drive hypothesis: undercut more on low forecasts and reduce undercut on high forecasts.",
+      "aim_z_mm": [-30, -15, 0]
+    },
+    "lift_height": {
+      "intent": "Lift hypothesis: retain a deeper undercut except on high forecasts.",
+      "aim_z_mm": [-30, -30, -15]
+    },
+    "line_drive_low_center": {
+      "intent": "Hypothesis chosen after inspecting seed2: preserve center aim below 0.6 m and use a moderate undercut at higher forecasts; freeze before evaluating an unused sample.",
+      "aim_z_mm": [0, -15, -15]
+    }
+  }
+}
