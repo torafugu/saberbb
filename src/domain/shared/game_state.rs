@@ -923,6 +923,9 @@ impl GameState {
             let mut contact_state = crate::domain::shared::contact_state::build_contact_state(
                 decision_count_seq, &batter, &pitched_ball, &swing_contact,
             );
+            if let Some(state)=contact_state.state.as_mut() {
+                state.intent_batter=Some(crate::domain::shared::contact_state::IntentBatterContext {batter_id,is_top:self.is_top()});
+            }
             crate::domain::shared::swing_prediction::attach_prediction(
                 &mut contact_state, &batter, &pitched_ball, &expected_ball,
             );

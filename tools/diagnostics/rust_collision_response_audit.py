@@ -19,6 +19,7 @@ from finite_barrel_collision import solve
 from pitch_spin_source import reconstruct,InvalidPitchSpin
 from rust_execution_contact_audit import compare_execution
 import rust_intent_collision_probe as collision
+from mixed_intent_profile import BatterAudit
 
 PREFIX='rust_collision_response'
 
@@ -119,6 +120,7 @@ def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
     if expected_contacts is not None and set(expected_contacts)!=game_ids:raise ValueError('provenance_game_set_mismatch')
     planner=frozen_planner();coverage=Counter({k:0 for k in ('states','matched_states','matched_plans','matched_responses','selected_plans','replayed_searches','python_solver_calls','response_events','rust_solver_calls','response_input_pitches','invalid_response_spin_pitches')})
     checks=defaultdict(float);aggregate=collision.Aggregate();details=[];seen=set();hashes={};hash_counts=Counter();statuses=Counter()
+    batter_audit=BatterAudit()
     db=sqlite3.connect(Path(db_path).resolve().as_uri()+'?mode=ro',uri=True)
     try:
         db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
@@ -133,11 +135,16 @@ def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
             if version!=1 or source!=SOURCE:coverage['unsupported_states']+=1;continue
             if invalid is not None or payload is None:coverage['outer_invalid_states']+=1;continue
             state=json.loads(payload)
+            batter_key=None
+            if expected_contacts is not None and 'case' in expected_contacts[game]:
+                frozen=expected_contacts[game]
+                batter_key=batter_audit.observe(game,seq,state,frozen['case'],frozen['batting_profile'])
             if state.get('intent_collision') is None:coverage['missing_intent_collision_states']+=1;continue
             raw=db.execute('SELECT spin_rate,spin_angle,spin_efficiency FROM player_game_pitching WHERE game_id=? AND count_seq=?',(game,seq)).fetchall()
             if len(raw)!=1:raise ValueError('pitch_spin_key_missing_or_duplicate')
             rows,error=compare_collision(state,game,seq,raw[0],planner,checks)
             if error:coverage[error]+=1;continue
+            batter_audit.outcomes(batter_key,rows)
             coverage['matched_states']+=1
             events=sum(p['evaluation']['input'] is not None for p in state['intent_collision']['probes'])
             coverage['python_solver_calls']+=3*events;coverage['rust_solver_calls']+=2*events;coverage['response_events']+=events
@@ -161,8 +168,10 @@ def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
     if not coverage['states']:raise ValueError('no_contact_state_rows_in_range')
     metadata=dict(version=1,status='matched_available_rust_collision_responses' if coverage['matched_plans'] else 'no_comparable_rust_collision_responses',
         first_game_id=first,last_game_id=last,db_path=str(db_path),coverage=dict(coverage),model=collision.MODEL,
-        cache_kind='rust_response_parity_v1',model_parameters=dict(axial_inertia_kg_m2=collision.AXIAL_INERTIA,mu=collision.MU,et=collision.ET,bat=collision.profile.metadata()),
-        inputs={str(p):digest(p) for p in [FROZEN_POLICIES,Path(__file__),Path(collision.__file__),*[Path(__file__).with_name(n) for n in ('finite_barrel_collision.py','bat_vibration_profile.py','contact_spin.py')]]},
+        cache_kind='rust_response_parity_v1',batter_decision_coverage=dict(batter_audit.coverage),
+        batter_decision_scope='valid saved swing states only; expected decisions from frozen case rosters/settings; absent observed decisions remain unverified',
+        model_parameters=dict(axial_inertia_kg_m2=collision.AXIAL_INERTIA,mu=collision.MU,et=collision.ET,bat=collision.profile.metadata()),
+        inputs={str(p):digest(p) for p in [FROZEN_POLICIES,Path(__file__),Path(collision.__file__),*[Path(__file__).with_name(n) for n in ('finite_barrel_collision.py','bat_vibration_profile.py','contact_spin.py','mixed_intent_profile.py')]]},
         db_access='single_read_only_transaction_for_states_and_spin',new_searches=coverage['replayed_searches'],
         selected_game_ids=sorted(game_ids) if game_ids is not None else None,
         provenance_games_verified=len(expected_contacts) if expected_contacts is not None else 0,
@@ -173,6 +182,11 @@ def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
             'Coach/player decision, selected flags, both comparison plans, controls and physics checks are audited without changing live batting or RNG.',
             'An independent-seed holdout remains pending; keep this parity sample separate from subsequent evaluation.'])
     output.mkdir(parents=True,exist_ok=False)
+    if expected_contacts is not None:
+        write_csv(output/(PREFIX+'_batter_decisions.csv'),['game_id','count_seq','team_id','batter_id','is_top','strategy','preferred_intent','expected_selected_intent','selected_intent','decision_reason','decision_status'],batter_audit.trace)
+        batters=batter_audit.summaries()
+        write_csv(output/(PREFIX+'_batters.csv'),list(batters[0]) if batters else ['team_id','batter_id','states'],batters)
+        write_csv(output/(PREFIX+'_batter_coverage.csv'),['metric','count'],[dict(metric=k,count=v) for k,v in sorted(batter_audit.coverage.items())])
     for suffix,rows,fields in [
         ('summary',aggregate.summaries(),['scope','intent','plans']),('pairs',aggregate.paired_rows(),['before_intent','after_intent']),
         ('details',details,['game_id','count_seq','intent']),

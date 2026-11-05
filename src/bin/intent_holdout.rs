@@ -20,6 +20,8 @@ enum Command {
         #[arg(long,default_value_t=10000)] max_pitches:u32,
         /// Schedule missing future seasons and align the cursor to the predeclared pending rounds.
         #[arg(long)] prepare_schedule:bool,
+        /// Diagnostic assignments from team/player IDs; frozen in the manifest before generation.
+        #[arg(long,default_value="default",value_parser=["default","mixed-id-v1"])] batting_profile:String,
     },
     /// Inspect pending rounds and the active season cursor; never changes the database.
     Status { #[arg(long,default_value_t=40)] rounds:u32 },
@@ -29,7 +31,7 @@ enum Command {
 fn main()->Result<()> {
     let args=Args::parse();
     match args.command {
-        Command::Run {seed,rounds,exclude_through_game_id,output_dir,max_pitches,prepare_schedule}=>{
+        Command::Run {seed,rounds,exclude_through_game_id,output_dir,max_pitches,prepare_schedule,batting_profile}=>{
             anyhow::ensure!(!output_dir.exists(),"output directory already exists; preserve the previous run and use a new directory");
             anyhow::ensure!(max_pitches>0&&max_pitches<65535,"invalid pitch budget");
             let cfg=saberbb::config::load_app_config()?;
@@ -39,6 +41,7 @@ fn main()->Result<()> {
                 service.schedule_season()
             })?;
             let mut recorder=RunRecorder::start(output_dir,seed,rounds,exclude_through_game_id,max_pitches,cfg.database_path,cfg.language)?;
+            recorder.set_batting_profile(&batting_profile)?;
             recorder.set_round_plan(plan.clone())?;
             let mut repo=SqlGameRepository::new()?;
             let cursor_db=SqlDb::new()?;let mut expected=(status.current_season,status.current_round_seq);
