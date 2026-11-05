@@ -1,5 +1,8 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
+use crate::domain::random_provider::RandomProvider;
+use crate::domain::shared::game::{GameResult,GameSchedule};
+use crate::domain::strategy::batting_strategy::BattingStrategySettings;
 use crate::repositories::game_repository::GameRoundRepository;
 use crate::t;
 use anyhow::{Context, Result};
@@ -22,32 +25,8 @@ impl<R: GameRoundRepository> GameService<R> {
         for game_schedule in game_schedules {
             info!("new game started");
 
-            let mut game_state = GameState::new(Box::new(RealRng::new()), game_schedule)?;
-
-            while let GameProgress::Ongoing = game_state.progress() {
-                info!("new inning started");
-
-                game_state.advance_half_inning()?;
-
-                while let InningProgress::Ongoing = game_state.inning_state.inning_progress() {
-                    game_state.process_count()?;
-
-                    if let GameProgress::WalkOff = game_state.progress() {
-                        break;
-                    }
-                }
-
-                game_state.finish_half_inning();
-
-                if let GameProgress::GameSet = game_state.progress() {
-                    break;
-                }
-            }
-
-            info!("game completed");
-            game_state.finish_game();
-
-            if let Err(e) = self.repo.update_game_result(&game_state.game_result) {
+            let result = simulate_game(game_schedule,Box::new(RealRng::new()),BattingStrategySettings::default(),None)?;
+            if let Err(e) = self.repo.update_game_result(&result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
             }
@@ -60,6 +39,26 @@ impl<R: GameRoundRepository> GameService<R> {
 
         Ok(())
     }
+}
+
+/// Shared game loop; ordinary play and explicit-seed diagnostics use identical physics.
+pub(crate) fn simulate_game(schedule:GameSchedule,rng:Box<dyn RandomProvider>,settings:BattingStrategySettings,pitch_budget:Option<u32>) -> Result<GameResult> {
+    let mut state=GameState::new(rng,schedule)?;
+    state.batting_strategy_settings=settings;let mut pitches=0;
+    while let GameProgress::Ongoing=state.progress() {
+        info!("new inning started");state.advance_half_inning()?;
+        while let InningProgress::Ongoing=state.inning_state.inning_progress() {
+            if let Some(limit)=pitch_budget {
+                anyhow::ensure!(pitches<limit,"declared pitch budget exceeded; run must not silently drop this game");
+                anyhow::ensure!(state.away_total_point<=240&&state.home_total_point<=240,"diagnostic score limit reached");
+            }
+            state.process_count()?;pitches+=1;
+            if let GameProgress::WalkOff=state.progress() { break; }
+        }
+        state.finish_half_inning();
+        if let GameProgress::GameSet=state.progress() { break; }
+    }
+    info!("game completed");state.finish_game();Ok(state.game_result)
 }
 
 #[cfg(test)]

@@ -54,7 +54,7 @@ impl Default for BattingPreferences {
     fn default() -> Self { Self { preferred_intent: BattedBallIntent::ContactFirst } }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BattingStrategySettings {
     pub away_strategy: BattingStrategy,
     pub home_strategy: BattingStrategy,

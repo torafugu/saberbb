@@ -145,8 +145,13 @@ def parse_row(raw):
 
 def load_cache(folder):
     folder = Path(folder); prefix = collision.PREFIX
+    if (folder/(prefix+'_metadata.json')).exists() and (folder/'rust_collision_response_metadata.json').exists():
+        raise ValueError('ambiguous_collision_cache_kind')
+    native=not (folder/(prefix+'_metadata.json')).exists() and (folder/'rust_collision_response_metadata.json').exists()
+    if native:prefix='rust_collision_response'
     paths = [folder/(prefix+'_'+suffix) for suffix in ('metadata.json','details.csv','summary.csv','pairs.csv','status.csv','coverage.csv','checks.csv')]
     meta = json.loads(paths[0].read_text()); checks = defaultdict(float)
+    if native and meta.get('cache_kind')!='rust_response_parity_v1':raise ValueError('unsupported_rust_response_cache')
     if meta['version']!=1 or meta['model']!=collision.MODEL:
         raise ValueError('unsupported_cached_collision_model')
     same(dict(axial_inertia_kg_m2=collision.AXIAL_INERTIA,mu=collision.MU,et=collision.ET,bat=profile.metadata()),
@@ -164,6 +169,7 @@ def load_cache(folder):
         error = number(r['max_error'],r['metric'])
         if error<0 or error>1e-7:
             raise ValueError('failed_source_check:'+r['metric'])
+        checks['cached_source:'+r['metric']]=error
     overall = collision.Aggregate(); games = defaultdict(collision.Aggregate); statuses = Counter()
     coverage = Counter(); previous = None; pending = []
     def add_pair(rows):
@@ -210,7 +216,14 @@ def load_cache(folder):
         raise ValueError('empty_cached_pairs')
     coverage['solver_calls']=2*coverage['response_events']
     for k,v in coverage.items():
-        if meta['coverage'].get(k,0)!=v:
+        source_key={'solver_calls':'rust_solver_calls','spin_lookup_pitches':'response_input_pitches',
+                    'invalid_spin_pitches':'invalid_response_spin_pitches'}.get(k,k) if native else k
+        if native and k.startswith('collision_status:'):source_key='status:'+k.removeprefix('collision_status:')
+        if native and k.startswith('search_status:'):
+            # Native metadata separately counts response statuses. Recheck geometric
+            # search counts through the already audited summaries rather than aliasing them.
+            continue
+        if meta['coverage'].get(source_key,0)!=v:
             raise ValueError('cached_coverage_mismatch:'+k)
     if coverage['matched_plans']!=meta['coverage']['matched_plans'] or coverage['matched_states']!=meta['coverage']['matched_states']:
         raise ValueError('incomplete_cached_details')
@@ -219,6 +232,14 @@ def load_cache(folder):
     status_rows = [dict(intent=k[0],selected=k[1],collision_status=k[2],plans=n) for k,n in sorted(statuses.items())]
     audit_table(paths[4],status_rows,('intent','selected','collision_status'),checks)
     audit_table(paths[5],[dict(metric=k,count=v) for k,v in sorted(meta['coverage'].items())],('metric',),checks)
+    if native and meta.get('holdout_manifest') is not None:
+        manifest=meta['holdout_manifest'];records=manifest['games'];ids={r['game_id'] for r in records}
+        if (manifest['status']!='complete' or len(ids)!=len(records) or set(meta['selected_game_ids'])!=ids
+            or meta['provenance_games_verified']!=len(ids) or not set(games)<=ids):
+            raise ValueError('invalid_bootstrap_holdout_game_population')
+        # Explicitly recorded zero-contribution games are real clusters, unlike
+        # missing IDs guessed from a numeric range. Preserve them in the draws.
+        for game in ids:games.setdefault(game,collision.Aggregate())
     return meta,overall,games,checks,paths
 
 
@@ -330,7 +351,7 @@ def run(folder,output,replicates=2000,seed='0',confidence=.95):
                 sampled_games=len(games),contributing_games=contributing_games,pitches=g['plans'],
                 reference_searched=g['searched'],candidate_searched=h['searched'],reference_fair=g['fair'],candidate_fair=h['fair'],
                 common_fair=overall.pairs[key]['common_fair']))
-    coverage=dict(observed_games=len(games),matched_pitches=meta['coverage']['matched_states'],
+    coverage=dict(observed_games=len(games),comparable_games=sum(bool(g.pairs) for g in games.values()),matched_pitches=meta['coverage']['matched_states'],
         matched_plans=meta['coverage']['matched_plans'],groups=len(keys),replicates=replicates,
         interval_available=sum(r['interval_status']=='interval_available' for r in summary),
         intervals_unavailable=sum(r['interval_status']!='interval_available' for r in summary))
@@ -341,7 +362,7 @@ def run(folder,output,replicates=2000,seed='0',confidence=.95):
         inputs={str(p):digest(p) for p in paths},code_sha256=digest(Path(__file__)),db_reads=0,new_searches=0,collision_replays=0,
         limitations=[
             'Cached details are reaggregated and checked against summaries/pairs/status/coverage plus frozen model hashes. No contact or collision physics is reexecuted.',
-            'Only games with comparable cached pitch pairs form the observed cluster population; absent games are not invented from the numeric ID range.',
+            'A verified explicit holdout manifest retains all generated games, including zero-contribution clusters. Other caches use observed comparable games; numeric ID gaps are never invented.',
             'All diagnostic alternatives are paired; selected_plans is audited but is not a separate intervention or bootstrap population.',
             'Resampling games accounts for within-game dependence, not repeated-player or shared-team dependence across games.',
             'Height/strategy cohorts retain shared game draws. Sparse cohorts may have undefined denominators; they are not zero-filled.',

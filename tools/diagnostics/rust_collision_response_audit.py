@@ -5,6 +5,8 @@ from collections import Counter,defaultdict
 from dataclasses import asdict
 import json
 import math
+import hashlib
+import struct
 from pathlib import Path
 import sqlite3
 
@@ -98,17 +100,34 @@ def compare_collision(state,game,seq,raw_spin,planner,checks):
     return evaluated,None
 
 
-def run(db_path,first,last,output):
+def update_contact_hash(hasher,seq,version,source,invalid,payload):
+    hasher.update(struct.pack('<HB',seq,version))
+    raw=source.encode();hasher.update(struct.pack('<Q',len(raw)));hasher.update(raw)
+    for value in (invalid,payload):
+        if value is None:hasher.update(b'\0')
+        else:
+            raw=value.encode();hasher.update(b'\1');hasher.update(struct.pack('<Q',len(raw)));hasher.update(raw)
+
+
+def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
     if first>last:raise ValueError('invalid_game_range')
     output=Path(output)
     if output.exists():raise FileExistsError(output)
-    planner=frozen_planner();coverage=Counter({k:0 for k in ('states','matched_states','matched_plans','matched_responses','selected_plans','replayed_searches','python_solver_calls')})
-    checks=defaultdict(float);aggregate=collision.Aggregate();details=[];seen=set()
+    if game_ids is not None:
+        game_ids=set(game_ids)
+        if not game_ids or min(game_ids)<first or max(game_ids)>last:raise ValueError('invalid_selected_game_ids')
+    if expected_contacts is not None and set(expected_contacts)!=game_ids:raise ValueError('provenance_game_set_mismatch')
+    planner=frozen_planner();coverage=Counter({k:0 for k in ('states','matched_states','matched_plans','matched_responses','selected_plans','replayed_searches','python_solver_calls','response_events','rust_solver_calls','response_input_pitches','invalid_response_spin_pitches')})
+    checks=defaultdict(float);aggregate=collision.Aggregate();details=[];seen=set();hashes={};hash_counts=Counter();statuses=Counter()
     db=sqlite3.connect(Path(db_path).resolve().as_uri()+'?mode=ro',uri=True)
     try:
         db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         for game,seq,version,source,invalid,payload in db.execute('SELECT game_id,count_seq,state_version,state_source,invalid_reason,state_json '
             'FROM player_game_contact_state WHERE game_id BETWEEN ? AND ? ORDER BY game_id,count_seq',(first,last)):
+            if game_ids is not None and game not in game_ids:continue
+            if expected_contacts is not None:
+                update_contact_hash(hashes.setdefault(game,hashlib.sha256()),seq,version,source,invalid,payload)
+                hash_counts[game]+=1
             if (game,seq) in seen:raise ValueError('duplicate_collision_response_pitch')
             seen.add((game,seq));coverage['states']+=1
             if version!=1 or source!=SOURCE:coverage['unsupported_states']+=1;continue
@@ -120,7 +139,10 @@ def run(db_path,first,last,output):
             rows,error=compare_collision(state,game,seq,raw[0],planner,checks)
             if error:coverage[error]+=1;continue
             coverage['matched_states']+=1
-            coverage['python_solver_calls']+=3*sum(p['evaluation']['input'] is not None for p in state['intent_collision']['probes'])
+            events=sum(p['evaluation']['input'] is not None for p in state['intent_collision']['probes'])
+            coverage['python_solver_calls']+=3*events;coverage['rust_solver_calls']+=2*events;coverage['response_events']+=events
+            coverage['response_input_pitches']+=events>0
+            coverage['invalid_response_spin_pitches']+=any(r['collision_status']=='not_evaluated:invalid_pitch_spin' for r in rows)
             if state['intent_collision']['spin']['invalid_reason']:coverage['invalid_spin_states']+=1
             for row in rows:
                 coverage['matched_plans']+=1;coverage['selected_plans']+=row['selected']
@@ -128,13 +150,22 @@ def run(db_path,first,last,output):
                 coverage['replayed_searches']+=row['status'] in collision.SEARCHED
                 coverage['matched_responses']+=row['collision_status']=='impulse_contact'
                 details.append(row)
+                statuses[row['intent'],row['selected'],row['collision_status']]+=1
             aggregate.add(rows)
     finally:db.close()
+    if expected_contacts is not None:
+        for game,expected in expected_contacts.items():
+            actual=hashes.get(game,hashlib.sha256()).hexdigest()
+            if actual!=expected['sha256'] or hash_counts[game]!=expected['count']:
+                raise ValueError('seeded_contact_provenance_mismatch:'+str(game))
     if not coverage['states']:raise ValueError('no_contact_state_rows_in_range')
     metadata=dict(version=1,status='matched_available_rust_collision_responses' if coverage['matched_plans'] else 'no_comparable_rust_collision_responses',
         first_game_id=first,last_game_id=last,db_path=str(db_path),coverage=dict(coverage),model=collision.MODEL,
-        inputs={str(p):digest(p) for p in [FROZEN_POLICIES,Path(__file__),Path(collision.__file__),Path(__file__).with_name('finite_barrel_collision.py')]},
+        cache_kind='rust_response_parity_v1',model_parameters=dict(axial_inertia_kg_m2=collision.AXIAL_INERTIA,mu=collision.MU,et=collision.ET,bat=collision.profile.metadata()),
+        inputs={str(p):digest(p) for p in [FROZEN_POLICIES,Path(__file__),Path(collision.__file__),*[Path(__file__).with_name(n) for n in ('finite_barrel_collision.py','bat_vibration_profile.py','contact_spin.py')]]},
         db_access='single_read_only_transaction_for_states_and_spin',new_searches=coverage['replayed_searches'],
+        selected_game_ids=sorted(game_ids) if game_ids is not None else None,
+        provenance_games_verified=len(expected_contacts) if expected_contacts is not None else 0,
         collision_replays=coverage['python_solver_calls'],
         limitations=['Rust and Python use identical frozen inputs and coefficients; numerical parity is not independent physical calibration.',
             'Recorded spin inputs must match saved pitching scalars; unknown gyro is omitted (gyro_sign=0).',
@@ -145,6 +176,7 @@ def run(db_path,first,last,output):
     for suffix,rows,fields in [
         ('summary',aggregate.summaries(),['scope','intent','plans']),('pairs',aggregate.paired_rows(),['before_intent','after_intent']),
         ('details',details,['game_id','count_seq','intent']),
+        ('status',[dict(intent=k[0],selected=k[1],collision_status=k[2],plans=v) for k,v in sorted(statuses.items())],['intent','selected','collision_status','plans']),
         ('coverage',[dict(metric=k,count=v) for k,v in sorted(coverage.items())],['metric','count']),
         ('checks',[dict(metric=k,max_error=v) for k,v in sorted(checks.items())],['metric','max_error'])]:
         write_csv(output/(PREFIX+'_'+suffix+'.csv'),list(rows[0]) if rows else fields,rows)

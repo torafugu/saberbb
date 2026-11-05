@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import shutil
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools/diagnostics'))
@@ -60,6 +61,29 @@ def synthetic_vectors():
 
 
 class IntentGameBootstrapTest(unittest.TestCase):
+    def test_native_rust_response_cache_uses_same_paired_game_statistics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=source_fixture(root);native=root/'native';native.mkdir()
+            meta=json.loads((source/'rust_intent_collision_metadata.json').read_text())
+            coverage={}
+            for key,value in meta['coverage'].items():
+                if key.startswith('search_status:'):continue
+                if key.startswith('collision_status:'):key='status:'+key.removeprefix('collision_status:')
+                key={'solver_calls':'rust_solver_calls','spin_lookup_pitches':'response_input_pitches',
+                     'invalid_spin_pitches':'invalid_response_spin_pitches'}.get(key,key)
+                coverage[key]=value
+            meta.update(cache_kind='rust_response_parity_v1',coverage=coverage)
+            (native/'rust_collision_response_metadata.json').write_text(json.dumps(meta))
+            for suffix in ('details','summary','pairs','status','checks'):
+                shutil.copyfile(source/('rust_intent_collision_'+suffix+'.csv'),native/('rust_collision_response_'+suffix+'.csv'))
+            rows=[dict(metric=k,count=v) for k,v in sorted(coverage.items())]
+            write_csv(native/'rust_collision_response_coverage.csv',['metric','count'],rows)
+            bootstrap.run(source,root/'old',20,'same');bootstrap.run(native,root/'new',20,'same')
+            self.assertEqual((root/'old/rust_intent_game_bootstrap_summary.csv').read_bytes(),(root/'new/rust_intent_game_bootstrap_summary.csv').read_bytes())
+            shutil.copyfile(native/'rust_collision_response_metadata.json',source/'rust_collision_response_metadata.json')
+            with self.assertRaisesRegex(ValueError,'ambiguous_collision_cache_kind'):
+                bootstrap.run(source,root/'ambiguous',20)
+
     def test_whole_game_draw_is_shared_paired_and_pooled(self):
         vectors=synthetic_vectors()
         point=bootstrap.metrics(bootstrap.totals(vectors,Counter({0:1,1:1}))[0])
