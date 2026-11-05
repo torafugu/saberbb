@@ -74,6 +74,24 @@ def difference(candidate, reference):
             for k, value in reference.items()}
 
 
+def audit_game_counts(expected, actual, checks, label):
+    """Counts are exact; floating sums are checked in their per-observation units."""
+    for field in FIELDS:
+        a, b = expected[field], actual[field]
+        if not math.isfinite(a) or not math.isfinite(b):
+            raise ValueError('nonfinite_policy_game_sum:' + label + '.' + field)
+        if field.startswith('fair_sum_'):
+            # The source accumulates pitch by pitch, while this path sums games.
+            # An absolute tolerance on a large rpm sum depends on sample size.
+            n = expected['fair_n_' + field.removeprefix('fair_sum_')]
+            residual = abs(a - b) / max(1, n)
+            same(0., residual, checks, label + '.' + field + '.per_observation')
+        else:
+            if a != b:
+                raise ValueError('reconstruction_mismatch:' + label + '.' + field)
+            checks[label + '.' + field] = 0.
+
+
 def vectors_for(games):
     vectors = []
     for game in sorted(games):
@@ -118,7 +136,7 @@ def run(folder, output, replicates=2000, seed='0', confidence=.95):
     point_counts = total_vectors(vectors, Counter({i: 1 for i in range(len(games))}))
     expected = game_views(overall)
     for v in VIEWS:
-        same({k: expected[v][k] for k in FIELDS}, dict(point_counts[v]), checks, 'policy_game_sum.' + v)
+        audit_game_counts(expected[v], point_counts[v], checks, 'policy_game_sum.' + v)
     point = {v: metrics(point_counts[v]) for v in VIEWS}
     delta = {v: difference(point[v], point['contact_first']) for v in VIEWS}
     distributions = {v: defaultdict(list) for v in VIEWS}
@@ -185,6 +203,7 @@ def run(folder, output, replicates=2000, seed='0', confidence=.95):
         resampling='whole games with replacement; shared draws across every scenario; ratios of pooled counts',
         denominator='per_pitch includes every matched candidate pair, including invalid or unavailable responses; among_fair is conditional',
         height_intervals='descriptive only; no confidence intervals or automatic height-based selection',
+        aggregation_check='counts exact; floating EV/VLA/spin sum residuals divided by their observation counts and checked with existing reconstruction tolerance',
         intent_aims='contact_first: center; line_drive: center below world height 0.6m, otherwise 15mm below forecast center',
         inputs={str(p): digest(p) for p in paths},
         code_sha256={p.name: digest(p) for p in (Path(__file__), Path(cache.__file__), Path(__file__).with_name('rust_observed_intent_audit.py'))},
