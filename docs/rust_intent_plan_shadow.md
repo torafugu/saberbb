@@ -54,13 +54,10 @@ main取り込み後のRustで新しい試合を生成し、診断記録をDBへ�
 次のゲームIDは構文例であり、**今回生成した実際の範囲に置き換える**。
 
 ```sh
-python3 tools/diagnostics/rust_intent_plan_audit.py \
-  --db /path/to/saberbb.db \
-  --first-game-id 26000 --last-game-id 26009 \
-  --output-dir ../saberbb_rust_intent_plan_audit
+python3 tools/diagnostics/rust_intent_plan_audit.py --first-game-id 26000 --last-game-id 26009 --output-dir ../saberbb_rust_intent_plan_audit
 ```
 
-`SABERBB_DB`を設定していれば`--db`を省略できる。読み取り専用トランザクションを使用し、DBを変更しない。
+DBパスは環境変数`SABERBB_DB`に設定する。読み取り専用トランザクションを使用し、DBを変更しない。
 接触探索・衝突再計算・Statcastデータは不要。出力先は新しいフォルダを指定する。
 
 監査では、既存の`swing_prediction.input`から限定入力を取り出し、新しい`intent_plans.input`と一致するか確認する。
@@ -98,8 +95,7 @@ python3 -m unittest discover -s tests/diagnostics -p 'test_*.py'
 共通データの再生成が必要な場合は、変更を明示的にレビューする。
 
 ```sh
-python3 tools/diagnostics/intent_plan_contract.py \
-  --output tests/fixtures/intent_plan_contract.json
+python3 tools/diagnostics/intent_plan_contract.py --output tests/fixtures/intent_plan_contract.json
 ```
 
 同じ予測からの計画一致を確認した後、観測更新の移植範囲と本体の実行・接触検証への接続を検討する。

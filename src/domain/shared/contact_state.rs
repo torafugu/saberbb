@@ -38,6 +38,8 @@ pub struct ContactStateInput {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContactStateSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_contact: Option<crate::domain::shared::intent_execution_contact::ExecutionContactDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_intent_plans: Option<crate::domain::shared::observation_update::ObservedIntentDiagnostics>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent_plans: Option<crate::domain::shared::forecast_swing_plan::IntentPlanDiagnostics>,
@@ -83,6 +85,7 @@ pub fn snapshot(input: ContactStateInput) -> Result<ContactStateSnapshot, &'stat
         return Err("non_finite_derived_state");
     }
     Ok(ContactStateSnapshot {
+        execution_contact: None,
         observed_intent_plans: None,
         intent_plans: None,
         swing_prediction: None,
@@ -155,10 +158,12 @@ mod tests {
         assert!(old.get("swing_prediction").is_none());
         assert!(old.get("intent_plans").is_none());
         assert!(old.get("observed_intent_plans").is_none());
+        assert!(old.get("execution_contact").is_none());
         let decoded: ContactStateSnapshot = serde_json::from_value(old).unwrap();
         assert!(decoded.swing_prediction.is_none());
         assert!(decoded.intent_plans.is_none());
         assert!(decoded.observed_intent_plans.is_none());
+        assert!(decoded.execution_contact.is_none());
         let mut state = state;
         state.swing_prediction = Some(crate::domain::shared::swing_prediction::SwingPredictionRecord {
             version: 1,
@@ -190,12 +195,30 @@ mod tests {
             crate::domain::strategy::batting_strategy::BattingStrategy::SeekLineDrive,
             crate::domain::strategy::batting_strategy::BattingPreferences::default());
         crate::domain::shared::observation_update::attach_observed_intent_plans(&mut record, 42, decision);
+        crate::domain::shared::intent_execution_contact::attach_execution_contacts(&mut record);
+        let mut clock_invalid = record.clone();
+        for plan in &mut clock_invalid.state.as_mut().unwrap().observed_intent_plans.as_mut().unwrap()
+            .intent_plans.as_mut().unwrap().plans {
+            plan.invalid_reason = Some("execution_starts_before_plan".into());
+            plan.execution_plan = None;
+        }
+        crate::domain::shared::intent_execution_contact::attach_execution_contacts(&mut clock_invalid);
+        for probe in &clock_invalid.state.unwrap().execution_contact.unwrap().probes {
+            assert_eq!(probe.invalid_reason.as_deref(), Some("execution_starts_before_plan"));
+            assert!(probe.samples.is_empty());
+            assert!(probe.search.is_none());
+            assert_eq!(probe.selected, probe.intent == decision.selected_intent);
+        }
         let state = record.state.unwrap();
         assert_eq!(state.intent_plans.as_ref().unwrap().plans.len(), 2);
         let observed = state.observed_intent_plans.as_ref().unwrap();
         assert!(observed.invalid_reason.is_none());
         assert_eq!(observed.decision, decision);
         assert_eq!(observed.intent_plans.as_ref().unwrap().plans.len(), 2);
+        let probes = &state.execution_contact.as_ref().unwrap().probes;
+        assert_eq!(probes.len(), 2);
+        assert_eq!(probes.iter().filter(|p| p.selected).count(), 1);
+        assert_eq!(probes.iter().find(|p| p.selected).unwrap().intent, decision.selected_intent);
         let encoded = serde_json::to_value(&state).unwrap();
         let decoded: ContactStateSnapshot = serde_json::from_value(encoded.clone()).unwrap();
         assert_eq!(decoded.intent_plans.unwrap().plans.len(), 2);
@@ -204,6 +227,7 @@ mod tests {
         existing_fields.as_object_mut().unwrap().remove("swing_prediction");
         existing_fields.as_object_mut().unwrap().remove("intent_plans");
         existing_fields.as_object_mut().unwrap().remove("observed_intent_plans");
+        existing_fields.as_object_mut().unwrap().remove("execution_contact");
         assert_eq!(existing_fields, before);
     }
 

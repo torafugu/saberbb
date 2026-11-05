@@ -5,6 +5,14 @@ from pathlib import Path
 DB_ENV = 'SABERBB_DB'
 
 
+def db_from_env():
+    """Required database path for environment-only diagnostic entry points."""
+    value = os.environ.get(DB_ENV)
+    if not value or not value.strip():
+        raise ValueError('SABERBB_DB is not set')
+    return Path(value).expanduser()
+
+
 def add_db_argument(parser, flag='--db', required=True):
     value = os.environ.get(DB_ENV)
     default = Path(value).expanduser() if value and value.strip() else None
