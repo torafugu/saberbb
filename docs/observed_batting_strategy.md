@@ -82,13 +82,10 @@ sha2は既存lock内の0.10.9を直接依存へ加えた。
 
 ## 実データでの照合
 
-取り込み後、新しい試合を生成・保存して実行する。以下のIDは例で、今回生成した範囲へ置き換える。
+取り込み後、新しい試合を生成・保存して実行する。DBパスは環境変数`SABERBB_DB`に設定する。以下のIDは例で、今回生成した範囲へ置き換える。
 
 ```sh
-python3 tools/diagnostics/rust_observed_intent_audit.py \
-  --db /path/to/saberbb.db \
-  --first-game-id 26164 --last-game-id 26173 \
-  --output-dir ../saberbb_rust_observed_intent_audit
+python3 tools/diagnostics/rust_observed_intent_audit.py --first-game-id 26164 --last-game-id 26173 --output-dir ../saberbb_rust_observed_intent_audit
 ```
 
 DBは読み取り専用。既存のstate_jsonからPythonで標準ノイズ・観測更新・予測・計画を再生成して照合する。
@@ -122,3 +119,5 @@ DB読み取り専用、観測・決定記録の改変拒否、更新失敗時の
 
 センサーのsigmaと能力への感度は未校正の仮説である。今回も打球性能を改善したという検証ではなく、
 同じ入力モデルをRustへ移し、戦略階層を分けて計画を記録できることの検証にとどめる。
+
+開始姿勢からの実行・幾何学的接触の検証は[実行・接触診断](rust_execution_contact.md)を参照。

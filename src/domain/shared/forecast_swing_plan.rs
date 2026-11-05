@@ -7,14 +7,14 @@ use std::f64::consts::PI;
 pub const INTENT_PLAN_SOURCE: &str = "forecast_intent_shadow_v1";
 type V3 = [f64; 3];
 
-fn add(a: V3, b: V3) -> V3 { std::array::from_fn(|i| a[i] + b[i]) }
-fn sub(a: V3, b: V3) -> V3 { std::array::from_fn(|i| a[i] - b[i]) }
-fn mul(a: V3, s: f64) -> V3 { a.map(|x| x * s) }
-fn dot(a: V3, b: V3) -> f64 { a.iter().zip(b).map(|(x, y)| x * y).sum() }
-fn cross(a: V3, b: V3) -> V3 {
+pub(crate) fn add(a: V3, b: V3) -> V3 { std::array::from_fn(|i| a[i] + b[i]) }
+pub(crate) fn sub(a: V3, b: V3) -> V3 { std::array::from_fn(|i| a[i] - b[i]) }
+pub(crate) fn mul(a: V3, s: f64) -> V3 { a.map(|x| x * s) }
+pub(crate) fn dot(a: V3, b: V3) -> f64 { a.iter().zip(b).map(|(x, y)| x * y).sum() }
+pub(crate) fn cross(a: V3, b: V3) -> V3 {
     [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
 }
-fn rotate(a: V3, omega: V3, t: f64) -> V3 {
+pub(crate) fn rotate(a: V3, omega: V3, t: f64) -> V3 {
     let speed = dot(omega, omega).sqrt();
     if speed == 0.0 { return a; }
     let k = mul(omega, 1.0 / speed);
