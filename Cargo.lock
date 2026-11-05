@@ -2239,6 +2239,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_rusqlite",
+ "sha2",
  "signal-hook 0.4.4",
  "strip-ansi-escapes",
  "strum 0.28.0",

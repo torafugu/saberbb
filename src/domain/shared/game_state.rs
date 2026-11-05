@@ -25,7 +25,7 @@ use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stats::{PlayerGameBattingMetrics, PlayerGameFieldingCandidate};
 use crate::domain::shared::stadium::{Base, Stadium};
-use crate::domain::strategy::batting_strategy::SwingExecution;
+use crate::domain::strategy::batting_strategy::{SwingExecution, BattingStrategySettings};
 use crate::domain::strategy::pitching_strategy::{
     PitchCall, PitchEvaluationContext, catcher_preferences, pitcher_preferences,
     reconcile_pitch_call_proposals, select_pitching_strategy,
@@ -295,6 +295,8 @@ pub enum GameProgress {
 
 #[derive(Debug)]
 pub struct GameState {
+    /// Team objectives and per-player preferences, currently recorded in shadow only.
+    pub batting_strategy_settings: BattingStrategySettings,
     rng: Box<dyn RandomProvider>,
     pub inning_seq: u8,
     pub inning_tb: TB,
@@ -321,6 +323,7 @@ impl GameState {
         let home_lineup = game_schedule.home_team.lineup(rng.as_mut())?;
 
         Ok(GameState {
+            batting_strategy_settings: BattingStrategySettings::default(),
             rng: rng,
             inning_seq: 0, // CONSTRAINT: Initialization: 1 should be set at the beginning of the game
             inning_tb: TB::Bottom, // CONSTRAINT: Initialization: Top should be set at the beginning of the game
@@ -806,6 +809,8 @@ impl GameState {
         let batting_side = active_batter.batter.batting_side;
         let batter_runner = active_batter.runner();
 
+        let batting_intent_decision = self.batting_strategy_settings.decision(self.is_top(), batter_id);
+
         self.prepare_plate_appearance(batter_runner);
         self.inning_state.active_pitcher = Some(active_pitcher);
 
@@ -920,6 +925,9 @@ impl GameState {
             );
             crate::domain::shared::swing_prediction::attach_prediction(
                 &mut contact_state, &batter, &pitched_ball, &expected_ball,
+            );
+            crate::domain::shared::observation_update::attach_observed_intent_plans(
+                &mut contact_state, self.game_result.id, batting_intent_decision,
             );
             self.game_result.player_contact_states.push(contact_state);
 

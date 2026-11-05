@@ -103,3 +103,6 @@ python3 tools/diagnostics/intent_plan_contract.py \
 ```
 
 同じ予測からの計画一致を確認した後、観測更新の移植範囲と本体の実行・接触検証への接続を検討する。
+
+観測更新後の予測と、監督・コーチ／打者の判断を分けた記録は
+[観測更新と打者戦略の階層](observed_batting_strategy.md)を参照。

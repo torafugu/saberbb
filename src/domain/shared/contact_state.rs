@@ -38,6 +38,8 @@ pub struct ContactStateInput {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContactStateSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_intent_plans: Option<crate::domain::shared::observation_update::ObservedIntentDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent_plans: Option<crate::domain::shared::forecast_swing_plan::IntentPlanDiagnostics>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swing_prediction: Option<crate::domain::shared::swing_prediction::SwingPredictionRecord>,
@@ -81,6 +83,7 @@ pub fn snapshot(input: ContactStateInput) -> Result<ContactStateSnapshot, &'stat
         return Err("non_finite_derived_state");
     }
     Ok(ContactStateSnapshot {
+        observed_intent_plans: None,
         intent_plans: None,
         swing_prediction: None,
         bat_ideal_position_world_m: ideal,
@@ -151,9 +154,11 @@ mod tests {
         let old = serde_json::to_value(&state).unwrap();
         assert!(old.get("swing_prediction").is_none());
         assert!(old.get("intent_plans").is_none());
+        assert!(old.get("observed_intent_plans").is_none());
         let decoded: ContactStateSnapshot = serde_json::from_value(old).unwrap();
         assert!(decoded.swing_prediction.is_none());
         assert!(decoded.intent_plans.is_none());
+        assert!(decoded.observed_intent_plans.is_none());
         let mut state = state;
         state.swing_prediction = Some(crate::domain::shared::swing_prediction::SwingPredictionRecord {
             version: 1,
@@ -181,14 +186,24 @@ mod tests {
             aim_location: BallLocation { x: 0.0, y: 0.0 }, actual_location: BallLocation { x: 0.0, y: 0.0 } };
         let batter = crate::domain::test_support::batter_info(RL::Right);
         crate::domain::shared::swing_prediction::attach_prediction(&mut record, &batter, &ball, &ball);
+        let decision = crate::domain::strategy::batting_strategy::decide_batting_intent(
+            crate::domain::strategy::batting_strategy::BattingStrategy::SeekLineDrive,
+            crate::domain::strategy::batting_strategy::BattingPreferences::default());
+        crate::domain::shared::observation_update::attach_observed_intent_plans(&mut record, 42, decision);
         let state = record.state.unwrap();
         assert_eq!(state.intent_plans.as_ref().unwrap().plans.len(), 2);
+        let observed = state.observed_intent_plans.as_ref().unwrap();
+        assert!(observed.invalid_reason.is_none());
+        assert_eq!(observed.decision, decision);
+        assert_eq!(observed.intent_plans.as_ref().unwrap().plans.len(), 2);
         let encoded = serde_json::to_value(&state).unwrap();
         let decoded: ContactStateSnapshot = serde_json::from_value(encoded.clone()).unwrap();
         assert_eq!(decoded.intent_plans.unwrap().plans.len(), 2);
+        assert_eq!(decoded.observed_intent_plans.unwrap().decision, decision);
         let mut existing_fields = encoded;
         existing_fields.as_object_mut().unwrap().remove("swing_prediction");
         existing_fields.as_object_mut().unwrap().remove("intent_plans");
+        existing_fields.as_object_mut().unwrap().remove("observed_intent_plans");
         assert_eq!(existing_fields, before);
     }
 

@@ -11,3 +11,4 @@ pub mod team;
 pub mod contact_state;
 pub mod swing_prediction;
 pub mod forecast_swing_plan;
+pub mod observation_update;

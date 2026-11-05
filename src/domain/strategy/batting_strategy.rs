@@ -34,6 +34,94 @@ impl BattedBallIntent {
     }
 }
 
+/// Manager/coach objective. This layer never chooses a physical aim point.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BattingStrategy {
+    #[default]
+    LetBatterDecide,
+    PutBallInPlay,
+    SeekLineDrive,
+}
+
+/// Explicit player-level preference; automatic character/count policies come later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BattingPreferences {
+    pub preferred_intent: BattedBallIntent,
+}
+
+impl Default for BattingPreferences {
+    fn default() -> Self { Self { preferred_intent: BattedBallIntent::ContactFirst } }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BattingStrategySettings {
+    pub away_strategy: BattingStrategy,
+    pub home_strategy: BattingStrategy,
+    pub player_preferences: std::collections::BTreeMap<i64, BattingPreferences>,
+}
+
+impl BattingStrategySettings {
+    pub fn decision(&self, is_top: bool, batter_id: i64) -> BattingIntentDecision {
+        let strategy = if is_top { self.away_strategy } else { self.home_strategy };
+        decide_batting_intent(strategy, self.player_preferences.get(&batter_id).copied().unwrap_or_default())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BattingDecisionReason { BatterPreference, ManagerContactPriority, ManagerLineDrivePriority }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BattingIntentDecision {
+    pub strategy: BattingStrategy,
+    pub preferences: BattingPreferences,
+    pub selected_intent: BattedBallIntent,
+    pub reason: BattingDecisionReason,
+}
+
+/// Resolve team objective and player preference before planning, with no result/RNG input.
+pub fn decide_batting_intent(strategy: BattingStrategy, preferences: BattingPreferences) -> BattingIntentDecision {
+    let (selected_intent, reason) = match strategy {
+        BattingStrategy::LetBatterDecide => (preferences.preferred_intent, BattingDecisionReason::BatterPreference),
+        BattingStrategy::PutBallInPlay => (BattedBallIntent::ContactFirst, BattingDecisionReason::ManagerContactPriority),
+        BattingStrategy::SeekLineDrive => (BattedBallIntent::LineDrive, BattingDecisionReason::ManagerLineDrivePriority),
+    };
+    BattingIntentDecision { strategy, preferences, selected_intent, reason }
+}
+
+#[cfg(test)]
+mod intent_levels_tests {
+    use super::*;
+
+    #[test]
+    fn team_objective_and_player_preference_are_independently_recorded() {
+        for intent in [BattedBallIntent::ContactFirst, BattedBallIntent::LineDrive] {
+            let preferences = BattingPreferences { preferred_intent: intent };
+            let free = decide_batting_intent(BattingStrategy::LetBatterDecide, preferences);
+            assert_eq!(free.selected_intent, intent);
+            assert_eq!(free.reason, BattingDecisionReason::BatterPreference);
+            let contact = decide_batting_intent(BattingStrategy::PutBallInPlay, preferences);
+            assert_eq!(contact.selected_intent, BattedBallIntent::ContactFirst);
+            assert_eq!(contact.preferences, preferences);
+            assert_eq!(contact.reason, BattingDecisionReason::ManagerContactPriority);
+            let line = decide_batting_intent(BattingStrategy::SeekLineDrive, preferences);
+            assert_eq!(line.selected_intent, BattedBallIntent::LineDrive);
+            assert_eq!(line.preferences, preferences);
+        }
+    }
+
+    #[test]
+    fn settings_keep_home_away_and_individual_batter_preferences_separate() {
+        let mut settings = BattingStrategySettings::default();
+        settings.home_strategy = BattingStrategy::PutBallInPlay;
+        settings.player_preferences.insert(42, BattingPreferences { preferred_intent: BattedBallIntent::LineDrive });
+        assert_eq!(settings.decision(true, 42).selected_intent, BattedBallIntent::LineDrive);
+        assert_eq!(settings.decision(true, 43).selected_intent, BattedBallIntent::ContactFirst);
+        assert_eq!(settings.decision(false, 42).selected_intent, BattedBallIntent::ContactFirst);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, AsRefStr)]
 pub enum SwingExecution {
     Swing,
