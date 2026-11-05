@@ -59,6 +59,17 @@ def load_run(folder):
         if type(game['contact_states']) is not int or game['contact_states']<0:raise ValueError('invalid_contact_state_count')
         expected[game_id]=dict(sha256=game['contacts_sha256'],count=game['contact_states'])
     if not expected or len(rounds)!=manifest['requested_rounds']:raise ValueError('holdout_round_population_mismatch')
+    if manifest.get('round_plan') is not None:
+        plan=manifest['round_plan'];planned={}
+        if len(plan)!=manifest['requested_rounds']:raise ValueError('declared_round_plan_size_mismatch')
+        for round_info in plan:
+            for game in round_info['game_ids']:
+                if game in planned:raise ValueError('duplicate_declared_plan_game')
+                planned[game]=(round_info['season'],round_info['round_seq'])
+        if set(planned)!=set(expected):raise ValueError('declared_game_population_mismatch')
+        for game in manifest['games']:
+            case=json.loads((folder/game['input_file']).read_text())
+            if planned[game['game_id']]!=(case['schedule']['season'],case['schedule']['round_seq']):raise ValueError('declared_round_identity_mismatch')
     return manifest,expected,inputs
 
 

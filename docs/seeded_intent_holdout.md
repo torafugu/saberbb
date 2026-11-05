@@ -31,7 +31,7 @@ cargo run --release --locked --bin intent_holdout -- run --seed 2026110501 --rou
 ```
 
 このコマンドは**通常の試合結果としてDBへ保存し、処理済みラウンドを進める**。
-既存データの削除・初期化や日程生成はしない。予定試合がない場合や除外範囲に重なる場合は停止する。
+既定では日程を生成せず、実行前に指定ラウンド数と現在のシーズン・ラウンドを確認する。日程不足・カーソル不整合・除外範囲との重複があれば、試合生成と出力フォルダ作成の前に停止する。
 Rust側のDBは従来のアプリ設定`database_path`を使う。同時に別の試合処理を実行しない。
 
 ゲームごとのseedは`SHA256(namespace + u64le(master seed) + u32le(game_id))`の先頭8byteをu64leとして生成する。
@@ -42,11 +42,34 @@ seedはJSONでは文字列として記録し、u64の精度を保つ。
 通常設定と同じスコア計算を使うが、診断経路では既存u8カウンターが溢れる前のスコア上限も設け、該当runを失敗扱いにする。
 投球予算やスコア上限に達した試合を除いて、残りだけを成功したholdoutとして扱わない。
 
+### 日程不足・シーズン終了による停止への対応
+
+`Error: no scheduled games; no empty rounds accepted`は、現在のシーズン・ラウンドに未処理試合がなかったことを示す。日程の未作成、シーズン末、カーソルと未処理日程の不一致を区別するため、まず読み取り専用で確認する。
+
+```sh
+cargo run --release --locked --bin intent_holdout -- status --rounds 40
+```
+
+`available_pending_rounds`は現在シーズン以降の未処理ラウンド数。`schedule`には現在／作成済みシーズン、現在ラウンド、未処理ラウンドごとの試合IDを出力する。`enough_pending_rounds`は件数だけの判定で、カーソルとの一致はrunの事前検査で判定する。
+
+将来の日程作成とカーソル移動も行う場合は、明示的に`--prepare-schedule`を付ける。
+
+```sh
+cargo run --release --locked --bin intent_holdout -- run --seed 2026110502 --rounds 40 --exclude-through-game-id 27054 --prepare-schedule --output-dir ../saberbb_holdout_seed_2026110502
+```
+
+このオプションは通常のScheduleServiceで不足する将来シーズンの日程を作成し、シーズン・ラウンド順の次の未処理40ラウンドを生成前に固定する。各ラウンドでカーソルをその予定へ合わせ、読み込んだ試合ID集合も計画との完全一致を確認する。現在シーズン内の取り残された未処理ラウンドも飛ばさない。過去シーズンに未処理試合が残る場合や、作成済みシーズンのポインターが不整合な場合は、日程追加前に停止する。同時に別プロセスで日程・試合を変更しない。
+
+既存の失敗runフォルダは保持し、`manifest.json`の`status`、`completed_rounds`、各試合の`status`を確認する。旧処理では停止前に一部の試合をDBへ保存していた可能性がある。失敗runをcompleteへ書き換えたり、成功分だけを抽出したりしない。上の例は新しいseedと新しいフォルダを使い、DBで未処理の試合だけから新しいrunを作る。後続の監査／bootstrapでも新しいフォルダ名を指定する。
+
+日程作成・DB結果保存・外部manifest保存は全体で一つのトランザクションではない。日程作成自体が途中失敗した場合は自動再作成せず、statusとエラーを確認する。既存の将来シーズン行に重ねて日程を作らない。
+
 ## 保存される生成証跡
 
 | ファイル・項目 | 内容 |
 | --- | --- |
 | manifest.json | seed、選択条件、除外境界、予定／完了ラウンド、状態、試合一覧 |
+| round_plan | 生成前に固定したシーズン・ラウンド・全対象試合ID。新CLIで作成したrunに記録 |
 | cases/game_ID.json | 生成前の日程、全選手能力、球場・ルール、打者設定、試合seed、投球予算 |
 | engine_source_sha256 | ビルド時のsrc全Rustファイル、Cargo.toml／lock、build.rsのハッシュ |
 | build情報 | コンパイラ、target、profile、その識別ハッシュ、Git commit／dirtyの記録 |
@@ -124,6 +147,7 @@ replayはアプリDBを開かず、保存caseだけで同じ試合を再実行�
 ## 検証
 
 ```sh
+cargo test --locked --lib holdout_schedule
 cargo test --locked --lib seeded_diagnostic
 cargo check --locked --bins
 python3 -m unittest discover -s tests/diagnostics -p 'test_seeded_holdout_audit.py'

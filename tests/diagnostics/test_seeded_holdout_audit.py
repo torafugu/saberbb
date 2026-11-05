@@ -45,6 +45,19 @@ def fixture(root):
 
 
 class SeededHoldoutAuditTest(unittest.TestCase):
+    def test_declared_round_plan_must_match_exact_case_population(self):
+        for plan,valid in [([dict(season=2026,round_seq=1,game_ids=[1,3])],True),
+            ([dict(season=2026,round_seq=1,game_ids=[1,2])],False),
+            ([dict(season=2027,round_seq=1,game_ids=[1,3])],False),
+            ([dict(season=2026,round_seq=1,game_ids=[1,3,3])],False),([],False)]:
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);db,folder=fixture(root);path=folder/'manifest.json'
+                manifest=json.loads(path.read_text());manifest['round_plan']=plan;path.write_text(json.dumps(manifest))
+                if valid:self.assertEqual(audit.run(db,folder,root/'out')['provenance_games_verified'],2)
+                else:
+                    with self.assertRaises(ValueError):audit.run(db,folder,root/'out')
+                    self.assertFalse((root/'out').exists())
+
     def test_provenance_filters_exact_game_set_and_preserves_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);db,folder=fixture(root);before=hashlib.sha256(db.read_bytes()).hexdigest()

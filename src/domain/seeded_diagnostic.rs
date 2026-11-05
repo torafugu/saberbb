@@ -4,6 +4,7 @@ use crate::domain::shared::game::{GameResult,GameSchedule};
 use crate::domain::shared::contact_state::ContactStateRecord;
 use crate::domain::strategy::batting_strategy::BattingStrategySettings;
 use crate::repositories::game_repository::GameRoundRepository;
+use crate::domain::holdout_schedule::PlannedRound;
 use anyhow::{Result,Context,bail,ensure};
 use serde::{Serialize,Deserialize};
 use sha2::{Digest,Sha256};
@@ -86,6 +87,8 @@ pub struct RunManifest {
     pub max_pitches:u32,
     pub selection:String,
     pub games:Vec<CaseRecord>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub round_plan:Option<Vec<PlannedRound>>,
     pub error:Option<String>,
 }
 pub struct RunRecorder { pub manifest:RunManifest, pub output:PathBuf }
@@ -102,7 +105,7 @@ impl RunRecorder {
             model:crate::domain::shared::finite_bat_collision::MODEL.into(),
             frozen_policy_sha256:sha(include_bytes!("../../tools/diagnostics/pre_swing_aim_seed2_frozen.json")),source_db_path:db_path,language,
             requested_rounds:rounds,completed_rounds:0,exclude_through_game_id:exclude,max_pitches,
-            selection:"next requested scheduled rounds; every unprocessed game, no outcome-based filtering".into(),games:Vec::new(),error:None } };
+            selection:"next requested scheduled rounds; every unprocessed game, no outcome-based filtering".into(),games:Vec::new(),round_plan:None,error:None } };
         recorder.save()?;Ok(recorder)
     }
     fn save(&self)->Result<()> {
@@ -131,6 +134,13 @@ impl RunRecorder {
         // First execution and replay both consume the exact persisted JSON bytes.
         Ok(serde_json::from_slice(&fs::read(self.output.join(format!("cases/game_{}.json",schedule.id)))?)?)
     }
+    pub fn set_round_plan(&mut self,plan:Vec<PlannedRound>)->Result<()> {
+        ensure!(self.manifest.games.is_empty()&&plan.len()==self.manifest.requested_rounds as usize,"round plan must be fixed before generation");
+        let ids=plan.iter().flat_map(|p|p.game_ids.iter().copied()).collect::<Vec<_>>();
+        let unique=ids.iter().copied().collect::<std::collections::BTreeSet<_>>();
+        ensure!(ids.len()==unique.len()&&ids.iter().all(|id|*id>self.manifest.exclude_through_game_id)&&plan.iter().all(|p|!p.game_ids.is_empty()),"invalid, duplicate or excluded round plan games");
+        self.manifest.round_plan=Some(plan);self.save()
+    }
     fn saved(&mut self,result:&GameResult)->Result<()> {
         let r=self.manifest.games.iter_mut().find(|g|g.game_id==result.id).context("unprepared saved game")?;
         r.result_sha256=Some(sha(&canonical(result)?));r.contacts_sha256=Some(contacts_sha256(&result.player_contact_states)?);
@@ -153,10 +163,19 @@ pub fn simulate_case(case:&GameCase)->Result<GameResult> {
 }
 
 pub fn process_run<R:GameRoundRepository>(repo:&mut R,recorder:&mut RunRecorder)->Result<()> {
+    process_run_with_prepare(repo,recorder,|_|Ok(()))
+}
+pub fn process_run_with_prepare<R:GameRoundRepository>(repo:&mut R,recorder:&mut RunRecorder,mut prepare:impl FnMut(usize)->Result<()>)->Result<()> {
     let result=(||->Result<()> {
-        for _ in 0..recorder.manifest.requested_rounds {
+        for index in 0..recorder.manifest.requested_rounds {
+            prepare(index as usize)?;
             let schedules=repo.load_game_schedules_to_process()?;
             ensure!(!schedules.is_empty(),"no scheduled games; no empty rounds accepted");
+            if let Some(plan)=recorder.manifest.round_plan.as_ref() {
+                let p=&plan[index as usize];let mut ids=schedules.iter().map(|s|s.id).collect::<Vec<_>>();ids.sort();
+                let mut expected=p.game_ids.clone();expected.sort();
+                ensure!(ids==expected&&schedules.iter().all(|s|s.season==p.season&&s.round_seq==p.round_seq),"schedule changed after preflight; refusing a different game population");
+            }
             // Prepare every input in the round before any result is generated or saved.
             let cases=schedules.iter().map(|s|recorder.begin(s)).collect::<Result<Vec<_>>>()?;
             for case in cases {
@@ -244,12 +263,24 @@ mod tests {
         fn update_current_round_seq(&mut self)->Result<usize,crate::error::AppError> { self.updated+=1;Ok(1) }
     }
     #[test]
+    fn changed_schedule_is_rejected_before_generating_or_saving_results() {
+        let path=folder();let schedule=crate::domain::test_support::game_schedule();
+        let mut repo=Repo {schedules:vec![schedule.clone()],saved:0,updated:0,fail:false,folder:path.clone()};
+        let mut run=RunRecorder::start(path.clone(),31,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
+        assert!(run.set_round_plan(vec![PlannedRound {season:schedule.season,round_seq:schedule.round_seq,game_ids:vec![]}]).is_err());
+        run.set_round_plan(vec![PlannedRound {season:schedule.season,round_seq:schedule.round_seq,game_ids:vec![schedule.id+1]}]).unwrap();
+        assert!(process_run(&mut repo,&mut run).unwrap_err().to_string().contains("schedule changed"));
+        assert_eq!((repo.saved,repo.updated),(0,0));assert!(run.manifest.games.is_empty());
+        assert_eq!(run.manifest.status,"failed");fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
     fn complete_and_failed_runs_never_silently_drop_games() {
         for fail in [false,true] {
             let path=folder();let mut schedule=crate::domain::test_support::game_schedule();schedule.max_inning=1;
             let mut second=schedule.clone();second.id=2;
             let mut repo=Repo {schedules:vec![schedule,second],saved:0,updated:0,fail,folder:path.clone()};
             let mut run=RunRecorder::start(path.clone(),31,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
+            run.set_round_plan(vec![PlannedRound {season:repo.schedules[0].season,round_seq:repo.schedules[0].round_seq,game_ids:vec![1,2]}]).unwrap();
             let result=process_run(&mut repo,&mut run);
             if fail { assert!(result.is_err());assert_eq!(run.manifest.status,"failed");assert_eq!(repo.updated,0); }
             else { assert!(result.is_ok(),"{result:?}");assert_eq!(run.manifest.status,"complete");assert_eq!(repo.saved,2);assert_eq!(repo.updated,1); }
