@@ -36,7 +36,12 @@ pub struct ContactStateInput {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IntentBatterContext { pub batter_id:i64, pub is_top:bool }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContactStateSnapshot {
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub intent_batter:Option<IntentBatterContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent_collision: Option<crate::domain::shared::intent_collision_response::IntentCollisionDiagnostics>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,6 +92,7 @@ pub fn snapshot(input: ContactStateInput) -> Result<ContactStateSnapshot, &'stat
         return Err("non_finite_derived_state");
     }
     Ok(ContactStateSnapshot {
+        intent_batter: None,
         intent_collision: None,
         execution_contact: None,
         observed_intent_plans: None,

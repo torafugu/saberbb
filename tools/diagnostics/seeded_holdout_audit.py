@@ -11,6 +11,7 @@ from diagnostic_db import db_from_env
 from execution_contact_posture import digest
 from batting_intent import FROZEN_POLICIES
 import rust_collision_response_audit as response
+from mixed_intent_profile import settings_for
 
 
 def derive_seed(master,game):
@@ -53,11 +54,12 @@ def load_run(folder):
         if case['engine_source_sha256']!=manifest['engine_source_sha256']:raise ValueError('mixed_engine_fingerprints')
         if case['build_sha256']!=manifest['build_sha256']:raise ValueError('mixed_build_fingerprints')
         if case['max_pitches']!=manifest['max_pitches']:raise ValueError('mixed_pitch_budgets')
-        if case['batting_settings']!=dict(away_strategy='let_batter_decide',home_strategy='let_batter_decide',player_preferences={}):
+        if case['batting_settings']!=settings_for(manifest.get('batting_profile','default'),case['schedule']):
             raise ValueError('holdout_strategy_changed')
         rounds.add((case['schedule']['season'],case['schedule']['round_seq']))
         if type(game['contact_states']) is not int or game['contact_states']<0:raise ValueError('invalid_contact_state_count')
-        expected[game_id]=dict(sha256=game['contacts_sha256'],count=game['contact_states'])
+        expected[game_id]=dict(sha256=game['contacts_sha256'],count=game['contact_states'],case=case,
+                               batting_profile=manifest.get('batting_profile','default'))
     if not expected or len(rounds)!=manifest['requested_rounds']:raise ValueError('holdout_round_population_mismatch')
     if manifest.get('round_plan') is not None:
         plan=manifest['round_plan'];planned={}

@@ -2,7 +2,7 @@
 use crate::domain::random_provider::RealRng;
 use crate::domain::shared::game::{GameResult,GameSchedule};
 use crate::domain::shared::contact_state::ContactStateRecord;
-use crate::domain::strategy::batting_strategy::BattingStrategySettings;
+use crate::domain::strategy::batting_strategy::{BattingStrategySettings,BattingStrategy,BattingPreferences,BattedBallIntent};
 use crate::repositories::game_repository::GameRoundRepository;
 use crate::domain::holdout_schedule::PlannedRound;
 use anyhow::{Result,Context,bail,ensure};
@@ -13,6 +13,23 @@ use std::{fs::{self,OpenOptions},io::Write,path::{Path,PathBuf}};
 pub const ENGINE: &str=env!("SABERBB_ENGINE_SOURCE_SHA256");
 pub const BUILD: &str=env!("SABERBB_BUILD_SHA256");
 pub const SOURCE: &str="seeded_intent_holdout_v1";
+fn default_profile()->String { "default".into() }
+pub fn settings_for(profile:&str,schedule:&GameSchedule)->Result<BattingStrategySettings> {
+    let mut settings=BattingStrategySettings::default();
+    if profile=="default" { return Ok(settings); }
+    ensure!(profile=="mixed-id-v1","unsupported batting profile");
+    // ID-only diagnostic assignments, independent of abilities, outcomes and RNG.
+    let strategy=|id:u16|match id%3 {0=>BattingStrategy::LetBatterDecide,1=>BattingStrategy::PutBallInPlay,_=>BattingStrategy::SeekLineDrive};
+    settings.away_strategy=strategy(schedule.away_team.id);settings.home_strategy=strategy(schedule.home_team.id);
+    for team in [&schedule.away_team,&schedule.home_team] {
+        for player in &team.players {
+            ensure!(player.info.id>0,"mixed profile requires persisted positive player IDs");
+            let preference=BattingPreferences {preferred_intent:if player.info.id%2==0 {BattedBallIntent::ContactFirst}else{BattedBallIntent::LineDrive}};
+            ensure!(settings.player_preferences.insert(player.info.id,preference).is_none(),"duplicate roster player ID");
+        }
+    }
+    Ok(settings)
+}
 pub fn derived_seed(master:u64,game_id:u32)->u64 {
     let mut h=Sha256::new();h.update(b"saberbb:holdout:v1\0");h.update(master.to_le_bytes());h.update(game_id.to_le_bytes());
     u64::from_le_bytes(h.finalize()[..8].try_into().unwrap())
@@ -64,6 +81,8 @@ pub struct CaseRecord {
 }
 #[derive(Clone,Debug,Serialize,Deserialize)]
 pub struct RunManifest {
+    #[serde(default="default_profile")]
+    pub batting_profile:String,
     pub version:u8,
     pub source:String,
     pub status:String,
@@ -97,7 +116,7 @@ impl RunRecorder {
         ensure!(rounds>0&&max_pitches>0&&max_pitches<65535,"invalid run rounds or pitch budget");
         fs::create_dir(&output).context("output directory must be new (no overwrite)")?;
         fs::create_dir(output.join("cases"))?;
-        let recorder=Self { output,manifest:RunManifest { version:1,source:SOURCE.into(),status:"running".into(),
+        let recorder=Self { output,manifest:RunManifest { batting_profile:default_profile(),version:1,source:SOURCE.into(),status:"running".into(),
             master_seed:seed.to_string(),seed_derivation:"SHA256(saberbb:holdout:v1\\0 + u64le(master) + u32le(game)); first 8 bytes u64le".into(),
             engine_source_sha256:ENGINE.into(),build_sha256:BUILD.into(),build_target:env!("SABERBB_BUILD_TARGET").into(),
             build_profile:env!("SABERBB_BUILD_PROFILE").into(),compiler:env!("SABERBB_BUILD_COMPILER").into(),
@@ -125,7 +144,7 @@ impl RunRecorder {
         ensure!(!self.manifest.games.iter().any(|g|g.game_id==schedule.id),"duplicate game in run");
         let seed=derived_seed(self.manifest.master_seed.parse()?,schedule.id);
         let case=GameCase { version:1,engine_source_sha256:ENGINE.into(),build_sha256:BUILD.into(),game_seed:seed.to_string(),
-            schedule:schedule.clone(),batting_settings:BattingStrategySettings::default(),max_pitches:self.manifest.max_pitches };
+            schedule:schedule.clone(),batting_settings:settings_for(&self.manifest.batting_profile,schedule)?,max_pitches:self.manifest.max_pitches };
         let file=format!("cases/game_{}.json",schedule.id);
         let hash=fresh_json(&self.output.join(&file),&case)?;
         self.manifest.games.push(CaseRecord { game_id:schedule.id,game_seed:seed.to_string(),input_file:file,input_sha256:hash,
@@ -140,6 +159,10 @@ impl RunRecorder {
         let unique=ids.iter().copied().collect::<std::collections::BTreeSet<_>>();
         ensure!(ids.len()==unique.len()&&ids.iter().all(|id|*id>self.manifest.exclude_through_game_id)&&plan.iter().all(|p|!p.game_ids.is_empty()),"invalid, duplicate or excluded round plan games");
         self.manifest.round_plan=Some(plan);self.save()
+    }
+    pub fn set_batting_profile(&mut self,profile:&str)->Result<()> {
+        ensure!(self.manifest.games.is_empty()&&["default","mixed-id-v1"].contains(&profile),"invalid or late batting profile");
+        self.manifest.batting_profile=profile.into();self.save()
     }
     fn saved(&mut self,result:&GameResult)->Result<()> {
         let r=self.manifest.games.iter_mut().find(|g|g.game_id==result.id).context("unprepared saved game")?;
@@ -211,6 +234,50 @@ pub fn replay(run_dir:&Path,game_id:u32)->Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mixed_profile_is_id_only_and_preserves_both_levels() {
+        let mut schedule=crate::domain::test_support::game_schedule();
+        for team_id in 1..=3 {
+            schedule.away_team.id=team_id;
+            let settings=settings_for("mixed-id-v1",&schedule).unwrap();
+            for id in [1,2] {
+                let decision=settings.decision(true,id);
+                assert_eq!(decision.preferences.preferred_intent,if id%2==0 {BattedBallIntent::ContactFirst}else{BattedBallIntent::LineDrive});
+                assert_eq!(decision.selected_intent,match team_id%3 {0=>decision.preferences.preferred_intent,1=>BattedBallIntent::ContactFirst,_=>BattedBallIntent::LineDrive});
+            }
+            schedule.away_team.players.reverse();
+            assert_eq!(canonical(&settings).unwrap(),canonical(&settings_for("mixed-id-v1",&schedule).unwrap()).unwrap());
+        }
+        assert!(settings_for("unknown",&schedule).is_err());
+        schedule.home_team.players[0].info.id=schedule.away_team.players[0].info.id;
+        assert!(settings_for("mixed-id-v1",&schedule).is_err());
+    }
+    #[test]
+    fn mixed_case_replays_and_does_not_change_live_results_or_rng() {
+        let path=folder();let mut run=RunRecorder::start(path.clone(),2026110503,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
+        run.set_batting_profile("mixed-id-v1").unwrap();
+        let mut schedule=crate::domain::test_support::game_schedule();schedule.max_inning=1;
+        let case=run.begin(&schedule).unwrap();assert!(run.set_batting_profile("default").is_err());
+        let mixed=simulate_case(&case).unwrap();
+        assert!(mixed.player_contact_states.iter().any(|r|r.state.is_some()));
+        for r in &mixed.player_contact_states {
+            if let Some(state)=&r.state {
+                let context=state.intent_batter.as_ref().unwrap();
+                let team=if context.is_top {&schedule.away_team}else{&schedule.home_team};
+                assert!(team.players.iter().any(|p|p.info.id==context.batter_id));
+                if let Some(observed)=&state.observed_intent_plans {
+                    assert_eq!(canonical(&observed.decision).unwrap(),canonical(&case.batting_settings.decision(context.is_top,context.batter_id)).unwrap());
+                }
+            }
+        }
+        let mut baseline=case.clone();baseline.batting_settings=BattingStrategySettings::default();
+        let mut a=serde_json::to_value(&mixed).unwrap();let mut b=serde_json::to_value(simulate_case(&baseline).unwrap()).unwrap();
+        a.as_object_mut().unwrap().remove("player_contact_states");b.as_object_mut().unwrap().remove("player_contact_states");
+        assert_eq!(a,b);
+        run.saved(&mixed).unwrap();run.manifest.completed_rounds=1;run.complete().unwrap();
+        assert_eq!(replay(&path,schedule.id).unwrap(),sha(&canonical(&mixed).unwrap()));
+        fs::remove_dir_all(path).unwrap();
+    }
     fn folder()->PathBuf {
         let id=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         std::env::temp_dir().join(format!("saberbb-seeded-{}-{id}",std::process::id()))

@@ -130,6 +130,11 @@ metadataのsource_metadataへseed・生成証跡・応答のcoverageを含める
 同じ監査キャッシュで、監督3種類×打者選好2種類と記録済み選択を比較できる。
 狙い・係数は固定し、接触結果を選択入力にしない。実行方法と分母は[選択方針の評価](intent_selection_policy.md)を参照。
 
+## 5. 監督・打者の設定を混在させて追跡する
+
+`--batting-profile mixed-id-v1`で、チームIDによる監督指示と選手IDによる打者選好を生成前に固定できる。
+[混在診断](mixed_batter_intent.md)に、新しいseedでの実行と打者別の選択・上書き理由の監査を示す。
+
 ## DBなしで一つの試合を再実行する
 
 ```sh
