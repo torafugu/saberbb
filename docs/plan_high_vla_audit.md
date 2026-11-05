@@ -79,3 +79,8 @@ bandは下端を含み上端を含まない。接触がない場合や局所座�
 - `plan_high_vla_metadata.json`
 
 transitionsは詳細確認が必要になった場合に使う。大きい元states JSONLやStatcast CSVの再共有は不要。
+
+## 次の段階
+
+スイング前の予測情報だけで打球意図に応じた上下の狙いを選ぶ比較は、
+[予測に基づく診断戦略](pre_swing_aim_policy.md)を参照。事後の接触情報やStatcastへの構成比フィットから分けて評価する。
