@@ -125,6 +125,11 @@ python3 tools/diagnostics/rust_intent_game_bootstrap.py --input-dir ../saberbb_h
 metadataのsource_metadataへseed・生成証跡・応答のcoverageを含める。
 必要時には監査フォルダの4ファイルやmanifestも個別追跡に使う。全選手を含むcaseファイルは通常の共有には不要。
 
+## 4. 監督・打者の選択方針を比較する
+
+同じ監査キャッシュで、監督3種類×打者選好2種類と記録済み選択を比較できる。
+狙い・係数は固定し、接触結果を選択入力にしない。実行方法と分母は[選択方針の評価](intent_selection_policy.md)を参照。
+
 ## DBなしで一つの試合を再実行する
 
 ```sh
