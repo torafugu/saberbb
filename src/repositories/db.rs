@@ -272,7 +272,7 @@ impl DbClient {
     }
 }
 
-/// Run the schema and seed scripts against the configured database.
+/// Run the schema and seed scripts and import name CSVs into the configured database.
 pub fn setup() -> Result<()> {
     let mut conn = SqlDb::new()?.get_conn()?;
     setup_database(&mut conn, Path::new("migrations"))
@@ -302,7 +302,41 @@ fn setup_database(conn: &mut Connection, migrations_dir: &Path) -> Result<()> {
                 .with_context(|| format!("Failed to execute {}", path.display()))?;
         }
     }
+    for (table, columns) in [
+        (
+            "first_names",
+            &["id", "name", "reading", "gender", "country"][..],
+        ),
+        ("last_names", &["id", "name", "reading", "country"][..]),
+    ] {
+        let path = migrations_dir.join("data").join(format!("{table}.csv"));
+        import_names(&tx, &path, table, columns)
+            .with_context(|| format!("Failed to import {}", path.display()))?;
+    }
     tx.commit()?;
+    Ok(())
+}
+
+fn import_names(conn: &Connection, path: &Path, table: &str, columns: &[&str]) -> Result<()> {
+    let mut reader = csv::Reader::from_path(path)?;
+    anyhow::ensure!(
+        reader.headers()?.iter().eq(columns.iter().copied()),
+        "Expected CSV headers: {}",
+        columns.join(",")
+    );
+    let placeholders = vec!["?"; columns.len()].join(", ");
+    let mut stmt = conn.prepare(&format!(
+        "INSERT INTO {table} ({}) VALUES ({placeholders})",
+        columns.join(", ")
+    ))?;
+    let mut record = csv::StringRecord::new();
+    let mut count = 0_u64;
+    while reader.read_record(&mut record)? {
+        stmt.execute(rusqlite::params_from_iter(record.iter()))
+            .with_context(|| format!("Failed to insert CSV record {}", count + 1))?;
+        count += 1;
+    }
+    info!(file = %path.display(), rows = count, "Imported name CSV");
     Ok(())
 }
 
@@ -324,6 +358,8 @@ mod setup_tests {
             ("team", 6),
             ("stadium", 1),
             ("game_season", 1),
+            ("first_names", 982864),
+            ("last_names", 1568170),
         ] {
             let count: i64 = conn
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
@@ -342,6 +378,95 @@ mod setup_tests {
         }
         conn.prepare("SELECT * FROM player_info, player_game_batting, player_game_pitching")
             .unwrap();
+        let first: (String, String, String, String) = conn
+            .query_row(
+                "SELECT name, reading, gender, country FROM first_names WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            first,
+            ("亜々久".into(), "ああく".into(), "M".into(), "jp".into())
+        );
+        let last: (String, String, String) = conn
+            .query_row(
+                "SELECT name, reading, country FROM last_names WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(last, ("亜雁".into(), "あかり".into(), "jp".into()));
+    }
+
+    #[test]
+    fn setup_imports_quoted_csv_and_rolls_back_on_import_failure() {
+        let dir = std::env::temp_dir().join(format!(
+            "saberbb-name-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for subdir in ["ddl", "dml", "data"] {
+            fs::create_dir_all(dir.join(subdir)).unwrap();
+        }
+        for table in ["first_names", "last_names"] {
+            let file = format!("{table}_table.sql");
+            fs::copy(
+                migrations_dir().join("ddl").join(&file),
+                dir.join("ddl").join(file),
+            )
+            .unwrap();
+        }
+        fs::write(
+            dir.join("data/first_names.csv"),
+            "id,name,reading,gender,country\r\n7,\"Name, With \"\"Quotes\"\"\",,M,us\r\n",
+        )
+        .unwrap();
+        let last_path = dir.join("data/last_names.csv");
+        let valid_last = "id,name,reading,country\n9,亜雁,あかり,jp\n";
+        fs::write(&last_path, valid_last).unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
+        // Repeated setup resets the tables without duplicating names.
+        for _ in 0..2 {
+            setup_database(&mut conn, &dir).unwrap();
+            let name: (i64, String, String) = conn
+                .query_row("SELECT id, name, reading FROM first_names", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .unwrap();
+            assert_eq!(name, (7, "Name, With \"Quotes\"".into(), "".into()));
+        }
+        conn.execute("UPDATE first_names SET name = 'Original'", [])
+            .unwrap();
+        for invalid in [
+            Some("wrong,headers\n1,Name\n"),
+            Some("id,name,reading,country\n9,Name,,us\n10,Missing\n"),
+            Some("id,name,reading,country\n9,Name,,us\n9,Duplicate,,us\n"),
+            None,
+        ] {
+            match invalid {
+                Some(csv) => fs::write(&last_path, csv).unwrap(),
+                None => fs::remove_file(&last_path).unwrap(),
+            }
+            let err = setup_database(&mut conn, &dir).unwrap_err();
+            assert!(err.to_string().contains("last_names.csv"));
+            let name: String = conn
+                .query_row("SELECT name FROM first_names WHERE id = 7", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(name, "Original");
+            let name: String = conn
+                .query_row("SELECT name FROM last_names WHERE id = 9", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(name, "亜雁");
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

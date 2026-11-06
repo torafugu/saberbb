@@ -174,7 +174,7 @@ fn schedule_games(num_of_schedules: u8) -> Result<()> {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Recreate database tables and load seed data from migrations/ddl and migrations/dml
+    /// Recreate database tables and load SQL seeds and name CSVs from migrations
     #[arg(long)]
     setup: bool,
 

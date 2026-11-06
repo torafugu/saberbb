@@ -1,0 +1,3 @@
+hla_version,adjusted_contact_type,discrepancy,launch_direction,final_direction,outbound_result,result,fielding_coverage,selection_path,catch_type,error_type,catch_fielder_position,resolution_hint,fly_boundary_status,contacts,first_game_id,last_game_id
+2,MarginalContact,launch_foul_non_foul_result,backward,fair,InField,Out,recorded,final_pickup,FinalPickup,,C,fair_or_missing_fly_diagnostics,not_direct_fly,1,23689,23689
+2,WeakContact,launch_foul_non_foul_result,foul_side,fair,HomeRun,HomeRun,missing_row,,,,,outbound_home_run,not_direct_fly,1,23689,23689

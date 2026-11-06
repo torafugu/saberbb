@@ -1,0 +1,5 @@
+count_group,zone_group,consistency,swings,explicit_swing_records,missing_timing_records
+before_two_strikes,in_zone,consistent,31877,31877,0
+before_two_strikes,outside_zone,consistent,17120,17120,0
+two_strikes,in_zone,consistent,18341,18341,0
+two_strikes,outside_zone,consistent,8651,8651,0

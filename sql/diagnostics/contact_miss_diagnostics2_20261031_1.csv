@@ -1,0 +1,5 @@
+geometry_group,swings,whiffs,pct_of_swings,avg_abs_timing_ms,avg_abs_timing_impact_cm,avg_abs_horizontal_cm,avg_abs_vertical_cm
+both_exceeded,22548,22548,29.67,18.166,60.393,3.17,3.203
+length_only,1507,1507,1.98,7.197,23.824,2.192,3.551
+thickness_only,8655,8655,11.39,4.306,14.299,1.045,0.85
+within_limits,43279,0,56.95,1.366,4.531,0.403,0.421

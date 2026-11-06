@@ -1,0 +1,7 @@
+adjusted_contact_type,hla_handedness_sign,contacts,avg_abs_approach_deg,avg_abs_pull_deg,avg_abs_timing_deg,avg_abs_original_timing_deg,avg_abs_rebound_deg,avg_signed_timing_deg,avg_signed_rebound_deg,rebound_clamped_contacts,launch_foul_directions,result_fouls,original_timing_foul_directions
+MarginalContact,-1.0,433,3.366,3.459,33.046,5.849,21.791,-1.489,-0.318,406,185,177,1
+MarginalContact,1.0,1483,3.263,3.293,33.282,5.892,21.74,0.028,-0.089,1377,672,643,3
+SolidContact,-1.0,3875,3.22,3.311,1.317,1.317,4.815,0.013,0.003,131,0,0,0
+SolidContact,1.0,10469,3.311,3.319,1.416,1.416,5.083,-0.026,-0.078,395,0,0,0
+WeakContact,-1.0,1526,3.316,3.371,3.637,3.637,15.405,0.12,0.436,510,2,2,2
+WeakContact,1.0,5099,3.304,3.301,3.698,3.698,15.358,-0.073,-0.267,1659,2,2,2

@@ -1,0 +1,5 @@
+timing_scale,swings,possible_contacts,contact_pct,recovered_contacts,lost_contacts,baseline_mismatches
+1.0,36153,20574,56.91,0,0,0
+0.75,36153,23102,63.9,2528,0,0
+0.5,36153,26014,71.96,5443,3,0
+0.0,36153,35249,97.5,14771,96,0

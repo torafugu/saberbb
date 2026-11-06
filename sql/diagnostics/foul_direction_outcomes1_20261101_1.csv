@@ -1,0 +1,4 @@
+hla_version,adjusted_contact_type,contacts,launch_foul_directions,launch_backward_directions,final_foul_directions,result_fouls,launch_foul_non_foul_results,launch_fair_foul_results,missing_fielding_rows,missing_catch_diagnostics,unknown_directions
+2,MarginalContact,2312,2232,2118,1007,1007,1227,2,1013,0,0
+2,SolidContact,16592,11,0,12,12,1,2,1840,0,0
+2,WeakContact,8339,5512,1245,5506,5502,46,36,5802,0,0

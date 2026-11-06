@@ -42,8 +42,11 @@ cargo run -- --setup
 ```
 
 This runs all `.sql` files in `migrations/ddl` followed by `migrations/dml`,
-in filename order within each directory, in a single transaction. If a script
-fails, the changes are rolled back. The scripts recreate tables and reset their
+in filename order within each directory, then imports `migrations/data/first_names.csv`
+and `migrations/data/last_names.csv` into their respective tables, preserving IDs
+and all CSV fields. Both CSV files are required. Everything runs in a single
+transaction; if a script or import fails, the changes are rolled back.
+The scripts recreate tables and reset their
 data, so use this command for a fresh database or an intentional reset. Setup
 runs before any other options supplied in the same invocation.
 

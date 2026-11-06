@@ -1,0 +1,3 @@
+cohort,pitches,plate_appearances,strikeouts,k_pct,swings,contact_pct,contacts,foul_pct_of_contacts,avg_ev_ms,avg_vla_deg,applied_scales
+after,83997,33216,8542,25.72,42382,64.28,27243,23.94,38.201,10.553,0.75
+before,74017,32203,6586,20.45,36189,63.24,22885,3.6,38.663,10.489,0.75

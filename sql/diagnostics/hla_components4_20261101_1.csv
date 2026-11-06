@@ -1,0 +1,5 @@
+current_direction,original_timing_direction,contacts,avg_abs_timing_component_change_deg
+fair_direction,fair_direction,1058,36.859
+fair_direction,foul_direction,1,34.515
+foul_direction,fair_direction,854,28.305
+foul_direction,foul_direction,3,29.49

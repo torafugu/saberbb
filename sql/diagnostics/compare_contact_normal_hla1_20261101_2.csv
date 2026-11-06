@@ -1,0 +1,7 @@
+cohort,hla_version,adjusted_contact_type,contacts,result_fouls,foul_pct,launch_foul_direction_pct,avg_ev_ms,avg_vla_deg,hits,home_runs
+after,2,MarginalContact,2591,2490,96.1,97.38,5.567,10.667,15,4
+after,2,SolidContact,17295,19,0.11,0.12,46.135,9.882,10059,1719
+after,2,WeakContact,8616,5759,66.84,67.03,31.227,10.677,1759,247
+before,2,MarginalContact,2312,1007,43.56,96.54,5.953,11.323,17,4
+before,2,SolidContact,16592,12,0.07,0.07,46.11,10.277,9945,1817
+before,2,WeakContact,8339,5502,65.98,66.1,31.405,10.889,1713,287
