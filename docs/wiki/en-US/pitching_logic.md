@@ -28,17 +28,13 @@ Collect the pitching result into `PitchedBall`.
 
 $$\text{spin\_dir} = (360.0 - \text{spin\_dir})\bmod 360.0$$
 
-## 2.2 pitch calling
+## 2.2 Pitch decision and execution
 
-Determine the pitch type and location.
+Live `process_count` selects a situational Strategy and generates separate Preferences from PitcherCharacter and catcher calling_style.
+A shared `PitchEvaluationContext` produces pitcher proposals (up to 3 pitch types and 2 locations) and catcher proposals (up to 4). Both sides reevaluate their union; weight 0.5 selects the PitchCall executed by `create_pitch_for_call`. No valid candidate raises NoPitchCall.
+The previous call persists within a plate appearance and resets for the next batter. See [pitch-call reconciliation](pitch_call_decision.md).
 
-#### Pitch Type
-
-Determined from the pitcher's probability distribution by pitch type.
-
-#### Location
-
-Determined from the default probability distribution by location.
+The old distribution-sampling `create_pitch` remains as a wrapper and is used for the expected pitch. It is not the live actual-pitch selection pipeline.
 
 ## 2.3 calculate_release_point
 
@@ -78,22 +74,7 @@ $$\text{HAA}_{\text{perceived}} = \text{HAA}_{\text{physical}} \times \text{Unfa
 
 # 4. calculate_location_bias
 
-Calculate the batter's predicted landing-point gap and timing gap caused by pitch location.
-
-#### Timing Bias
-
-- Inside: up to +12 ms
-- Outside: up to -10 ms
-
-#### X-Axis Bias
-
-- Inside: jammed contact (-)
-- Outside: barrel-end contact (+)
-
-#### Y-Axis Bias
-
-- High: hit the top of the ball (-)
-- Low: hit the bottom of the ball (+)
+Additional timing, horizontal and vertical location biases are all currently zero. The former inside +12ms/outside −10ms and location-proportional spatial offsets are inactive. Movement mismatch, crossfire, release width and perception errors remain separate active terms.
 
 # 5. calculate_pitch_offset
 
@@ -122,3 +103,7 @@ $$\text{enhanced\_timing\_offset} = \text{timing\_offset} + \text{location\_bias
 2. Calculate the horizontal movement distance.
 3. Calculate the vertical movement distance.
 - Include the effect of gravity.
+
+## Timing perception and ability
+
+`calculate_timing_offset` attenuates flight-time differences and perception noise with `1-sigmoid(batting_eye)`: higher batting_eye reduces error. Contact adaptation separately uses `1-sigmoid(bat_control)`; see [batting logic](batting_logic.md).

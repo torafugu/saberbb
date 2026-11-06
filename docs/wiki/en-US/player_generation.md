@@ -21,7 +21,7 @@ The CLI player-generate mode in `src/main.rs` creates a `PlayerFactory`, calls `
 5. Generate `DefenseSkills` and attach the corresponding fielding, catching, or pitching info.
 6. Generate `BatterInfo` for non-pitcher primary positions; primary pitchers currently get `None`.
 7. Generate `RunningSkills` for every player.
-8. Return a nested `Player { info, offense_skills, defense_skills }`.
+8. Return a nested `Player { info, offense_skills, defense_skills, batting_character }`.
 
 ## Probability Loading
 
@@ -192,3 +192,13 @@ Generated players are saved by `SqlPlayerRepository::insert_player()` in one tra
 | `fielder_info` | One row per generated defensive skill group; includes throw speed, running speed, reaction, prep time, catching, reach height, and reach range. |
 | `pitcher_info` | Present only when `defense_skills.pitcher` is `Some`; includes pitcher-level spin rate and consistency. |
 | `pitch_skill` | One row per generated pitch skill for pitchers. |
+
+## Current personality and spin additions
+
+- `Player.batting_character` starts as Balanced without consuming another random draw. It is not inferred from IDs or abilities and is saved in `player_batting_character` in the player transaction.
+- `CatcherInfo.calling_style` is sampled from configured weights loaded by `load_catcher_info_probs()` and persisted in `catcher_info`.
+- `PitcherInfo.pitcher_character` is sampled from configured weights and saved in `pitcher_info`.
+- Finite pitch-level spin_efficiency samples are clamped to 0–1; nonfinite samples fail generation.
+- PlayerFactory does not automatically generate managers; people and assignments are configured independently.
+
+See [batting strategy and managers](batting_strategy.md) for compatibility, additive migration and assignment. Current `--setup` imports both `migrations/data/first_names.csv` and `last_names.csv`; both are required. Setup recreates data and is not the personnel upgrade path for an existing database.

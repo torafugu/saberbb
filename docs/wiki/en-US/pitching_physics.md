@@ -161,56 +161,20 @@ $$y_{\text{actual}} = \frac{1}{2} a t_f^2$$
 
 $$\text{spacial\_offset\_y} = y_{\text{actual}} - y_{\text{predicted}} = \frac{1}{2} a (t_f - t_d)^2$$
 
-### Timing Gap
+### Timing error in the current implementation
 
-$$\Delta t = t_{\text{actual}} - t_{\text{expected}}$$
+`calculate_timing_offset` defines positive as late and negative as early:
 
-- $t_{\text{actual}}$: actual ball passing time
-- $t_{\text{expected}}$: batter's predicted time
-- $\Delta t > 0$: late swing
-  - The ball arrived earlier than expected, or the batter started the swing late.
-- $\Delta t < 0$: fooled out front
-  - The ball arrived later than expected, or the batter started the swing early.
+```text
+timing_offset = (expected_flight_time - actual_flight_time)
+              * (1-sigmoid(batting_eye))
+              * min(actual_speed/base_four_seam_speed, 1)
+```
 
-#### Cause of Gap 1: Stride Distance
+Release-distance perception has approximately 1% noise; additional predicted-distance perception error is attenuated by batting_eye.
+All timing/horizontal/vertical terms in current `calculate_location_bias` are zero. Fixed inside/outside/high/low biases and additional bias amplification from actual-versus-expected location distance are inactive.
+See [batting logic](batting_logic.md) for bat_control adaptation before contact.
 
-$$\Delta t_{\text{extension}} = \frac{18.44 - \text{extension}}{v_{\text{avg}}} - \frac{18.44 - \text{std\_extension}}{v_{\text{avg}}}$$
+### Separate diagnostic forecast updates
 
-- Example:
-  - If the release point's Y extension is 2.1 m, the ball arrives about 6 ms earlier than it would from a pitcher with 1.85 m of extension.
-
-#### Cause of Gap 2: Difference from the Batter's Predicted Pitch Velocity
-
-- Perceived velocity of a fastball
-  - When extension is long and spin rate is high, perceived velocity becomes faster than the batter's predicted velocity, causing $\Delta t > 0$ (late swing).
-
-- Speed differential from a changeup or forkball
-  - If a slower changeup or forkball comes from the same delivery as a fastball, it causes $\Delta t < 0$ (fooled out front).
-
-#### Cause of Gap 3: Vertical Movement
-
-- Dropping pitches (forkball/curveball)
-  - Vertical movement shifts the timing at which the ball passes through the intersection between the bat path and ball path.
-
-#### Cause of Gap 4: Pitch Location
-
-| Location | Impact point | Effect | Mechanism |
-| ---- | ---- | ---- | ---- |
-| Inside | Out front | $+\Delta t$ (late swing) | The ball arrives before the bat head turns through, reducing reaction time. |
-| Outside | Deep | $-\Delta t$ (fooled out front) | The batter lets the ball travel before hitting it, increasing reaction time. |
-| High | Slightly out front | $+\Delta t$ (late swing) | The pitch is off the shortest route of the swing path, delaying swing initiation. |
-| Low | Slightly deep | $-\Delta t$ (fooled out front) | The swing path follows gravity more naturally, making it easier to let the ball travel. |
-
-**Effect of the Batter's Location Prediction**
-
-$$\Delta \text{Loc} = \text{Loc}_{\text{actual}} - \text{Loc}_{\text{expected}}$$
-
-- $\text{Loc}_{\text{actual}}$: actual location
-- $\text{Loc}_{\text{expected}}$: batter's predicted location
-- $\Delta \text{Loc}$: prediction error
-  - If the actual location is close to the prediction, the location bias is reduced; if it is far from the prediction, the bias is amplified.
-
-
-
-
-
+The above describes the live approximation using expected pitches and movement differences. Updating a forecast from saved observation history to generate Intent plans is a separate diagnostic path and does not replace live perception/contact. See [observation updates](../../observation_updated_swing_plan.md) and [diagnostics](diagnostics.md).

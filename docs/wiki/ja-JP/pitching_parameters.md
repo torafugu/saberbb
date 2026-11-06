@@ -195,3 +195,8 @@
 | `HighInside` | `0.2` |
 
 現在、生成されるすべての `PitchCall` は `Margin::Edge` を使用します。利用可能なターゲットゾーンは `Center`（中央）、`LowInside`（低め内角）、`LowOutside`（低め外角）、`HighInside`（高め内角）、`HighOutside`（高め外角）です。
+
+## 現行の配球と回転入力
+
+通常の実投球はusage単独抽選ではなく、Strategy→投手／捕手Preferences→候補の和集合再評価→PitchCall→create_pitch_for_callで決定する。[配球統合](pitch_call_decision.md)を参照。usage分布は共通評価と旧サンプリングAPIにも残る。
+生成時のspin_efficiencyは有限値を0〜1へclampし、非有限値を拒否する。診断で既存の不正な回転をゼロへ置換せず、理由・元の投球キーを報告する。
