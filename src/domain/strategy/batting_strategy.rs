@@ -56,12 +56,19 @@ impl Default for BattingPreferences {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BattingStrategySettings {
+    #[serde(default,skip_serializing_if="BattingDecisionSource::is_fixed")]
+    pub decision_source:BattingDecisionSource,
     pub away_strategy: BattingStrategy,
     pub home_strategy: BattingStrategy,
     pub player_preferences: std::collections::BTreeMap<i64, BattingPreferences>,
 }
+#[derive(Clone,Copy,Debug,Default,PartialEq,Eq,Serialize,Deserialize)]
+#[serde(rename_all="snake_case")]
+pub enum BattingDecisionSource { #[default] FixedOverrides,PlayerAndManager }
+impl BattingDecisionSource {fn is_fixed(&self)->bool {*self==Self::FixedOverrides}}
 
 impl BattingStrategySettings {
+    pub fn player_driven()->Self {Self {decision_source:BattingDecisionSource::PlayerAndManager,..Self::default()}}
     pub fn decision(&self, is_top: bool, batter_id: i64) -> BattingIntentDecision {
         let strategy = if is_top { self.away_strategy } else { self.home_strategy };
         decide_batting_intent(strategy, self.player_preferences.get(&batter_id).copied().unwrap_or_default())

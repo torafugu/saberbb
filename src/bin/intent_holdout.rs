@@ -23,7 +23,7 @@ enum Command {
         /// Schedule missing future seasons and align the cursor to the predeclared pending rounds.
         #[arg(long)] prepare_schedule:bool,
         /// Diagnostic assignments from team/player IDs; frozen in the manifest before generation.
-        #[arg(long,default_value="default",value_parser=["default","mixed-id-v1"])] batting_profile:String,
+        #[arg(long,default_value="default",value_parser=["default","mixed-id-v1","player-context-v1"])] batting_profile:String,
         /// Explicit team objectives/player preferences, copied and hashed before generation.
         #[arg(long,conflicts_with="batting_profile")] batting_config:Option<PathBuf>,
     },

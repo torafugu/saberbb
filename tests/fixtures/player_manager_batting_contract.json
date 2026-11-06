@@ -1,0 +1,1045 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": null
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "tendencies": {
+          "contact_priority": 0.8,
+          "line_drive_priority": 0.2,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.7272727272727273,
+          "line_drive_weight": 0.27272727272727276,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": null,
+        "instruction": {
+          "strategy": "let_batter_decide",
+          "reason": "no_manager"
+        },
+        "decision": {
+          "strategy": "let_batter_decide",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "contact_first",
+          "reason": "batter_preference"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "tendencies": {
+          "contact_priority": 0.8,
+          "line_drive_priority": 0.2,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.8333333333333334,
+          "line_drive_weight": 0.16666666666666669,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": true,
+          "runner_advancement": false,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        },
+        "instruction": {
+          "strategy": "put_ball_in_play",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "put_ball_in_play",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "contact_first",
+          "reason": "manager_contact_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "tendencies": {
+          "contact_priority": 0.8,
+          "line_drive_priority": 0.2,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.8181818181818181,
+          "line_drive_weight": 0.18181818181818182,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": false,
+          "runner_advancement": true,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "contact_oriented",
+        "tendencies": {
+          "contact_priority": 0.8,
+          "line_drive_priority": 0.2,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.7272727272727273,
+          "line_drive_weight": 0.27272727272727276,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "run_production"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": null
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "tendencies": {
+          "contact_priority": 0.2,
+          "line_drive_priority": 0.8,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.18181818181818182,
+          "line_drive_weight": 0.8181818181818181,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": null,
+        "instruction": {
+          "strategy": "let_batter_decide",
+          "reason": "no_manager"
+        },
+        "decision": {
+          "strategy": "let_batter_decide",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "batter_preference"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "tendencies": {
+          "contact_priority": 0.2,
+          "line_drive_priority": 0.8,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.3333333333333333,
+          "line_drive_weight": 0.6666666666666666,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": true,
+          "runner_advancement": false,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        },
+        "instruction": {
+          "strategy": "put_ball_in_play",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "put_ball_in_play",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "contact_first",
+          "reason": "manager_contact_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "tendencies": {
+          "contact_priority": 0.2,
+          "line_drive_priority": 0.8,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.27272727272727276,
+          "line_drive_weight": 0.7272727272727273,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": true,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "line_drive_oriented",
+        "tendencies": {
+          "contact_priority": 0.2,
+          "line_drive_priority": 0.8,
+          "adaptability": 0.4
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.18181818181818182,
+          "line_drive_weight": 0.8181818181818181,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "run_production"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "adaptive",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": null
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "adaptive",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 1.0
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.4,
+          "line_drive_weight": 0.6,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": null,
+        "instruction": {
+          "strategy": "let_batter_decide",
+          "reason": "no_manager"
+        },
+        "decision": {
+          "strategy": "let_batter_decide",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "batter_preference"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "adaptive",
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "adaptive",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 1.0
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.6666666666666666,
+          "line_drive_weight": 0.3333333333333333,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": true,
+          "runner_advancement": false,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        },
+        "instruction": {
+          "strategy": "put_ball_in_play",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "put_ball_in_play",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "contact_first",
+          "reason": "manager_contact_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "adaptive",
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "adaptive",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 1.0
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.6,
+          "line_drive_weight": 0.4,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": false,
+          "runner_advancement": true,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "adaptive",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "adaptive",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 1.0
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.4,
+          "line_drive_weight": 0.6,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "run_production"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "balanced",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": null
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "balanced",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 0.5
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.4444444444444444,
+          "line_drive_weight": 0.5555555555555556,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": null,
+        "instruction": {
+          "strategy": "let_batter_decide",
+          "reason": "no_manager"
+        },
+        "decision": {
+          "strategy": "let_batter_decide",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "batter_preference"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "balanced",
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "balanced",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 0.5
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 2,
+          "outs": 1,
+          "runners": [
+            false,
+            false,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.6,
+          "line_drive_weight": 0.4,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": true,
+          "runner_advancement": false,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 41,
+          "name": "Manager 1",
+          "batting_policy": "put_ball_in_play"
+        },
+        "instruction": {
+          "strategy": "put_ball_in_play",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "put_ball_in_play",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "contact_first",
+          "reason": "manager_contact_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "balanced",
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "balanced",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 0.5
+        },
+        "situation": {
+          "balls": 0,
+          "strikes": 1,
+          "outs": 0,
+          "runners": [
+            false,
+            false,
+            true
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.5555555555555556,
+          "line_drive_weight": 0.4444444444444444,
+          "preferred_intent": "contact_first",
+          "two_strike_protection": false,
+          "runner_advancement": true,
+          "production_opportunity": false
+        },
+        "manager": {
+          "id": 42,
+          "name": "Manager 2",
+          "batting_policy": "seek_line_drive"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "standing_order"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "contact_first"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    },
+    {
+      "input": {
+        "batter_id": 7,
+        "character": "balanced",
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        }
+      },
+      "expected": {
+        "version": 1,
+        "source": "player_manager_batting_v1",
+        "batter_id": 7,
+        "character": "balanced",
+        "tendencies": {
+          "contact_priority": 0.5,
+          "line_drive_priority": 0.5,
+          "adaptability": 0.5
+        },
+        "situation": {
+          "balls": 2,
+          "strikes": 0,
+          "outs": 2,
+          "runners": [
+            false,
+            true,
+            false
+          ]
+        },
+        "preferences": {
+          "contact_weight": 0.4444444444444444,
+          "line_drive_weight": 0.5555555555555556,
+          "preferred_intent": "line_drive",
+          "two_strike_protection": false,
+          "runner_advancement": false,
+          "production_opportunity": true
+        },
+        "manager": {
+          "id": 43,
+          "name": "Manager 3",
+          "batting_policy": "situational"
+        },
+        "instruction": {
+          "strategy": "seek_line_drive",
+          "reason": "run_production"
+        },
+        "decision": {
+          "strategy": "seek_line_drive",
+          "preferences": {
+            "preferred_intent": "line_drive"
+          },
+          "selected_intent": "line_drive",
+          "reason": "manager_line_drive_priority"
+        }
+      }
+    }
+  ]
+}

@@ -88,7 +88,7 @@ impl DiagnosticBattingConfig {
     pub fn settings(&self,schedule:&GameSchedule)->Result<BattingStrategySettings> {
         self.validate()?;
         let objective=|id|self.team_strategies.iter().find(|t|t.team_id==id).map(|t|t.strategy).unwrap_or(self.default_strategy);
-        let mut settings=BattingStrategySettings {away_strategy:objective(schedule.away_team.id),home_strategy:objective(schedule.home_team.id),player_preferences:Default::default()};
+        let mut settings=BattingStrategySettings {decision_source:Default::default(),away_strategy:objective(schedule.away_team.id),home_strategy:objective(schedule.home_team.id),player_preferences:Default::default()};
         for team in [&schedule.away_team,&schedule.home_team] {
             for p in &team.players {
                 ensure!(p.info.id>0,"configured diagnostic requires positive roster player IDs");

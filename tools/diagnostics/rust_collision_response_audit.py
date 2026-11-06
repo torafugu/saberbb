@@ -166,12 +166,13 @@ def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
             if actual!=expected['sha256'] or hash_counts[game]!=expected['count']:
                 raise ValueError('seeded_contact_provenance_mismatch:'+str(game))
     if not coverage['states']:raise ValueError('no_contact_state_rows_in_range')
+    for key,value in batter_audit.checks.items():checks[key]=max(checks[key],value)
     metadata=dict(version=1,status='matched_available_rust_collision_responses' if coverage['matched_plans'] else 'no_comparable_rust_collision_responses',
         first_game_id=first,last_game_id=last,db_path=str(db_path),coverage=dict(coverage),model=collision.MODEL,
         cache_kind='rust_response_parity_v1',batter_decision_coverage=dict(batter_audit.coverage),
         batter_decision_scope='valid saved swing states only; expected decisions from frozen case rosters/settings; absent observed decisions remain unverified',
         model_parameters=dict(axial_inertia_kg_m2=collision.AXIAL_INERTIA,mu=collision.MU,et=collision.ET,bat=collision.profile.metadata()),
-        inputs={str(p):digest(p) for p in [FROZEN_POLICIES,Path(__file__),Path(collision.__file__),*[Path(__file__).with_name(n) for n in ('finite_barrel_collision.py','bat_vibration_profile.py','contact_spin.py','mixed_intent_profile.py')]]},
+        inputs={str(p):digest(p) for p in [FROZEN_POLICIES,Path(__file__),Path(collision.__file__),*[Path(__file__).with_name(n) for n in ('finite_barrel_collision.py','bat_vibration_profile.py','contact_spin.py','mixed_intent_profile.py','player_manager_batting.py')]]},
         db_access='single_read_only_transaction_for_states_and_spin',new_searches=coverage['replayed_searches'],
         selected_game_ids=sorted(game_ids) if game_ids is not None else None,
         provenance_games_verified=len(expected_contacts) if expected_contacts is not None else 0,
@@ -183,7 +184,7 @@ def run(db_path,first,last,output,game_ids=None,expected_contacts=None):
             'An independent-seed holdout remains pending; keep this parity sample separate from subsequent evaluation.'])
     output.mkdir(parents=True,exist_ok=False)
     if expected_contacts is not None:
-        write_csv(output/(PREFIX+'_batter_decisions.csv'),['game_id','count_seq','team_id','batter_id','is_top','strategy','preferred_intent','expected_selected_intent','selected_intent','decision_reason','decision_status'],batter_audit.trace)
+        write_csv(output/(PREFIX+'_batter_decisions.csv'),['game_id','count_seq','team_id','batter_id','is_top','strategy','preferred_intent','expected_selected_intent','selected_intent','decision_reason','decision_status','manager_id','batting_character','manager_instruction_reason','contact_weight','line_drive_weight'],batter_audit.trace)
         batters=batter_audit.summaries()
         write_csv(output/(PREFIX+'_batters.csv'),list(batters[0]) if batters else ['team_id','batter_id','states'],batters)
         write_csv(output/(PREFIX+'_batter_coverage.csv'),['metric','count'],[dict(metric=k,count=v) for k,v in sorted(batter_audit.coverage.items())])

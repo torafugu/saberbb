@@ -47,6 +47,8 @@ const TEMP_ATTEMPT_STEAL_BASE_WEIGHT: f64 = 0.3;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GameError {
+    #[error("Invalid batting strategy: {0}")]
+    BattingStrategy(String),
     #[error("No players for position: {0}")]
     NoPlayerFor(String),
 
@@ -295,6 +297,9 @@ pub enum GameProgress {
 
 #[derive(Debug)]
 pub struct GameState {
+    pub away_manager:Option<super::batting_personnel::Manager>,
+    pub home_manager:Option<super::batting_personnel::Manager>,
+    pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
     /// Team objectives and per-player preferences, currently recorded in shadow only.
     pub batting_strategy_settings: BattingStrategySettings,
     rng: Box<dyn RandomProvider>,
@@ -323,7 +328,9 @@ impl GameState {
         let home_lineup = game_schedule.home_team.lineup(rng.as_mut())?;
 
         Ok(GameState {
-            batting_strategy_settings: BattingStrategySettings::default(),
+            away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
+            batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
+            batting_strategy_settings: BattingStrategySettings::player_driven(),
             rng: rng,
             inning_seq: 0, // CONSTRAINT: Initialization: 1 should be set at the beginning of the game
             inning_tb: TB::Bottom, // CONSTRAINT: Initialization: Top should be set at the beginning of the game
@@ -809,7 +816,14 @@ impl GameState {
         let batting_side = active_batter.batter.batting_side;
         let batter_runner = active_batter.runner();
 
-        let batting_intent_decision = self.batting_strategy_settings.decision(self.is_top(), batter_id);
+        let batting_selection=if self.batting_strategy_settings.decision_source==crate::domain::strategy::batting_strategy::BattingDecisionSource::PlayerAndManager {
+            let situation=super::batting_personnel::BattingSituation {balls:self.inning_state.ball,strikes:self.inning_state.strike,outs:self.inning_state.out,
+                runners:[Base::First,Base::Second,Base::Third].map(|base|self.inning_state.runners.has_runner_on(base))};
+            let character=self.batter_characters.get(&batter_id).copied().ok_or_else(||GameError::BattingStrategy("missing player batting character".into()))?;
+            let manager=if self.is_top(){self.away_manager.as_ref()}else{self.home_manager.as_ref()};
+            Some(super::batting_personnel::select_batting_intent(batter_id,character,situation,manager).map_err(|s|GameError::BattingStrategy(s.into()))?)
+        }else{None};
+        let batting_intent_decision=batting_selection.as_ref().map(|s|s.decision).unwrap_or_else(||self.batting_strategy_settings.decision(self.is_top(),batter_id));
 
         self.prepare_plate_appearance(batter_runner);
         self.inning_state.active_pitcher = Some(active_pitcher);
@@ -925,6 +939,7 @@ impl GameState {
             );
             if let Some(state)=contact_state.state.as_mut() {
                 state.intent_batter=Some(crate::domain::shared::contact_state::IntentBatterContext {batter_id,is_top:self.is_top()});
+                state.batting_selection=batting_selection.clone();
             }
             crate::domain::shared::swing_prediction::attach_prediction(
                 &mut contact_state, &batter, &pitched_ball, &expected_ball,

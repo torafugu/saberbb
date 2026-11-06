@@ -970,6 +970,7 @@ mod tests {
     fn save_player_delegates_to_repository() {
         let (mut service, state) = service_with_repo();
         let player = Player {
+            batting_character:Default::default(),
             info: PlayerInfo::new(7, "First".into(), "Last".into(), 25, 18),
             offense_skills: OffenseSkills {
                 batter: None,

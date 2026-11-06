@@ -18,6 +18,15 @@ fn default_profile()->String { "default".into() }
 pub fn settings_for(profile:&str,schedule:&GameSchedule)->Result<BattingStrategySettings> {
     let mut settings=BattingStrategySettings::default();
     if profile=="default" { return Ok(settings); }
+    if profile=="player-context-v1" {
+        let mut ids=std::collections::BTreeSet::new();
+        for team in [&schedule.away_team,&schedule.home_team] {
+            if let Some(manager)=&team.manager {manager.validate().map_err(anyhow::Error::msg)?;}
+            for player in &team.players {ensure!(player.info.id>0&&ids.insert(player.info.id),"invalid or duplicate player identity in derived profile");}
+        }
+        if let (Some(a),Some(h))=(&schedule.away_team.manager,&schedule.home_team.manager) {ensure!(a.id!=h.id,"same manager assigned to both opposing teams");}
+        return Ok(BattingStrategySettings::player_driven());
+    }
     ensure!(profile=="mixed-id-v1","unsupported batting profile");
     // ID-only diagnostic assignments, independent of abilities, outcomes and RNG.
     let strategy=|id:u16|match id%3 {0=>BattingStrategy::LetBatterDecide,1=>BattingStrategy::PutBallInPlay,_=>BattingStrategy::SeekLineDrive};
@@ -180,7 +189,7 @@ impl RunRecorder {
         self.manifest.round_plan=Some(plan);self.save()
     }
     pub fn set_batting_profile(&mut self,profile:&str)->Result<()> {
-        ensure!(self.manifest.games.is_empty()&&self.manifest.batting_config.is_none()&&["default","mixed-id-v1"].contains(&profile),"invalid or late batting profile");
+        ensure!(self.manifest.games.is_empty()&&self.manifest.batting_config.is_none()&&["default","mixed-id-v1","player-context-v1"].contains(&profile),"invalid or late batting profile");
         self.manifest.batting_profile=profile.into();self.save()
     }
     pub fn freeze_batting_config(&mut self,bytes:&[u8])->Result<()> {
@@ -263,6 +272,33 @@ pub fn replay(run_dir:&Path,game_id:u32)->Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn player_context_case_replays_and_only_changes_diagnostic_logs() {
+        use crate::domain::shared::batting_personnel::{BatterCharacter,Manager,ManagerBattingPolicy};
+        let path=folder();let mut run=RunRecorder::start(path.clone(),2026110602,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
+        run.set_batting_profile("player-context-v1").unwrap();
+        let mut schedule=crate::domain::test_support::game_schedule();schedule.max_inning=1;
+        for p in &mut schedule.away_team.players {p.batting_character=BatterCharacter::Adaptive;}
+        for p in &mut schedule.home_team.players {p.batting_character=BatterCharacter::LineDriveOriented;}
+        schedule.away_team.manager=Some(Manager {id:91,name:"Away manager".into(),batting_policy:ManagerBattingPolicy::Situational});
+        schedule.home_team.manager=Some(Manager {id:92,name:"Home manager".into(),batting_policy:ManagerBattingPolicy::PutBallInPlay});
+        let case=run.begin(&schedule).unwrap();let result=simulate_case(&case).unwrap();
+        let mut seen=0;
+        for r in &result.player_contact_states {
+            if let Some(state)=&r.state {
+                let trace=state.batting_selection.as_ref().unwrap();let top=state.intent_batter.as_ref().unwrap().is_top;
+                assert_eq!(trace.manager.as_ref().unwrap().id,if top {91}else{92});
+                assert_eq!(trace.character,if top {BatterCharacter::Adaptive}else{BatterCharacter::LineDriveOriented});
+                if let Some(observed)=&state.observed_intent_plans {assert_eq!(canonical(&trace.decision).unwrap(),canonical(&observed.decision).unwrap());}
+                seen+=1;
+            }
+        }
+        assert!(seen>0);let mut fixed=case.clone();fixed.batting_settings=BattingStrategySettings::default();
+        let mut a=serde_json::to_value(&result).unwrap();let mut b=serde_json::to_value(simulate_case(&fixed).unwrap()).unwrap();
+        a.as_object_mut().unwrap().remove("player_contact_states");b.as_object_mut().unwrap().remove("player_contact_states");assert_eq!(a,b);
+        run.saved(&result).unwrap();run.manifest.completed_rounds=1;run.complete().unwrap();
+        assert_eq!(replay(&path,schedule.id).unwrap(),sha(&canonical(&result).unwrap()));fs::remove_dir_all(path).unwrap();
+    }
     #[test]
     fn configured_case_freezes_exact_bytes_replays_and_detects_tampering() {
         let path=folder();let mut run=RunRecorder::start(path.clone(),2026110601,1,0,2000,"test.db".into(),"en-US".into()).unwrap();

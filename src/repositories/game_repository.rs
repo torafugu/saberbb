@@ -273,6 +273,9 @@ impl GameScheduleReader for SqlGameRepository {
         for game_schedule in &mut game_schedules {
             game_schedule.away_team.players = self.load_team_players(game_schedule.away_team.id)?;
             game_schedule.home_team.players = self.load_team_players(game_schedule.home_team.id)?;
+            let conn=self.db_client.get_conn().map_err(|e|AppError::Internal(e.into()))?;
+            game_schedule.away_team.manager=crate::repositories::batting_personnel_repository::load_team_manager(&conn,game_schedule.away_team.id).map_err(AppError::Internal)?;
+            game_schedule.home_team.manager=crate::repositories::batting_personnel_repository::load_team_manager(&conn,game_schedule.home_team.id).map_err(AppError::Internal)?;
         }
         Ok(game_schedules)
     }
@@ -375,8 +378,10 @@ impl GamePlayerReader for SqlGameRepository {
 
         let mut players = Vec::new();
 
+        let personnel_conn=self.db_client.get_conn().map_err(|e|AppError::Internal(e.into()))?;
         for player_info in player_infos {
             let mut player = Player::from_player_info(player_info.clone());
+            player.batting_character = crate::repositories::batting_personnel_repository::load_character(&personnel_conn,player_info.id).map_err(AppError::Internal)?;
             player.offense_skills.running = self.load_running_skills(player_info.id)?;
             player.defense_skills = self.load_defense_skills(player_info.id)?;
 
@@ -1499,6 +1504,20 @@ mod tests {
         std::fs::remove_file(path).ok();
     }
 
+    #[test]
+    fn schedules_load_persistent_player_character_and_independent_manager() {
+        use crate::domain::shared::batting_personnel::{BatterCharacter,Manager,ManagerBattingPolicy};
+        use crate::repositories::batting_personnel_repository as personnel;
+        let (repo,path)=setup_repo();seed_game_season(&repo,2026,1);seed_teams(&repo);seed_players(&repo);seed_player_skills(&repo);seed_game(&repo,1,2026,1,1,None);
+        let mut connection=conn(&repo);personnel::migrate(&connection).unwrap();
+        personnel::save_character(&connection,2,BatterCharacter::Adaptive).unwrap();
+        let manager=Manager {id:91,name:"Independent".into(),batting_policy:ManagerBattingPolicy::Situational};
+        personnel::save_manager(&mut connection,&manager,Some(1)).unwrap();drop(connection);
+        let schedules=repo.load_game_schedules_to_process().unwrap();
+        assert_eq!(schedules[0].away_team.manager,Some(manager));
+        assert_eq!(schedules[0].away_team.players.iter().find(|p|p.info.id==2).unwrap().batting_character,BatterCharacter::Adaptive);
+        assert!(schedules[0].home_team.manager.is_none());std::fs::remove_file(path).ok();
+    }
     #[test]
     fn load_game_schedules_to_process_returns_current_round_with_players() {
         let (repo, path) = setup_repo();

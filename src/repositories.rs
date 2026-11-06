@@ -4,3 +4,5 @@ pub mod player_repository;
 pub mod schedule_repository;
 pub mod sql_helper;
 pub mod statistics_repository;
+
+pub mod batting_personnel_repository;

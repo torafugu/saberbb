@@ -25,7 +25,7 @@ impl<R: GameRoundRepository> GameService<R> {
         for game_schedule in game_schedules {
             info!("new game started");
 
-            let result = simulate_game(game_schedule,Box::new(RealRng::new()),BattingStrategySettings::default(),None)?;
+            let result = simulate_game(game_schedule,Box::new(RealRng::new()),BattingStrategySettings::player_driven(),None)?;
             if let Err(e) = self.repo.update_game_result(&result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
@@ -262,6 +262,7 @@ mod tests {
 
     fn team(id: u16, name: &str, first_player_id: u32) -> Team {
         Team {
+            manager:None,
             id,
             name: name.into(),
             players: (first_player_id..first_player_id + 10)

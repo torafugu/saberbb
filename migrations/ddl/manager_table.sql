@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS manager;
+CREATE TABLE manager (id INTEGER PRIMARY KEY,name TEXT NOT NULL,batting_policy TEXT NOT NULL);

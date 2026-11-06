@@ -26,6 +26,8 @@ pub struct League {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Validate)]
 pub struct Team {
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub manager:Option<super::batting_personnel::Manager>,
     pub id: u16,
     pub name: Arc<str>,
     pub players: Vec<Player>,
@@ -33,6 +35,7 @@ pub struct Team {
 impl Team {
     pub fn min(id: u16, name: &str) -> Self {
         Self {
+            manager:None,
             id: id,
             name: name.into(),
             players: Vec::new(),
@@ -263,6 +266,7 @@ mod tests {
 
     fn team_with_positions(positions: Vec<Position>) -> Team {
         Team {
+            manager:None,
             id: 1,
             name: "Test".into(),
             players: positions

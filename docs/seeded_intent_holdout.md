@@ -140,6 +140,11 @@ metadataのsource_metadataへseed・生成証跡・応答のcoverageを含める
 `--batting-config PATH`で、チーム目的と選手選好をJSONから診断経路へ渡せる。
 [明示設定](explicit_batting_configuration.md)にテンプレート作成、設定の優先順位、生成前の凍結・監査を示す。
 
+## 7. Playerと独立したManagerから選好・意図を生成する
+
+`--batting-profile player-context-v1`で、保存した選手の打撃傾向と監督を使う。
+[人物からの選択生成](player_manager_batting.md)にDB移行・設定と状況別Preferencesの監査を示す。
+
 ## DBなしで一つの試合を再実行する
 
 ```sh

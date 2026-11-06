@@ -129,6 +129,7 @@ impl<R: PlayerRepository> PlayerFactory<R> {
         };
 
         Ok(Player {
+            batting_character:Default::default(),
             info: player_info,
             offense_skills: offense_skills,
             defense_skills: defense_skills,
