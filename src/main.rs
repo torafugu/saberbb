@@ -124,7 +124,10 @@ fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
          DELETE FROM player_game_fielding;
          DELETE FROM player_game_fielding_candidate;
          DELETE FROM player_game_running;
-         DELETE FROM player_game_pitching;",
+         DELETE FROM player_game_pitching;
+         DELETE FROM player_game_contact_state;
+         DELETE FROM player_game_fielding_candidate;
+         DELETE FROM player_game_pitching_decision;",
     )?;
     tx.execute("UPDATE game_season SET current_season = ?1", [year])?;
     tx.execute("UPDATE game_season SET scheduled_season = ?1", [year - 1])?;
