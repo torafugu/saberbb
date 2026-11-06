@@ -16,6 +16,21 @@ cargo run --release --locked --bin intent_holdout -- config-template --output-fi
 生成直後は全チームLetBatterDecide、全選手ContactFirst。目的のチーム・打者の設定を編集してから実行する。
 名前や能力から選好を自動推定する処理はない。
 
+手動編集をせずに混在設定を作る場合は、割り当て用seedを指定する。
+
+```sh
+cargo run --release --locked --bin intent_holdout -- config-template --output-file ../saberbb_batting_config_random.json --assignment-seed 2026110601
+```
+
+`balanced-v1`方式では、seedとIDのSHA256で順序をランダム化し、監督目的3種類をチーム間で、選好2種類を各チームの選手間でなるべく均等に割り当てる。
+種類ごとの件数差は最大1。チームが3つ以上なら全目的、各チームの選手が2人以上なら両選好が含まれる。
+自由な独立抽選ではなく、診断で一方に偏りすぎないための割り当て。能力・打順・結果は使わない。
+同じseed・同じ所属ID一覧なら同じJSONになる。割り当てseedは試合seedと別で、ゲームの乱数を消費しない。
+生成結果には方式とseedを表示する。JSONのschemaは既存と同じで、監査は凍結した具体的な設定を照合する。
+所属・ID集合が変わると再生成時の割り当ても変わり得るが、保存済みrunの設定には影響しない。
+
+以降の`--batting-config`には、この新しいファイル名を指定すればよい。既存ファイルは上書きしない。
+
 最小の構成例は次のとおり。例のIDは実際のDBに存在するIDに置き換える。
 
 ```json

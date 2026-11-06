@@ -4,7 +4,13 @@ use super::strategy::batting_strategy::{BattingStrategy,BattingPreferences,Batte
 use anyhow::{Result,ensure};
 use rusqlite::{Connection,OpenFlags};
 use serde::{Serialize,Deserialize};
-use std::{collections::BTreeSet,path::Path};
+use std::{collections::{BTreeSet,BTreeMap},path::Path};
+use sha2::{Digest,Sha256};
+
+fn assignment_key(seed:u64,kind:&[u8],id:i64)->[u8;32] {
+    let mut h=Sha256::new();h.update(b"saberbb:diagnostic-config:balanced-v1\0");
+    h.update(seed.to_le_bytes());h.update(kind);h.update(id.to_le_bytes());h.finalize().into()
+}
 
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,10 +52,37 @@ impl DiagnosticBattingConfig {
         Ok(())
     }
     pub fn template(path:&Path)->Result<Self> {
+        Self::template_with_seed(path,None)
+    }
+    pub fn template_with_seed(path:&Path,seed:Option<u64>)->Result<Self> {
         let conn=Connection::open_with_flags(path,OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.execute_batch("BEGIN")?;
         let teams=conn.prepare("SELECT id FROM team ORDER BY id")?.query_map([],|r|Ok(TeamObjective {team_id:r.get(0)?,strategy:BattingStrategy::LetBatterDecide}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         let players=conn.prepare("SELECT id FROM player_info ORDER BY id")?.query_map([],|r|Ok(PlayerPreference {player_id:r.get(0)?,preferred_intent:BattedBallIntent::ContactFirst}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-        let result=Self {version:1,default_strategy:BattingStrategy::LetBatterDecide,default_preferred_intent:BattedBallIntent::ContactFirst,team_strategies:teams,player_preferences:players};
+        let mut result=Self {version:1,default_strategy:BattingStrategy::LetBatterDecide,default_preferred_intent:BattedBallIntent::ContactFirst,team_strategies:teams,player_preferences:players};
+        if let Some(seed)=seed {
+            // Shuffle IDs using independent hashes; keep output rows sorted for editing.
+            // Balance purposes globally and the two preferences within each team.
+            let mut ids=result.team_strategies.iter().map(|t|t.team_id).collect::<Vec<_>>();
+            ids.sort_by_key(|id|(assignment_key(seed,b"team",i64::from(*id)),*id));
+            let offset=usize::from(assignment_key(seed,b"team-offset",0)[0])%3;
+            let choices=[BattingStrategy::LetBatterDecide,BattingStrategy::PutBallInPlay,BattingStrategy::SeekLineDrive];
+            let objectives=ids.iter().enumerate().map(|(rank,id)|(*id,choices[(rank+offset)%3])).collect::<BTreeMap<_,_>>();
+            for t in &mut result.team_strategies { t.strategy=objectives[&t.team_id]; }
+            let mut rosters:BTreeMap<u16,Vec<i64>>=BTreeMap::new();
+            for row in conn.prepare("SELECT team_id,id FROM player_info ORDER BY team_id,id")?.query_map([],|r|Ok((r.get::<_,u16>(0)?,r.get::<_,i64>(1)?)))? {
+                let (team,id)=row?;ensure!(objectives.contains_key(&team),"player belongs to an unknown team");rosters.entry(team).or_default().push(id);
+            }
+            let mut preferences=BTreeMap::new();
+            for (team,mut ids) in rosters {
+                ids.sort_by_key(|id|(assignment_key(seed,b"player",*id),*id));
+                let offset=usize::from(assignment_key(seed,b"preference-offset",i64::from(team))[0])%2;
+                for (rank,id) in ids.into_iter().enumerate() {
+                    preferences.insert(id,if (rank+offset)%2==0 {BattedBallIntent::ContactFirst}else{BattedBallIntent::LineDrive});
+                }
+            }
+            for p in &mut result.player_preferences { p.preferred_intent=preferences[&p.player_id]; }
+        }
         result.validate()?;Ok(result)
     }
     pub fn settings(&self,schedule:&GameSchedule)->Result<BattingStrategySettings> {
@@ -103,6 +136,35 @@ mod tests {
         DiagnosticBattingConfig::parse(&bytes()).unwrap().validate_database(&path).unwrap();
         let mut wrong=template.clone();wrong.team_strategies[0].team_id=99;assert!(wrong.validate_database(&path).is_err());
         let mut wrong=template;wrong.player_preferences[0].player_id=999;assert!(wrong.validate_database(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(),before);std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn seeded_template_is_reproducible_balanced_and_read_only() {
+        let id=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!("random-config-{}-{id}.db",std::process::id()));
+        let conn=Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE team(id INTEGER PRIMARY KEY);CREATE TABLE player_info(id INTEGER PRIMARY KEY,team_id INTEGER NOT NULL);").unwrap();
+        for team in (1..=6).rev() {
+            conn.execute("INSERT INTO team VALUES(?1)",[team]).unwrap();
+            for player in 1..=5+team%2 { conn.execute("INSERT INTO player_info VALUES(?1,?2)",[team*100+player,team]).unwrap(); }
+        }
+        drop(conn);let before=std::fs::read(&path).unwrap();
+        let a=DiagnosticBattingConfig::template_with_seed(&path,Some(2026110601)).unwrap();
+        let b=DiagnosticBattingConfig::template_with_seed(&path,Some(2026110601)).unwrap();
+        assert_eq!(serde_json::to_vec(&a).unwrap(),serde_json::to_vec(&b).unwrap());
+        assert_ne!(serde_json::to_vec(&a).unwrap(),serde_json::to_vec(&DiagnosticBattingConfig::template_with_seed(&path,Some(2026110602)).unwrap()).unwrap());
+        for objective in [BattingStrategy::LetBatterDecide,BattingStrategy::PutBallInPlay,BattingStrategy::SeekLineDrive] {
+            assert_eq!(a.team_strategies.iter().filter(|t|t.strategy==objective).count(),2);
+        }
+        for team in 1..=6 {
+            let players=a.player_preferences.iter().filter(|p|p.player_id/100==team).collect::<Vec<_>>();
+            let contact=players.iter().filter(|p|p.preferred_intent==BattedBallIntent::ContactFirst).count();
+            assert!(contact.abs_diff(players.len()-contact)<=1);
+        }
+        a.validate_database(&path).unwrap();
+        let defaults=DiagnosticBattingConfig::template(&path).unwrap();
+        assert!(defaults.team_strategies.iter().all(|t|t.strategy==BattingStrategy::LetBatterDecide));
+        assert!(defaults.player_preferences.iter().all(|p|p.preferred_intent==BattedBallIntent::ContactFirst));
         assert_eq!(std::fs::read(&path).unwrap(),before);std::fs::remove_file(path).unwrap();
     }
 }
