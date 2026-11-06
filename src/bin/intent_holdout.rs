@@ -28,7 +28,11 @@ enum Command {
         #[arg(long,conflicts_with="batting_profile")] batting_config:Option<PathBuf>,
     },
     /// Write a new editable config with the current DB team/player IDs (read-only DB).
-    ConfigTemplate { #[arg(long)] output_file:PathBuf },
+    ConfigTemplate {
+        #[arg(long)] output_file:PathBuf,
+        /// Reproducible balanced random assignments; independent from simulation RNG.
+        #[arg(long)] assignment_seed:Option<u64>,
+    },
     /// Inspect pending rounds and the active season cursor; never changes the database.
     Status { #[arg(long,default_value_t=40)] rounds:u32 },
     /// Re-execute one saved input with the same build fingerprint; never opens a database.
@@ -66,12 +70,13 @@ fn main()->Result<()> {
             })?;
             println!("{}",serde_json::json!({"status":"complete","manifest":recorder.output.join("manifest.json"),"games":recorder.manifest.games.len()}));
         }
-        Command::ConfigTemplate {output_file}=>{
+        Command::ConfigTemplate {output_file,assignment_seed}=>{
             let cfg=saberbb::config::load_app_config()?;
-            let config=DiagnosticBattingConfig::template(&cfg.database_path)?;
+            let config=DiagnosticBattingConfig::template_with_seed(&cfg.database_path,assignment_seed)?;
             let mut file=std::fs::OpenOptions::new().create_new(true).write(true).open(&output_file)?;
             file.write_all(&serde_json::to_vec_pretty(&config)?)?;file.sync_all()?;
-            println!("{}",serde_json::json!({"status":"template_created","output_file":output_file,"teams":config.team_strategies.len(),"players":config.player_preferences.len()}));
+            println!("{}",serde_json::json!({"status":"template_created","output_file":output_file,"teams":config.team_strategies.len(),"players":config.player_preferences.len(),
+                "assignment_seed":assignment_seed.map(|v|v.to_string()),"assignment_method":if assignment_seed.is_some(){"balanced-v1"}else{"uniform-default"}}));
         }
         Command::Status {rounds}=>{
             let cfg=saberbb::config::load_app_config()?;let status=holdout_schedule::read_status(&cfg.database_path)?;
@@ -97,5 +102,6 @@ mod tests {
         assert!(Args::try_parse_from(&args).is_ok());
         args.extend(["--batting-profile","mixed-id-v1"]);assert!(Args::try_parse_from(&args).is_err());
         assert!(Args::try_parse_from(["intent_holdout","config-template","--output-file","config.json"]).is_ok());
+        assert!(Args::try_parse_from(["intent_holdout","config-template","--output-file","config.json","--assignment-seed","2026110601"]).is_ok());
     }
 }
