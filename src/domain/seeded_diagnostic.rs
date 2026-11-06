@@ -5,6 +5,7 @@ use crate::domain::shared::contact_state::ContactStateRecord;
 use crate::domain::strategy::batting_strategy::{BattingStrategySettings,BattingStrategy,BattingPreferences,BattedBallIntent};
 use crate::repositories::game_repository::GameRoundRepository;
 use crate::domain::holdout_schedule::PlannedRound;
+use crate::domain::diagnostic_batting_config::DiagnosticBattingConfig;
 use anyhow::{Result,Context,bail,ensure};
 use serde::{Serialize,Deserialize};
 use sha2::{Digest,Sha256};
@@ -80,7 +81,13 @@ pub struct CaseRecord {
     pub contact_states:Option<usize>,
 }
 #[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BattingConfigSource { pub file:String, pub sha256:String }
+
+#[derive(Clone,Debug,Serialize,Deserialize)]
 pub struct RunManifest {
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub batting_config:Option<BattingConfigSource>,
     #[serde(default="default_profile")]
     pub batting_profile:String,
     pub version:u8,
@@ -111,12 +118,24 @@ pub struct RunManifest {
     pub error:Option<String>,
 }
 pub struct RunRecorder { pub manifest:RunManifest, pub output:PathBuf }
+fn manifest_settings(manifest:&RunManifest,output:&Path,schedule:&GameSchedule)->Result<BattingStrategySettings> {
+    if manifest.batting_profile=="configured-v1" {
+        let source=manifest.batting_config.as_ref().context("missing frozen batting configuration")?;
+        ensure!(source.file=="batting_config.json","unexpected batting configuration path");
+        let bytes=fs::read(output.join(&source.file))?;
+        ensure!(sha(&bytes)==source.sha256,"frozen batting configuration hash mismatch");
+        DiagnosticBattingConfig::parse(&bytes)?.settings(schedule)
+    } else {
+        ensure!(manifest.batting_config.is_none(),"configuration supplied for an incompatible profile");
+        settings_for(&manifest.batting_profile,schedule)
+    }
+}
 impl RunRecorder {
     pub fn start(output:PathBuf,seed:u64,rounds:u32,exclude:u32,max_pitches:u32,db_path:PathBuf,language:String)->Result<Self> {
         ensure!(rounds>0&&max_pitches>0&&max_pitches<65535,"invalid run rounds or pitch budget");
         fs::create_dir(&output).context("output directory must be new (no overwrite)")?;
         fs::create_dir(output.join("cases"))?;
-        let recorder=Self { output,manifest:RunManifest { batting_profile:default_profile(),version:1,source:SOURCE.into(),status:"running".into(),
+        let recorder=Self { output,manifest:RunManifest { batting_config:None,batting_profile:default_profile(),version:1,source:SOURCE.into(),status:"running".into(),
             master_seed:seed.to_string(),seed_derivation:"SHA256(saberbb:holdout:v1\\0 + u64le(master) + u32le(game)); first 8 bytes u64le".into(),
             engine_source_sha256:ENGINE.into(),build_sha256:BUILD.into(),build_target:env!("SABERBB_BUILD_TARGET").into(),
             build_profile:env!("SABERBB_BUILD_PROFILE").into(),compiler:env!("SABERBB_BUILD_COMPILER").into(),
@@ -144,7 +163,7 @@ impl RunRecorder {
         ensure!(!self.manifest.games.iter().any(|g|g.game_id==schedule.id),"duplicate game in run");
         let seed=derived_seed(self.manifest.master_seed.parse()?,schedule.id);
         let case=GameCase { version:1,engine_source_sha256:ENGINE.into(),build_sha256:BUILD.into(),game_seed:seed.to_string(),
-            schedule:schedule.clone(),batting_settings:settings_for(&self.manifest.batting_profile,schedule)?,max_pitches:self.manifest.max_pitches };
+            schedule:schedule.clone(),batting_settings:manifest_settings(&self.manifest,&self.output,schedule)?,max_pitches:self.manifest.max_pitches };
         let file=format!("cases/game_{}.json",schedule.id);
         let hash=fresh_json(&self.output.join(&file),&case)?;
         self.manifest.games.push(CaseRecord { game_id:schedule.id,game_seed:seed.to_string(),input_file:file,input_sha256:hash,
@@ -161,8 +180,17 @@ impl RunRecorder {
         self.manifest.round_plan=Some(plan);self.save()
     }
     pub fn set_batting_profile(&mut self,profile:&str)->Result<()> {
-        ensure!(self.manifest.games.is_empty()&&["default","mixed-id-v1"].contains(&profile),"invalid or late batting profile");
+        ensure!(self.manifest.games.is_empty()&&self.manifest.batting_config.is_none()&&["default","mixed-id-v1"].contains(&profile),"invalid or late batting profile");
         self.manifest.batting_profile=profile.into();self.save()
+    }
+    pub fn freeze_batting_config(&mut self,bytes:&[u8])->Result<()> {
+        ensure!(self.manifest.games.is_empty()&&self.manifest.batting_config.is_none(),"configuration must be frozen before generation");
+        DiagnosticBattingConfig::parse(bytes)?;
+        let file="batting_config.json";
+        let mut output=OpenOptions::new().create_new(true).write(true).open(self.output.join(file))?;
+        output.write_all(bytes)?;output.sync_all()?;
+        self.manifest.batting_profile="configured-v1".into();
+        self.manifest.batting_config=Some(BattingConfigSource {file:file.into(),sha256:sha(bytes)});self.save()
     }
     fn saved(&mut self,result:&GameResult)->Result<()> {
         let r=self.manifest.games.iter_mut().find(|g|g.game_id==result.id).context("unprepared saved game")?;
@@ -222,6 +250,7 @@ pub fn replay(run_dir:&Path,game_id:u32)->Result<String> {
     let bytes=fs::read(run_dir.join(&record.input_file))?;
     ensure!(sha(&bytes)==record.input_sha256,"saved case hash mismatch");
     let case:GameCase=serde_json::from_slice(&bytes)?;
+    ensure!(canonical(&case.batting_settings)?==canonical(&manifest_settings(&manifest,run_dir,&case.schedule)?)?,"saved batting settings do not match frozen configuration");
     ensure!(case.schedule.id==game_id&&case.game_seed==record.game_seed,"case identity mismatch");
     ensure!(case.game_seed==derived_seed(manifest.master_seed.parse()?,game_id).to_string(),"derived seed mismatch");
     let result=simulate_case(&case)?;
@@ -234,6 +263,21 @@ pub fn replay(run_dir:&Path,game_id:u32)->Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configured_case_freezes_exact_bytes_replays_and_detects_tampering() {
+        let path=folder();let mut run=RunRecorder::start(path.clone(),2026110601,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
+        let bytes=br#"{ "version":1,"default_strategy":"let_batter_decide","default_preferred_intent":"line_drive","team_strategies":[{"team_id":1,"strategy":"put_ball_in_play"}],"player_preferences":[{"player_id":101,"preferred_intent":"contact_first"}] }"#;
+        run.freeze_batting_config(bytes).unwrap();assert_eq!(fs::read(path.join("batting_config.json")).unwrap(),bytes);
+        let mut schedule=crate::domain::test_support::game_schedule();schedule.max_inning=1;
+        let case=run.begin(&schedule).unwrap();assert_eq!(case.batting_settings.decision(true,1).selected_intent,BattedBallIntent::ContactFirst);
+        assert_eq!(case.batting_settings.decision(false,102).selected_intent,BattedBallIntent::LineDrive);
+        assert!(run.freeze_batting_config(bytes).is_err());let result=simulate_case(&case).unwrap();
+        run.saved(&result).unwrap();run.manifest.completed_rounds=1;run.complete().unwrap();
+        assert_eq!(replay(&path,schedule.id).unwrap(),sha(&canonical(&result).unwrap()));
+        let mut changed=bytes.to_vec();changed.push(b' ');fs::write(path.join("batting_config.json"),changed).unwrap();
+        assert!(replay(&path,schedule.id).unwrap_err().to_string().contains("configuration hash mismatch"));
+        fs::remove_dir_all(path).unwrap();
+    }
     #[test]
     fn mixed_profile_is_id_only_and_preserves_both_levels() {
         let mut schedule=crate::domain::test_support::game_schedule();

@@ -1,5 +1,6 @@
 pub mod game_service;
 pub mod seeded_diagnostic;
+pub mod diagnostic_batting_config;
 pub mod holdout_schedule;
 pub mod player_factory;
 pub mod player_service;
