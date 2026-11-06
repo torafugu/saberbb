@@ -119,6 +119,7 @@ impl PlayerRepository for SqlPlayerRepository {
                 ],
             )?;
 
+            crate::repositories::batting_personnel_repository::save_character(tx,generated_id as i64,player.batting_character).map_err(AppError::Internal)?;
             self.insert_offense_skills(tx, generated_id as i64, &player.offense_skills)?;
             self.insert_defense_skills(tx, generated_id as i64, &player.defense_skills)?;
 
@@ -833,6 +834,7 @@ mod tests {
 
     fn player() -> Player {
         Player {
+            batting_character:Default::default(),
             info: PlayerInfo::new_unsaved("翔平".into(), "大谷".into(), 29, 17),
             offense_skills: OffenseSkills {
                 batter: Some(BatterInfo {
@@ -870,6 +872,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn insert_player_persists_character_separately_from_skills() {
+        use crate::domain::shared::batting_personnel::BatterCharacter;
+        use crate::repositories::batting_personnel_repository as personnel;
+        let (mut repo,path)=setup_repo();seed_team(&repo,1,"Team");
+        let connection=conn(&repo);personnel::migrate(&connection).unwrap();drop(connection);
+        let mut value=player();value.batting_character=BatterCharacter::LineDriveOriented;
+        repo.insert_player(1,&value).unwrap();let connection=conn(&repo);
+        let id:i64=connection.query_row("SELECT id FROM player_info",[],|r|r.get(0)).unwrap();
+        assert_eq!(personnel::load_character(&connection,id).unwrap(),BatterCharacter::LineDriveOriented);
+        drop(connection);std::fs::remove_file(path).ok();
+    }
     #[test]
     fn save_player_inserts_all_player_fields() {
         let (mut repo, path) = setup_repo();

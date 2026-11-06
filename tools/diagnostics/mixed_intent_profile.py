@@ -4,7 +4,7 @@ import json
 from rust_observed_intent_audit import decide
 
 STRATEGIES = ('let_batter_decide', 'put_ball_in_play', 'seek_line_drive')
-PROFILES = ('default', 'mixed-id-v1', 'configured-v1')
+PROFILES = ('default', 'mixed-id-v1', 'configured-v1', 'player-context-v1')
 
 
 def validate_config(config):
@@ -42,6 +42,8 @@ def parse_config(raw):
 def settings_for(profile, schedule, configuration=None):
     if profile not in PROFILES:
         raise ValueError('unsupported_batting_profile')
+    if profile == 'player-context-v1':
+        return dict(decision_source='player_and_manager',away_strategy='let_batter_decide',home_strategy='let_batter_decide',player_preferences={})
     if profile == 'default':
         return dict(away_strategy='let_batter_decide', home_strategy='let_batter_decide', player_preferences={})
     if profile == 'configured-v1':
@@ -66,6 +68,7 @@ def settings_for(profile, schedule, configuration=None):
 
 class BatterAudit:
     def __init__(self):
+        self.checks=defaultdict(float)
         self.coverage = Counter(states=0, missing_batter_context=0, verified_decisions=0,
                                 missing_observed_decision=0, comparable_pitches=0)
         self.trace = []
@@ -90,7 +93,13 @@ class BatterAudit:
         settings = case['batting_settings']
         strategy = settings[side + '_strategy']
         preference = settings['player_preferences'].get(str(pid), dict(preferred_intent='contact_first'))['preferred_intent']
-        decision = decide(strategy, preference)
+        if profile == 'player-context-v1':
+            from player_manager_batting import audit_selection
+            decision=audit_selection(state,case,pid,side,self.checks)
+            strategy=decision['strategy'];preference=decision['preferences']['preferred_intent']
+        else:
+            if state.get('batting_selection') is not None:raise ValueError('unexpected_derived_selection_in_fixed_profile')
+            decision = decide(strategy, preference)
         observed = state.get('observed_intent_plans')
         if observed is not None:
             if (observed['game_id'], observed['count_seq']) != (game, seq) or observed['decision'] != decision:
@@ -98,7 +107,10 @@ class BatterAudit:
             self.coverage['verified_decisions'] += 1
         else:
             self.coverage['missing_observed_decision'] += 1
-        key = (team['id'], pid, strategy, preference, decision['selected_intent'], decision['reason'])
+        selection=state.get('batting_selection')
+        manager_id=selection['manager']['id'] if selection and selection['manager'] is not None else None
+        character=selection['character'] if selection else None
+        key = (team['id'], pid, strategy, preference, decision['selected_intent'], decision['reason'],manager_id,character)
         self.coverage['decision:' + strategy + ':' + preference] += observed is not None
         counts = self.groups[key]; counts['states'] += 1; counts['verified_decisions'] += observed is not None
         counts['manager_override'] += observed is not None and decision['selected_intent'] != preference
@@ -106,7 +118,11 @@ class BatterAudit:
             strategy=strategy, preferred_intent=preference, expected_selected_intent=decision['selected_intent'],
             selected_intent=observed['decision']['selected_intent'] if observed is not None else None,
             decision_reason=observed['decision']['reason'] if observed is not None else None,
-            decision_status='verified' if observed is not None else 'missing_observed_decision'))
+            decision_status='verified' if observed is not None else 'missing_observed_decision',
+            manager_id=manager_id,batting_character=character,
+            manager_instruction_reason=selection['instruction']['reason'] if selection else None,
+            contact_weight=selection['preferences']['contact_weight'] if selection else None,
+            line_drive_weight=selection['preferences']['line_drive_weight'] if selection else None))
         return key
 
     def outcomes(self, key, rows):
@@ -124,8 +140,8 @@ class BatterAudit:
 
     def summaries(self):
         rows = []
-        for key, counts in sorted(self.groups.items()):
-            row = dict(zip(('team_id', 'batter_id', 'strategy', 'preferred_intent', 'selected_intent', 'decision_reason'), key))
+        for key, counts in sorted(self.groups.items(),key=lambda pair:tuple(str(v) for v in pair[0])):
+            row = dict(zip(('team_id', 'batter_id', 'strategy', 'preferred_intent', 'selected_intent', 'decision_reason','manager_id','batting_character'), key))
             row.update({k: counts[k] for k in ('states', 'verified_decisions', 'manager_override', 'comparable_pitches',
                 'searched', 'geometry', 'successful', 'fair', 'downward', 'high_vla', 'line_window')})
             for event in ('successful', 'fair', 'downward', 'high_vla', 'line_window'):

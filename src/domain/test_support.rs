@@ -164,6 +164,7 @@ pub(crate) fn player(id: i64, position: Position, batting_order: Option<u8>) -> 
     }
 
     Player {
+        batting_character:Default::default(),
         info: PlayerInfo::new_min(id, format!("First{id}"), format!("Last{id}")),
         offense_skills: OffenseSkills {
             batter,
@@ -200,6 +201,7 @@ pub(crate) fn team(id: u16, name: &str, first_player_id: i64) -> Team {
     );
 
     Team {
+        manager:None,
         id,
         name: name.into(),
         players,

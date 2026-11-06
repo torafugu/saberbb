@@ -244,6 +244,9 @@ impl DefenseSkills {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct Player {
+    /// Persistent batting personality, separate from offense skill values.
+    #[serde(default)]
+    pub batting_character:super::batting_personnel::BatterCharacter,
     pub info: PlayerInfo,
     pub offense_skills: OffenseSkills,
     pub defense_skills: DefenseSkills,
@@ -251,6 +254,7 @@ pub struct Player {
 impl Player {
     pub fn from_player_info(info: PlayerInfo) -> Self {
         Self {
+            batting_character:Default::default(),
             info: PlayerInfo::new(
                 info.id,
                 info.first_name,
