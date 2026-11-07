@@ -66,7 +66,11 @@ fn main() -> Result<()> {
 
     // Game Process Mode
     if let Some(num_of_games) = args.process {
-        process_games(num_of_games)?;
+        run_games(num_of_games, false)?;
+    }
+
+    if let Some(num_of_games) = args.analysis {
+        analysis_games(num_of_games)?;
     }
 
     // Player Generate Mode
@@ -109,7 +113,7 @@ fn sampleyear() -> Result<()> {
     let mut conn = SqlDb::new()?.get_conn()?;
     reset_season(&mut conn, Local::now().year())?;
     schedule_games(1)?;
-    process_games(40)?;
+    analysis_games(40)?;
     Ok(())
 }
 
@@ -126,7 +130,6 @@ fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
          DELETE FROM player_game_running;
          DELETE FROM player_game_pitching;
          DELETE FROM player_game_contact_state;
-         DELETE FROM player_game_fielding_candidate;
          DELETE FROM player_game_pitching_decision;",
     )?;
     tx.execute("UPDATE game_season SET current_season = ?1", [year])?;
@@ -136,13 +139,22 @@ fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
     Ok(())
 }
 
-fn process_games(num_of_games: i8) -> Result<()> {
+fn analysis_games(num_of_games: i8) -> Result<()> {
+    run_games(num_of_games, true)
+}
+
+fn run_games(num_of_games: i8, record_contact_states: bool) -> Result<()> {
     let mut game_service = GameService {
         repo: app_context().game_repository.clone(),
     };
 
     for _ in 0..num_of_games {
-        if let Err(e) = game_service.process_game_round() {
+        let result = if record_contact_states {
+            game_service.analyze_game_round()
+        } else {
+            game_service.process_game_round()
+        };
+        if let Err(e) = result {
             let error_msg = t!("error", "function" => "process_game");
             bail!("{}, {}", error_msg, e);
         }
@@ -181,13 +193,17 @@ struct Args {
     #[arg(long)]
     setup: bool,
 
-    /// Clear game data, reset to the current year, schedule a season, and process 40 rounds
+    /// Clear game data, reset to the current year, schedule a season, and analyze 40 rounds
     #[arg(short = 'n', long)]
     sampleyear: bool,
 
-    /// Process games
-    #[arg(short, long)]
+    /// Process game rounds without detailed contact diagnostics (default: 1 round)
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "1", conflicts_with = "analysis")]
     process: Option<i8>,
+
+    /// Process game rounds with detailed contact diagnostics (default: 1 round)
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "1")]
+    analysis: Option<i8>,
 
     /// Generate players
     #[arg(short, long)]
@@ -211,7 +227,7 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
 
-    const GAME_TABLES: [&str; 9] = [
+    const GAME_TABLES: [&str; 11] = [
         "count",
         "inning",
         "game",
@@ -221,6 +237,8 @@ mod tests {
         "player_game_fielding_candidate",
         "player_game_running",
         "player_game_pitching",
+        "player_game_contact_state",
+        "player_game_pitching_decision",
     ];
 
     fn populated_database() -> Connection {
@@ -302,6 +320,23 @@ mod tests {
         assert!(args.setup);
         assert_eq!(args.generate, Some(100));
         assert_eq!(args.schedule, Some(1));
+    }
+
+    #[test]
+    fn process_and_analysis_accept_optional_round_counts() {
+        for flag in ["--process", "-p"] {
+            let args = Args::try_parse_from(["saberbb", flag]).unwrap();
+            assert_eq!(args.process, Some(1));
+            assert_eq!(args.analysis, None);
+            assert_eq!(Args::try_parse_from(["saberbb", flag, "5"]).unwrap().process, Some(5));
+        }
+        for flag in ["--analysis", "-a"] {
+            let args = Args::try_parse_from(["saberbb", flag]).unwrap();
+            assert_eq!(args.analysis, Some(1));
+            assert_eq!(args.process, None);
+            assert_eq!(Args::try_parse_from(["saberbb", flag, "5"]).unwrap().analysis, Some(5));
+        }
+        assert!(Args::try_parse_from(["saberbb", "--process", "--analysis"]).is_err());
     }
 
     #[test]

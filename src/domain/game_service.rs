@@ -14,6 +14,15 @@ pub struct GameService<R: GameRoundRepository> {
 
 impl<R: GameRoundRepository> GameService<R> {
     pub fn process_game_round(&mut self) -> Result<()> {
+        self.run_game_round(false)
+    }
+
+    /// Run the same games while collecting detailed contact diagnostics.
+    pub fn analyze_game_round(&mut self) -> Result<()> {
+        self.run_game_round(true)
+    }
+
+    fn run_game_round(&mut self, record_contact_states: bool) -> Result<()> {
         info!("process_game_round() started");
 
         let game_schedules = self
@@ -25,7 +34,7 @@ impl<R: GameRoundRepository> GameService<R> {
         for game_schedule in game_schedules {
             info!("new game started");
 
-            let result = simulate_game(game_schedule,Box::new(RealRng::new()),BattingStrategySettings::player_driven(),None)?;
+            let result = simulate_game(game_schedule,Box::new(RealRng::new()),BattingStrategySettings::player_driven(),None,record_contact_states)?;
             if let Err(e) = self.repo.update_game_result(&result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
@@ -42,8 +51,9 @@ impl<R: GameRoundRepository> GameService<R> {
 }
 
 /// Shared game loop; ordinary play and explicit-seed diagnostics use identical physics.
-pub(crate) fn simulate_game(schedule:GameSchedule,rng:Box<dyn RandomProvider>,settings:BattingStrategySettings,pitch_budget:Option<u32>) -> Result<GameResult> {
+pub(crate) fn simulate_game(schedule:GameSchedule,rng:Box<dyn RandomProvider>,settings:BattingStrategySettings,pitch_budget:Option<u32>,record_contact_states:bool) -> Result<GameResult> {
     let mut state=GameState::new(rng,schedule)?;
+    state.record_contact_states=record_contact_states;
     state.batting_strategy_settings=settings;let mut pitches=0;
     while let GameProgress::Ongoing=state.progress() {
         info!("new inning started");state.advance_half_inning()?;
@@ -316,6 +326,47 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
         );
         assert!(!saved.innings.is_empty());
+        assert!(saved.player_contact_states.is_empty());
+    }
+
+    #[test]
+    fn recording_modes_reach_saved_game_results() {
+        let mut schedule = crate::domain::test_support::game_schedule();
+        schedule.max_inning = 1;
+        for record in [false, true] {
+            let mut service = GameService {
+                repo: RecordingRepo::new(vec![schedule.clone()]),
+            };
+            if record {
+                service.analyze_game_round().unwrap();
+            } else {
+                service.process_game_round().unwrap();
+            }
+            assert_eq!(service.repo.save_calls, 1);
+            assert_eq!(service.repo.update_calls, 1);
+            assert_eq!(service.repo.saved_results[0].player_contact_states.is_empty(), !record);
+        }
+    }
+
+    #[test]
+    fn contact_recording_does_not_change_seeded_game_results() {
+        let mut schedule = crate::domain::test_support::game_schedule();
+        schedule.max_inning = 1;
+        for seed in [7, 42] {
+            let run = |record| simulate_game(
+                schedule.clone(), Box::new(RealRng::from_seed(seed)),
+                BattingStrategySettings::player_driven(), Some(10_000), record,
+            ).unwrap();
+            let ordinary = run(false);
+            let analysis = run(true);
+            assert!(ordinary.player_contact_states.is_empty());
+            assert!(!analysis.player_contact_states.is_empty());
+            let mut ordinary = serde_json::to_value(ordinary).unwrap();
+            let mut analysis = serde_json::to_value(analysis).unwrap();
+            ordinary.as_object_mut().unwrap().remove("player_contact_states");
+            analysis.as_object_mut().unwrap().remove("player_contact_states");
+            assert_eq!(ordinary, analysis, "recording changed game results for seed {seed}");
+        }
     }
 
     #[test]

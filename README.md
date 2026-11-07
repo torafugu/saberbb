@@ -136,11 +136,18 @@ Available commands:
 cargo run -- --setup           # Recreate tables and load seed data
 cargo run -- --generate 10     # Generate 10 players
 cargo run -- --schedule 1      # Schedule 1 season
-cargo run -- --process 5       # Process 5 game rounds
-cargo run -- --sampleyear         # Clear game data, reset to this year, schedule 1 season, process 40 rounds
+cargo run -- --process 5       # Process 5 game rounds without detailed contact diagnostics
+cargo run -- --analysis 5      # Process 5 game rounds with detailed contact diagnostics
+cargo run -- --sampleyear      # Clear game data, reset to this year, schedule 1 season, analyze 40 rounds
 cargo run -- --maintenance     # Run SQLite VACUUM and PRAGMA optimize
 cargo run -- --view            # Open the interactive terminal UI
 ```
+
+`--process` and `--analysis` default to one round when the count is omitted.
+`--sampleyear` uses the same analysis path as `--analysis`, recording contact states.
+Ordinary processing skips both the detailed contact calculations and their persistence
+in `player_game_contact_state`; existing records are retained. Explicit-seed diagnostic
+runs continue to record contact states. Recording does not change game outcomes.
 
 Short flags are also available:
 
