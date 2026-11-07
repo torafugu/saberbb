@@ -297,6 +297,8 @@ pub enum GameProgress {
 
 #[derive(Debug)]
 pub struct GameState {
+    /// Collect detailed contact diagnostics only for analysis runs.
+    pub record_contact_states: bool,
     pub away_manager:Option<super::batting_personnel::Manager>,
     pub home_manager:Option<super::batting_personnel::Manager>,
     pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
@@ -328,6 +330,7 @@ impl GameState {
         let home_lineup = game_schedule.home_team.lineup(rng.as_mut())?;
 
         Ok(GameState {
+            record_contact_states: false,
             away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
             batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
             batting_strategy_settings: BattingStrategySettings::player_driven(),
@@ -934,22 +937,24 @@ impl GameState {
                 &batting_factor,
             );
 
-            let mut contact_state = crate::domain::shared::contact_state::build_contact_state(
-                decision_count_seq, &batter, &pitched_ball, &swing_contact,
-            );
-            if let Some(state)=contact_state.state.as_mut() {
-                state.intent_batter=Some(crate::domain::shared::contact_state::IntentBatterContext {batter_id,is_top:self.is_top()});
-                state.batting_selection=batting_selection.clone();
+            if self.record_contact_states {
+                let mut contact_state = crate::domain::shared::contact_state::build_contact_state(
+                    decision_count_seq, &batter, &pitched_ball, &swing_contact,
+                );
+                if let Some(state)=contact_state.state.as_mut() {
+                    state.intent_batter=Some(crate::domain::shared::contact_state::IntentBatterContext {batter_id,is_top:self.is_top()});
+                    state.batting_selection=batting_selection.clone();
+                }
+                crate::domain::shared::swing_prediction::attach_prediction(
+                    &mut contact_state, &batter, &pitched_ball, &expected_ball,
+                );
+                crate::domain::shared::observation_update::attach_observed_intent_plans(
+                    &mut contact_state, self.game_result.id, batting_intent_decision,
+                );
+                crate::domain::shared::intent_execution_contact::attach_execution_contacts(&mut contact_state);
+                crate::domain::shared::intent_collision_response::attach_collision_responses(&mut contact_state, &pitched_ball);
+                self.game_result.player_contact_states.push(contact_state);
             }
-            crate::domain::shared::swing_prediction::attach_prediction(
-                &mut contact_state, &batter, &pitched_ball, &expected_ball,
-            );
-            crate::domain::shared::observation_update::attach_observed_intent_plans(
-                &mut contact_state, self.game_result.id, batting_intent_decision,
-            );
-            crate::domain::shared::intent_execution_contact::attach_execution_contacts(&mut contact_state);
-            crate::domain::shared::intent_collision_response::attach_collision_responses(&mut contact_state, &pitched_ball);
-            self.game_result.player_contact_states.push(contact_state);
 
             if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
                 self.resolve_swing_miss(pitcher_id, batter_id, &swing_contact);

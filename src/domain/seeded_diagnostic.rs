@@ -219,7 +219,7 @@ pub fn simulate_case(case:&GameCase)->Result<GameResult> {
     ensure!(case.version==1&&case.engine_source_sha256==ENGINE&&case.build_sha256==BUILD,"case engine/build fingerprint mismatch");
     let seed:u64=case.game_seed.parse()?;
     crate::domain::game_service::simulate_game(case.schedule.clone(),Box::new(RealRng::from_seed(seed)),
-        case.batting_settings.clone(),Some(case.max_pitches))
+        case.batting_settings.clone(),Some(case.max_pitches),true)
 }
 
 pub fn process_run<R:GameRoundRepository>(repo:&mut R,recorder:&mut RunRecorder)->Result<()> {
