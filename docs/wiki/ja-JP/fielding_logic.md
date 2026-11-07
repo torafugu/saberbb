@@ -18,7 +18,7 @@
 
 $$\theta_{\text{coverage}} = \theta_{\text{coverage}} \cdot (1.0 + \text{FielderInfo.reach\_range} \cdot 0.05)$$
 
-#### 補給可能かどうかの判定
+#### 捕球可能かどうかの判定
 
 $$\theta_{\text{fielder}} - \theta_{\text{ball}} \le \theta_{\text{coverage}}$$
 
@@ -45,11 +45,11 @@ $$\theta_{\text{fielder}} - \theta_{\text{ball}} \le \theta_{\text{coverage}}$$
 #### 野手が捕球可能な高さの打球の将来位置に移動
 1. 移動時間の判定
 - 野手が初期位置からボールの水平位置 $(X(t), Y(t))$ に移動するのに必要な時間 $t_{\text{fielder}}$ を計算
-$$t_{\text{fielder}} = t_{\text{reaction}} + \frac{\text{Distance}((X_{\text{f0}}, Y_{\text{f0}}), (X(t), Y(t)))}{v_{\text{fielder}}}$$
+$$t_{\text{fielder}} = t_{\text{prep}} + \frac{\text{Distance}((X_{\text{f0}}, Y_{\text{f0}}), (X(t), Y(t)))}{v_{\text{fielder}}}$$
 
 2. ボールの水平位置への到達時間に余裕がある場合は、先回りする
 $$t_{\text{fielder}} \le t_{\text{ball}}$$
-- 野手は先回りする時間の余裕があれば（$t_{\text{fielder}} < t$）、その地点でボールが落ちてくるのを待っている状態になり、確実にノーバウンドで捕球できる
+- 到達後の余裕が要求値以上なら捕球を試みる。到達可能でもリスク判定やエラー抽選があるため、捕球成功は確定しない。
 
 3. 捕球可能な高さの判定
 $$Z(t) \le Z_{\text{catch\_max}}$$
@@ -58,22 +58,12 @@ $$Z(t) \le Z_{\text{catch\_max}}$$
 
 ボールの軌道上で野手が止められず、ボールがフェンス際や外野の奥で停止、または減速した後に、最も近い野手がボールを捕球する
 
-#### 捕球時間の判定
+#### 現在の拾球探索
 
-$$t_{\text{pickup}} = \max(t_{\text{ball\_stop}}, t_{\text{fielder\_travel}}) + t_{\text{pickup\_delay}}$$
-
-- $t_{\text{ball\_stop}}$： ボールが停止した時間
-- $t_{\text{fielder\_travel}}$： 野手が初期位置から最終位置 $(X_{\text{final}}, Y_{\text{final}})$ まで走るのに必要な時間
-- $t_{\text{pickup\_delay}}$： クッションボールの処理や、停止したボールをピックアップする動作にかかる遅延時間（約 $0.3 \sim 0.5$ 秒）
-
-#### 野手がボールの停止より先に到着した場合
-
-$$t_{\text{pickup}} = t_{\text{fielder\_travel}} + t_{\text{ball\_stop}} + t_{\text{pickup\_delay}}$$
-※野手はボールが止まるのを待ってから捕球する
-
-#### 野手がボール停止後に到着した場合
-
-$$t_{\text{pickup}} = t_{\text{fielder\_travel}} + t_{\text{pickup\_delay}}$$
+`evaluate_final_pickup` はフェンス衝突時刻、なければ最初のバウンド時刻、どちらもなければ0から0.05秒刻みで探索する。最終停止位置だけでなく、移動中の球も対象。
+野手の必要時間は `prep_time + 移動距離/running_speed`。到達できる最初の点の時刻へ処理遅延を加える。
+移動中のクッションボールは0.65秒、それ以外は0.40秒。ファンブルならさらに1.5〜2.5秒の遅延を加える。
+したがって「走行時間＋停止時間」を一律に加算する式ではない。
 
 ### エラー判定
 
@@ -84,18 +74,39 @@ $$t_{\text{pickup}} = t_{\text{fielder\_travel}} + t_{\text{pickup\_delay}}$$
 
 #### エラー確率の算出
 
-$$\text{ErrorRate} = (1.0 - \text{FielderInfo.catching}) \cdot \text{DifficultyFactor}$$
+通常interceptionでは `clamp(1-catching, 0.01, 0.50) * difficulty * 0.10`。待ち時間0.2秒未満ならdifficulty=3、それ以外は1。final pickupは上記とは別の式を使う。
 
 - $\text{DifficultyFactor}$の要素
   - 待機時間の少なさ（ギリギリの捕球ほど高難易度）
-  - 打球速度$v$の速さ
-  - 打球高度$Z$の高さ
 
 ### ノーバウンド捕球時のリスク戦略
+
+要求余裕はAggressive=0秒、Balanced=0.15秒、Conservative=0.35秒。慎重型も余裕が十分ならDirectFlyを試みる。
 
 - $Aggressive$（攻撃的 / チャレンジ優先）：
   - ノーバウンドでの捕球チャンスがあれば、待ち時間がほぼゼロ（ギリギリのダイビング等）であっても積極的に飛び込む
 - $Balanced$（バランス型）：
   - ノーバウンドで捕球できるチャンスがある場合でも、待ち時間が一定基準を下回る状況であれば、安全な捕球ポイントで捕球する
 - $Conservative$（慎重型 / 安全第一）：
-  - 無理に突っ込まず、ワンバウンド後にボールの勢いが落ち着き、待ち時間を十分に確保できる安全な地点まで下がって捕球する。
+  - 要求余裕を満たす空中捕球点がなければ、バウンド後の捕球点へ探索を続ける。
+
+## 2026-11-06時点の探索と診断
+
+実装: [fielding_physics.rs](../../../src/domain/resolver/fielding_physics.rs)、[fielding_resolver.rs](../../../src/domain/resolver/fielding_resolver.rs)。
+
+通常のinterception探索は0.10秒開始。空中では0.01秒刻み、最初の有効なバウンド／フェンス衝突以後は元の `0.10 + n*0.05` グリッドへ戻る。整数tickから時刻を作り、イベントとの差が1e-9秒以下ならDirectFlyにしない。
+移動時間は上式のt_prepに `prep_time` を使う。`reaction` を別途加算しない。
+
+候補は方向フィルタと `fielder.distance() <= ball.distance()` の距離フィルタを通った野手。各候補を1回評価し、捕球時刻が最も早いものを選ぶ。Passedなら全野手のfinal pickupを比較してカバーし、候補が捕れなかった場合も全野手のfinal pickupを比較する。
+
+| 記録 | 意味 |
+| --- | --- |
+| selection_path | interception / covering / final_pickup |
+| catch_type / error_type | 最終的に有効な捕球の種類とエラー |
+| player_game_fielding_candidate | 1球×全アクティブ野手。フィルタ除外も記録 |
+| search | 通常探索の最初の捕球・エラーまたは探索終了までの経過 |
+| air_probe / air_probe_coarse | 全野手について全空中区間を10ms / 50msで走査する独立診断 |
+
+probeは乱数を消費せず、フィルタや最初の成立点で打ち切らない。probe成立は実際の捕球・アウトを意味せず、通常の担当野手も変更しない。
+フィルタ除外野手に成立点が残ることと、通常探索の刻み不足は別の論点。
+既存DBへの追加移行、段階別件数、最大余裕、粗密比較の手順は[診断一覧](diagnostics.md)および[空中探索比較](../../air_catch_search_validation.md)を参照。

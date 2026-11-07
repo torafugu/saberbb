@@ -70,13 +70,14 @@ let decision = reconcile_pitch_call_proposals(
 
 正常な選択結果では双方のスコアが `Some` になる。
 preferences の変更や再提案を繰り返す処理は行わず、一回の再評価で決める。
-ゲーム内の投球実行への接続は別の処理とする。
+通常試合の `GameState::process_count` はこの決定を `create_pitch_for_call` へ渡して実投球を生成する。直前の配球は打席内で保持し、新打席でリセットする。
 
 ## 一連の処理を検証する simulation テスト
 
-初期データを用意した既存のテスト DB に対して、次を実行する。
+初期データを用意したテスト専用DBに対して実行する。SABERBB_DBを設定し、現行Rustのアプリ設定database_pathも同じDBへ合わせる。下記テストは集計テーブルを再作成する。
 
 ```sh
+export SABERBB_DB="/path/to/saberbb.db"
 cargo test --test simulate_pitching test_select_pitching_strategy -- --nocapture
 ```
 

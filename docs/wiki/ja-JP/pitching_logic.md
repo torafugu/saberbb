@@ -28,17 +28,13 @@
 
 $$\text{spin\_dir} = (360.0 - \text{spin\_dir})\bmod 360.0$$
 
-## 2.2 pitch calling
+## 2.2 配球決定と実行
 
-球種とコースを決定
+通常試合の `process_count` は状況からStrategyを選択し、投手のPitcherCharacterと捕手のcalling_styleから別々のPreferencesを生成する。
+共有 `PitchEvaluationContext` で投手候補（球種上限3・コース上限2）と捕手候補（上限4）を作り、和集合を双方で再評価する。重み0.5で決めたPitchCallを `create_pitch_for_call` で実行する。有効候補がなければNoPitchCallエラー。
+直前の配球は打席内で保持し、新打席でリセットする。詳細は[配球候補の統合](pitch_call_decision.md)。
 
-#### 球種
-
-投手の球種別の確率分布から決定
-
-#### コース
-
-デフォルトのコース別の確率分布から決定
+旧 `create_pitch` の分布サンプリングはラッパーとして残り、予想投球の生成にも使う。通常の実投球が無条件にその分布だけで決まるわけではない。
 
 ## 2.3 calculate_release_point
 
@@ -78,22 +74,7 @@ $$\text{HAA}_{\text{perceived}} = \text{HAA}_{\text{physical}} \times \text{Unfa
 
 # 4. calculate_location_bias
 
-投球のコースによる打者の着地予測とタイミングのズレを算出
-
-#### タイミングバイアス
-
-- 内角：最大 +12ms
-- 外角：最大 -10ms
-
-#### X軸のバイアス
-
-- 内角：詰まり(-)
-- 外角：バットの先端(+)
-
-#### Y軸のバイアス
-
-- 高め：ボールの上を叩く(-)
-- 低め：ボールの下を叩く(+)
+現在のタイミング・水平・垂直の追加コースバイアスはすべて0。旧説明の内角+12ms／外角−10msや、コースに比例した空間ずれを加算しない。物理変化差、クロスファイアー、リリース幅、知覚誤差は引き続き別項で計算する。
 
 # 5. calculate_pitch_offset
 
@@ -122,3 +103,7 @@ $$\text{enhanced\_timing\_offset} = \text{timing\_offset} + \text{location\_bias
 2. 水平方向の移動距離の計算
 3. 垂直方向の移動距離の計算
 - 重力の影響を含める
+
+## タイミング知覚の能力感度
+
+`calculate_timing_offset` は到達時間差と知覚ノイズを `1-sigmoid(batting_eye)` で減衰する。高いbatting_eyeほど誤差を小さくし、旧式の方向を逆転させた状態。接触前の `1-sigmoid(bat_control)` による適応は[打撃ロジック](batting_logic.md)を参照。

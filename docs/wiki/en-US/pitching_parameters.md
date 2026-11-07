@@ -195,3 +195,8 @@ The current default location distribution is:
 | `HighInside` | `0.2` |
 
 Every generated `PitchCall` currently uses `Margin::Edge`. Available target zones are `Center`, `LowInside`, `LowOutside`, `HighInside`, and `HighOutside`.
+
+## Current pitch selection and spin inputs
+
+Live actual pitches follow Strategy → pitcher/catcher Preferences → union reevaluation → PitchCall → create_pitch_for_call, rather than an unconditional usage-only draw. See [reconciliation](pitch_call_decision.md). Usage distributions remain in common scoring and legacy sampling APIs.
+Generated spin_efficiency is clamped to 0–1 for finite samples; nonfinite samples are rejected. Diagnostics report invalid stored spin and source pitch keys rather than substituting zero spin.

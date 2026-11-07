@@ -9,6 +9,7 @@
 | `info` | `PlayerInfo` | 識別情報と表示情報。 |
 | `offense_skills` | `OffenseSkills` | 打撃と走塁のスキル。 |
 | `defense_skills` | `DefenseSkills` | 主ポジションと守備または投球スキル。 |
+| `batting_character` | `BatterCharacter` | 持続的な打撃傾向。`player_batting_character` に保存。旧データ・新規生成の既定値はBalanced。 |
 
 ## PlayerInfo
 
@@ -60,7 +61,7 @@
 | --- | --- | --- | --- |
 | `position` | `Position` | `defense_skills.position` | 主守備ポジション。 |
 | `pitcher` | `Option<PitcherInfo>` | `pitcher_info`、`pitch_skill`、`fielder_info` | 投手パラメータと投手の守備情報。プレイヤーが `FielderType::Pitcher` を持つ場合に設定されます。 |
-| `catcher` | `Option<CatcherInfo>` | `fielder_info` | 捕手の守備情報と `calling_style`（デフォルトは `Balanced`）。プレイヤーが `FielderType::Catcher` を持つ場合に設定されます。 |
+| `catcher` | `Option<CatcherInfo>` | `fielder_info`, `catcher_info` | 捕手の守備情報と `calling_style`（デフォルトは `Balanced`）。プレイヤーが `FielderType::Catcher` を持つ場合に設定されます。 |
 | `middle_infielder` | `Option<FielderInfo>` | `fielder_info` | 二遊間（中堅内野手）の守備情報。`SB` と `SS` タイプのスキルで設定されます。 |
 | `corner_infielder` | `Option<FielderInfo>` | `fielder_info` | コーナー内野手の守備情報。`FB` と `TB` タイプのスキルで設定されます。 |
 | `outfielder` | `Option<FielderInfo>` | `fielder_info` | 外野手の守備情報。`LF`、`CF`、`RF` タイプのスキルで設定されます。 |
@@ -259,3 +260,11 @@ PitcherInfo は以下のメソッドも導出します:
 | `DefenseSkills::new(position)` | 主ポジション用の守備スキルを作成し、すべての任意スキルグループを `None` に設定します。 |
 | `FielderInfo::new_pitcher()` | ゼロ初期化された投手用守備情報を作成します。 |
 | `CatcherInfo::from_fielder_info(fielder_info)` | 野手情報を捕手情報としてラップし、`calling_style` を `Balanced` に設定します。 |
+
+## 打撃性格と独立した監督
+
+BatterCharacterはContactOriented / LineDriveOriented / Adaptive / Balanced。能力値・BatterTypeと別の属性で、毎投球のPreferencesやIntentそのものは保存属性ではない。
+ManagerはPlayerの一種ではなく、id・name・batting_policyを持つ人物。`manager` と `team_manager` へ保存し、`Team.manager` と試合開始時のスナップショットへ読み込む。
+状況別選好・監督指示・診断記録への接続は[打撃戦略と監督](batting_strategy.md)を参照。
+
+PitchSkillの生成時には有限なspin_efficiencyを0〜1へclampする。非有限値は生成エラーとし、保存済みの不正な回転値を診断で黙って補正しない。[回転入力診断](../../collision_validation.md)を参照。

@@ -9,6 +9,7 @@ The current `Player` model is nested:
 | `info` | `PlayerInfo` | Identity and display information. |
 | `offense_skills` | `OffenseSkills` | Batting and running skills. |
 | `defense_skills` | `DefenseSkills` | Primary position and defensive or pitching skills. |
+| `batting_character` | `BatterCharacter` | Persistent batting personality in `player_batting_character`; old data and new generation default to Balanced. |
 
 ## PlayerInfo
 
@@ -60,7 +61,7 @@ The current `Player` model is nested:
 | --- | --- | --- | --- |
 | `position` | `Position` | `defense_skills.position` | Primary defensive position. |
 | `pitcher` | `Option<PitcherInfo>` | `pitcher_info`, `pitch_skill`, `fielder_info` | Pitcher parameters and pitcher fielding info. Set when the player has `FielderType::Pitcher`. |
-| `catcher` | `Option<CatcherInfo>` | `fielder_info` | Catcher fielding info and `calling_style` (defaults to `Balanced`). Set when the player has `FielderType::Catcher`. |
+| `catcher` | `Option<CatcherInfo>` | `fielder_info`, `catcher_info` | Catcher fielding info and `calling_style` (defaults to `Balanced`). Set when the player has `FielderType::Catcher`. |
 | `middle_infielder` | `Option<FielderInfo>` | `fielder_info` | Middle-infielder fielding info. Set for `SB` and `SS` type skills. |
 | `corner_infielder` | `Option<FielderInfo>` | `fielder_info` | Corner-infielder fielding info. Set for `FB` and `TB` type skills. |
 | `outfielder` | `Option<FielderInfo>` | `fielder_info` | Outfielder fielding info. Set for `LF`, `CF`, and `RF` type skills. |
@@ -259,3 +260,11 @@ The factory may add extra defensive skill groups from `multiple_fielder_type/<Fi
 | `DefenseSkills::new(position)` | Creates defense skills for a primary position with all optional skill groups set to `None`. |
 | `FielderInfo::new_pitcher()` | Creates zeroed pitcher fielding info. |
 | `CatcherInfo::from_fielder_info(fielder_info)` | Wraps fielder info as catcher info with `calling_style` set to `Balanced`. |
+
+## Batting personality and independent managers
+
+BatterCharacter is ContactOriented / LineDriveOriented / Adaptive / Balanced, separate from ability and BatterType. Per-pitch Preferences and Intent are generated decisions rather than persistent Player attributes.
+Manager is an independent person, not a Player subtype, with id, name and batting_policy. `manager` and `team_manager` persist people/assignments; `Team.manager` and game snapshots carry them into simulation.
+See [batting strategy and managers](batting_strategy.md) for situational preferences, instructions and diagnostic scope.
+
+Generation clamps finite PitchSkill spin_efficiency to 0–1 and rejects nonfinite samples. Diagnostics do not silently repair invalid saved spin inputs. See [spin input diagnostics](../../collision_validation.md).

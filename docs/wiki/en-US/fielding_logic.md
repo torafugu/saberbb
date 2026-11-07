@@ -48,35 +48,20 @@ out-of-range event times are ignored.
 #### Move to the Future Position Where the Fielder Can Catch the Ball
 1. Determine travel time
 - Calculate the time $t_{\text{fielder}}$ required for the fielder to move from the initial position to the ball's horizontal position $(X(t), Y(t))$.
-$$t_{\text{fielder}} = t_{\text{reaction}} + \frac{\text{Distance}((X_{\text{f0}}, Y_{\text{f0}}), (X(t), Y(t)))}{v_{\text{fielder}}}$$
+$$t_{\text{fielder}} = t_{\text{prep}} + \frac{\text{Distance}((X_{\text{f0}}, Y_{\text{f0}}), (X(t), Y(t)))}{v_{\text{fielder}}}$$
 
 2. If there is enough time to reach the ball's horizontal position, get there ahead of the ball
 $$t_{\text{fielder}} \le t_{\text{ball}}$$
-- If the fielder has enough time to get there first ($t_{\text{fielder}} < t$), the fielder waits at that point for the ball to come down and can catch it reliably before it bounces.
+- If the fielder has enough time to get there first ($t_{\text{fielder}} < t$), the fielder waits at that point for the ball to come down and can attempt a catch subject to risk and error checks.
 
 3. Determine whether the ball is at a catchable height
 $$Z(t) \le Z_{\text{catch\_max}}$$
 
 ### 3. evaluate_final_pickup
 
-If no fielder can stop the ball along its trajectory, the nearest fielder picks it up after it stops or slows near the fence or deep in the outfield.
-
-#### Determining Pickup Time
-
-$$t_{\text{pickup}} = \max(t_{\text{ball\_stop}}, t_{\text{fielder\_travel}}) + t_{\text{pickup\_delay}}$$
-
-- $t_{\text{ball\_stop}}$: time when the ball stops
-- $t_{\text{fielder\_travel}}$: time required for the fielder to run from the initial position to the final position $(X_{\text{final}}, Y_{\text{final}})$
-- $t_{\text{pickup\_delay}}$: delay for handling a carom off the wall or picking up a stopped ball (about $0.3 \sim 0.5$ seconds)
-
-#### If the Fielder Arrives Before the Ball Stops
-
-$$t_{\text{pickup}} = t_{\text{fielder\_travel}} + t_{\text{ball\_stop}} + t_{\text{pickup\_delay}}$$
-The fielder waits for the ball to stop before picking it up.
-
-#### If the Fielder Arrives After the Ball Stops
-
-$$t_{\text{pickup}} = t_{\text{fielder\_travel}} + t_{\text{pickup\_delay}}$$
+Search from fence impact, otherwise first bounce, otherwise time zero, in 0.05s steps. The target may still be moving; it is not limited to the final resting position.
+Required time is `prep_time + distance/running_speed`. Add handling delay at the first reachable point: 0.65s for a moving cushion ball, 0.40s otherwise. A fumble adds a further 1.5–2.5s.
+Do not add travel time and ball-stop time unconditionally.
 
 ### Error Judgment
 
@@ -87,18 +72,39 @@ $$t_{\text{pickup}} = t_{\text{fielder\_travel}} + t_{\text{pickup\_delay}}$$
 
 #### Calculating Error Probability
 
-$$\text{ErrorRate} = (1.0 - \text{FielderInfo.catching}) \cdot \text{DifficultyFactor}$$
+Normal interception uses `clamp(1-catching, 0.01, 0.50) * difficulty * 0.10`, with difficulty=3 for waiting time below 0.2s, otherwise 1. Final pickup uses its separate error formula.
 
 - Elements of $\text{DifficultyFactor}$
   - Lack of waiting time (a just-barely catch is more difficult)
   - Batted-ball velocity $v$
-  - Batted-ball height $Z$
 
 ### Risk Strategy for Catching Before a Bounce
+
+Required margins: Aggressive=0s, Balanced=0.15s, Conservative=0.35s. Conservative can still attempt a DirectFly with sufficient margin.
 
 - $Aggressive$ (challenge-first):
   - If there is a chance to catch the ball before it bounces, the fielder dives in aggressively even when wait time is almost zero, such as on a last-second diving attempt.
 - $Balanced$:
   - Even if there is a chance to catch the ball before it bounces, if wait time is below a certain threshold, the fielder chooses a safer fielding point.
 - $Conservative$ (safety-first):
-  - The fielder does not force a charge. Instead, the fielder drops back to a safer point where the ball has settled after one bounce and there is enough wait time.
+  - If no airborne point satisfies the required margin, continue searching after the bounce.
+
+## Search and diagnostics as of 2026-11-06
+
+Sources: [fielding_physics.rs](../../../src/domain/resolver/fielding_physics.rs) and [fielding_resolver.rs](../../../src/domain/resolver/fielding_resolver.rs).
+
+Live interception starts at 0.10s, advancing by 0.01s in the air, then returning to the original `0.10 + n*0.05` grid after the first valid bounce/fence event. Times come from integer ticks. A point within 1e-9s of the event is not DirectFly.
+The travel-time formula uses `prep_time` for t_prep; it does not add a separate `reaction` delay. Reachability does not guarantee success: required risk margin and error draws still apply.
+
+Candidates must pass direction and `fielder.distance() <= ball.distance()` filters. Evaluate each eligible fielder once, then select the earliest interception. A Passed error triggers final-pickup comparison across all fielders; if no candidate intercepts, final pickups also consider all fielders.
+
+| Record | Meaning |
+| --- | --- |
+| selection_path | interception / covering / final_pickup |
+| catch_type / error_type | Effective interception's catch and error types |
+| player_game_fielding_candidate | One row per active fielder and fielded pitch, including filtered fielders |
+| search | Actual search prefix through first catch/error or exhaustion |
+| air_probe / air_probe_coarse | Independent full-air-interval scans at 10ms / 50ms for every active fielder |
+
+Probes consume no random draws, ignore candidate filters and scan beyond the first feasible point. Probe feasibility is not an actual catch/out and does not change live selection.
+Filtered fielders retaining feasible samples is separate from insufficient time resolution. See [diagnostics](diagnostics.md) and [air search comparison](../../air_catch_search_validation.md) for upgrades, stage counts, margins and comparisons.

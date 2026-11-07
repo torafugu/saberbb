@@ -21,7 +21,7 @@
 5. `DefenseSkills` を生成し、対応する守備・捕球・投球情報を紐付ける。
 6. 投手以外の主ポジションには `BatterInfo` を生成する（主ポジションが投手の場合は現在 `None`）。
 7. 全プレイヤーに `RunningSkills` を生成する。
-8. ネストされた `Player { info, offense_skills, defense_skills }` を返す。
+8. ネストされた `Player { info, offense_skills, defense_skills, batting_character }` を返す。
 
 ## 確率データの読み込み
 
@@ -192,3 +192,13 @@
 | `fielder_info` | 生成された守備スキルグループごとに1行。送球速度、走力、反応、準備時間、捕球、到達高、到達範囲を含みます。 |
 | `pitcher_info` | `defense_skills.pitcher` が `Some` の場合のみ保存されます。投手レベルのスピン量と安定度を含みます。 |
 | `pitch_skill` | 投手の生成された球種スキルごとに1行。 |
+
+## 現行生成で追加された人物・回転データ
+
+- `Player.batting_character` はBalancedで初期化し、追加乱数を消費しない。性格をIDや能力から推定しない。`player_batting_character` に選手作成トランザクションで保存する。
+- `CatcherInfo.calling_style` は `load_catcher_info_probs()` で読む設定重みから生成し、`catcher_info` へ保存する。
+- `PitcherInfo.pitcher_character` は設定重みから生成し、`pitcher_info` に保存する。
+- 球種別spin_efficiencyの有限なサンプルは0〜1へclampし、非有限値は拒否する。
+- Managerは選手生成器では自動生成しない。独立した人物・所属として明示設定する。
+
+[打撃戦略と監督](batting_strategy.md)に互換性・追加移行・設定方法をまとめる。姓・名は現在 `--setup` が `migrations/data/first_names.csv` と `last_names.csv` からインポートする（両方必要）。既存DBの人物追加に、データを再作成するsetupを使わない。
