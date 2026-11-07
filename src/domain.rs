@@ -3,6 +3,7 @@ pub mod seeded_diagnostic;
 pub mod diagnostic_batting_config;
 pub mod holdout_schedule;
 pub mod player_factory;
+pub mod manager_service;
 pub mod player_service;
 pub mod random_provider;
 pub mod resolver;

@@ -134,7 +134,7 @@ Available commands:
 
 ```sh
 cargo run -- --setup           # Recreate tables and load seed data
-cargo run -- --generate 10     # Generate 10 players
+cargo run -- --generate 10     # Generate 10 players and fill vacant team manager positions
 cargo run -- --schedule 1      # Schedule 1 season
 cargo run -- --process 5       # Process 5 game rounds without detailed contact diagnostics
 cargo run -- --analysis 5      # Process 5 game rounds with detailed contact diagnostics
@@ -291,3 +291,17 @@ Finite-barrel coupled normal/tangential impulses and spin consistency:
 
 Single-experiment collision references and read-only per-pitch spin reconstruction:
 [`docs/collision_validation.md`](docs/collision_validation.md).
+
+### Generated managers
+
+`--generate N` generates and distributes N players, then generates one manager for
+every team that has no manager. Existing managers and assignments are preserved;
+repeating the command when all teams have managers creates no extra managers.
+`--generate 0` fills manager vacancies without creating players.
+Manager names use the same language-specific dictionaries as player names. Each
+manager receives one of the four existing batting policies with equal probability:
+`let_batter_decide`, `put_ball_in_play`, `seek_line_drive`, or `situational`.
+Manager IDs are allocated by SQLite independently of player IDs. Creation and team
+assignment are saved together, and concurrent assignments never replace an existing
+manager. Existing databases require the batting personnel migration:
+`migrations/upgrades/add_batting_personnel.sql`.

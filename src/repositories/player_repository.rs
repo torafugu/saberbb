@@ -395,28 +395,8 @@ impl PlayerRepository for SqlPlayerRepository {
     fn random_name(&self, language: String) -> Result<FullName, AppError> {
         info!("random_name() started");
 
-        let query = "SELECT 
-	                        fn.name AS first_name,
-	                        ln.name AS last_name
-                            FROM 
-                            (
-                                SELECT name 
-                                FROM last_names 
-                                WHERE country = ?1
-                                LIMIT 1 
-                                OFFSET ABS(RANDOM()) % (SELECT COUNT(*) FROM last_names WHERE country = ?1)
-                            ) AS ln
-                            CROSS JOIN 
-                            (
-                                SELECT name 
-                                FROM first_names 
-                                WHERE country = ?1 AND gender = 'M'
-                                LIMIT 1 
-                                OFFSET ABS(RANDOM()) % (SELECT COUNT(*) FROM first_names WHERE country = ?1 AND gender = 'M')
-                            ) AS fn";
-
-        self.db_client
-            .query_row::<FullName>(query, params![language])
+        let conn = self.db_client.get_conn()?;
+        crate::repositories::sql_helper::player_helper::random_name(&conn, &language)
     }
 
     #[tracing::instrument(skip(self, position), fields(position = %position), err)]
