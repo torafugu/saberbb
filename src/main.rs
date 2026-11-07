@@ -5,6 +5,9 @@ use saberbb::adapters::tui::top_tui::menu;
 use saberbb::config::load_app_config;
 use saberbb::domain::game_service::GameService;
 use saberbb::domain::player_factory::PlayerFactory;
+use saberbb::domain::manager_service::ManagerService;
+use saberbb::domain::random_provider::RealRng;
+use saberbb::repositories::manager_repository::SqlManagerRepository;
 use saberbb::domain::player_service::PlayerService;
 use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::i18n::I18nManager;
@@ -75,20 +78,28 @@ fn main() -> Result<()> {
 
     // Player Generate Mode
     if let Some(num_of_players) = args.generate {
-        let player_service = PlayerService {
-            repo: app_context().player_repository.clone(),
-        };
-        let mut player_factory = PlayerFactory::new(player_service);
-        player_factory.load_player_probs()?;
+        if num_of_players > 0 {
+            let player_service = PlayerService {
+                repo: app_context().player_repository.clone(),
+            };
+            let mut player_factory = PlayerFactory::new(player_service);
+            player_factory.load_player_probs()?;
 
-        for _ in 0..num_of_players {
-            if let Err(e) = player_factory.generate_and_save_player() {
-                let error_msg = t!("error", "function" => "generate_players");
-                bail!("{}, {}", error_msg, e);
+            for _ in 0..num_of_players {
+                if let Err(e) = player_factory.generate_and_save_player() {
+                    let error_msg = t!("error", "function" => "generate_players");
+                    bail!("{}, {}", error_msg, e);
+                }
+                info!("1 player generated.");
+                println!("{}", t!("player_generated"));
             }
-            info!("1 player generated.");
-            println!("{}", t!("player_generated"));
         }
+        let mut manager_service = ManagerService { repo: SqlManagerRepository::new()? };
+        let assigned = manager_service.generate_missing_managers(
+            &I18nManager::global().lang_db(), &mut RealRng::new(),
+        )?;
+        info!(assigned, "generated and assigned managers to vacant teams");
+        println!("{assigned} managers generated and assigned.");
     }
 
     // Game Schedule Generate Mode
@@ -205,7 +216,7 @@ struct Args {
     #[arg(short, long, num_args = 0..=1, default_missing_value = "1")]
     analysis: Option<i8>,
 
-    /// Generate players
+    /// Generate players and fill all vacant team manager positions
     #[arg(short, long)]
     generate: Option<u16>,
 

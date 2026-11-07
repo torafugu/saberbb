@@ -368,3 +368,22 @@ impl FromRow for RunningSkills {
         Ok(running_skills)
     }
 }
+
+/// Shared name dictionary lookup for generated players and managers.
+pub(crate) fn random_name(conn: &rusqlite::Connection, language: &str) -> Result<FullName, AppError> {
+    let query = "SELECT fn.name AS first_name, ln.name AS last_name
+                 FROM (
+                     SELECT name FROM last_names WHERE country = ?1
+                     LIMIT 1 OFFSET ABS(RANDOM()) % (SELECT COUNT(*) FROM last_names WHERE country = ?1)
+                 ) AS ln CROSS JOIN (
+                     SELECT name FROM first_names WHERE country = ?1 AND gender = 'M'
+                     LIMIT 1 OFFSET ABS(RANDOM()) % (SELECT COUNT(*) FROM first_names WHERE country = ?1 AND gender = 'M')
+                 ) AS fn";
+    conn.query_row(query, [language], |row| Ok(FullName {
+        first: row.get("first_name")?,
+        last: row.get("last_name")?,
+    })).map_err(|error| match error {
+        rusqlite::Error::QueryReturnedNoRows => AppError::NotFound(format!("No names found for language: {language}")),
+        other => AppError::Database(other),
+    })
+}
