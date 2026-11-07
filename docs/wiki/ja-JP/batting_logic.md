@@ -1,5 +1,7 @@
 # 打撃ロジック
 
+数式では $\sigma(x)=\frac{1}{1+e^{-x}}$、$\operatorname{clamp}(x,a,b)=\min(\max(x,a),b)$ とする。三角関数の入力はラジアンで、度への変換には $180/\pi$ を掛ける。変数名は実装との対応を保っている。
+
 実装: [batting_resolver.rs](../../../src/domain/resolver/batting_resolver.rs)、[GameState::process_count](../../../src/domain/shared/game_state.rs)。2026-11-06時点の通常試合の処理。
 
 ## 投球とスイング判断
@@ -8,23 +10,24 @@
 
 `calculate_batting_factor` は実コースと予想コース、球種の類似度、得意ゾーンから次の係数を作る。
 
-```text
-total_modifier = ((1-zone_aptitude) + (1-zone_similarity) + (1-pitch_similarity)) / 3
-```
+$$
+\mathrm{total\_modifier}
+= \frac{(1-\mathrm{zone\_aptitude})+(1-\mathrm{zone\_similarity})+(1-\mathrm{pitch\_similarity})}{3}
+$$
 
-`calculate_swing_decision` のscoreは確率そのものではない。実コースのゾーン外距離を `d = max(distance_from_zone_edge, 0)` とし、以下を加算する。
+`calculate_swing_decision` のscoreは確率そのものではない。実コースのゾーン外距離を $d=\max(\mathrm{distance\_from\_zone\_edge},0)$ とし、以下を加算する。
 
 | 成分 | 現在の処理 |
 | --- | --- |
 | count | `CountStatus::prob()` |
-| approach | 通常は `PlateApproach::prob()`。2ストライクでは `max(prob, 0)` |
-| protection | 2ストライクのみ `1.75 * exp(-12*d)` |
-| zone | `-2*d` |
+| approach | 通常は `PlateApproach::prob()`。2ストライクでは $\max(\mathrm{prob},0)$ |
+| protection | 2ストライクのみ $1.75e^{-12d}$ |
+| zone | $-2d$ |
 | pitch | FourSeamFastballは+0.1、それ以外は−0.05 |
 | anticipation | zone_similarity + pitch_similarity。2ストライクで負なら1/4 |
 | aptitude | zone_aptitude |
 
-`rng.random() < sigmoid(score)` ならSwing、それ以外はTake。判断用の乱数は1回。
+$u<\sigma(\mathrm{score})$ ならSwing、それ以外はTake。ここで $u$ は一様乱数。判断用の乱数は1回。
 現在の `default_plate_approach` の候補は全BatterTypeでAggressiveのみ。新しいBatterCharacterとは別の仕組み。
 見送りは通常のボール・ストライク等の判定へ進む。詳細は[見送り診断](../../swing_decisions.md)。実コースを使う近似であり、独立した知覚コースからの判断ではない。
 
@@ -32,24 +35,29 @@ total_modifier = ((1-zone_aptitude) + (1-zone_similarity) + (1-pitch_similarity)
 
 `adapt_to_pitch` は次の係数を水平・垂直・時間のずれに掛ける。
 
-```text
-adaptation = clamp(((1-sigmoid(bat_control)) + total_modifier) / 2, 0.1, 1.2)
-```
+$$
+\mathrm{adaptation}
+= \operatorname{clamp}\!\left(
+\frac{1-\sigma(\mathrm{bat\_control})+\mathrm{total\_modifier}}{2},\;0.1,\;1.2
+\right)
+$$
 
-bat_controlが高いほど残留誤差は小さくなる。batting_eyeによるタイミング知覚誤差も `1-sigmoid(batting_eye)` で減衰する。
-バット角度の基準は `clamp(30-location.y*15, 10, 60)` 度。角度誤差と動的attack angleは引き続き計算するが、返却する `additional_x_m` / `additional_z_m` は現在0。角度誤差を並進誤差として二重加算しない。
+bat_controlが高いほど残留誤差は小さくなる。batting_eyeによるタイミング知覚誤差も $1-\sigma(\mathrm{batting\_eye})$ で減衰する。
+バット角度の基準は $\operatorname{clamp}(30-15\,\mathrm{location.y},10,60)$ 度。角度誤差と動的attack angleは引き続き計算するが、返却する `additional_x_m` / `additional_z_m` は現在0。角度誤差を並進誤差として二重加算しない。
 
 ## 接触判定
 
 時間差を変えず、接触位置に換算する成分だけに0.75を掛ける。
 
-```text
-timing_impact_x = swing_speed * timing_offset_sec * 0.75
-x = horizontal_offset + additional_x + timing_impact_x
-z = vertical_offset + additional_z
-length_signed = x*cos(theta) + z*sin(theta)
-thickness_signed = -x*sin(theta) + z*cos(theta)
-```
+$$
+\begin{aligned}
+\mathrm{timing\_impact\_x} &= 0.75\,\mathrm{swing\_speed}\,\mathrm{timing\_offset\_sec} \\
+x &= \mathrm{horizontal\_offset}+\mathrm{additional\_x}+\mathrm{timing\_impact\_x} \\
+z &= \mathrm{vertical\_offset}+\mathrm{additional\_z} \\
+\mathrm{length\_signed} &= x\cos\theta+z\sin\theta \\
+\mathrm{thickness\_signed} &= -x\sin\theta+z\cos\theta
+\end{aligned}
+$$
 
 thetaは実バット傾斜角。絶対値で接触範囲を判定し、符号付き座標も診断へ保存する。
 

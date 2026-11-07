@@ -1,5 +1,7 @@
 # Batting Physics
 
+In the equations, $\sigma(x)=\frac{1}{1+e^{-x}}$ and $\operatorname{clamp}(x,a,b)=\min(\max(x,a),b)$. Trigonometric inputs are radians; multiplying by $180/\pi$ converts to degrees. Variable names retain their implementation mapping.
+
 Source: [batting_resolver.rs](../../../src/domain/resolver/batting_resolver.rs), as of 2026-11-06.
 
 ## Coordinates and scope
@@ -13,29 +15,45 @@ Live games use the empirical formulas below. The newer 3D finite-bat model coupl
 
 Let L and T be absolute length/thickness offsets from [contact evaluation](batting_logic.md), and q the timing-derived displacement.
 
-```text
-p = sigmoid(swing_power)
-q < 0: effective_power = p * (1 + 0.05*clamp(abs(q)/0.20, 0, 1))
-q >= 0: effective_power = p * (1 - 0.15*clamp(q/0.20, 0, 1))
-c_swing = 1.12 + 0.16*effective_power
-EV_max = 0.18*ball_speed + c_swing*swing_speed
-```
+$$
+\begin{aligned}
+p &= \sigma(\mathrm{swing\_power}) \\
+\mathrm{effective\_power} & =
+\begin{cases}
+p\left[1+0.05\,\operatorname{clamp}\!\left(\dfrac{|q|}{0.20},0,1\right)\right], & q<0, \\
+p\left[1-0.15\,\operatorname{clamp}\!\left(\dfrac{q}{0.20},0,1\right)\right], & q\geq0,
+\end{cases} \\
+c_{\mathrm{swing}} &= 1.12+0.16\,\mathrm{effective\_power} \\
+\mathrm{EV}_{\max} &= 0.18\,\mathrm{ball\_speed}+c_{\mathrm{swing}}\,\mathrm{swing\_speed}
+\end{aligned}
+$$
 
-For T≤0.020m, `e_thick=1`; for T≥0.070m, it is zero. Between those bounds:
+For T≤0.020m, $e_{\mathrm{thick}}=1$; for T≥0.070m, it is zero. Between those bounds:
 
-```text
-e_thick = cos(((T-0.020)/0.050)*pi/2)^2
-e_len = clamp(1-(L/0.350)^2, 0, 1)
-EV = EV_max * e_thick * e_len
-```
+$$
+\begin{aligned}
+e_{\mathrm{thick}} &=
+\begin{cases}
+1, & T\leq0.020, \\
+\cos^2\!\left(\dfrac{T-0.020}{0.050}\,\dfrac{\pi}{2}\right), & 0.020<T<0.070, \\
+0, & T\geq0.070,
+\end{cases} \\
+e_{\mathrm{len}} &= \operatorname{clamp}\!\left(1-\left(\frac{L}{0.350}\right)^2,0,1\right) \\
+\mathrm{EV} &= \mathrm{EV}_{\max}\,e_{\mathrm{thick}}\,e_{\mathrm{len}}
+\end{aligned}
+$$
 
 Thickness decay uses T, not L. Exit speed is not drawn from a fixed distribution per ContactType.
 
 ## Vertical launch angle (VLA)
 
-```text
-VLA = attack_angle_deg + 0.60*degrees(asin(clamp(offset_z_m/0.070, -1, 1)))
-```
+$$
+\mathrm{VLA}
+= \mathrm{attack\_angle\_deg}
++0.60\,\frac{180}{\pi}\arcsin\!\left(
+\operatorname{clamp}\!\left(\frac{\mathrm{offset\_z\_m}}{0.070},-1,1\right)
+\right)
+$$
 
 This uses world-frame vertical offset, rather than solving a single 3D collision from signed thickness. High EV with a strongly negative VLA still produces a hard downward ball.
 
@@ -43,23 +61,29 @@ This uses world-frame vertical offset, rather than solving a single 3D collision
 
 Use the contact projection's signed thickness and actual tilt theta:
 
-```text
-s = clamp(thickness_signed/0.070, -1, 1)
-n = (-sin(theta)*s, sqrt(1-s*s), cos(theta)*s)
-reflected = (0,-1,0) + 2*n.y*n
-rebound_hla = degrees(atan2(reflected.x, reflected.y))
-HLA = wrap_to_180(handedness * (0.85*face_angle_deg + rebound_hla))
-```
+$$
+\begin{aligned}
+s &= \operatorname{clamp}\!\left(\frac{\mathrm{thickness\_signed}}{0.070},-1,1\right) \\
+\mathbf{n} &= \left(-s\sin\theta,\;\sqrt{1-s^2},\;s\cos\theta\right) \\
+\mathbf{r} &= (0,-1,0)+2n_y\mathbf{n} \\
+\mathrm{rebound\_hla} &= \frac{180}{\pi}\operatorname{atan2}(r_x,r_y) \\
+\mathrm{HLA} &= \operatorname{wrap}_{180^\circ}\!\left[
+\mathrm{handedness}\left(0.85\,\mathrm{face\_angle\_deg}+\mathrm{rebound\_hla}\right)
+\right]
+\end{aligned}
+$$
 
 Face angle retains the existing approach/pull draws and original timing error. The 0.75 displacement scale does not shorten that error, and Marginal contact no longer resamples it.
 HLA is not clamped to ±90 degrees; backward balls retain signed forward velocity. This is an idealized horizontal reflection approximation, not a common conservation-law solution for EV, VLA and spin. See [the HLA model](../../contact_normal_hla.md).
 
 ## Spin
 
-```text
-d = min(sqrt(L*L + T*T), 1)
-collision_rpm = 4000 * (swing_speed/33.333) * d
-```
+$$
+\begin{aligned}
+d &= \min\!\left(\sqrt{L^2+T^2},1\right) \\
+\mathrm{collision\_rpm} &= 4000\,\frac{\mathrm{swing\_speed}}{33.333}\,d
+\end{aligned}
+$$
 
 Collision spin derived from contact angle is combined with 20% of pitch spin using the two-component `SpinVector`. This still uses absolute L/T, rather than a complete signed 3D contact and angular-velocity calculation. Energy allocation between EV and spin is not coupled.
 Spin direction changes the force direction: more spin does not always increase distance. No dedicated low-spin flutter model is implemented.
@@ -68,11 +92,14 @@ Spin direction changes the force direction: more spin does not always increase d
 
 Start at `(0,0,0.90)` m and decompose velocity as follows. Integrate gravity, drag, wind, Magnus acceleration, bounces and fences in 0.01s steps.
 
-```text
-vx = EV*cos(VLA)*sin(HLA)
-vy = EV*cos(VLA)*cos(HLA)
-vz = EV*sin(VLA)
-```
+$$
+\begin{aligned}
+\alpha &= \frac{\pi}{180}\,\mathrm{VLA}, & \beta &= \frac{\pi}{180}\,\mathrm{HLA} \\
+v_x &= \mathrm{EV}\cos\alpha\sin\beta \\
+v_y &= \mathrm{EV}\cos\alpha\cos\beta \\
+v_z &= \mathrm{EV}\sin\alpha
+\end{aligned}
+$$
 
 | Constant | Value |
 | --- | ---: |
