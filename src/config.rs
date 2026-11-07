@@ -87,3 +87,9 @@ fn default_frame_rate() -> f64 {
 fn default_database_path() -> PathBuf {
     proj_dirs().config_dir().join("saberbb.db")
 }
+
+/// Update only the language preference, retaining database and keybinding settings.
+pub fn save_language(language:&str)->anyhow::Result<()> {
+    let mut config=load_app_config()?;config.language=language.into();
+    confy::store_path(proj_dirs().config_dir().join("default-config.toml"),&config)?;Ok(())
+}

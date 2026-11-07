@@ -3,7 +3,7 @@ use fluent_templates::fluent_bundle::FluentValue;
 use fluent_templates::{Loader, static_loader};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{OnceLock,RwLock,RwLockReadGuard};
 use unic_langid::LanguageIdentifier;
 use unic_langid::langid;
 
@@ -31,20 +31,21 @@ pub struct I18nManager {
     pub lang: LanguageIdentifier,
 }
 
-static INSTANCE: OnceLock<I18nManager> = OnceLock::new();
+static INSTANCE: OnceLock<RwLock<I18nManager>> = OnceLock::new();
 impl I18nManager {
     pub fn init(lang_str: &str) {
-        let lang = lang_str.parse().unwrap_or_else(|_| langid!("en-US"));
-        let manager = I18nManager { lang };
-        let _ = INSTANCE.set(manager);
+        let normalized=lang_str.to_ascii_lowercase().replace('_',"-");
+        let lang=if normalized=="jp" || normalized.starts_with("ja") || normalized=="jp-jn" {langid!("ja-JP")} else {langid!("en-US")};
+        let instance=INSTANCE.get_or_init(||RwLock::new(I18nManager {lang:langid!("en-US")}));
+        instance.write().unwrap_or_else(|p|p.into_inner()).lang=lang;
     }
 
-    pub fn global() -> &'static I18nManager {
-        INSTANCE.get_or_init(|| {
-            let lang = langid!("en-US");
-            I18nManager { lang }
-        })
+    pub fn global() -> RwLockReadGuard<'static,I18nManager> {
+        INSTANCE.get_or_init(||RwLock::new(I18nManager {lang:langid!("en-US")}))
+            .read().unwrap_or_else(|p|p.into_inner())
     }
+
+    pub fn is_japanese(&self)->bool { self.lang.language.as_str()=="ja" }
 
     pub fn tr(&self, key: &str) -> String {
         LOCALES.lookup(&self.lang, key)
@@ -56,7 +57,7 @@ impl I18nManager {
 
     pub fn lang_db(&self) -> String {
         let mut lang_db = "us".to_string();
-        if self.lang.to_string() == "ja-JP" {
+        if self.is_japanese() {
             lang_db = "jp".to_string();
         }
         lang_db
@@ -64,14 +65,14 @@ impl I18nManager {
 
     pub fn full_name(&self, first_name: &str, last_name: &str) -> String {
         let mut full_name = format!("{} {}", first_name, last_name);
-        if self.lang.to_string() == "ja-JP" {
+        if self.is_japanese() {
             full_name = format!("{} {}", last_name, first_name);
         }
         full_name
     }
 
     pub fn inning(&self, inning_seq: u8, inning_tb: TB) -> String {
-        if matches!(self.lang.to_string().as_str(), "ja-JP" | "jp-JN") {
+        if self.is_japanese() {
             let tb = match inning_tb {
                 TB::Top => "表",
                 TB::Bottom => "裏",
@@ -87,7 +88,7 @@ impl I18nManager {
     }
 
     pub fn homerun(&self, home_runs: u16) -> String {
-        if matches!(self.lang.to_string().as_str(), "ja-JP" | "jp-JN") {
+        if self.is_japanese() {
             return format!("{home_runs}号");
         }
 
@@ -111,6 +112,15 @@ impl I18nManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn player_name_order_follows_language_including_short_japanese_tag() {
+        for lang in [langid!("ja-JP"),langid!("ja")] {
+            let manager=I18nManager {lang};
+            assert_eq!(manager.full_name("翔平","大谷"),"大谷 翔平");
+        }
+        assert_eq!(I18nManager {lang:langid!("en-US")}.full_name("John","Smith"),"John Smith");
+    }
 
     #[test]
     fn inning_formats_japanese_half_inning() {

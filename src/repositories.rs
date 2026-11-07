@@ -8,3 +8,5 @@ pub mod statistics_repository;
 pub mod batting_personnel_repository;
 
 pub mod manager_repository;
+
+pub mod stat_cache;
