@@ -79,6 +79,22 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     anyhow::ensure!(h.html().contains("game-card"),"team schedule missing");h.save(output,"schedule")?;
     h.click("refresh").await?;
     anyhow::ensure!(!h.html().contains("読み込みできませんでした"),"refresh failed");
+    // Name rows must be reformatted as well as translating chrome and headings.
+    h.click("nav-2").await?;
+    use crate::repositories::statistics_repository::StatRepository;
+    let names=crate::app_context().statistics_repository.load_team_batting_stats(team)?;
+    let player=&names.first().ok_or_else(||anyhow::anyhow!("test DB needs team batting stats"))?.batter.info;
+    let ja=format!("{} {}",player.last_name,player.first_name);
+    let en=format!("{} {}",player.first_name,player.last_name);
+    anyhow::ensure!(h.html().contains(&ja),"Japanese names must be family-first");
+    h.click("language-en-US").await?;
+    anyhow::ensure!(h.html().contains("<h1>Batting</h1>"),"English heading did not update");
+    anyhow::ensure!(h.html().contains(&en),"English names must be given-first");
+    anyhow::ensure!(crate::config::load_app_config()?.language=="en-US","English preference was not persisted");
+    h.save(output,"batting-english")?;
+    h.click("language-ja-JP").await?;
+    anyhow::ensure!(h.html().contains(&ja),"switching back must restore family-first names");
+    anyhow::ensure!(crate::config::load_app_config()?.language=="ja-JP","Japanese preference was not persisted");
     std::fs::write(output.join("index.html"),std::fs::read(output.join("games.html"))?)?;
     println!("GUI event checks passed: game selection, next/previous pitch, box scores, standings, batting, pitching, search, team filter, roster, player details, monthly schedule.");
     Ok(())

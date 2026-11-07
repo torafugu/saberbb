@@ -1,3 +1,4 @@
+use super::locale::tr;
 use dioxus::prelude::*;
 use crate::application::viewing::TableData;
 
@@ -27,21 +28,21 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
     rsx! {
         section { class: "panel data-panel",
             div { class: "section-heading",
-                h3 { "{data.title}" }
+                h3 { {tr(&data.title)} }
                 if interactive {
-                    input { id:format!("table-search"), r#type: "search", aria_label: "表を検索", placeholder: "選手・チームを検索…", value: search,
+                    input { id:format!("table-search"), r#type: "search", aria_label: tr("表を検索"), placeholder: tr("選手・チームを検索…"), value: search,
                         oninput: move |e| { search.set(e.value()); page.set(0); } }
                 }
             }
-            if rows.is_empty() { p { class: "empty", "表示できるデータがありません。管理TUIで作成・進行した後、再読み込みしてください。" } }
+            if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理TUIで作成・進行した後、再読み込みしてください。")} } }
             div { class: "table-scroll",
                 table {
                     thead { tr {
                         for (i, column) in data.columns.iter().enumerate() {
                             th { aria_sort: if sort().is_some_and(|(c,_)|c==i) { if sort().unwrap().1 { "descending" } else { "ascending" } } else { "none" },
                                 if interactive {
-                                    button { id:format!("sort-{i}"), onclick: move |_| { let descending = sort().is_some_and(|(c,d)|c==i && !d); sort.set(Some((i,descending)));page.set(0); }, "{column}" }
-                                } else { "{column}" }
+                                    button { id:format!("sort-{i}"), onclick: move |_| { let descending = sort().is_some_and(|(c,d)|c==i && !d); sort.set(Some((i,descending)));page.set(0); }, {tr(column)} }
+                                } else { {tr(column)} }
                             }
                         }
                     } }
@@ -54,10 +55,10 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
             }
             if interactive {
                 div { class: "pagination",
-                    span { "{rows.len()} 件" }
-                    button { id:format!("table-page-prev"), disabled: current==0, onclick: move |_| page.set(current.saturating_sub(1)), "前へ" }
+                    span { {format!("{} {}",rows.len(),tr("件"))} }
+                    button { id:format!("table-page-prev"), disabled: current==0, onclick: move |_| page.set(current.saturating_sub(1)), {tr("前へ")} }
                     span { "{current+1} / {pages}" }
-                    button { id:format!("table-page-next"), disabled: current+1>=pages, onclick: move |_| page.set((current+1).min(pages-1)), "次へ" }
+                    button { id:format!("table-page-next"), disabled: current+1>=pages, onclick: move |_| page.set((current+1).min(pages-1)), {tr("次へ")} }
                 }
             }
         }
@@ -66,7 +67,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
 
 #[component]
 pub(super) fn ErrorPanel(message: String) -> Element {
-    rsx! { div { class: "error", role: "alert", h3 { "読み込みできませんでした" } p { "{message}" } p { "DB設定と初期化を確認し、再読み込みしてください。" } } }
+    rsx! { div { class: "error", role: "alert", h3 { {tr("読み込みできませんでした")} } p { "{message}" } p { {tr("DB設定と初期化を確認し、再読み込みしてください。")} } } }
 }
 
 #[cfg(all(test, feature="gui-tests"))]
