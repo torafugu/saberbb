@@ -1,6 +1,8 @@
 # Spatial Coordinates of Pitching
 <img src="../images/en-US/ball_location_diagram.png" width="50%">
 
+In the equations, $\sigma(x)=\frac{1}{1+e^{-x}}$ and $\operatorname{clamp}(x,a,b)=\min(\max(x,a),b)$. Trigonometric inputs are radians; multiplying by $180/\pi$ converts to degrees. Variable names retain their implementation mapping.
+
 #### Hit-by-Pitch Conditions
 
 - If the batter takes the pitch
@@ -165,11 +167,12 @@ $$\text{spacial\_offset\_y} = y_{\text{actual}} - y_{\text{predicted}} = \frac{1
 
 `calculate_timing_offset` defines positive as late and negative as early:
 
-```text
-timing_offset = (expected_flight_time - actual_flight_time)
-              * (1-sigmoid(batting_eye))
-              * min(actual_speed/base_four_seam_speed, 1)
-```
+$$
+\mathrm{timing\_offset}
+= (\mathrm{expected\_flight\_time}-\mathrm{actual\_flight\_time})
+\left[1-\sigma(\mathrm{batting\_eye})\right]
+\min\!\left(\frac{\mathrm{actual\_speed}}{\mathrm{base\_four\_seam\_speed}},1\right)
+$$
 
 Release-distance perception has approximately 1% noise; additional predicted-distance perception error is attenuated by batting_eye.
 All timing/horizontal/vertical terms in current `calculate_location_bias` are zero. Fixed inside/outside/high/low biases and additional bias amplification from actual-versus-expected location distance are inactive.

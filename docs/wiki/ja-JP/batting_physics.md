@@ -1,5 +1,7 @@
 # 打球の物理
 
+数式では $\sigma(x)=\frac{1}{1+e^{-x}}$、$\operatorname{clamp}(x,a,b)=\min(\max(x,a),b)$ とする。三角関数の入力はラジアンで、度への変換には $180/\pi$ を掛ける。変数名は実装との対応を保っている。
+
 実装: [batting_resolver.rs](../../../src/domain/resolver/batting_resolver.rs)。2026-11-06時点。
 
 ## 座標と適用範囲
@@ -13,29 +15,45 @@
 
 [接触判定](batting_logic.md)で得た長さ方向の絶対値をL、厚み方向をT、タイミング由来の位置ずれをqとする。
 
-```text
-p = sigmoid(swing_power)
-q < 0: effective_power = p * (1 + 0.05*clamp(abs(q)/0.20, 0, 1))
-q >= 0: effective_power = p * (1 - 0.15*clamp(q/0.20, 0, 1))
-c_swing = 1.12 + 0.16*effective_power
-EV_max = 0.18*ball_speed + c_swing*swing_speed
-```
+$$
+\begin{aligned}
+p &= \sigma(\mathrm{swing\_power}) \\
+\mathrm{effective\_power} & =
+\begin{cases}
+p\left[1+0.05\,\operatorname{clamp}\!\left(\dfrac{|q|}{0.20},0,1\right)\right], & q<0, \\
+p\left[1-0.15\,\operatorname{clamp}\!\left(\dfrac{q}{0.20},0,1\right)\right], & q\geq0,
+\end{cases} \\
+c_{\mathrm{swing}} &= 1.12+0.16\,\mathrm{effective\_power} \\
+\mathrm{EV}_{\max} &= 0.18\,\mathrm{ball\_speed}+c_{\mathrm{swing}}\,\mathrm{swing\_speed}
+\end{aligned}
+$$
 
-T≤0.020mなら `e_thick=1`、T≥0.070mなら0。その間は次のcos²減衰を使う。
+T≤0.020mなら $e_{\mathrm{thick}}=1$、T≥0.070mなら0。その間は次のcos²減衰を使う。
 
-```text
-e_thick = cos(((T-0.020)/0.050)*pi/2)^2
-e_len = clamp(1-(L/0.350)^2, 0, 1)
-EV = EV_max * e_thick * e_len
-```
+$$
+\begin{aligned}
+e_{\mathrm{thick}} &=
+\begin{cases}
+1, & T\leq0.020, \\
+\cos^2\!\left(\dfrac{T-0.020}{0.050}\,\dfrac{\pi}{2}\right), & 0.020<T<0.070, \\
+0, & T\geq0.070,
+\end{cases} \\
+e_{\mathrm{len}} &= \operatorname{clamp}\!\left(1-\left(\frac{L}{0.350}\right)^2,0,1\right) \\
+\mathrm{EV} &= \mathrm{EV}_{\max}\,e_{\mathrm{thick}}\,e_{\mathrm{len}}
+\end{aligned}
+$$
 
 厚み減衰に使うのはTでありLではない。ContactType別に固定のEVを抽選するモデルではない。
 
 ## 垂直打出し角（VLA）
 
-```text
-VLA = attack_angle_deg + 0.60*degrees(asin(clamp(offset_z_m/0.070, -1, 1)))
-```
+$$
+\mathrm{VLA}
+= \mathrm{attack\_angle\_deg}
++0.60\,\frac{180}{\pi}\arcsin\!\left(
+\operatorname{clamp}\!\left(\frac{\mathrm{offset\_z\_m}}{0.070},-1,1\right)
+\right)
+$$
 
 ここで使うのは世界座標側のzずれ。符号付き厚み座標から一貫した3D衝突を解いているわけではない。EVが高くてもVLAが大きく負なら下向きの強い打球となる。
 
@@ -43,23 +61,29 @@ VLA = attack_angle_deg + 0.60*degrees(asin(clamp(offset_z_m/0.070, -1, 1)))
 
 接触判定と同じprojectionを使い、バット傾斜thetaと符号付き厚みから反射方向を作る。
 
-```text
-s = clamp(thickness_signed/0.070, -1, 1)
-n = (-sin(theta)*s, sqrt(1-s*s), cos(theta)*s)
-reflected = (0,-1,0) + 2*n.y*n
-rebound_hla = degrees(atan2(reflected.x, reflected.y))
-HLA = wrap_to_180(handedness * (0.85*face_angle_deg + rebound_hla))
-```
+$$
+\begin{aligned}
+s &= \operatorname{clamp}\!\left(\frac{\mathrm{thickness\_signed}}{0.070},-1,1\right) \\
+\mathbf{n} &= \left(-s\sin\theta,\;\sqrt{1-s^2},\;s\cos\theta\right) \\
+\mathbf{r} &= (0,-1,0)+2n_y\mathbf{n} \\
+\mathrm{rebound\_hla} &= \frac{180}{\pi}\operatorname{atan2}(r_x,r_y) \\
+\mathrm{HLA} &= \operatorname{wrap}_{180^\circ}\!\left[
+\mathrm{handedness}\left(0.85\,\mathrm{face\_angle\_deg}+\mathrm{rebound\_hla}\right)
+\right]
+\end{aligned}
+$$
 
 face angleは既存のapproach/pull抽選と元の時間差から求める。接触位置の0.75係数で元時間差を縮めず、Marginal専用のタイミング再抽選もしない。
 HLAを±90度に丸めない。後方打球も符号付き前後速度を保持する。これは水平方向の理想反射近似であり、EV・VLA・回転を同じ保存則から導くモデルではない。[HLAモデル](../../contact_normal_hla.md)を参照。
 
 ## 回転
 
-```text
-d = min(sqrt(L*L + T*T), 1)
-collision_rpm = 4000 * (swing_speed/33.333) * d
-```
+$$
+\begin{aligned}
+d &= \min\!\left(\sqrt{L^2+T^2},1\right) \\
+\mathrm{collision\_rpm} &= 4000\,\frac{\mathrm{swing\_speed}}{33.333}\,d
+\end{aligned}
+$$
 
 接触角から求めた衝突回転と投球回転の20%を、`SpinVector` の2成分ベクトルとして合成する。ここではL/Tの絶対値を使う。符号付き接触・入射角速度を使う完全な3D回転計算ではなく、EVと回転へのエネルギー配分も連成していない。
 バックスピン・トップスピン・サイドスピンは力の向きを変えるため、「回転が多いほど必ず遠くへ飛ぶ」とは扱えない。低回転の不規則な揺れを生成する専用モデルもない。
@@ -68,11 +92,14 @@ collision_rpm = 4000 * (swing_speed/33.333) * d
 
 初期位置は `(0,0,0.90)` m。速度を次のように分解し、0.01秒刻みで重力・空気抵抗・風・マグヌス効果・バウンド・フェンスを処理する。
 
-```text
-vx = EV*cos(VLA)*sin(HLA)
-vy = EV*cos(VLA)*cos(HLA)
-vz = EV*sin(VLA)
-```
+$$
+\begin{aligned}
+\alpha &= \frac{\pi}{180}\,\mathrm{VLA}, & \beta &= \frac{\pi}{180}\,\mathrm{HLA} \\
+v_x &= \mathrm{EV}\cos\alpha\sin\beta \\
+v_y &= \mathrm{EV}\cos\alpha\cos\beta \\
+v_z &= \mathrm{EV}\sin\alpha
+\end{aligned}
+$$
 
 | 定数 | 値 |
 | --- | ---: |

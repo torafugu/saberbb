@@ -1,6 +1,8 @@
 # 投球の空間座標
 <img src="../images/ja-JP/ball_location_diagram.png" width="50%">
 
+数式では $\sigma(x)=\frac{1}{1+e^{-x}}$、$\operatorname{clamp}(x,a,b)=\min(\max(x,a),b)$ とする。三角関数の入力はラジアンで、度への変換には $180/\pi$ を掛ける。変数名は実装との対応を保っている。
+
 #### デッドボールの条件
 
 - 見送った場合
@@ -165,11 +167,12 @@ $$\text{spacial\_offset\_y} = y_{\text{actual}} - y_{\text{predicted}} = \frac{1
 
 `calculate_timing_offset` の符号は次の式で定義する。正は振り遅れ、負は早振り。
 
-```text
-timing_offset = (expected_flight_time - actual_flight_time)
-              * (1-sigmoid(batting_eye))
-              * min(actual_speed/base_four_seam_speed, 1)
-```
+$$
+\mathrm{timing\_offset}
+= (\mathrm{expected\_flight\_time}-\mathrm{actual\_flight\_time})
+\left[1-\sigma(\mathrm{batting\_eye})\right]
+\min\!\left(\frac{\mathrm{actual\_speed}}{\mathrm{base\_four\_seam\_speed}},1\right)
+$$
 
 実リリース距離の知覚には1%相当のノイズを与え、予測側の追加知覚誤差はbatting_eyeで減衰する。
 現行 `calculate_location_bias` のタイミング・水平・垂直項はすべて0。内外角・高低による固定バイアスや、実コースと予想コースの距離に応じた追加バイアス増幅は行わない。
