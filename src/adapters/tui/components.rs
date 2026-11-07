@@ -10,18 +10,16 @@ use super::config::Config;
 use super::tui::Event;
 
 // pub mod fps;
-pub mod batting_stats;
-pub mod game_results;
 pub mod home;
-pub mod pitching_stats;
-pub mod player_info;
-pub mod standings;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 ///
 /// Implementors of this trait can be registered with the main application loop and will be able to
 /// receive events, update state, and be rendered on the screen.
 pub trait Component {
+    /// Active management jobs must finish before the console exits.
+    fn is_busy(&self) -> bool { false }
+
     /// Register an action handler that can send actions for processing if necessary.
     ///
     /// # Arguments

@@ -95,7 +95,7 @@ Typical simulation flow:
 cargo run -- --generate 100
 cargo run -- --schedule 1
 cargo run -- --process 10
-cargo run -- --view
+cargo run --features desktop -- --gui
 ```
 
 The default database file is created at the platform-specific config path for
@@ -140,7 +140,8 @@ cargo run -- --process 5       # Process 5 game rounds without detailed contact 
 cargo run -- --analysis 5      # Process 5 game rounds with detailed contact diagnostics
 cargo run -- --sampleyear      # Clear game data, reset to this year, schedule 1 season, analyze 40 rounds
 cargo run -- --maintenance     # Run SQLite VACUUM and PRAGMA optimize
-cargo run -- --view            # Open the interactive terminal UI
+cargo run -- --tui             # Management console: schedule, characters, game processing
+cargo run --features desktop -- --gui  # Dioxus results/statistics GUI
 ```
 
 `--process` and `--analysis` default to one round when the count is omitted.
@@ -305,3 +306,43 @@ Manager IDs are allocated by SQLite independently of player IDs. Creation and te
 assignment are saved together, and concurrent assignments never replace an existing
 manager. Existing databases require the batting personnel migration:
 `migrations/upgrades/add_batting_personnel.sql`.
+
+## Results GUI and management TUI
+
+Dioxus is the only results/statistics interface. The old terminal viewing widgets
+have been removed; the TUI now manages schedules, player/manager generation, and
+ordinary or diagnostic game processing. Both CLI flags and the management console
+call the shared application use cases.
+
+```sh
+cargo run -- --tui                       # --view / -v remain aliases
+cargo run --features desktop -- --gui
+```
+
+The GUI reads the same configured SQLite database as the CLI. It includes league
+and team filters, processed-season game lists, scoreboards, game summaries,
+per-game batting/pitching tables, pitch-by-pitch navigation and pitch-zone/runner
+SVGs, cumulative standings and player statistics, team schedules, player abilities,
+pitch repertoires, and manager information. Tables support search, numeric sorting,
+and pagination. Statistics retain the existing cumulative aggregation definitions;
+the season selector on the game list only filters that list. Refresh reloads the
+catalog and active data after management operations. Database work runs off the UI
+thread. The GUI does not read `player_game_contact_state` or run simulations.
+
+GUI support is optional so ordinary CLI/TUI builds do not require a WebView SDK.
+On macOS, install Apple's command-line tools (`xcode-select --install`). Linux
+builds need GTK 3 and WebKitGTK 4.1 development packages, e.g. on Debian/Ubuntu:
+`libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev`.
+See [Dioxus desktop setup](https://dioxuslabs.com/learn/0.7/guides/platforms/desktop/).
+
+For headless renderer testing, the local-only LiveView example uses the exact same
+Dioxus components and database reads, without the native window wrapper:
+
+```sh
+cargo test --features gui-tests --lib application::viewing
+cargo test --features gui-tests --lib adapters::gui
+cargo run --features gui-tests --example gui_browser
+# With a test DB containing processed games, dispatch real UI events and save HTML:
+cargo run --features gui-tests --example gui_snapshots -- /tmp/saberbb-gui-snapshots
+# http://127.0.0.1:8787 ; test harness only, not a public server
+```

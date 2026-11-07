@@ -7,7 +7,18 @@ default-run = "saberbb"
 [build-dependencies]
 sha2 = "0.10.9"
 
+[features]
+default = []
+gui = ["dep:dioxus"]
+desktop = ["gui", "dioxus/desktop"]
+gui-tests = ["gui", "dep:dioxus-ssr", "dep:dioxus-liveview", "dep:axum"]
+
 [dependencies]
+dioxus = { version = "0.7", default-features = false, features = ["macro", "html", "signals", "hooks", "launch"], optional = true }
+dioxus-ssr = { version = "0.7", optional = true }
+dioxus-liveview = { version = "0.7", features = ["axum"], optional = true }
+axum = { version = "0.8", features = ["ws"], optional = true }
+
 anyhow = "1.0"
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"] }
@@ -44,3 +55,11 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
 unic-langid = "0.9"
 validator = { version = "0.20.0", features = ["derive"] }
+
+[[example]]
+name = "gui_browser"
+required-features = ["gui-tests"]
+
+[[example]]
+name = "gui_snapshots"
+required-features = ["gui-tests"]

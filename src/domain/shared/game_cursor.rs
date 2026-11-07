@@ -26,7 +26,7 @@ pub enum GameViewError {
     CurrentPitching,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GameCursor {
     game: Arc<GameDetail>,
     pub inning_seq: u8,
