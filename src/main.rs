@@ -1,22 +1,15 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use chrono::{Datelike, Local};
 use clap::Parser;
 use saberbb::adapters::tui::top_tui::menu;
 use saberbb::config::load_app_config;
-use saberbb::domain::game_service::GameService;
-use saberbb::domain::player_factory::PlayerFactory;
-use saberbb::domain::manager_service::ManagerService;
-use saberbb::domain::random_provider::RealRng;
-use saberbb::repositories::manager_repository::SqlManagerRepository;
-use saberbb::domain::player_service::PlayerService;
-use saberbb::domain::schedule_service::ScheduleService;
 use saberbb::i18n::I18nManager;
 use saberbb::repositories::db::{SqlDb, maintenance, setup};
 use saberbb::repositories::game_repository::SqlGameRepository;
 use saberbb::repositories::player_repository::SqlPlayerRepository;
 use saberbb::repositories::schedule_repository::SqlScheduleRepository;
 use saberbb::repositories::statistics_repository::SqlStatRepository;
-use saberbb::{AppContext, app_context, init_app_context, t};
+use saberbb::{AppContext, init_app_context, t};
 use saberbb::{init_dirs, proj_dirs};
 use std::backtrace::Backtrace;
 use tracing::info;
@@ -24,6 +17,9 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    if args.gui && !cfg!(feature = "desktop") {
+        anyhow::bail!("GUI support is optional. Run: cargo run --features desktop -- --gui");
+    }
 
     // load default-config.toml and initialize I18nManager
     let cfg = load_app_config()?;
@@ -78,28 +74,8 @@ fn main() -> Result<()> {
 
     // Player Generate Mode
     if let Some(num_of_players) = args.generate {
-        if num_of_players > 0 {
-            let player_service = PlayerService {
-                repo: app_context().player_repository.clone(),
-            };
-            let mut player_factory = PlayerFactory::new(player_service);
-            player_factory.load_player_probs()?;
-
-            for _ in 0..num_of_players {
-                if let Err(e) = player_factory.generate_and_save_player() {
-                    let error_msg = t!("error", "function" => "generate_players");
-                    bail!("{}, {}", error_msg, e);
-                }
-                info!("1 player generated.");
-                println!("{}", t!("player_generated"));
-            }
-        }
-        let mut manager_service = ManagerService { repo: SqlManagerRepository::new()? };
-        let assigned = manager_service.generate_missing_managers(
-            &I18nManager::global().lang_db(), &mut RealRng::new(),
-        )?;
-        info!(assigned, "generated and assigned managers to vacant teams");
-        println!("{assigned} managers generated and assigned.");
+        let report = saberbb::application::management::generate_characters(num_of_players)?;
+        println!("{} players generated; {} managers assigned.", report.players, report.managers);
     }
 
     // Game Schedule Generate Mode
@@ -112,9 +88,14 @@ fn main() -> Result<()> {
         maintenance()?;
     }
 
+    if args.gui {
+        #[cfg(feature = "desktop")]
+        saberbb::adapters::gui::launch();
+    }
+
     // TUI mode
     if args.view {
-        let _ = menu(cfg.clone());
+        menu(cfg.clone()).map_err(|e| anyhow::anyhow!("{e:#}"))?;
     }
 
     Ok(())
@@ -155,45 +136,14 @@ fn analysis_games(num_of_games: i8) -> Result<()> {
 }
 
 fn run_games(num_of_games: i8, record_contact_states: bool) -> Result<()> {
-    let mut game_service = GameService {
-        repo: app_context().game_repository.clone(),
-    };
-
-    for _ in 0..num_of_games {
-        let result = if record_contact_states {
-            game_service.analyze_game_round()
-        } else {
-            game_service.process_game_round()
-        };
-        if let Err(e) = result {
-            let error_msg = t!("error", "function" => "process_game");
-            bail!("{}, {}", error_msg, e);
-        }
-        info!("1 game processed.");
-        println!("1 game processed.");
-    }
-    println!(
-        "{}",
-        t!("game_rounds_processed", "num_of_rounds" => num_of_games.to_string())
-    );
+    saberbb::application::management::process_rounds(num_of_games.max(0) as u16, record_contact_states)?;
+    println!("{}", t!("game_rounds_processed", "num_of_rounds" => num_of_games.to_string()));
     Ok(())
 }
 
 fn schedule_games(num_of_schedules: u8) -> Result<()> {
-    let mut schedule_service = ScheduleService {
-        repo: app_context().schedule_repository.clone(),
-    };
-    for _ in 0..num_of_schedules {
-        if let Err(e) = schedule_service.schedule_season() {
-            let error_msg = t!("error", "function" => "schedule_season");
-            bail!("{}, {}", error_msg, e);
-        }
-        info!("1 season scheduled.");
-    }
-    println!(
-        "{}",
-        t!("game_seasons_scheduled", "num_of_seasons" => num_of_schedules.to_string())
-    );
+    saberbb::application::management::schedule_seasons(num_of_schedules)?;
+    println!("{}", t!("game_seasons_scheduled", "num_of_seasons" => num_of_schedules.to_string()));
     Ok(())
 }
 
@@ -228,9 +178,13 @@ struct Args {
     #[arg(short, long)]
     schedule: Option<u8>,
 
-    /// Show TUI game menu
-    #[arg(short, long)]
+    /// Open the management TUI (results and statistics are in --gui)
+    #[arg(short, long, alias = "tui", conflicts_with = "gui")]
     view: bool,
+
+    /// Open the Dioxus results/statistics GUI (requires --features desktop)
+    #[arg(long)]
+    gui: bool,
 }
 
 #[cfg(test)]
@@ -348,6 +302,13 @@ mod tests {
             assert_eq!(Args::try_parse_from(["saberbb", flag, "5"]).unwrap().analysis, Some(5));
         }
         assert!(Args::try_parse_from(["saberbb", "--process", "--analysis"]).is_err());
+    }
+
+    #[test]
+    fn gui_and_management_tui_are_separate_entrypoints() {
+        assert!(Args::try_parse_from(["saberbb", "--tui"]).unwrap().view);
+        assert!(Args::try_parse_from(["saberbb", "--gui"]).unwrap().gui);
+        assert!(Args::try_parse_from(["saberbb", "--view", "--gui"]).is_err());
     }
 
     #[test]

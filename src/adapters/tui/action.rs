@@ -2,27 +2,22 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum::{Display, EnumIter};
 
-use crate::t;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Serialize, Deserialize)]
 pub enum MenuOption {
-    SelectLeague,
-    ViewStandings,
-    ViewGameResults,
-    ViewBattingStat,
-    ViewPitchingStat,
-    ViewTeamInfo,
+    Schedule,
+    Generate,
+    Process,
+    Analyze,
 }
 
 impl fmt::Display for MenuOption {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
-            Self::SelectLeague => t!("select_league"),
-            Self::ViewStandings => t!("standings"),
-            Self::ViewGameResults => t!("game_results"),
-            Self::ViewBattingStat => t!("batting_stats"),
-            Self::ViewPitchingStat => t!("pitching_stats"),
-            Self::ViewTeamInfo => t!("team_info"),
+            Self::Schedule => "Schedule seasons / 日程作成",
+            Self::Generate => "Generate players & managers / キャラクター作成",
+            Self::Process => "Process rounds / 試合進行",
+            Self::Analyze => "Analysis rounds / 診断付き試合進行",
         };
         write!(f, "{label}")
     }
@@ -42,8 +37,8 @@ pub enum Action {
     SelectNext,
     SelectPrevious,
     ConfirmSelection,
-    SelectGameDetailTab(usize),
     NextCount,
     PreviousCount,
     MenuItemSelected(MenuOption),
+    ManagementFinished(String),
 }

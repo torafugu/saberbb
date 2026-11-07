@@ -135,7 +135,7 @@ impl App {
                 debug!("{action:?}");
             }
             match action {
-                Action::Quit => self.should_quit = true,
+                Action::Quit => self.should_quit = !self.components.iter().any(|c| c.is_busy()),
                 Action::Suspend => self.should_suspend = true,
                 Action::Resume => self.should_suspend = false,
                 Action::ClearScreen => tui.terminal.clear()?,

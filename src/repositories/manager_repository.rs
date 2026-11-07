@@ -174,6 +174,16 @@ mod tests {
     }
 
     #[test]
+    fn manager_generation_handles_inclusive_rng_upper_bound() {
+        let mut service = ManagerService { repo: MemoryRepo { conn: database() } };
+        let mut rng = crate::domain::random_provider::FixedRng::new(1.0);
+        assert_eq!(service.generate_missing_managers("jp", &mut rng).unwrap(), 3);
+        for team in [1, 2, 3] {
+            assert_eq!(load_team_manager(&service.repo.conn, team).unwrap().unwrap().batting_policy, ManagerBattingPolicy::Situational);
+        }
+    }
+
+    #[test]
     fn manager_generation_reports_missing_name_data_without_creating_orphans() {
         let mut service = ManagerService { repo: MemoryRepo { conn: database() } };
         assert!(service.generate_missing_managers("missing", &mut RealRng::from_seed(7)).is_err());

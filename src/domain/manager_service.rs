@@ -24,7 +24,7 @@ impl<R: ManagerRepository> ManagerService<R> {
             } else {
                 format!("{} {}", name.first, name.last)
             };
-            let policy = policies[rng.gen_range(0, policies.len())];
+            let policy = policies[rng.gen_range(0, policies.len() - 1)];
             if self.repo.create_and_assign(team_id, &full_name, policy)?.is_some() {
                 assigned += 1;
             }
