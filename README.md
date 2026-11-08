@@ -433,7 +433,10 @@ The GUI standings follow the column order of the
 [Sports Navi standings](https://baseball.yahoo.co.jp/npb/standings/): rank, team,
 games, wins, losses, draws, winning percentage, games behind, remaining games,
 runs, runs allowed, home runs, stolen bases, batting average, ERA, and errors.
-Rank and team remain visible while horizontally scrolling. Win percentages and
+Standings use compact fixed-width columns to fit the available horizontal space.
+Only the league filter is shown; team selection and table search remain available
+on other screens. A team selected on another screen does not restrict standings.
+Win percentages and
 team batting averages omit the leading zero (`.625`, `.250`); `1.000` remains
 unchanged. Rates without a denominator display `—` (winning percentage remains
 `.000` without a decisive game).

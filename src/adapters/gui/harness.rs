@@ -78,6 +78,12 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     h.click("language-ja-JP").await?;
     h.click("nav-3").await?;anyhow::ensure!(h.html().contains("ERA"),"pitching statistics failed");
     h.input("team-filter","change",&team.to_string()).await?;
+    h.click("nav-1").await?;
+    anyhow::ensure!(!h.html().contains("id=\"team-filter\"") && !h.html().contains("id=\"table-search\""),"standings must omit team selection and search");
+    for t in &catalog.teams {anyhow::ensure!(h.html().contains(&t.name),"hidden team filter restricted standings: {}",t.name);}
+    h.save(output,"standings")?;
+    h.click("nav-3").await?;
+    anyhow::ensure!(h.html().contains("id=\"team-filter\"") && h.html().contains("id=\"table-search\""),"other statistics must retain their controls");
     h.click("nav-4").await?;
     let player=h.ids.keys().filter(|k|k.starts_with("roster-")).min().cloned().ok_or_else(||anyhow::anyhow!("team roster missing"))?;
     h.click(&player).await?;

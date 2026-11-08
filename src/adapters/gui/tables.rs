@@ -10,11 +10,11 @@ pub(super) fn compare_cells(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 #[component]
-pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: bool, #[props(default)] initial_sort: Option<(usize,bool)>) -> Element {
+pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: bool, #[props(default = true)] searchable: bool, #[props(default)] initial_sort: Option<(usize,bool)>) -> Element {
     let mut search = use_signal(String::new);
     let mut sort = use_signal(|| initial_sort);
     let mut page = use_signal(|| 0usize);
-    let query = search().to_lowercase();
+    let query = if searchable {search().to_lowercase()} else {String::new()};
     let mut rows: Vec<_> = data.rows.iter().filter(|r| query.is_empty() || r.iter().any(|c| c.to_lowercase().contains(&query))).cloned().collect();
     if let Some((column, descending)) = sort() {
         rows.sort_by(|a,b| {
@@ -29,7 +29,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
         section { class: "panel data-panel",
             div { class: "section-heading",
                 h3 { {tr(&data.title)} }
-                if interactive {
+                if interactive && searchable {
                     input { id:format!("table-search"), r#type: "search", aria_label: tr("表を検索"), placeholder: tr("選手・チームを検索…"), value: search,
                         oninput: move |e| { search.set(e.value()); page.set(0); } }
                 }
@@ -48,7 +48,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
                     } }
                     tbody {
                         for (index, row) in visible.enumerate() {
-                            tr { key: "{index}", for cell in row { td { "{cell}" } } }
+                            tr { key: "{index}", for cell in row { td { title:cell.clone(), "{cell}" } } }
                         }
                     }
                 }
