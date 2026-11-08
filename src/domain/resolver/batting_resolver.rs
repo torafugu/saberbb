@@ -1,3 +1,4 @@
+use crate::domain::shared::flight_drag::{self, FlightDragModel};
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
 use crate::domain::shared::ball::{
@@ -791,16 +792,20 @@ pub struct TrajectorySummaryResult {
     pub target_arrival: Option<TargetArrivalState>,
 }
 
-pub const LIVE_FLIGHT_DRAG_PER_M: f64 = 0.0012;
+/// Historical coefficient retained for reference controls only.
+pub const LIVE_FLIGHT_DRAG_PER_M: f64 = flight_drag::LEGACY_DRAG_PER_M;
 pub const LIVE_FLIGHT_DT_SEC: f64 = 0.01;
 
-/// Explicit diagnostic controls; normal gameplay uses for_stadium unchanged.
+/// Explicit flight controls. Normal gameplay uses the published drag default.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TrajectoryEnvironment {
     pub impact_height_m: f64,
     pub wind_speed_ms: f64,
     pub wind_direction_deg: f64,
     pub stop_at_first_ground: bool,
+    pub drag_model: FlightDragModel,
+    /// None: the legacy scalar spin model assumes all spin is transverse.
+    pub total_spin_rpm: Option<f64>,
 }
 impl TrajectoryEnvironment {
     pub fn for_stadium(stadium: &Stadium) -> Self {
@@ -810,6 +815,8 @@ impl TrajectoryEnvironment {
             wind_speed_ms: wind.speed_m_per_s,
             wind_direction_deg: wind.dir_deg,
             stop_at_first_ground: false,
+            drag_model: flight_drag::current_model(),
+            total_spin_rpm: None,
         }
     }
 }
@@ -850,6 +857,11 @@ pub fn calculate_trajectory_with_environment(
     .all(|x| x.is_finite())
         || environment.impact_height_m <= 0.0
         || environment.wind_speed_ms < 0.0
+        || !spin_rate_rpm.is_finite()
+        || spin_rate_rpm < 0.0
+        || environment
+            .total_spin_rpm
+            .is_some_and(|rpm| !rpm.is_finite() || rpm < 0.0 || rpm + 1e-8 < spin_rate_rpm)
     {
         return Err(GameError::InvalidTrajectoryEnvironment);
     }
@@ -873,6 +885,7 @@ pub fn calculate_trajectory_with_environment(
 
     // Current spin state for calculation (decays and changes after bounces)
     let mut current_spin_rate = spin_rate_rpm;
+    let mut current_total_spin_rate = environment.total_spin_rpm.unwrap_or(spin_rate_rpm);
     let mut current_spin_angle = spin_angle_deg;
 
     // Decompose the wind vector
@@ -890,7 +903,6 @@ pub fn calculate_trajectory_with_environment(
     let mut fence_impact_time_sec = None;
     let mut result_type = OutboundResult::InField;
 
-    const AIR_RESISTANCE_COEFF: f64 = LIVE_FLIGHT_DRAG_PER_M; // Simplified air resistance coefficient
     const RESTITUTION_COEFF: f64 = 0.45; // Ground restitution coefficient
     const WALL_RESTITUTION: f64 = 0.60; // Fence restitution coefficient
     const GROUND_FRICTION: f64 = 0.25; // Ground friction coefficient
@@ -905,9 +917,11 @@ pub fn calculate_trajectory_with_environment(
         let rel_v_z = v_z;
         let rel_speed = (rel_v_x.powi(2) + rel_v_y.powi(2) + rel_v_z.powi(2)).sqrt();
 
-        let drag_a_x = -AIR_RESISTANCE_COEFF * rel_speed * rel_v_x;
-        let drag_a_y = -AIR_RESISTANCE_COEFF * rel_speed * rel_v_y;
-        let drag_a_z = -AIR_RESISTANCE_COEFF * rel_speed * rel_v_z;
+        let drag_coefficient =
+            flight_drag::drag_per_m(environment.drag_model, current_total_spin_rate);
+        let drag_a_x = -drag_coefficient * rel_speed * rel_v_x;
+        let drag_a_y = -drag_coefficient * rel_speed * rel_v_y;
+        let drag_a_z = -drag_coefficient * rel_speed * rel_v_z;
 
         let (mag_a_x, mag_a_y, mag_a_z) = if rel_speed > 0.1 && current_spin_rate > 10.0 {
             // Unit vector of the direction of travel
@@ -1033,6 +1047,7 @@ pub fn calculate_trajectory_with_environment(
 
             // NOTE: After the bounce, ground friction turns the spin into topspin (180°) and the spin rate decays
             current_spin_rate *= 0.5;
+            current_total_spin_rate *= 0.5;
             current_spin_angle = 180.0;
 
             if v_z.abs() < 0.5 {
@@ -1697,7 +1712,7 @@ mod flight_environment_tests {
         }
     }
     #[test]
-    fn original_default_trajectories_are_preserved() {
+    fn historical_trajectories_are_preserved_in_legacy_scope() {
         let v: Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/flight_legacy_contract.json"
         ))
@@ -1705,8 +1720,10 @@ mod flight_environment_tests {
         for row in v["cases"].as_array().unwrap() {
             let p = row["input"].as_array().unwrap();
             let n = |i: usize| p[i].as_f64().unwrap();
-            let ball =
-                calculate_trajectory(n(0), n(1), n(2), n(3), n(4), &Stadium::default()).unwrap();
+            let ball = flight_drag::with_model(FlightDragModel::Legacy, || {
+                calculate_trajectory(n(0), n(1), n(2), n(3), n(4), &Stadium::default())
+            })
+            .unwrap();
             close(&row["output"], &serde_json::to_value(ball).unwrap());
         }
     }
@@ -1718,6 +1735,7 @@ mod flight_environment_tests {
             wind_speed_ms: 0.0,
             wind_direction_deg: 0.0,
             stop_at_first_ground: true,
+            ..TrajectoryEnvironment::for_stadium(&s)
         };
         let ball = calculate_trajectory_with_environment(45.0, 20.0, 0.0, 0.0, 0.0, &s, e).unwrap();
         assert_eq!(ball.total_time, ball.first_bounce_time.unwrap());
@@ -1730,5 +1748,122 @@ mod flight_environment_tests {
             calculate_trajectory_with_environment(45.0, 20.0, 0.0, 0.0, 0.0, &s, invalid),
             Err(GameError::InvalidTrajectoryEnvironment)
         ));
+    }
+}
+
+#[cfg(test)]
+mod published_drag_tests {
+    use super::*;
+    use crate::domain::shared::flight_reference::{self, ForceModel, Launch, Settings};
+    #[test]
+    fn default_flight_matches_independent_drag_only_control() {
+        let stadium = Stadium::new(1, "wide".into(), 500.0, 500.0, 2.0);
+        for speed in [40.2336, 45.0, 49.1744] {
+            for vla in [20.0, 30.0, 35.0] {
+                for rpm in [0.0, 400.0, 2600.0, 4000.0] {
+                    let environment = TrajectoryEnvironment {
+                        wind_speed_ms: 0.0,
+                        stop_at_first_ground: true,
+                        ..TrajectoryEnvironment::for_stadium(&stadium)
+                    };
+                    let ball = calculate_trajectory_with_environment(
+                        speed,
+                        vla,
+                        0.0,
+                        rpm,
+                        0.0,
+                        &stadium,
+                        environment,
+                    )
+                    .unwrap();
+                    let reference = flight_reference::integrate(
+                        Launch {
+                            speed_ms: speed,
+                            vla_deg: vla,
+                            hla_deg: 0.0,
+                            spin_rpm: rpm,
+                            spin_angle_deg: 0.0,
+                            height_m: 0.9,
+                            wind_speed_ms: 0.0,
+                            wind_direction_deg: 0.0,
+                        },
+                        Settings::default(),
+                        ForceModel::PublishedDragLiveLift,
+                    )
+                    .unwrap();
+                    assert!(
+                        (ball.first_bounce_position.unwrap().distance - reference.carry_m).abs()
+                            < 0.8
+                    );
+                    assert!(
+                        (ball.first_bounce_time.unwrap() - reference.landing_time_sec).abs() < 0.05
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn gyro_spin_affects_drag_without_inventing_lift() {
+        let stadium = Stadium::new(1, "wide".into(), 500.0, 500.0, 2.0);
+        let environment = TrajectoryEnvironment {
+            wind_speed_ms: 0.0,
+            stop_at_first_ground: true,
+            ..TrajectoryEnvironment::for_stadium(&stadium)
+        };
+        let flight = |rpm| {
+            calculate_trajectory_with_environment(
+                45.0,
+                20.0,
+                0.0,
+                0.0,
+                0.0,
+                &stadium,
+                TrajectoryEnvironment {
+                    total_spin_rpm: Some(rpm),
+                    ..environment
+                },
+            )
+            .unwrap()
+        };
+        let no_spin = flight(0.0);
+        let gyro = flight(4000.0);
+        assert_eq!(gyro.spin_rate, 0.0);
+        assert!(
+            gyro.first_bounce_position.unwrap().distance
+                < no_spin.first_bounce_position.unwrap().distance
+        );
+        assert!(gyro.max_height < no_spin.max_height);
+        for rpm in [-1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                calculate_trajectory_with_environment(
+                    45.0,
+                    20.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    &stadium,
+                    TrajectoryEnvironment {
+                        total_spin_rpm: Some(rpm),
+                        ..environment
+                    }
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            calculate_trajectory_with_environment(
+                45.0,
+                20.0,
+                0.0,
+                1000.0,
+                0.0,
+                &stadium,
+                TrajectoryEnvironment {
+                    total_spin_rpm: Some(999.0),
+                    ..environment
+                }
+            )
+            .is_err()
+        );
     }
 }

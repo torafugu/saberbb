@@ -6,6 +6,7 @@ use saberbb::domain::{
         LIVE_FLIGHT_DT_SEC, TrajectoryEnvironment, calculate_trajectory_with_environment,
     },
     shared::{
+        flight_drag::FlightDragModel,
         flight_reference::{self as reference, ForceModel, Launch, Settings},
         stadium::Stadium,
     },
@@ -75,20 +76,32 @@ fn main() -> Result<()> {
                     wind_speed_ms: a.wind_speed_ms,
                     wind_direction_deg: a.wind_direction_deg,
                     stop_at_first_ground: true,
+                    ..TrajectoryEnvironment::for_stadium(&wide)
                 };
                 let mut models = serde_json::Map::new();
-                let live = match calculate_trajectory_with_environment(
-                    speed, vla, 0.0, spin, 0.0, &wide, env,
-                ) {
-                    Ok(b) if b.first_bounce_position.is_some() => {
-                        json!({"status":"landed","carry_m":b.first_bounce_position.unwrap().distance,"landing_time_sec":b.first_bounce_time,"max_height_m":b.max_height})
-                    }
-                    Ok(b) => {
-                        json!({"status":"no_ground_before_boundary","outbound":b.outbound_result})
-                    }
-                    Err(e) => json!({"status":"error","reason":e.to_string()}),
-                };
-                models.insert("live_discrete".into(), live);
+                for (name, drag_model) in [
+                    ("live_discrete", FlightDragModel::Legacy),
+                    ("published_drag_discrete", FlightDragModel::Published2017),
+                ] {
+                    let live = match calculate_trajectory_with_environment(
+                        speed,
+                        vla,
+                        0.0,
+                        spin,
+                        0.0,
+                        &wide,
+                        TrajectoryEnvironment { drag_model, ..env },
+                    ) {
+                        Ok(b) if b.first_bounce_position.is_some() => {
+                            json!({"status":"landed","carry_m":b.first_bounce_position.unwrap().distance,"landing_time_sec":b.first_bounce_time,"max_height_m":b.max_height})
+                        }
+                        Ok(b) => {
+                            json!({"status":"no_ground_before_boundary","outbound":b.outbound_result})
+                        }
+                        Err(e) => json!({"status":"error","reason":e.to_string()}),
+                    };
+                    models.insert(name.into(), live);
+                }
                 for (name, model, tau) in [
                     ("vacuum_rk4", ForceModel::Vacuum, None),
                     ("live_forces_rk4", ForceModel::Live, None),
@@ -136,13 +149,13 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"source":"fixed_launch_flight_comparison_v1","status":"reference_comparison_not_calibrated",
+            &json!({"source":"fixed_launch_flight_comparison_v2","status":"reference_comparison_not_calibrated",
         "engine_source_sha256":saberbb::domain::seeded_diagnostic::ENGINE,"reference_source":reference::SOURCE_URL,
         "settings":settings,"reference_constants":{"mass_kg":reference::MASS_KG,"radius_m":reference::RADIUS_M,"gravity_ms2":saberbb::domain::util::GRAVITY},"live_dt_sec":LIVE_FLIGHT_DT_SEC,"rows":rows,
         "definitions":["No database, players, RNG, contact selection or saved stats. All models share launch/height/wind/gravity. HLA and spin angle are zero: straight-ahead backspin.",
             "The published2017 force coefficients were fitted to 2016 Statcast trajectories, not individual measured reference endpoints in this file. Mass/circumference use the paper's nominal ball; density=1.194 kg/m3; common g=9.81 m/s2. No claim of calibrated saberbb flight.",
-            "live_discrete calls the live implementation with explicit environment and stops at first ground in a wide 500m field. Normal gameplay retains its original .90m height, stadium wind, fence/bounce/rolling and .01s scheme.",
-            "Other rows use an independent RK4 first-ground solver with interpolated ground event, no fence/bounce/rolling. live_forces_rk4 controls numerical-method differences. Hybrid rows change only drag or lift law; they are attribution controls, not proposed models.",
+            "live_discrete explicitly selects historical drag; published_drag_discrete selects the new default. Both call the same implementation with explicit environment and stops at first ground in a wide 500m field. Normal gameplay retains its original .90m height, stadium wind, fence/bounce/rolling and .01s scheme.",
+            "Other rows use an independent RK4 first-ground solver with interpolated ground event, no fence/bounce/rolling. live_forces_rk4 retains historical forces; published_drag_live_lift controls the new default numerical-method differences. Hybrid rows change only drag or lift law; published_drag_live_lift is now the default force combination; other hybrids remain attribution controls.",
             "published2017 holds world spin fixed; tau30 is optional exponential-decay sensitivity, not a new measurement. Initial-force summaries use the launch speed (still-air scalar), while integrations use relative air velocity when wind is supplied.",
             "The 120m,2m diagnostic marker is a plane y=120m crossing before landing, not a stadium home-run decision. Errors/boundary exits stay explicit, never zero carry. The conservative window is a comparison subset, not a guarantee outside or inside it."]})
         )?

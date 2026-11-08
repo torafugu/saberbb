@@ -1,14 +1,17 @@
 //! Aggregate the selected forward 3-D path on all recorded swings, never a new Intent selection.
 use super::{
-    contact_direction_audit::checked_baseline,
+    contact_direction_audit::{checked_baseline, direction_class},
     moving_collision_audit::{Group, Moments, Outcome, band, vector},
 };
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
-    resolver::batting_resolver::{SwingContactType, calculate_trajectory},
+    resolver::batting_resolver::{
+        SwingContactType, TrajectoryEnvironment, calculate_trajectory_with_environment,
+    },
     shared::{
         contact_state::ContactStateRecord,
         finite_bat_collision as finite,
+        flight_drag::FlightDragModel,
         frozen_contact_collision::flight_spin,
         game::{GameResult, GameSchedule},
         game_stats::PlayerGameBatting,
@@ -274,13 +277,17 @@ fn evaluate<'a>(
             .context("invalid launch metric")
     };
     let (speed, vla, hla) = (number("ev_ms")?, number("vla_deg")?, number("hla_deg")?);
-    let ball = match calculate_trajectory(
+    let ball = match calculate_trajectory_with_environment(
         speed,
         vla,
         hla,
         spin.transverse_rpm,
         spin.angle_deg,
         stadium,
+        TrajectoryEnvironment {
+            total_spin_rpm: Some(spin.total_rpm),
+            ..TrajectoryEnvironment::for_stadium(stadium)
+        },
     ) {
         Ok(ball) => ball,
         Err(_) => {
@@ -436,9 +443,75 @@ fn binary_agreement(legacy: &str, search: &str) -> Option<bool> {
         _ => None,
     }
 }
+/// Paired trajectories from identical selected collision outputs, not two game paths.
+#[derive(Default, Serialize)]
+struct DragComparison {
+    attempted: u64,
+    paired: u64,
+    statuses: BTreeMap<String, u64>,
+    legacy_drag: Group,
+    published_drag: Group,
+    transitions: BTreeMap<String, u64>,
+}
+impl DragComparison {
+    fn observe(&mut self, outcome: Outcome, stadium: &Stadium) {
+        self.attempted += 1;
+        let flight = |drag_model| {
+            calculate_trajectory_with_environment(
+                outcome.ball.launch_speed,
+                outcome.ball.launch_angle,
+                outcome.hla,
+                outcome.ball.spin_rate,
+                outcome.ball.spin_angle,
+                stadium,
+                TrajectoryEnvironment {
+                    drag_model,
+                    total_spin_rpm: outcome.total_spin,
+                    ..TrajectoryEnvironment::for_stadium(stadium)
+                },
+            )
+        };
+        match (
+            flight(FlightDragModel::Legacy),
+            flight(FlightDragModel::Published2017),
+        ) {
+            (Ok(legacy), Ok(published)) => {
+                self.paired += 1;
+                *self.statuses.entry("paired".into()).or_default() += 1;
+                *self
+                    .transitions
+                    .entry(format!(
+                        "{:?}->{:?}",
+                        direction_class(&legacy),
+                        direction_class(&published)
+                    ))
+                    .or_default() += 1;
+                self.legacy_drag.add(Outcome {
+                    ball: legacy,
+                    ..outcome
+                });
+                self.published_drag.add(Outcome {
+                    ball: published,
+                    ..outcome
+                });
+            }
+            (a, b) => {
+                *self
+                    .statuses
+                    .entry(format!(
+                        "legacy:{}|published:{}",
+                        a.err().map_or("ok".into(), |e| e.to_string()),
+                        b.err().map_or("ok".into(), |e| e.to_string())
+                    ))
+                    .or_default() += 1;
+            }
+        }
+    }
+}
 #[derive(Default)]
 pub struct SelectedAudit {
     records: u64,
+    drag_comparison: DragComparison,
     legacy_joins: BTreeMap<String, u64>,
     by_intent: BTreeMap<String, Cohort>,
     by_contact_band: BTreeMap<String, Cohort>,
@@ -494,6 +567,9 @@ impl SelectedAudit {
             *self.legacy_joins.entry(join.into()).or_default() += 1;
             let row = evaluate(record, b, &schedule.stadium)
                 .with_context(|| format!("game {}, count {}", game.id, record.count_seq))?;
+            if let Some(outcome) = row.outcome {
+                self.drag_comparison.observe(outcome, &schedule.stadium);
+            }
             self.by_intent
                 .entry(row.intent.clone())
                 .or_default()
@@ -560,7 +636,8 @@ impl SelectedAudit {
                 .map(|(k, v)| (k.clone(), v.json()))
                 .collect::<BTreeMap<_, _>>()
         };
-        json!({"source":"selected_intent_forward_3d_v2","finite_model":finite::MODEL,"search_settings":ContactSearchSettings::default(),
+        json!({"source":"selected_intent_forward_3d_v3","finite_model":finite::MODEL,"search_settings":ContactSearchSettings::default(),
+            "drag_comparison":self.drag_comparison,
             "swing_records":self.records,"legacy_join_coverage":self.legacy_joins,"by_intent":groups(&self.by_intent),
             "by_intent_and_contact_band":groups(&self.by_contact_band),"by_intent_and_legacy_quality":groups(&self.by_legacy_quality),
             "ball_radius_m":ball_radius_m(),"by_intent_and_height_validity":groups(&self.by_height),"invalid_ground_examples":self.invalid_ground_examples,
@@ -570,7 +647,8 @@ impl SelectedAudit {
                 "Use selected observed ExecutionSwingPlan geometry/velocity/time and existing finite collision response, not a pose inferred from legacy offsets. Decisions/identity/unique selection and settings must agree. Re-derived selected collision input/control/response must exactly reproduce stored diagnostics; physics identity residuals must be <=1e-7.",
                 "Ground validity classifies the searched ball center: z<0 is center_below_ground, 0<=z<ball_radius is sphere_intersects_ground, z>=ball_radius is clear_of_ground. Existing outcomes are retained; ground_valid/invalid_outcomes partition accepted flights. Reference-to-contact height transitions and dedicated invalid samples trace the origin; no clamping or live behavior changes.",
                 "Contact bands cover geometric contacts even when collision/flight is unavailable. Outcomes cover accepted selected 3-D flights including those on legacy misses. paired_live/paired_3d cover only accepted flights with a reproducible live contact baseline; they exclude legacy misses and cannot represent all swings.",
-                "Flight uses the existing standard impact height (.90m) and home-plate origin, not the searched 3-D contact position. Launch metrics/normal/velocity come directly from the 3-D collision; actual contact point is reported separately. Transverse spin drives flight; total/gyro spin are reported separately. Geometry and dynamics are still diagnostic model assumptions, not measured reality. Non-foul includes HR/automatic doubles, not predicted hits. No downstream fielding/running or alternate game is replayed.",
+                "Flight uses the existing standard impact height (.90m) and home-plate origin, not the searched 3-D contact position. Launch metrics/normal/velocity come directly from the 3-D collision; actual contact point is reported separately. Transverse spin drives unchanged lift; total spin including gyro drives published drag. Legacy drag ignores spin. Total/gyro spin are reported separately. Geometry and dynamics are still diagnostic model assumptions, not measured reality. Non-foul includes HR/automatic doubles, not predicted hits. No downstream fielding/running or alternate game is replayed.",
+                "drag_comparison replays each accepted selected collision output with both drag laws, identical EV/VLA/HLA/effective and total spin/height/wind/stadium. Both successes form a common paired denominator; failures remain explicit. This isolates flight from diverging full-game paths. Nonaccepted collisions are excluded.",
                 "States are collected only for one in-memory game and discarded after aggregation. No DB/contact-state writes. Existing deterministic sensor noise is keyed by game/count and does not consume the game RNG; match ordinary game reports to verify recording parity.",
                 "Examples are the first two per intent/search-category/final-status, not random. Geometry summaries use every successful search, with separate n for missing values. Unknown legacy comparison coverage remains explicit."]})
     }
@@ -842,5 +920,41 @@ mod tests {
         assert_eq!(binary_agreement("contact", "contact"), Some(true));
         assert_eq!(binary_agreement("miss", "unresolved"), None);
         assert_eq!(binary_agreement("contact", "overlap_at_start"), None);
+    }
+}
+
+#[cfg(test)]
+mod drag_tests {
+    use super::*;
+    #[test]
+    fn identical_launch_comparison_preserves_denominators_and_reports_hr_transitions() {
+        let stadium = Stadium::default();
+        let ball = calculate_trajectory_with_environment(
+            45.0,
+            25.0,
+            0.0,
+            2600.0,
+            0.0,
+            &stadium,
+            TrajectoryEnvironment::for_stadium(&stadium),
+        )
+        .unwrap();
+        let mut comparison = DragComparison::default();
+        comparison.observe(
+            Outcome {
+                ball,
+                hla: 0.0,
+                total_spin: Some(3000.0),
+                gyro_spin: Some((3000_f64.powi(2) - 2600_f64.powi(2)).sqrt()),
+            },
+            &stadium,
+        );
+        let v = serde_json::to_value(&comparison).unwrap();
+        assert_eq!(v["attempted"], 1);
+        assert_eq!(v["paired"], 1);
+        assert_eq!(v["legacy_drag"]["all"], v["published_drag"]["all"]);
+        assert_eq!(v["legacy_drag"]["hr"], 1);
+        assert_eq!(v["published_drag"]["hr"], 0);
+        assert_eq!(comparison.transitions.values().sum::<u64>(), 1);
     }
 }

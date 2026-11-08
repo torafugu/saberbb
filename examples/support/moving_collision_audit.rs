@@ -2,7 +2,9 @@
 use super::contact_direction_audit::{checked_baseline, direction_class};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
-    resolver::batting_resolver::{SwingContactType, calculate_trajectory},
+    resolver::batting_resolver::{
+        SwingContactType, TrajectoryEnvironment, calculate_trajectory_with_environment,
+    },
     shared::{
         ball::{BattedBall, OutboundResult},
         finite_bat_collision as finite, frozen_contact_collision as frozen,
@@ -289,8 +291,18 @@ impl MovingAudit {
                         Some(spin.gyro_rpm),
                     )
                 };
-                let trial = match calculate_trajectory(ev, vla, hla, rpm, angle, &schedule.stadium)
-                {
+                let trial = match calculate_trajectory_with_environment(
+                    ev,
+                    vla,
+                    hla,
+                    rpm,
+                    angle,
+                    &schedule.stadium,
+                    TrajectoryEnvironment {
+                        total_spin_rpm: total,
+                        ..TrajectoryEnvironment::for_stadium(&schedule.stadium)
+                    },
+                ) {
                     Ok(ball) => Outcome {
                         ball,
                         hla,
