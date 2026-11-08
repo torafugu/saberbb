@@ -1,0 +1,292 @@
+{
+  "source": "independent_scipy_DOP853_integration_not_individual_measurements",
+  "scipy_version": "1.17.0",
+  "rtol": 1e-12,
+  "atol": 1e-12,
+  "paper": "https://baseball.physics.illinois.edu/TrajectoryAnalysis.pdf",
+  "equations": "7,10,11",
+  "gravity_ms2": 9.81,
+  "mass_kg": 0.145291306015625,
+  "radius_m": 0.03688813693512404,
+  "cases": [
+    {
+      "launch": {
+        "speed_ms": 40.2336,
+        "vla_deg": 20,
+        "hla_deg": 0.0,
+        "spin_rpm": 2600,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "published2017",
+      "expected": {
+        "carry_m": 102.74887182920091,
+        "landing_position_m": [
+          0.0,
+          102.74887182920091,
+          0.0
+        ],
+        "landing_time_sec": 4.087509907480805,
+        "max_height_m": 14.418766308118347,
+        "marker_crossing_height_m": null
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 20,
+        "hla_deg": 0.0,
+        "spin_rpm": 0,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "published2017",
+      "expected": {
+        "carry_m": 94.3354958775539,
+        "landing_position_m": [
+          0.0,
+          94.3354958775539,
+          0.0
+        ],
+        "landing_time_sec": 2.9021361875803007,
+        "max_height_m": 10.810376703730409,
+        "marker_crossing_height_m": null
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 30,
+        "hla_deg": 0.0,
+        "spin_rpm": 4000,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "published2017",
+      "expected": {
+        "carry_m": 119.70254763746016,
+        "landing_position_m": [
+          0.0,
+          119.70254763746016,
+          0.0
+        ],
+        "landing_time_sec": 5.7964871679207866,
+        "max_height_m": 31.2521038464066,
+        "marker_crossing_height_m": null
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 20,
+        "hla_deg": 0.0,
+        "spin_rpm": 2600,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "live",
+      "expected": {
+        "carry_m": 172.10628499047112,
+        "landing_position_m": [
+          0.0,
+          172.10628499047112,
+          0.0
+        ],
+        "landing_time_sec": 4.641831448958516,
+        "max_height_m": 18.22968138270774,
+        "marker_crossing_height_m": 15.70942296097239
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 20,
+        "hla_deg": 0.0,
+        "spin_rpm": 2600,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "published_drag_live_lift",
+      "expected": {
+        "carry_m": 107.05570894822151,
+        "landing_position_m": [
+          0.0,
+          107.05570894822151,
+          0.0
+        ],
+        "landing_time_sec": 3.777101873324222,
+        "max_height_m": 13.76616254845725,
+        "marker_crossing_height_m": null
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 20,
+        "hla_deg": 0.0,
+        "spin_rpm": 2600,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "live_drag_published_lift",
+      "expected": {
+        "carry_m": 235.89766911064586,
+        "landing_position_m": [
+          0.0,
+          235.89766911064586,
+          0.0
+        ],
+        "landing_time_sec": 7.032717260706261,
+        "max_height_m": 30.13303036000522,
+        "marker_crossing_height_m": 30.021036993844127
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 30,
+        "hla_deg": 0.0,
+        "spin_rpm": 2600,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": 30.0,
+        "marker_y_m": 120.0
+      },
+      "model": "published2017",
+      "expected": {
+        "carry_m": 124.88324184177823,
+        "landing_position_m": [
+          0.0,
+          124.88324184177823,
+          0.0
+        ],
+        "landing_time_sec": 5.652204437857452,
+        "max_height_m": 30.148458780613094,
+        "marker_crossing_height_m": 5.394189961748737
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 20,
+        "hla_deg": 0.0,
+        "spin_rpm": 2600,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 8.0,
+        "wind_direction_deg": 90.0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "published2017",
+      "expected": {
+        "carry_m": 120.5034401098916,
+        "landing_position_m": [
+          13.285173423307105,
+          119.7688742763782,
+          0.0
+        ],
+        "landing_time_sec": 4.634768751616908,
+        "max_height_m": 18.133215283422675,
+        "marker_crossing_height_m": null
+      }
+    },
+    {
+      "launch": {
+        "speed_ms": 45,
+        "vla_deg": 30,
+        "hla_deg": 0.0,
+        "spin_rpm": 0,
+        "spin_angle_deg": 0.0,
+        "height_m": 0.9,
+        "wind_speed_ms": 0,
+        "wind_direction_deg": 0
+      },
+      "settings": {
+        "dt_sec": 0.001,
+        "max_time_sec": 30.0,
+        "density_kg_m3": 1.194,
+        "spin_decay_tau_sec": null,
+        "marker_y_m": 120.0
+      },
+      "model": "vacuum",
+      "expected": {
+        "carry_m": 180.3121964016771,
+        "landing_position_m": [
+          0.0,
+          180.3121964016771,
+          0.0
+        ],
+        "landing_time_sec": 4.626813116919154,
+        "max_height_m": 26.70275229357787,
+        "marker_crossing_height_m": 23.675365636088298
+      }
+    }
+  ]
+}

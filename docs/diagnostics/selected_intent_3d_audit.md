@@ -138,3 +138,10 @@ records, missing joins, legacy-miss/3-D-contact disagreements, invalid-spin
 coverage, duplicate/tampered selected probes and incomplete search handling.
 Scoped rustfmt and git diff --check passed. Source DB SHA256 remained
 `519b8ca87c7f68126cd2e3b7e599401fc7c5d09fde40140d16573856d85b3a2e`.
+
+## Height-validity extension
+
+The v2 report retains these source cohorts/outcomes and adds explicit ground
+clearance counts, reference-height transitions, clear/invalid outcome partitions
+and bounded invalid-position samples. See [ground validity and fixed-flight
+controls](flight_and_ground_validity.md) for the exact .036 m radius boundaries.

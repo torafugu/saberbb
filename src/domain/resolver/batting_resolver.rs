@@ -791,6 +791,28 @@ pub struct TrajectorySummaryResult {
     pub target_arrival: Option<TargetArrivalState>,
 }
 
+pub const LIVE_FLIGHT_DRAG_PER_M: f64 = 0.0012;
+pub const LIVE_FLIGHT_DT_SEC: f64 = 0.01;
+
+/// Explicit diagnostic controls; normal gameplay uses for_stadium unchanged.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct TrajectoryEnvironment {
+    pub impact_height_m: f64,
+    pub wind_speed_ms: f64,
+    pub wind_direction_deg: f64,
+    pub stop_at_first_ground: bool,
+}
+impl TrajectoryEnvironment {
+    pub fn for_stadium(stadium: &Stadium) -> Self {
+        let wind = stadium.default_wind();
+        Self {
+            impact_height_m: 0.90,
+            wind_speed_ms: wind.speed_m_per_s,
+            wind_direction_deg: wind.dir_deg,
+            stop_at_first_ground: false,
+        }
+    }
+}
 pub fn calculate_trajectory(
     launch_speed_ms: f64, // Batted ball exit velocity (m/s)
     vla_deg: f64,         // Vertical launch angle VLA (deg)
@@ -799,6 +821,38 @@ pub fn calculate_trajectory(
     spin_angle_deg: f64,  // Spin angle (deg) (0: backspin, 90: slider spin, 270: screw spin)
     stadium: &Stadium,
 ) -> Result<BattedBall, GameError> {
+    calculate_trajectory_with_environment(
+        launch_speed_ms,
+        vla_deg,
+        hla_deg,
+        spin_rate_rpm,
+        spin_angle_deg,
+        stadium,
+        TrajectoryEnvironment::for_stadium(stadium),
+    )
+}
+
+pub fn calculate_trajectory_with_environment(
+    launch_speed_ms: f64,
+    vla_deg: f64,
+    hla_deg: f64,
+    spin_rate_rpm: f64,
+    spin_angle_deg: f64,
+    stadium: &Stadium,
+    environment: TrajectoryEnvironment,
+) -> Result<BattedBall, GameError> {
+    if ![
+        environment.impact_height_m,
+        environment.wind_speed_ms,
+        environment.wind_direction_deg,
+    ]
+    .iter()
+    .all(|x| x.is_finite())
+        || environment.impact_height_m <= 0.0
+        || environment.wind_speed_ms < 0.0
+    {
+        return Err(GameError::InvalidTrajectoryEnvironment);
+    }
     let vla_rad = vla_deg.to_radians();
     let hla_rad = hla_deg.to_radians();
 
@@ -809,12 +863,12 @@ pub fn calculate_trajectory(
     let mut v_z = launch_speed_ms * vla_rad.sin();
 
     // Contact height (impact position above ground: e.g. 0.9m)
-    const IMPACT_HEIGHT_M: f64 = 0.90;
+    let impact_height_m = environment.impact_height_m;
 
     // Initial position
     let mut pos_x: f64 = 0.0;
     let mut pos_y: f64 = 0.0;
-    let mut pos_z = IMPACT_HEIGHT_M;
+    let mut pos_z = impact_height_m;
     let mut max_height_m = pos_z; // Tracks the max height reached (initial value: impact height)
 
     // Current spin state for calculation (decays and changes after bounces)
@@ -822,13 +876,12 @@ pub fn calculate_trajectory(
     let mut current_spin_angle = spin_angle_deg;
 
     // Decompose the wind vector
-    let wind = stadium.default_wind();
-    let wind_rad = wind.dir_deg.to_radians();
-    let wind_v_x = wind.speed_m_per_s * wind_rad.sin();
-    let wind_v_y = wind.speed_m_per_s * wind_rad.cos();
+    let wind_rad = environment.wind_direction_deg.to_radians();
+    let wind_v_x = environment.wind_speed_ms * wind_rad.sin();
+    let wind_v_y = environment.wind_speed_ms * wind_rad.cos();
 
     let mut current_time = 0.0;
-    let dt = 0.01; // 10ms steps
+    let dt = LIVE_FLIGHT_DT_SEC; // 10ms steps
     let mut bounce_count = 0;
 
     let mut first_bounce_position = None;
@@ -837,7 +890,7 @@ pub fn calculate_trajectory(
     let mut fence_impact_time_sec = None;
     let mut result_type = OutboundResult::InField;
 
-    const AIR_RESISTANCE_COEFF: f64 = 0.0012; // Simplified air resistance coefficient
+    const AIR_RESISTANCE_COEFF: f64 = LIVE_FLIGHT_DRAG_PER_M; // Simplified air resistance coefficient
     const RESTITUTION_COEFF: f64 = 0.45; // Ground restitution coefficient
     const WALL_RESTITUTION: f64 = 0.60; // Fence restitution coefficient
     const GROUND_FRICTION: f64 = 0.25; // Ground friction coefficient
@@ -969,6 +1022,9 @@ pub fn calculate_trajectory(
                     current_spray_angle_deg,
                 ));
                 first_bounce_time_sec = Some(current_time);
+                if environment.stop_at_first_ground {
+                    break;
+                }
             }
 
             v_z = -v_z * RESTITUTION_COEFF;
@@ -1613,5 +1669,66 @@ mod contact_normal_tests {
         let marginal=calculate_launch_angles(&mut FixedRng::new(0.5),&contact,&batter).unwrap();
         assert_eq!(weak.hla_deg,marginal.hla_deg);
         assert_eq!(weak.timing_angle_error_deg,marginal.timing_angle_error_deg);
+    }
+}
+
+#[cfg(test)]
+mod flight_environment_tests {
+    use super::*;
+    use serde_json::Value;
+    fn close(a: &Value, b: &Value) {
+        match (a, b) {
+            (Value::Object(a), Value::Object(b)) => {
+                assert_eq!(a.len(), b.len());
+                for (k, v) in a {
+                    close(v, &b[k]);
+                }
+            }
+            (Value::Array(a), Value::Array(b)) => {
+                assert_eq!(a.len(), b.len());
+                for (a, b) in a.iter().zip(b) {
+                    close(a, b);
+                }
+            }
+            (Value::Number(a), Value::Number(b)) => {
+                assert!((a.as_f64().unwrap() - b.as_f64().unwrap()).abs() < 1e-8)
+            }
+            _ => assert_eq!(a, b),
+        }
+    }
+    #[test]
+    fn original_default_trajectories_are_preserved() {
+        let v: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/flight_legacy_contract.json"
+        ))
+        .unwrap();
+        for row in v["cases"].as_array().unwrap() {
+            let p = row["input"].as_array().unwrap();
+            let n = |i: usize| p[i].as_f64().unwrap();
+            let ball =
+                calculate_trajectory(n(0), n(1), n(2), n(3), n(4), &Stadium::default()).unwrap();
+            close(&row["output"], &serde_json::to_value(ball).unwrap());
+        }
+    }
+    #[test]
+    fn first_ground_mode_uses_explicit_height_and_no_wind() {
+        let s = Stadium::new(1, "wide".into(), 500.0, 500.0, 2.0);
+        let e = TrajectoryEnvironment {
+            impact_height_m: 0.9,
+            wind_speed_ms: 0.0,
+            wind_direction_deg: 0.0,
+            stop_at_first_ground: true,
+        };
+        let ball = calculate_trajectory_with_environment(45.0, 20.0, 0.0, 0.0, 0.0, &s, e).unwrap();
+        assert_eq!(ball.total_time, ball.first_bounce_time.unwrap());
+        assert_eq!(ball.final_position, ball.first_bounce_position.unwrap());
+        let invalid = TrajectoryEnvironment {
+            impact_height_m: -0.1,
+            ..e
+        };
+        assert!(matches!(
+            calculate_trajectory_with_environment(45.0, 20.0, 0.0, 0.0, 0.0, &s, invalid),
+            Err(GameError::InvalidTrajectoryEnvironment)
+        ));
     }
 }
