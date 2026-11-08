@@ -710,7 +710,9 @@ trajectory comparison, not an alternate season's home-run count. See
 The BIP observer also audits the existing FinalPickup coverage path. It captures
 fresh in-memory pickup instants/positions, handling delays and already-consumed
 handling draws, then reproduces the search and completion clock without RNG.
-It does not change candidate filters, pickup selection or gameplay timings.
+Candidate filters and ordinary pickup search/handling are unchanged. Safety
+fallbacks now wait until the fielder can reach the stopped ball before applying
+the existing one-second handling delay; this can change the selected handler.
 
 ```sh
 export SABERBB_DB="/path/to/saberbb.db"
@@ -722,3 +724,20 @@ must reproduce before comparing same-target throws from the recorded pickup
 position. Missing older snapshots remain missing, and safety fallbacks stay
 explicit. These are fixed-target timing sensitivities, not alternate game results.
 See [fields, limitations and validation](docs/diagnostics/final_pickup_timing.md).
+
+### Reachable FinalPickup safety fallback
+
+A bounded pickup-search failure no longer returns ball-end-time+1 for a distant
+fielder. Fresh snapshots record `fallback_policy=reachable_arrival`; the clock is
+`max(ball.total_time, preparation + movement / speed) + 1 second`. Normal pickup
+search, handling delays and random draws are unchanged. Missing policy fields on
+historical snapshots decode as `legacy_ball_end`, so the diagnostic can still
+reproduce the earlier report. The pickup diagnostic source is now v2.
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > fallback_fixed_360.json
+```
+
+Set SABERBB_DB first. Compare the same input hash/schedule/seeds with the previous
+`final_pickup_timing_360.json`. Outcomes may change; this is a timing correction,
+not offensive-balance calibration. See the [fallback correction and tests](docs/diagnostics/final_pickup_timing.md#reachable-fallback-correction).
