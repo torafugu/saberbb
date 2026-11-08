@@ -8,6 +8,7 @@ pub fn App() -> Element {
     let language=use_signal(super::locale::Language::current);
     use_context_provider(||language);
     let mut refresh = use_signal(|| 0u32);
+    super::management::provide_controller(refresh);
     let catalog = use_resource(move || { refresh(); blocking(viewing::catalog) });
     rsx! {
         style { {include_str!("style.css")} }
@@ -27,8 +28,10 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
     let mut league = use_signal(|| 0u16);
     let mut team = use_signal(|| 0u16);
     let locale=super::locale::language();
-    let headings = [{tr("試合結果")}, {tr("順位表")}, {tr("打撃成績")}, {tr("投手成績")}, {tr("チーム・選手")}];
-    let labels = ["Games", "Standings", "Batting", "Pitching", "Teams"];
+    let controller=use_context::<super::management::Controller>();
+    let busy=controller.state.read().busy;
+    let headings = [{tr("試合結果")}, {tr("順位表")}, {tr("打撃成績")}, {tr("投手成績")}, {tr("チーム・選手")}, {tr("管理")}];
+    let labels = ["Games", "Standings", "Batting", "Pitching", "Teams", "Manage"];
     rsx! {
         aside { class:"sidebar",
             div { class:"brand", span { class:"brand-mark","S" } div { strong {"SABERBB"} small {"BASEBALL LAB"} } }
@@ -39,12 +42,14 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                         onclick:move |_|view.set(i as u8), span {"{labels[i]}"} strong {"{label}"} }
                 }
             }
-            div { class:"sidebar-note", {tr("管理操作はTUIへ")} code {"cargo run -- --tui"} }
+            div { class:"sidebar-note", {tr("閲覧も管理もこの画面から")} }
         }
         main {
             header { class:"topbar", div { p {class:"eyebrow","SEASON ARCHIVE / LIVE DATABASE"} h1 {"{headings[view() as usize]}"} }
-                super::locale::LanguageSwitch {}
-                button {id:format!("refresh"),class:"refresh",onclick:move |_|onrefresh.call(()),{tr("↻ 再読み込み")}} }
+                super::locale::LanguageSwitch {disabled:busy}
+                button {id:format!("refresh"),class:"refresh",disabled:busy,onclick:move |_|onrefresh.call(()),{tr("↻ 再読み込み")}} }
+            if busy { button {class:"job-banner",onclick:move |_|view.set(5),{tr("管理処理を実行中… 進捗を見る")}} }
+            if view()!=5 {
             div { class:"filters",
                 label { {tr("リーグ")} select { id:format!("league-filter"), value:league().to_string(), onchange:move |e|{league.set(e.value().parse().unwrap_or(0));team.set(0);},
                     option { value:"0",{tr("全リーグ")} }
@@ -56,10 +61,12 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                 } }
                 span { class:"scope-note", if (1..=3).contains(&view()) {{tr("集計範囲：保存済み全試合（通算）")}} else {{tr("同じローカルDBから表示")}} }
             }
+            }
             match view() {
                 0 => rsx!{ Games {key:"games-{league()}-{team()}-{refresh}",catalog:catalog.clone(),league:league(),team:team(),refresh} },
                 1..=3 => rsx!{ Statistics {key:"stats-{view()}-{league()}-{team()}-{locale:?}",kind:view(),catalog:catalog.clone(),league:league(),team:team(),refresh} },
-                _ => rsx!{ Teams {key:"team-{team()}",team:team(),refresh} },
+                4 => rsx!{ Teams {key:"team-{team()}",team:team(),refresh} },
+                _ => rsx!{ super::management::Management {} },
             }
         }
     }

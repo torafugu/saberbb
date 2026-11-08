@@ -14,9 +14,9 @@ impl Harness {
     }
     async fn settle(&mut self) {
         let edits=self.dom.render_immediate_to_vec();self.apply(edits);
-        for _ in 0..200 {
+        for _ in 0..1200 {
             if tokio::time::timeout(std::time::Duration::from_millis(100),self.dom.wait_for_work()).await.is_err(){
-                if self.html().contains("class=\"loading\"") {continue;} else {break;}
+                if self.html().contains("class=\"loading\"") || self.html().contains("class=\"job-banner\"") {continue;} else {break;}
             }
             let edits=self.dom.render_immediate_to_vec();self.apply(edits);
         }
@@ -97,5 +97,68 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     anyhow::ensure!(crate::config::load_app_config()?.language=="ja-JP","Japanese preference was not persisted");
     std::fs::write(output.join("index.html"),std::fs::read(output.join("games.html"))?)?;
     println!("GUI event checks passed: game selection, next/previous pitch, box scores, standings, batting, pitching, search, team filter, roster, player details, monthly schedule.");
+    Ok(())
+}
+
+/// Mutating GUI checks. Run only against an isolated, freshly initialized test DB.
+pub async fn snapshot_management(output: &Path) -> anyhow::Result<()> {
+    use crate::repositories::db::DbClient;
+    std::fs::create_dir_all(output)?;
+    dioxus::html::set_event_converter(Box::new(SerializedHtmlEventConverter));
+    let db = DbClient::new()?;
+    let count = |table: &str| -> anyhow::Result<i64> {
+        Ok(db.get_conn()?.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r|r.get(0))?)
+    };
+    anyhow::ensure!(count("player_info")? == 0 && count("game")? == 0, "management harness requires a fresh test database");
+    let mut h=Harness {dom:VirtualDom::new(super::App),ids:HashMap::new()};
+    let edits=h.dom.rebuild_to_vec();h.apply(edits);h.settle().await;
+    h.click("nav-5").await?;
+    h.save(output,"management")?;
+    h.click("language-en-US").await?;
+    h.save(output,"management-english")?;
+    anyhow::ensure!(h.html().contains("Generate players"),"management English translation missing");
+    h.click("language-ja-JP").await?;
+    h.input("manage-schedule-amount","input","0").await?;
+    anyhow::ensure!(h.html().contains("1〜255の整数"),"invalid season count was not rejected");
+    h.input("manage-schedule-amount","input","1").await?;
+    // Error recovery before any schedules exist.
+    h.click("manage-process-run").await?;
+    anyhow::ensure!(h.html().contains("処理に失敗しました"),"unscheduled processing should show a recoverable error");
+    h.save(output,"management-error")?;
+    h.input("manage-generate-amount","input","0").await?;
+    h.click("manage-generate-run").await?;
+    anyhow::ensure!(count("player_info")? == 0 && count("team_manager")? > 0,"generate 0 did not fill only manager vacancies");
+    let managers=count("manager")?;
+    h.input("manage-generate-amount","input","180").await?;
+    h.click("manage-generate-run").await?;
+    anyhow::ensure!(count("player_info")? == 180 && count("manager")? == managers,"generation duplicated managers or lost players");
+    h.click("manage-schedule-run").await?;
+    anyhow::ensure!(count("game")? > 0,"GUI scheduling did not save games");
+    // Dispatch a second click and navigate before the worker completes. The root
+    // controller must reject duplicates and keep working after the form unmounts.
+    h.event("manage-process-run","click",EventData::Mouse(SerializedMouseData::default()))?;
+    h.event("manage-process-run","click",EventData::Mouse(SerializedMouseData::default()))?;
+    let edits=h.dom.render_immediate_to_vec();h.apply(edits);
+    anyhow::ensure!(h.html().contains("class=\"job-banner\""),"busy status missing");
+    h.save(output,"management-running")?;
+    h.event("nav-0","click",EventData::Mouse(SerializedMouseData::default()))?;
+    h.settle().await;
+    h.click("nav-5").await?;
+    h.save(output,"management-process-result")?;
+    h.click("nav-0").await?;
+    let round:i64=db.get_conn()?.query_row("SELECT current_round_seq FROM game_season",[],|r|r.get(0))?;
+    anyhow::ensure!(round==2,"duplicate click ran another round: {round}");
+    anyhow::ensure!(count("player_game_batting")? > 0 && count("player_game_contact_state")? == 0,"normal GUI processing recorded contact diagnostics or saved no games");
+    anyhow::ensure!(h.html().contains("game-card"),"completed games did not appear after automatic refresh");
+    h.click("nav-5").await?;
+    anyhow::ensure!(h.html().contains("完了しました"),"task result did not survive navigation");
+    h.click("manage-analyze-run").await?;
+    anyhow::ensure!(count("player_game_contact_state")? > 0,"analysis processing did not record diagnostics");
+    h.save(output,"management-complete")?;
+    h.click("nav-2").await?;
+    anyhow::ensure!(h.html().contains("RBI") && !h.html().contains("読み込みできませんでした"),"batting stats not available after GUI processing");
+    h.click("nav-3").await?;
+    anyhow::ensure!(h.html().contains("ERA") && !h.html().contains("読み込みできませんでした"),"pitching stats not available after GUI processing");
+    println!("GUI management checks passed: validation, languages, error recovery, manager-only and player generation, scheduling, processing, diagnostics, duplicate suppression, navigation survival, automatic refresh and statistics.");
     Ok(())
 }

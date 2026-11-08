@@ -1,8 +1,7 @@
 # saberbb
 
 `saberbb` is a Rust CLI baseball simulation and statistics app. It generates
-players, schedules seasons, simulates games, stores results in SQLite, and lets
-you inspect standings and game results in an interactive terminal UI.
+players, schedules seasons, simulates games, stores results in SQLite, and provides a Dioxus desktop GUI for management, standings and game results.
 
 ## Features
 
@@ -10,7 +9,7 @@ you inspect standings and game results in an interactive terminal UI.
   running attributes
 - Schedule seasons and process game rounds
 - Persist players, schedules, games, counts, and player game stats in SQLite
-- View standings and processed game results in an interactive TUI
+- Manage seasons and view standings and processed games in the desktop GUI
 - Step through individual game counts with keyboard controls
 - Support English and Japanese UI text through Fluent locale files
 
@@ -307,12 +306,12 @@ assignment are saved together, and concurrent assignments never replace an exist
 manager. Existing databases require the batting personnel migration:
 `migrations/upgrades/add_batting_personnel.sql`.
 
-## Results GUI and management TUI
+## Desktop GUI and management TUI
 
-Dioxus is the only results/statistics interface. The old terminal viewing widgets
-have been removed; the TUI now manages schedules, player/manager generation, and
-ordinary or diagnostic game processing. Both CLI flags and the management console
-call the shared application use cases.
+Dioxus provides both results/statistics and management in one desktop app. The
+TUI remains an optional management console for schedules, player/manager generation,
+and ordinary or diagnostic game processing. CLI, TUI, and GUI call the same shared
+application use cases.
 
 ```sh
 cargo run -- --tui                       # --view / -v remain aliases
@@ -327,7 +326,7 @@ pitch repertoires, and manager information. Tables support search, numeric sorti
 and pagination. Statistics retain the existing cumulative aggregation definitions;
 the season selector on the game list only filters that list. Refresh reloads the
 catalog and active data after management operations. Database work runs off the UI
-thread. The GUI does not read `player_game_contact_state` or run simulations.
+thread. Viewing screens do not read `player_game_contact_state`.
 
 GUI support is optional so ordinary CLI/TUI builds do not require a WebView SDK.
 On macOS, install Apple's command-line tools (`xcode-select --install`). Linux
@@ -383,3 +382,36 @@ for locks held by other database work/processes; a persistent lock requires endi
 the other transaction and refreshing, not resetting the database. To precompute
 an existing database before opening the GUI, close other writers and run
 `cargo run -- --rebuild-stats` once.
+
+### GUI management
+
+Open **管理 / Management** in the sidebar to run the same four operations as the TUI:
+
+| Operation | Count | Behavior |
+| --- | --- | --- |
+| Create schedule | 1–255 seasons | Add future season schedules |
+| Generate players & managers | 0–65535 players | Distribute players and fill vacant manager positions; 0 fills managers only |
+| Process games | 1–65535 rounds | Simulate scheduled games without detailed contact diagnostics |
+| Process with diagnostics | 1–65535 rounds | Simulate games and save detailed contact diagnostics |
+
+Progress is reported after each saved player, season, or completed round. Only one
+management job runs at a time in the GUI. Keep the app open until it finishes; page
+navigation does not stop a running job. Language and manual refresh controls are
+disabled while running. On success or failure, the catalog, statistics, games and
+rosters refresh automatically; successful work saved before a failure is retained.
+The management operations apply across the leagues rather than to viewing filters.
+
+Game processing now selects the first unfinished scheduled round, including when
+moving from the initial seed year or an exhausted season into a scheduled future
+season. No pending games is an error without advancing the cursor. Unprocessed
+past-season games require inspecting the cursor rather than silently skipping them.
+This behavior is shared by CLI, TUI and GUI.
+
+The optional mutating event harness below must use an isolated, freshly initialized
+test database with no players or schedules. It checks the real GUI events and DB
+writes, including duplicate clicks, page navigation during processing, normal vs.
+diagnostic recording, error recovery and automatic refresh:
+
+```sh
+cargo run --features gui-tests --example gui_snapshots -- /tmp/gui-management --management
+```

@@ -30,7 +30,7 @@ pub(super) fn Teams(team:u16, refresh:u32) -> Element {
                 Some(Ok((players,manager)))=>rsx!{
                     div {class:"manager",
                         if let Some(m)=manager {strong {{format!("{}: {}",tr("監督"),m.name)}} span {" / {m.batting_policy:?}"}}
-                        else {{tr("監督未配置（管理TUIのキャラクター作成で補充できます）")}}
+                        else {{tr("監督未配置（管理画面の選手・監督作成で補充できます）")}}
                     }
                     div {class:"toolbar",
                         label {{tr("ポジション")} select {value:position,onchange:move |e|position.set(e.value()),
