@@ -30,6 +30,8 @@ mod bip_audit;
 mod contact_direction_audit;
 #[path = "support/moving_collision_audit.rs"]
 mod moving_collision_audit;
+#[path = "support/selected_intent_audit.rs"]
+mod selected_intent_audit;
 #[path = "support/throw_origin_audit.rs"]
 mod throw_origin_audit;
 
@@ -53,6 +55,9 @@ struct Args {
     /// Compare finite collision responses at frozen legacy contact coordinates.
     #[arg(long)]
     moving_collision_diagnostics: bool,
+    /// Collect per-game shadow states in memory and audit only the selected Intent 3-D path.
+    #[arg(long)]
+    selected_intent_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -297,6 +302,9 @@ fn main() -> Result<()> {
         let mut moving = args
             .moving_collision_diagnostics
             .then(moving_collision_audit::MovingAudit::default);
+        let mut selected = args
+            .selected_intent_diagnostics
+            .then(selected_intent_audit::SelectedAudit::default);
         let mut total = Counts::default();
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
@@ -306,7 +314,7 @@ fn main() -> Result<()> {
                 Box::new(RealRng::from_seed(derived_seed(*seed, game.id))),
                 BattingStrategySettings::player_driven(),
                 Some(args.max_pitches),
-                false,
+                args.selected_intent_diagnostics,
             )
             .with_context(|| {
                 format!(
@@ -323,6 +331,9 @@ fn main() -> Result<()> {
             if let Some(moving) = moving.as_mut() {
                 moving.observe(game, &result)?;
             }
+            if let Some(selected) = selected.as_mut() {
+                selected.observe(game, &result)?;
+            }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(bip) = bip.as_mut() {
                 bip.observe(game, &result);
@@ -336,6 +347,9 @@ fn main() -> Result<()> {
         let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
+        if let Some(selected) = selected {
+            report["selected_intent_diagnostics"] = selected.json();
+        }
         if let Some(moving) = moving {
             report["moving_collision_diagnostics"] = moving.json();
         }
