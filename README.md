@@ -655,3 +655,18 @@ This observer retains the live contact cohort, saves no results/contact states,
 and reports model exclusions and separate matched denominators. The legacy 3-D
 pose is a documented proxy, not a measured state. See [model assumptions, spin
 projection and output definitions](docs/diagnostics/moving_collision_audit.md).
+
+### Selected Intent forward 3-D path
+
+Compare live contact/miss labels with the selected Intent's existing execution
+and 3-D contact search, then aggregate its finite collision/flight response:
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --selected-intent-diagnostics > selected_intent_3d_360.json
+```
+
+This flag collects raw shadow states for one game at a time in memory and saves
+none to the database. It includes legacy misses, separates unresolved searches
+and model exclusions, and preserves ordinary results. See [cohorts, assumptions
+and validation](docs/diagnostics/selected_intent_3d_audit.md).

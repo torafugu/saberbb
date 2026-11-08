@@ -13,14 +13,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 #[derive(Default, Serialize)]
-struct Moments {
+pub(super) struct Moments {
     n: u64,
     mean: Option<f64>,
     min: Option<f64>,
     max: Option<f64>,
 }
 impl Moments {
-    fn add(&mut self, v: Option<f64>) {
+    pub(super) fn add(&mut self, v: Option<f64>) {
         if let Some(v) = v.filter(|v| v.is_finite()) {
             self.n += 1;
             self.mean = Some(self.mean.unwrap_or(v) + (v - self.mean.unwrap_or(v)) / self.n as f64);
@@ -29,7 +29,7 @@ impl Moments {
         }
     }
 }
-fn band(v: f64, edges: &[f64]) -> String {
+pub(super) fn band(v: f64, edges: &[f64]) -> String {
     let i = edges.partition_point(|e| v >= *e);
     if i == 0 {
         format!("<{}", edges[0])
@@ -40,11 +40,11 @@ fn band(v: f64, edges: &[f64]) -> String {
     }
 }
 #[derive(Clone, Copy)]
-struct Outcome {
-    ball: BattedBall,
-    hla: f64,
-    total_spin: Option<f64>,
-    gyro_spin: Option<f64>,
+pub(super) struct Outcome {
+    pub(super) ball: BattedBall,
+    pub(super) hla: f64,
+    pub(super) total_spin: Option<f64>,
+    pub(super) gyro_spin: Option<f64>,
 }
 #[derive(Default, Serialize)]
 struct Distribution {
@@ -88,7 +88,7 @@ impl Distribution {
     }
 }
 #[derive(Default, Serialize)]
-struct Group {
+pub(super) struct Group {
     all: Distribution,
     non_foul: Distribution,
     geometric_foul: u64,
@@ -96,7 +96,7 @@ struct Group {
     ground_rule_double: u64,
 }
 impl Group {
-    fn add(&mut self, o: Outcome) {
+    pub(super) fn add(&mut self, o: Outcome) {
         self.all.add(o);
         match direction_class(&o.ball) {
             OutboundResult::Foul => self.geometric_foul += 1,
@@ -144,7 +144,7 @@ pub struct MovingAudit {
     checks_max: BTreeMap<String, f64>,
     examples: BTreeMap<String, Vec<Value>>,
 }
-fn vector(v: &Value, name: &str) -> Result<[f64; 3]> {
+pub(super) fn vector(v: &Value, name: &str) -> Result<[f64; 3]> {
     let a = v[name].as_array().context("missing response vector")?;
     ensure!(a.len() == 3, "invalid response vector size");
     let mut out = [0.0; 3];
