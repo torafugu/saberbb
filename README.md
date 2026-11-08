@@ -506,3 +506,47 @@ can be season-filtered. The audit opens the database read-only and never rebuild
 caches. Normal game results still use `calculate_batted_ball_with_metrics`; the
 Intent execution/contact/collision response path is diagnostic shadow data and
 does not yet replace that live result calculation.
+
+### Frozen-contact attack-angle ablation
+
+Run the live Rust trajectory calculation on saved positive-EV batting records,
+then vary only the sampled batter-type attack-angle contribution:
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example attack_angle_ablation -- --season 2026 > attack_angle_ablation.json
+# Start with the reported 441-HR batter for a smaller, faster comparison:
+cargo run --release --example attack_angle_ablation -- --season 2026 --batter-id 7097 > attack_angle_7097.json
+```
+
+The output compares baseline, half the AggressiveFreeSwinger bonus, zero that
+bonus, and zero all batter-type bonuses. Counts, mean launch angles, mean final
+trajectory distances and outcome transition tables are provided for the total,
+each batter type and each batter. `source_counts.raw_hr` covers every batting
+record, allowing missing positive-EV HR records to be noticed. The comparison
+cohort consists of positive-EV records, including fouls.
+
+The baseline must reproduce the saved outbound result, final distance/angle and
+time before a record can enter any scenario. Spin is reconstructed using the
+same function as live simulation. EV, launch HLA, spin, contact geometry, stadium
+(including a saved custom fence) and default wind stay fixed. The actual sampled
+angle bonus is inferred by subtracting the shared contact-deflection and dynamic
+attack-angle terms from saved VLA; no new random numbers are drawn. This assumes
+that the batter's current base attack angle and type match their historical
+values. A sanity check rejects an inferred bonus outside 0.5–1.5 times the nominal
+modifier (or a nonzero residual for a zero modifier), but cannot prove that the
+player has never been edited. Older/missing inputs, baseline mismatches and
+trajectory failures are counted in `exclusions`, with example record IDs.
+
+Compare scenario HR counts only within the same `comparable_contacts` pool;
+excluded records are not zero-HR outcomes. `comparison_available=false` means
+there is no valid comparison. This is a read-only, frozen-contact experiment:
+it does not replay pitching, batting decisions, fielding, running or innings,
+and does not predict counterfactual BA/ERA or full-season HR totals. Final
+trajectory distance includes ground rolling or fence termination and is not
+unrestricted airborne carry. No live simulation coefficients are changed.
+
+On the isolated 27-game development fixture, all 2,209 contacts reproduced their
+baseline (no exclusions): 180 HR at baseline, 45 with half the aggressive bonus,
+25 with no aggressive bonus, and 14 with no type bonus. These are development
+fixture results, not estimates for another database's 441-HR batter.
