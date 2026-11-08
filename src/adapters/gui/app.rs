@@ -28,6 +28,7 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
     let mut league = use_signal(|| 0u16);
     let mut team = use_signal(|| 0u16);
     let locale=super::locale::language();
+    let stats_team=if view()==1 {0} else {team()};
     let controller=use_context::<super::management::Controller>();
     let busy=controller.state.read().busy;
     let headings = [{tr("試合結果")}, {tr("順位表")}, {tr("打撃成績")}, {tr("投手成績")}, {tr("チーム・選手")}, {tr("管理")}];
@@ -55,16 +56,17 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                     option { value:"0",{tr("全リーグ")} }
                     for l in &catalog.leagues { option {value:l.id.to_string(),"{l.name}"} }
                 } }
-                label { {tr("チーム")} select { id:format!("team-filter"), value:team().to_string(), onchange:move |e|team.set(e.value().parse().unwrap_or(0)),
+                if view()!=1 { label { {tr("チーム")} select { id:format!("team-filter"), value:team().to_string(), onchange:move |e|team.set(e.value().parse().unwrap_or(0)),
                     option {value:"0",{tr("全チーム")}}
                     for t in catalog.teams.iter().filter(|t|league()==0 || t.league==league()) { option {value:t.id.to_string(),"{t.name}"} }
                 } }
+                }
                 span { class:"scope-note", if (1..=3).contains(&view()) {{tr("集計範囲：保存済み全試合（通算）")}} else {{tr("同じローカルDBから表示")}} }
             }
             }
             match view() {
                 0 => rsx!{ Games {key:"games-{league()}-{team()}-{refresh}",catalog:catalog.clone(),league:league(),team:team(),refresh} },
-                1..=3 => rsx!{ Statistics {key:"stats-{view()}-{league()}-{team()}-{locale:?}",kind:view(),catalog:catalog.clone(),league:league(),team:team(),refresh} },
+                1..=3 => rsx!{ Statistics {key:"stats-{view()}-{league()}-{stats_team}-{locale:?}",kind:view(),catalog:catalog.clone(),league:league(),team:stats_team,refresh} },
                 4 => rsx!{ Teams {key:"team-{team()}",team:team(),refresh} },
                 _ => rsx!{ super::management::Management {} },
             }
@@ -82,6 +84,6 @@ fn Statistics(kind:u8, catalog:Catalog, league:u16, team:u16, refresh:u32) -> El
         Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
         Some(Ok(table))=>rsx!{
             if kind==1 {p {class:"small-note",{tr("防御率は失点と記録アウト数による参考値です（自責点は未記録）。")}}}
-            DataTable {data:table.clone(),initial_sort:if kind==1 {None}else{Some((1,true))}}},
+            DataTable {data:table.clone(),searchable:kind!=1,initial_sort:if kind==1 {None}else{Some((1,true))}}},
     } }
 }
