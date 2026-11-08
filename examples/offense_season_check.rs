@@ -28,6 +28,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 mod bip_audit;
 #[path = "support/contact_direction_audit.rs"]
 mod contact_direction_audit;
+#[path = "support/moving_collision_audit.rs"]
+mod moving_collision_audit;
 #[path = "support/throw_origin_audit.rs"]
 mod throw_origin_audit;
 
@@ -48,6 +50,9 @@ struct Args {
     /// Replay frozen contacts with individual HLA components removed; no game changes.
     #[arg(long)]
     contact_direction_diagnostics: bool,
+    /// Compare finite collision responses at frozen legacy contact coordinates.
+    #[arg(long)]
+    moving_collision_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -289,6 +294,9 @@ fn main() -> Result<()> {
         let mut throws = args
             .bip_diagnostics
             .then(throw_origin_audit::ThrowOriginAudit::default);
+        let mut moving = args
+            .moving_collision_diagnostics
+            .then(moving_collision_audit::MovingAudit::default);
         let mut total = Counts::default();
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
@@ -312,6 +320,9 @@ fn main() -> Result<()> {
             if let Some(throws) = throws.as_mut() {
                 throws.observe(game, &result);
             }
+            if let Some(moving) = moving.as_mut() {
+                moving.observe(game, &result)?;
+            }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(bip) = bip.as_mut() {
                 bip.observe(game, &result);
@@ -325,6 +336,9 @@ fn main() -> Result<()> {
         let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
+        if let Some(moving) = moving {
+            report["moving_collision_diagnostics"] = moving.json();
+        }
         if let Some(direction) = direction {
             report["contact_direction_diagnostics"] = direction.json();
         }

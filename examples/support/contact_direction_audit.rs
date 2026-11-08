@@ -6,6 +6,7 @@ use saberbb::domain::{
         ball::{BattedBall, OutboundResult},
         game::{BattingResult, GameResult, GameSchedule},
         game_stats::PlayerGameBatting,
+        stadium::Stadium,
     },
 };
 use serde::Serialize;
@@ -90,7 +91,7 @@ impl Case {
 }
 // Follow outbound early returns, then the later final-angle test. Foul fly catches
 // can still be outs; those require fielding and are deliberately not replayed.
-fn direction_class(ball: &BattedBall) -> OutboundResult {
+pub(super) fn direction_class(ball: &BattedBall) -> OutboundResult {
     if ball.outbound_result == OutboundResult::InField && ball.is_foul() {
         OutboundResult::Foul
     } else {
@@ -107,6 +108,34 @@ fn flight_matches(a: &BattedBall, b: &BattedBall) -> bool {
         ]
         .iter()
         .all(|(a, b)| a.is_finite() && b.is_finite() && (a - b).abs() < 1e-7)
+}
+/// Shared strict replay gate for observers over the same recorded contact.
+pub(super) fn checked_baseline(
+    b: &PlayerGameBatting,
+    stadium: &Stadium,
+) -> Result<Option<BattedBall>> {
+    let Some(c) = Components::recorded(b) else {
+        return Ok(None);
+    };
+    ensure!(
+        wrap(c.hla("none") - b.final_hla_deg).abs() < 1e-8,
+        "HLA reconstruction mismatch at count {}",
+        b.count_seq
+    );
+    let ball = calculate_trajectory(
+        b.ball.launch_speed,
+        b.ball.launch_angle,
+        b.final_hla_deg,
+        b.ball.spin_rate,
+        b.ball.spin_angle,
+        stadium,
+    )?;
+    ensure!(
+        flight_matches(&ball, &b.ball),
+        "Flight reconstruction mismatch at count {}",
+        b.count_seq
+    );
+    Ok(Some(ball))
 }
 #[derive(Default)]
 pub struct DirectionAudit {
@@ -134,12 +163,7 @@ impl DirectionAudit {
                 self.missing_components += 1;
                 continue;
             };
-            ensure!(
-                wrap(c.hla("none") - b.final_hla_deg).abs() < 1e-8,
-                "HLA reconstruction mismatch: game {}, count {}",
-                game.id,
-                b.count_seq
-            );
+            let baseline = checked_baseline(b, &schedule.stadium)?.unwrap();
             let flight = |hla| {
                 calculate_trajectory(
                     b.ball.launch_speed,
@@ -150,13 +174,6 @@ impl DirectionAudit {
                     &schedule.stadium,
                 )
             };
-            let baseline = flight(b.final_hla_deg)?;
-            ensure!(
-                flight_matches(&baseline, &b.ball),
-                "Flight reconstruction mismatch: game {}, count {}",
-                game.id,
-                b.count_seq
-            );
             self.reconstructed += 1;
             let quality = format!("{:?}", b.adjusted_contact_type);
             *self.recorded_fouls.entry(quality.clone()).or_default() +=

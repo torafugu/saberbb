@@ -640,3 +640,18 @@ for coverage, parity checks and the initial development fixture findings.
 For a frozen-contact HLA component comparison and same-target throw-origin timing
 comparison, add `--contact-direction-diagnostics` alongside `--bip-diagnostics`.
 See [definitions, limitations and running clock correction](docs/diagnostics/contact_direction_audit.md).
+
+### Frozen-contact moving-bat comparison
+
+Compare the recorded live outcome with stationary/moving normal and full finite
+collision responses, including HLA-only sensitivity and common-contact controls:
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --moving-collision-diagnostics > moving_collision_360.json
+```
+
+This observer retains the live contact cohort, saves no results/contact states,
+and reports model exclusions and separate matched denominators. The legacy 3-D
+pose is a documented proxy, not a measured state. See [model assumptions, spin
+projection and output definitions](docs/diagnostics/moving_collision_audit.md).
