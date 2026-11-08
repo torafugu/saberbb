@@ -306,6 +306,15 @@ fn setup_database(conn: &mut Connection, migrations_dir: &Path) -> Result<()> {
                 .with_context(|| format!("Failed to execute {}", path.display()))?;
         }
     }
+    // These DDLs are deliberately additive for upgrades. Unlike the game/log
+    // DDLs, rerunning them does not clear old rows when --setup reuses game IDs.
+    for table in ["player_game_fielding_candidate", "player_game_contact_state"] {
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [table], |row| row.get(0),
+        )?;
+        if exists { tx.execute(&format!("DELETE FROM {table}"), [])?; }
+    }
     for (table, columns) in [
         (
             "first_names",
@@ -351,6 +360,78 @@ mod setup_tests {
 
     fn migrations_dir() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations")
+    }
+
+    const DIAGNOSTIC_ROWS: &str = "
+        INSERT INTO game(id,season,round_seq,seq,planned_date,actual_date,away_team_id,home_team_id,game_type)
+            VALUES(1,2026,1,1,'2026-04-01','2026-04-01',1,2,'Regular');
+        INSERT INTO player_game_fielding_candidate(game_id,count_seq,fielder_position,fielder_id,
+            lane_eligible,distance_eligible,evaluated,required_margin_sec,end_reason,selected)
+            VALUES(1,1,'CF',99,0,0,0,0.1,'filtered_lane',0);
+        INSERT INTO player_game_contact_state VALUES(1,1,1,'test',NULL,'{}');";
+
+    fn diagnostic_fixture() -> (std::path::PathBuf, Connection) {
+        let dir=std::env::temp_dir().join(format!("saberbb-setup-diagnostics-{}-{}",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        for folder in ["ddl","dml","data"] {fs::create_dir_all(dir.join(folder)).unwrap();}
+        for table in ["game","first_names","last_names","player_game_fielding_candidate","player_game_contact_state"] {
+            let file=format!("{table}_table.sql");
+            fs::copy(migrations_dir().join("ddl").join(&file),dir.join("ddl").join(file)).unwrap();
+        }
+        fs::write(dir.join("data/first_names.csv"),"id,name,reading,gender,country\n1,一郎,,M,jp\n").unwrap();
+        fs::write(dir.join("data/last_names.csv"),"id,name,reading,country\n1,田中,,jp\n").unwrap();
+        let mut conn=Connection::open_in_memory().unwrap();
+        setup_database(&mut conn,&dir).unwrap();
+        conn.execute_batch(DIAGNOSTIC_ROWS).unwrap();
+        (dir,conn)
+    }
+
+    #[test]
+    fn repeated_setup_clears_additive_diagnostics_before_reusing_game_ids() {
+        let (dir,mut conn)=diagnostic_fixture();
+        setup_database(&mut conn,&dir).unwrap();
+        for table in ["game","player_game_fielding_candidate","player_game_contact_state"] {
+            assert_eq!(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),0,"stale {table} rows survived setup");
+        }
+        // The new game's ID/count/position can be reused without suppressing or
+        // overwriting any diagnostic row at save time.
+        conn.execute_batch(DIAGNOSTIC_ROWS).unwrap();
+        for table in ["player_game_fielding_candidate","player_game_contact_state"] {
+            assert_eq!(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_setup_restores_diagnostics_and_original_games() {
+        let (dir,mut conn)=diagnostic_fixture();
+        fs::write(dir.join("data/last_names.csv"),"wrong,headers\n").unwrap();
+        assert!(setup_database(&mut conn,&dir).is_err());
+        for table in ["game","player_game_fielding_candidate","player_game_contact_state"] {
+            assert_eq!(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),1,"{table} was not rolled back");
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn orphan_repair_preserves_completed_game_diagnostics_and_game_data() {
+        let (dir,conn)=diagnostic_fixture();
+        conn.execute_batch("INSERT INTO game(id,planned_date,away_team_id,home_team_id,game_type) VALUES(2,'2026-04-02',1,2,'Regular');
+            INSERT INTO player_game_fielding_candidate(game_id,count_seq,fielder_position,fielder_id,lane_eligible,distance_eligible,evaluated,required_margin_sec,end_reason,selected)
+            SELECT 2,count_seq,fielder_position,fielder_id,lane_eligible,distance_eligible,evaluated,required_margin_sec,end_reason,selected FROM player_game_fielding_candidate WHERE game_id=1;
+            INSERT INTO player_game_fielding_candidate(game_id,count_seq,fielder_position,fielder_id,lane_eligible,distance_eligible,evaluated,required_margin_sec,end_reason,selected)
+            SELECT 3,count_seq,fielder_position,fielder_id,lane_eligible,distance_eligible,evaluated,required_margin_sec,end_reason,selected FROM player_game_fielding_candidate WHERE game_id=1;
+            INSERT INTO player_game_contact_state SELECT 2,count_seq,state_version,state_source,invalid_reason,state_json FROM player_game_contact_state WHERE game_id=1;
+            INSERT INTO player_game_contact_state SELECT 3,count_seq,state_version,state_source,invalid_reason,state_json FROM player_game_contact_state WHERE game_id=1;").unwrap();
+        for _ in 0..2 {
+            conn.execute_batch(include_str!("../../migrations/upgrades/remove_orphaned_game_diagnostics.sql")).unwrap();
+            for table in ["player_game_fielding_candidate","player_game_contact_state"] {
+                let ids:Vec<i64>=conn.prepare(&format!("SELECT game_id FROM {table}")).unwrap().query_map([],|r|r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+                assert_eq!(ids,vec![1]);
+            }
+            assert_eq!(conn.query_row("SELECT COUNT(*) FROM game",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

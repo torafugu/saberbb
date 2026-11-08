@@ -415,3 +415,14 @@ diagnostic recording, error recovery and automatic refresh:
 ```sh
 cargo run --features gui-tests --example gui_snapshots -- /tmp/gui-management --management
 ```
+
+### Diagnostic duplicate-key repair
+
+`--setup` now clears additive fielding-candidate/contact diagnostics together with
+recreated game data. Older setup runs could leave these rows behind and reuse
+game IDs, causing diagnostic primary-key conflicts. See
+[the investigation and targeted repair](docs/fielding_candidate_duplicate_investigation.md).
+Existing affected databases can remove diagnostics without completed parent games
+using `migrations/upgrades/remove_orphaned_game_diagnostics.sql`; this preserves
+completed-game diagnostics, results, rosters and schedules. Do not use `--setup`
+as a repair command on a database whose existing game data should be retained.
