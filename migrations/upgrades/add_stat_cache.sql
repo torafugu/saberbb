@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS stat_cache_state (
     id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, ready INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO stat_cache_state VALUES(1,3,0);
+INSERT OR IGNORE INTO stat_cache_state VALUES(1,4,0);
 CREATE TABLE IF NOT EXISTS game_batting_stat_cache (
     game_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
     ab INTEGER NOT NULL, single INTEGER NOT NULL, double INTEGER NOT NULL,

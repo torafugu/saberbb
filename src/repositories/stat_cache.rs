@@ -24,7 +24,8 @@ fn scope(sql:&str,keyed:bool)->String {
 }
 fn fill(conn:&Connection,game:Option<u32>)->Result<()> {
     conn.execute(&scope("INSERT INTO game_batting_stat_cache
-         SELECT b.game_id,b.batter_id,COUNT(*),
+         SELECT b.game_id,b.batter_id,
+             SUM(b.result IN ('Single','Double','Triple','HomeRun','Strikeout','Out','FieldersChoice','DoublePlay')),
              SUM(b.result='Single'),SUM(b.result='Double'),SUM(b.result='Triple'),SUM(b.result='HomeRun'),
              COALESCE(SUM(c.point),0)
          FROM player_game_batting b LEFT JOIN count c ON c.game_id=b.game_id AND c.seq=b.count_seq
@@ -79,7 +80,7 @@ fn rebuild_in_transaction(conn:&Connection)->Result<()> {
     fill(conn,None)?;
     refresh_totals(conn,None)?;
     super::team_stat_cache::rebuild(conn)?;
-    conn.execute("UPDATE stat_cache_state SET version=3,ready=1 WHERE id=1",[])?;Ok(())
+    conn.execute("UPDATE stat_cache_state SET version=4,ready=1 WHERE id=1",[])?;Ok(())
 }
 fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
     let exists: bool = conn.query_row(
@@ -87,7 +88,7 @@ fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
         [], |row| row.get(0),
     )?;
     if !exists { return Ok(false); }
-    Ok(conn.query_row("SELECT version=3 AND ready=1 FROM stat_cache_state WHERE id=1", [], |row| row.get(0))
+    Ok(conn.query_row("SELECT version=4 AND ready=1 FROM stat_cache_state WHERE id=1", [], |row| row.get(0))
         .optional()?.unwrap_or(false))
 }
 
@@ -119,7 +120,7 @@ pub fn rebuild(db: &DbClient) -> Result<()> {
 }
 pub fn clear(conn:&Connection)->Result<()> {
     super::team_stat_cache::clear(conn)?;
-    ensure_schema(conn)?;conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;UPDATE stat_cache_state SET version=3,ready=1 WHERE id=1;")?;Ok(())
+    ensure_schema(conn)?;conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;UPDATE stat_cache_state SET version=4,ready=1 WHERE id=1;")?;Ok(())
 }
 
 #[cfg(test)]
@@ -154,6 +155,27 @@ mod tests {
         conn.execute_batch("DELETE FROM player_game_batting WHERE game_id=2;DELETE FROM player_game_pitching WHERE game_id=2;").unwrap();refresh_game(&conn,2).unwrap();
         assert_eq!(conn.query_row("SELECT ab FROM batting_stat_totals WHERE player_id=1",[],|r|r.get::<_,i64>(0)).unwrap(),2);
     }
+    #[test]
+    fn at_bats_exclude_nonterminal_pitches_walks_and_hit_by_pitch() {
+        let conn=fixture();
+        conn.execute_batch("INSERT INTO player_game_batting VALUES
+            (1,3,1,10,'Take'),(1,4,1,10,'StrikeSwung'),(1,5,1,10,'Foul'),
+            (1,6,1,10,'WildPitch'),(1,7,1,10,'Walk'),(1,8,1,10,'HitByPitch'),
+            (1,9,1,10,'HomeRun'),(1,10,1,10,'Out'),(1,11,1,10,'FieldersChoice'),
+            (1,12,1,10,'DoublePlay'),(1,13,1,10,'Triple');").unwrap();
+        refresh_game(&conn,1).unwrap();
+        let totals:(i64,i64)=conn.query_row("SELECT ab,homerun FROM batting_stat_totals WHERE player_id=1",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(totals,(7,1));
+        // Rebuilding an old cache must correct the denominator, preserving HR counts.
+        conn.execute_batch("UPDATE stat_cache_state SET version=3,ready=1;
+            UPDATE game_batting_stat_cache SET ab=13 WHERE game_id=1;
+            UPDATE batting_stat_totals SET ab=13;").unwrap();
+        assert!(!is_ready(&conn).unwrap());
+        rebuild_in_transaction(&conn).unwrap();
+        assert!(is_ready(&conn).unwrap());
+        assert_eq!(conn.query_row("SELECT ab,homerun FROM batting_stat_totals WHERE player_id=1",[],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?))).unwrap(),(8,1));
+    }
+
     #[test]
     fn failed_cache_update_rolls_back_logs_and_previous_cache() {
         let mut conn=fixture();refresh_game(&conn,1).unwrap();
