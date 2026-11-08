@@ -303,7 +303,8 @@ impl RunnersOnBase {
         }
     }
 
-    fn batter_runner_time_to(
+    /// Shared live timing model, also used by read-only BIP diagnostics.
+    pub fn batter_runner_time_to(
         &self,
         to_base: Base,
         with_lag: bool,

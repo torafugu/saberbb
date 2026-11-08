@@ -591,3 +591,48 @@ change subsequent random consumption and plate appearances. Do not combine old
 saved statistics and newly generated statistics as one calibration comparison.
 
 See [the full-game comparison and remaining calibration issues](docs/diagnostics/type_angle_bonus_removal.md) for the 360-game, three-seed development check.
+
+### Ball-in-play quality and conversion audit
+
+Append `--bip-diagnostics` to the full-game check to separate contact quality,
+fielding paths and running/throwing timings without changing game outcomes:
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --bip-diagnostics > bip_audit_36.json
+# Full comparison on your current roster, three default seeds:
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > bip_audit_360.json
+```
+
+Each seed report gains `bip_diagnostics`, including an all-contact quality/foul/HR funnel and per-play outcome counts and hit rates
+by engine trajectory, EV (m/s), VLA, contact quality, fielding position, selection
+path, catch type and error, plus a joint trajectory/EV/VLA table. Table groups partition
+the same terminal BIP population (Single/Double/Triple/Out/FC/DP). Home runs,
+strikeouts and nonterminal fouls are excluded. Automatic ground-rule doubles
+remain in the denominator and have their own coverage count; missing fielding
+records are not mislabeled as zero-time plays. A double play counts as one BIP,
+not two outs.
+
+Timing summaries carry their own sample counts; absent values are never replaced
+by zero. `target_runner_margin_sec` compares the recorded defense/runner times
+only for a known target with positive runner time; it may be a lead runner, not
+the batter. Batter first-base times include the live acceleration lag. The
+second/third no-lag times deliberately match the current outfield RunningPlan
+thresholds, and plan-versus-attempt lag summaries expose the difference from
+actual timed attempts. A single followed by the batter being tagged out while
+stretching to second is tracked separately from possible classification errors.
+
+The audit includes bounded examples (first four per flag) with game/count IDs,
+fielding/running records, relevant batter times and candidate coverage. Air probe
+success is a counterfactual search result, not a guaranteed catch. Catch positions
+are reconstructed only for error-free DirectFly/BounceCatch records using the
+same coarse estimator as fielding; FinalPickup and errors are excluded because
+handling delay obscures the interception instant. Final-versus-catch distances
+and straight-line distances to the recorded throw target are diagnostic geometry,
+not corrected throw times or counterfactual safe/out decisions.
+
+This is an observer over completed GameResult records: no new RNG, no new contact
+logging, no DB writes, and no changes to physics, running or fielding coefficients.
+A missing flag key means zero occurrences; samples are illustrative, not randomly
+representative. See [BIP diagnostic findings](docs/diagnostics/bip_conversion_audit.md)
+for coverage, parity checks and the initial development fixture findings.

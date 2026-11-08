@@ -24,6 +24,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf};
 
+#[path = "support/bip_audit.rs"]
+mod bip_audit;
+
 #[derive(Parser)]
 struct Args {
     #[arg(long)]
@@ -35,6 +38,9 @@ struct Args {
     seeds: Vec<u64>,
     #[arg(long, default_value_t = 5000)]
     max_pitches: u32,
+    /// Include BIP quality, fielding/running timing groups and bounded example plays.
+    #[arg(long)]
+    bip_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -269,6 +275,7 @@ fn main() -> Result<()> {
     I18nManager::init("en-US");
     let mut reports = Vec::new();
     for seed in &args.seeds {
+        let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
         let mut total = Counts::default();
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
@@ -287,15 +294,22 @@ fn main() -> Result<()> {
                 )
             })?;
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
+            if let Some(bip) = bip.as_mut() {
+                bip.observe(game, &result);
+            }
             if (index + 1) % 12 == 0 || index + 1 == games.len() {
                 eprintln!("seed {seed}: {}/{} games complete", index + 1, games.len());
             }
         }
         let mut leaders: Vec<_> = players.into_iter().collect();
         leaders.sort_by(|a, b| b.1.hr.cmp(&a.1.hr).then_with(|| a.0.cmp(&b.0)));
-        reports.push(serde_json::json!({"seed":seed.to_string(),"total":total.json(),
+        let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
-            "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()}));
+            "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
+        if let Some(bip) = bip {
+            report["bip_diagnostics"] = bip.json();
+        }
+        reports.push(report);
     }
     println!(
         "{}",
