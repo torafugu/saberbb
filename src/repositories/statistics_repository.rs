@@ -7,6 +7,7 @@ use rusqlite::params;
 
 pub trait StatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
+    fn load_season_standings(&self, season: u16) -> Result<Vec<Standing>, AppError>;
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>, AppError>;
     fn load_team_batting_stats(&self, team_id: u16) -> Result<Vec<BattingStats>, AppError>;
     fn load_pitching_stats(&self) -> Result<Vec<PitchingStats>, AppError>;
@@ -25,6 +26,33 @@ impl SqlStatRepository {
 }
 
 impl SqlStatRepository {
+    fn cached_standings(&self, season: Option<u16>) -> Result<Vec<Standing>, AppError> {
+        // Read the small per-game cache for a season, never the pitch/event logs.
+        let totals = if season.is_some() {
+            "SELECT c.team_id,SUM(c.games) AS games,SUM(c.wins) AS wins,SUM(c.losses) AS losses,
+             SUM(c.draws) AS draws,SUM(c.runs) AS runs,SUM(c.runs_allowed) AS runs_allowed,
+             SUM(c.homeruns) AS homeruns,SUM(c.steals) AS steals,SUM(c.errors) AS errors,
+             SUM(c.hits) AS hits,SUM(c.at_bats) AS at_bats,SUM(c.pitching_outs) AS pitching_outs
+             FROM game_team_stat_cache c JOIN game g ON g.id=c.game_id WHERE g.season=?1 GROUP BY c.team_id"
+        } else { "SELECT * FROM team_stat_totals" };
+        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        self.db_client.query_rows(&format!("WITH selected AS ({totals}), pending AS (
+            SELECT team_id,COUNT(*) AS remaining FROM (
+                SELECT away_team_id AS team_id FROM game WHERE (actual_date IS NULL OR actual_date='1900-01-01') AND (?1 IS NULL OR season=?1)
+                UNION ALL SELECT home_team_id FROM game WHERE (actual_date IS NULL OR actual_date='1900-01-01') AND (?1 IS NULL OR season=?1)
+            ) GROUP BY team_id
+        ) SELECT t.id AS team_id,t.name AS team_name,COALESCE(s.games,0) AS games,
+            COALESCE(s.wins,0) AS wins,COALESCE(s.losses,0) AS losses,COALESCE(s.draws,0) AS draws,
+            COALESCE(CAST(s.wins AS REAL)/NULLIF(s.wins+s.losses,0),0.0) AS pct,
+            COALESCE(p.remaining,0) AS remaining,COALESCE(s.runs,0) AS runs,
+            COALESCE(s.runs_allowed,0) AS runs_allowed,COALESCE(s.homeruns,0) AS homeruns,
+            COALESCE(s.steals,0) AS steals,COALESCE(s.errors,0) AS errors,
+            CAST(s.hits AS REAL)/NULLIF(s.at_bats,0) AS ba,
+            CAST(s.runs_allowed AS REAL)*27.0/NULLIF(s.pitching_outs,0) AS era
+            FROM team t LEFT JOIN selected s ON s.team_id=t.id
+            LEFT JOIN pending p ON p.team_id=t.id
+            ORDER BY pct DESC,wins DESC,t.id"),params![season])
+    }
     fn cached_batting(&self,team:Option<u16>)->Result<Vec<BattingStats>,AppError> {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
@@ -49,23 +77,11 @@ impl SqlStatRepository {
 impl StatRepository for SqlStatRepository {
     #[tracing::instrument(skip(self), err)]
     fn load_standings(&self) -> Result<Vec<Standing>, AppError> {
-        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
-        self.db_client.query_rows("WITH pending AS (
-            SELECT team_id,COUNT(*) AS remaining FROM (
-                SELECT away_team_id AS team_id FROM game WHERE actual_date IS NULL OR actual_date='1900-01-01'
-                UNION ALL SELECT home_team_id FROM game WHERE actual_date IS NULL OR actual_date='1900-01-01'
-            ) GROUP BY team_id
-        ) SELECT t.id AS team_id,t.name AS team_name,COALESCE(s.games,0) AS games,
-            COALESCE(s.wins,0) AS wins,COALESCE(s.losses,0) AS losses,COALESCE(s.draws,0) AS draws,
-            COALESCE(CAST(s.wins AS REAL)/NULLIF(s.wins+s.losses,0),0.0) AS pct,
-            COALESCE(p.remaining,0) AS remaining,COALESCE(s.runs,0) AS runs,
-            COALESCE(s.runs_allowed,0) AS runs_allowed,COALESCE(s.homeruns,0) AS homeruns,
-            COALESCE(s.steals,0) AS steals,COALESCE(s.errors,0) AS errors,
-            CAST(s.hits AS REAL)/NULLIF(s.at_bats,0) AS ba,
-            CAST(s.runs_allowed AS REAL)*27.0/NULLIF(s.pitching_outs,0) AS era
-            FROM team t LEFT JOIN team_stat_totals s ON s.team_id=t.id
-            LEFT JOIN pending p ON p.team_id=t.id
-            ORDER BY pct DESC,wins DESC,t.id",params![])
+        self.cached_standings(None)
+    }
+
+    fn load_season_standings(&self, season: u16) -> Result<Vec<Standing>, AppError> {
+        self.cached_standings(Some(season))
     }
 
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>,AppError> { self.cached_batting(None) }
@@ -403,6 +419,42 @@ mod tests {
     }
 
     #[test]
+    fn season_standings_keep_results_rates_and_remaining_in_the_same_year() {
+        let (repo,path)=setup_repo();
+        seed_team(&repo,1,"Aces");seed_team(&repo,2,"Bees");
+        seed_game(&repo,1,1,2,Some(8),Some(2),Some("2026-04-01"));
+        seed_game(&repo,2,1,2,Some(3),Some(3),Some("2026-04-02"));
+        seed_game(&repo,3,1,2,Some(1),Some(9),Some("2027-04-01"));
+        seed_game(&repo,4,1,2,None,None,None);
+        seed_game(&repo,5,1,2,None,None,Some("1900-01-01"));
+        seed_game(&repo,6,1,2,None,None,None);
+        conn(&repo).execute_batch("UPDATE game SET season=2027 WHERE id IN (3,5);
+            UPDATE game SET season=2028 WHERE id=6;").unwrap();
+        // Prepare the cache once, then use distinct cached rates to detect cross-year leakage.
+        let all=repo.load_standings().unwrap();
+        assert_eq!((all[0].games,all[0].wins,all[0].losses,all[0].draws,all[0].remaining),(3,1,1,1,3));
+        conn(&repo).execute_batch("UPDATE game_team_stat_cache SET homeruns=1,steals=2,errors=1,hits=3,at_bats=10,pitching_outs=27 WHERE game_id IN (1,2);
+            UPDATE game_team_stat_cache SET homeruns=5,steals=7,errors=4,hits=9,at_bats=10,pitching_outs=3 WHERE game_id=3;").unwrap();
+        let year=repo.load_season_standings(2026).unwrap();
+        let a=&year[0];
+        assert_eq!(a.team.id,1);
+        assert_eq!((a.games,a.wins,a.losses,a.draws,a.remaining),(2,1,0,1,1));
+        assert_eq!((a.r,a.ra,a.homeruns,a.steals,a.errors),(11,5,2,4,2));
+        assert_eq!(a.pct,1.0);assert_eq!(a.ba,Some(0.3));assert_eq!(a.era,Some(2.5));
+        let next=repo.load_season_standings(2027).unwrap();
+        assert_eq!(next[0].team.id,2);
+        let a=next.iter().find(|s|s.team.id==1).unwrap();
+        assert_eq!((a.games,a.losses,a.remaining,a.r,a.ra),(1,1,1,1,9));
+        assert_eq!((a.homeruns,a.steals,a.errors),(5,7,4));
+        assert_eq!(a.ba,Some(0.9));assert_eq!(a.era,Some(81.0));
+        for a in repo.load_season_standings(2028).unwrap() {
+            assert_eq!((a.games,a.remaining),(0,1));assert_eq!(a.ba,None);assert_eq!(a.era,None);
+        }
+        for a in repo.load_season_standings(2099).unwrap() {assert_eq!((a.games,a.remaining),(0,0));}
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn load_standings_returns_team_records_ordered_by_pct_then_wins() {
         let (repo, path) = setup_repo();
         seed_team(&repo, 1, "Aces");
@@ -620,6 +672,7 @@ mod tests {
         assert!(repo.load_batting_stats().unwrap().is_empty());
         assert!(repo.load_pitching_stats().unwrap().is_empty());
         assert_eq!(repo.load_standings().unwrap().len(),1);
+        assert_eq!(repo.load_season_standings(2026).unwrap().len(),1);
         std::fs::remove_file(path).ok();
     }
 

@@ -24,7 +24,7 @@ pub fn translate(source:&str,language:Language)->String {
         "読み込みできませんでした"=>"Unable to load data", "DB設定と初期化を確認し、再読み込みしてください。"=>"Check your database settings and setup, then refresh.",
         "選手・チームを検索…"=>"Search players or teams…", "表を検索"=>"Search table", "前へ"=>"Previous", "次へ"=>"Next",
 
-        "シーズン"=>"Season", "完了試合なし"=>"No completed games", "日付・チームを検索…"=>"Search date or team…", "試合を検索"=>"Search games",
+        "シーズン"=>"Season", "全シーズン"=>"All seasons", "集計範囲：選択シーズン"=>"Scope: selected season", "完了試合なし"=>"No completed games", "日付・チームを検索…"=>"Search date or team…", "試合を検索"=>"Search games",
         "試合を読み込み中…"=>"Loading games…", "条件に一致する完了試合はありません。"=>"No completed games match the filters.",
         "← 一覧へ"=>"← Back to list", "試合詳細を読み込み中…"=>"Loading game details…", "スコアボード"=>"Scoreboard", "試合概要"=>"Summary", "一球速報"=>"Pitch by pitch",
         "投手結果"=>"Pitching decisions", "本塁打"=>"Home runs", "バッテリー"=>"Batteries", "この試合の一球記録はありません。"=>"No pitch records for this game.",

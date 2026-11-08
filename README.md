@@ -429,22 +429,27 @@ as a repair command on a database whose existing game data should be retained.
 
 ### Expanded standings
 
+The standings panel uses 90% of the pane width and shows every team without a row count or pagination.
+A Season selector offers all seasons (the default) and each scheduled year, including seasons with no completed games.
+Selecting a year scopes results, batting/fielding totals, rate denominators, and remaining games to that year.
+Season views sum the small saved per-game team cache; they do not reaggregate pitch logs.
+
 The GUI standings follow the column order of the
 [Sports Navi standings](https://baseball.yahoo.co.jp/npb/standings/): rank, team,
 games, wins, losses, draws, winning percentage, games behind, remaining games,
 runs, runs allowed, home runs, stolen bases, batting average, ERA, and errors.
 Standings use compact fixed-width columns to fit the available horizontal space.
-Only the league filter is shown; team selection and table search remain available
+League and season filters are shown; team selection and table search remain available
 on other screens. A team selected on another screen does not restrict standings.
 Win percentages and
 team batting averages omit the leading zero (`.625`, `.250`); `1.000` remains
 unchanged. Rates without a denominator display `—` (winning percentage remains
 `.000` without a decisive game).
 
-The existing all-saved-games scope remains unchanged. Remaining games count all
-created but unplayed schedules, including future seasons; it is not a fixed
-league game limit minus games played. Ranking and games behind are calculated
-within each league before applying the team viewing filter.
+With All seasons selected, remaining games count all created but unplayed schedules,
+including future seasons. With a year selected, only that season’s unplayed schedules
+are counted. Remaining games are not a fixed league game limit minus games played.
+Ranking and games behind are calculated within each league.
 
 `game_team_stat_cache` and `team_stat_totals` are updated in the game-result save
 transaction. Team attribution uses the game header and each count's top/bottom

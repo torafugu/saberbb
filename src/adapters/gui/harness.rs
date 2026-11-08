@@ -71,9 +71,26 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     h.save(output,"batting")?;
     h.click("nav-1").await?;anyhow::ensure!(h.html().contains("ゲーム差"),"standings failed");
     for label in ["残試合","得点","失点","本塁打","盗塁","打率","防御率","失策"] {anyhow::ensure!(h.html().contains(label),"missing standings column: {label}");}
+    anyhow::ensure!(!h.html().contains("id=\"table-page-next\"") && !h.html().contains("class=\"pagination\""),"standings must omit pagination and row counts");
+    let career=h.html().split("<tbody>").nth(1).unwrap().split("</tbody>").next().unwrap().to_owned();
+    anyhow::ensure!(!catalog.standing_seasons.is_empty(),"test DB needs a season");
+    for year in &catalog.standing_seasons {
+        h.input("standings-season-filter","change",&year.to_string()).await?;
+        anyhow::ensure!(h.html().contains("集計範囲：選択シーズン"),"season selection did not update scope");
+        let expected=viewing::season_standings(*year,0,&catalog)?;
+        for row in &expected.rows {
+            let cells=row[2..].iter().map(|cell|format!("<td title=\"{cell}\">{cell}</td>")).collect::<String>();
+            anyhow::ensure!(h.html().contains(&cells),"displayed season metrics differ from the selected year");
+        }
+        h.save(output,&format!("standings-{year}"))?;
+    }
+    h.click("sort-6").await?;
+    anyhow::ensure!(h.html().contains("aria-sort=\"ascending\""),"standings sorting must remain interactive");
+    h.input("standings-season-filter","change","0").await?;
+    anyhow::ensure!(h.html().split("<tbody>").nth(1).unwrap().starts_with(&career),"all-season selection did not restore career standings");
     h.save(output,"standings")?;
     h.click("language-en-US").await?;
-    anyhow::ensure!(h.html().contains("Remaining") && h.html().contains("Runs allowed"),"standings English labels missing");
+    anyhow::ensure!(h.html().contains("Remaining") && h.html().contains("Runs allowed") && h.html().contains("All seasons"),"standings English labels missing");
     h.save(output,"standings-english")?;
     h.click("language-ja-JP").await?;
     h.click("nav-3").await?;anyhow::ensure!(h.html().contains("ERA"),"pitching statistics failed");

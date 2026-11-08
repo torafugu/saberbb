@@ -27,6 +27,7 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
     let mut view = use_signal(|| 0u8);
     let mut league = use_signal(|| 0u16);
     let mut team = use_signal(|| 0u16);
+    let mut season = use_signal(|| 0u16);
     let locale=super::locale::language();
     let stats_team=if view()==1 {0} else {team()};
     let controller=use_context::<super::management::Controller>();
@@ -56,17 +57,21 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                     option { value:"0",{tr("全リーグ")} }
                     for l in &catalog.leagues { option {value:l.id.to_string(),"{l.name}"} }
                 } }
+                if view()==1 { label { {tr("シーズン")} select { id:format!("standings-season-filter"), value:season().to_string(), onchange:move |e|season.set(e.value().parse().unwrap_or(0)),
+                    option {value:"0",selected:season()==0,{tr("全シーズン")}}
+                    for year in &catalog.standing_seasons { option {value:year.to_string(),selected:season()==*year,"{year}"} }
+                } } }
                 if view()!=1 { label { {tr("チーム")} select { id:format!("team-filter"), value:team().to_string(), onchange:move |e|team.set(e.value().parse().unwrap_or(0)),
                     option {value:"0",{tr("全チーム")}}
                     for t in catalog.teams.iter().filter(|t|league()==0 || t.league==league()) { option {value:t.id.to_string(),"{t.name}"} }
                 } }
                 }
-                span { class:"scope-note", if (1..=3).contains(&view()) {{tr("集計範囲：保存済み全試合（通算）")}} else {{tr("同じローカルDBから表示")}} }
+                span { class:"scope-note", if view()==1 && season()!=0 {{tr("集計範囲：選択シーズン")}} else if (1..=3).contains(&view()) {{tr("集計範囲：保存済み全試合（通算）")}} else {{tr("同じローカルDBから表示")}} }
             }
             }
             match view() {
                 0 => rsx!{ Games {key:"games-{league()}-{team()}-{refresh}",catalog:catalog.clone(),league:league(),team:team(),refresh} },
-                1..=3 => rsx!{ Statistics {key:"stats-{view()}-{league()}-{stats_team}-{locale:?}",kind:view(),catalog:catalog.clone(),league:league(),team:stats_team,refresh} },
+                1..=3 => rsx!{ Statistics {key:"stats-{view()}-{league()}-{stats_team}-{season()}-{locale:?}",kind:view(),catalog:catalog.clone(),league:league(),team:stats_team,season:if view()==1 {season()} else {0},refresh} },
                 4 => rsx!{ Teams {key:"team-{team()}",team:team(),refresh} },
                 _ => rsx!{ super::management::Management {} },
             }
@@ -75,15 +80,15 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
 }
 
 #[component]
-fn Statistics(kind:u8, catalog:Catalog, league:u16, team:u16, refresh:u32) -> Element {
-    let data = use_resource(use_reactive((&kind,&league,&team,&refresh,&catalog), |(kind,league,team,_refresh,catalog)| async move {
-        blocking(move || viewing::statistics(kind,league,team,&catalog)).await
+fn Statistics(kind:u8, catalog:Catalog, league:u16, team:u16, season:u16, refresh:u32) -> Element {
+    let data = use_resource(use_reactive((&kind,&league,&team,&season,&refresh,&catalog), |(kind,league,team,season,_refresh,catalog)| async move {
+        blocking(move || if kind==1 {viewing::season_standings(season,league,&catalog)} else {viewing::statistics(kind,league,team,&catalog)}).await
     }));
     rsx! { match data.read().as_ref() {
         None=>rsx!{p {class:"loading",{tr("成績を読み込み中…（初回のみ集計します）")}}},
         Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
         Some(Ok(table))=>rsx!{
             if kind==1 {p {class:"small-note",{tr("防御率は失点と記録アウト数による参考値です（自責点は未記録）。")}}}
-            DataTable {data:table.clone(),searchable:kind!=1,initial_sort:if kind==1 {None}else{Some((1,true))}}},
+            DataTable {data:table.clone(),searchable:kind!=1,paginated:kind!=1,initial_sort:if kind==1 {None}else{Some((1,true))}}},
     } }
 }
