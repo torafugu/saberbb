@@ -14,7 +14,9 @@ BIP outcomes by trajectory, EV/VLA, position and fielding path/type/error.
   targeted runner or a positive runner time cannot establish a timing margin.
   Lead-runner targets are not mislabeled as batter targets.
 - First-base batter times include the same acceleration lag as live judging.
-  Second/third no-lag times match the current RunningPlan selection model. These
+  Second/third no-lag times describe the legacy RunningPlan selection model.
+  Current planning includes acceleration, as described in
+  [the clock correction](contact_direction_audit.md). These
   are not new throw-to-second/third simulations or proof of safe advancement.
 - Error-free DirectFly/BounceCatch positions are reconstructed with the same
   coarse estimator as fielding, not by replaying physical ball flight. Errors

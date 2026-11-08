@@ -26,6 +26,10 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 #[path = "support/bip_audit.rs"]
 mod bip_audit;
+#[path = "support/contact_direction_audit.rs"]
+mod contact_direction_audit;
+#[path = "support/throw_origin_audit.rs"]
+mod throw_origin_audit;
 
 #[derive(Parser)]
 struct Args {
@@ -41,6 +45,9 @@ struct Args {
     /// Include BIP quality, fielding/running timing groups and bounded example plays.
     #[arg(long)]
     bip_diagnostics: bool,
+    /// Replay frozen contacts with individual HLA components removed; no game changes.
+    #[arg(long)]
+    contact_direction_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -276,6 +283,12 @@ fn main() -> Result<()> {
     let mut reports = Vec::new();
     for seed in &args.seeds {
         let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
+        let mut direction = args
+            .contact_direction_diagnostics
+            .then(contact_direction_audit::DirectionAudit::default);
+        let mut throws = args
+            .bip_diagnostics
+            .then(throw_origin_audit::ThrowOriginAudit::default);
         let mut total = Counts::default();
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
@@ -293,6 +306,12 @@ fn main() -> Result<()> {
                     game.id
                 )
             })?;
+            if let Some(direction) = direction.as_mut() {
+                direction.observe(game, &result)?;
+            }
+            if let Some(throws) = throws.as_mut() {
+                throws.observe(game, &result);
+            }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(bip) = bip.as_mut() {
                 bip.observe(game, &result);
@@ -306,8 +325,12 @@ fn main() -> Result<()> {
         let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
+        if let Some(direction) = direction {
+            report["contact_direction_diagnostics"] = direction.json();
+        }
         if let Some(bip) = bip {
             report["bip_diagnostics"] = bip.json();
+            report["bip_diagnostics"]["throw_origin_counterfactual"] = throws.unwrap().json();
         }
         reports.push(report);
     }

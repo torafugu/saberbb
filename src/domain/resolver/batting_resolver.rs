@@ -334,7 +334,7 @@ fn project_contact_offsets(x: f64, z: f64, bat_angle_deg: f64) -> (f64, f64) {
 
 /// Trial horizontal projection of ideal elastic reflection from a cylindrical bat.
 /// Incoming reference direction is (0,-1,0); this does not replace EV or VLA.
-fn contact_normal_hla_deg(signed_thickness_m: f64, bat_angle_deg: f64) -> f64 {
+pub fn contact_normal_hla_deg(signed_thickness_m: f64, bat_angle_deg: f64) -> f64 {
     let radial = (signed_thickness_m / 0.070).clamp(-1.0, 1.0);
     let normal_y = (1.0 - radial * radial).max(0.0).sqrt();
     let normal_x = -bat_angle_deg.to_radians().sin() * radial;
