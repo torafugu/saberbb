@@ -1,5 +1,6 @@
 //! Dioxus is the single results/statistics UI. Desktop loads the same local DB as the CLI.
 mod app;
+mod management;
 mod locale;
 pub use app::App;
 mod tables;
@@ -21,4 +22,4 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> anyhow::Result<T> + 
 #[cfg(feature = "gui-tests")]
 mod harness;
 #[cfg(feature = "gui-tests")]
-pub use harness::snapshot_database;
+pub use harness::{snapshot_database, snapshot_management};

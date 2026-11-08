@@ -34,7 +34,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
                         oninput: move |e| { search.set(e.value()); page.set(0); } }
                 }
             }
-            if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理TUIで作成・進行した後、再読み込みしてください。")} } }
+            if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理画面で作成・進行できます。")} } }
             div { class: "table-scroll",
                 table {
                     thead { tr {
