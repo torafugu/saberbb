@@ -8,7 +8,7 @@ use saberbb::domain::{
         calculate_trajectory, calculate_vertical_contact_deflection,
     },
     shared::{ball::BattedBall, player::BatterType, stadium::Stadium},
-    strategy::batting_strategy::calculate_attack_angle_modifier,
+    strategy::batting_strategy::legacy_attack_angle_modifier,
 };
 use saberbb::repositories::db::FromRow;
 use serde::Serialize;
@@ -132,19 +132,20 @@ fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
         .context("missing_batter_type")?
         .parse::<BatterType>()
         .map_err(|_| anyhow::anyhow!("unknown_batter_type"))?;
-    let nominal = calculate_attack_angle_modifier(kind);
+    let nominal = legacy_attack_angle_modifier(kind);
     let bonus = c.vla
         - calculate_vertical_contact_deflection(required(c.z)?)
         - calculate_dynamic_attack_angle(required(c.base_attack)?, required(c.bat_angle)?);
-    if nominal == 0.0 {
-        ensure!(bonus.abs() < 1e-7, "type_bonus_reconstruction_mismatch");
+    // New records have zero contribution, even for legacy nonzero types.
+    let bonus = if bonus.abs() < 1e-7 {
+        0.0
     } else {
         ensure!(
-            (0.5..=1.5).contains(&(bonus / nominal)),
+            nominal > 0.0 && (0.5..=1.5).contains(&(bonus / nominal)),
             "type_bonus_reconstruction_mismatch"
         );
-    }
-    let bonus = if nominal == 0.0 { 0.0 } else { bonus };
+        bonus
+    };
     let aggressive = kind == BatterType::AggressiveFreeSwinger;
     let no_type = if bonus == 0.0 {
         baseline
@@ -239,7 +240,7 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
         serde_json::json!({"scope":{"season":args.season,"batter_id":args.batter_id},
         "limitations":["Frozen-contact trajectory experiment, not a full-game resimulation; no counterfactual BA or ERA is computed.",
             "EV, HLA, spin, contact geometry, wind and stadium are fixed; only VLA changes.",
-            "Bonus is inferred using current batter base attack angle/type, which must match those at recording time; the 0.5–1.5 factor check is not proof of historical identity.",
+            "Bonus is inferred using current batter base attack angle/type, which must match those at recording time; zero/legacy 0.5–1.5 factor check is not proof of historical identity.",
             "Compare only the matched/comparable pool. Exclusions are not zero-HR outcomes.",
             "Final distance includes rolling or fence termination; it is not unrestricted airborne carry."],
         "source_counts":{"pitch_records":source_counts.0,"raw_hr":source_counts.1},
@@ -371,6 +372,17 @@ mod tests {
                 .contains("type_bonus_reconstruction")
         );
     }
+    #[test]
+    fn post_fix_zero_bonus_is_a_valid_noop_for_aggressive_type() {
+        let mut c = fixture();
+        c.base_attack = Some(c.vla);
+        let balls = replay(&c, &Stadium::default()).unwrap();
+        for b in balls {
+            assert_eq!(b.launch_angle, c.vla);
+            assert_eq!(b.outbound_result, balls[0].outbound_result);
+        }
+    }
+
     #[test]
     fn aggressive_ablation_preserves_other_types() {
         let mut c = fixture();

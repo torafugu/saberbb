@@ -127,6 +127,11 @@ pub struct SqlGameRepository {
 }
 
 impl SqlGameRepository {
+    /// Read-only access for full-game diagnostic simulations.
+    pub fn read_only(path: &std::path::Path) -> Result<Self> {
+        Ok(Self { db_client:DbClient {db:SqlDb::read_only(path)?} })
+    }
+
     pub fn new() -> Result<Self> {
         let db_client = DbClient { db: SqlDb::new()? };
         Ok(Self { db_client })
