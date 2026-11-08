@@ -429,7 +429,8 @@ as a repair command on a database whose existing game data should be retained.
 
 ### Expanded standings
 
-The standings panel uses 90% of the pane width and shows every team without a row count or pagination.
+The standings panel fills the pane width; only the table inside uses 90% of the panel width, centered with equal side margins.
+Every team is shown without a row count or pagination.
 A Season selector offers all seasons (the default) and each scheduled year, including seasons with no completed games.
 Selecting a year scopes results, batting/fielding totals, rate denominators, and remaining games to that year.
 Season views sum the small saved per-game team cache; they do not reaggregate pitch logs.
