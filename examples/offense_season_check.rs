@@ -39,6 +39,9 @@ mod throw_origin_audit;
 struct Args {
     #[arg(long)]
     season: u16,
+    /// Historical drag control; applies to gameplay and shadow flights on this thread.
+    #[arg(long)]
+    legacy_flight_drag: bool,
     /// First N scheduled games, regardless of saved completion; omit for the full season.
     #[arg(long)]
     games: Option<usize>,
@@ -265,6 +268,15 @@ fn accumulate(
 }
 fn main() -> Result<()> {
     let args = Args::parse();
+    use saberbb::domain::shared::flight_drag::{FlightDragModel, with_model};
+    let model = if args.legacy_flight_drag {
+        FlightDragModel::Legacy
+    } else {
+        FlightDragModel::Published2017
+    };
+    with_model(model, || run(args))
+}
+fn run(args: Args) -> Result<()> {
     ensure!(
         args.games != Some(0) && !args.seeds.is_empty(),
         "games/seeds must be nonempty"
@@ -366,6 +378,8 @@ fn main() -> Result<()> {
         "{}",
         serde_json::to_string_pretty(
             &serde_json::json!({"engine_source_sha256":saberbb::domain::seeded_diagnostic::ENGINE,
+        "flight_drag_model":saberbb::domain::shared::flight_drag::current_model(),
+        "flight_drag_settings":{"density_kg_m3":saberbb::domain::shared::flight_drag::DENSITY_KG_M3,"mass_kg":saberbb::domain::shared::flight_drag::MASS_KG,"radius_m":saberbb::domain::shared::flight_drag::RADIUS_M,"published_cd":"0.297 + 0.0292 * total_spin_rpm / 1000","lift":"unchanged legacy transverse-spin model"},
         "inputs_sha256":input_hash,"season":args.season,"games_per_seed":games.len(),"reports":reports,
         "definitions":{"ra9_reference":"Runs allowed * 27 / recorded outs; earned runs not recorded",
             "non_strikeout_outs":"All recorded outs minus defensive strikeouts, including baserunning outs",

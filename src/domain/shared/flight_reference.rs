@@ -1,4 +1,5 @@
-//! Diagnostic flight controls. Published coefficients are measurement-fitted, not a new live model.
+//! Independent diagnostic solver. `Live` names retain historical pre-drag-change forces.
+//! The published-drag/legacy-lift combination is the gameplay default.
 use crate::domain::{
     resolver::batting_resolver::LIVE_FLIGHT_DRAG_PER_M, shared::ball::MAGNUS_COEFF, util::GRAVITY,
 };

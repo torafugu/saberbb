@@ -15,9 +15,9 @@ export SABERBB_DB="/path/to/saberbb.db"
 cargo run --release --example offense_season_check -- --season 2026 --games 360 --selected-intent-diagnostics > selected_intent_validity_360.json
 ```
 
-The change adds diagnostics, not calibrated gameplay physics. Normal trajectory
-calls still use the original .90 m height, stadium wind, .01 s update, coefficients,
-fences, bounces and rolling. Raw shadow states remain per-game in memory; no DB
+The original audit added diagnostics only. The follow-up [drag change](spin_dependent_drag.md)
+adopts published drag as the default while retaining the original .90 m height,
+stadium wind, .01 s update, lift, fences, bounces and rolling. Raw shadow states remain per-game in memory; no DB
 or saved result/contact-state writes are introduced.
 
 ## Measurement-based reference and numerical validation
@@ -54,12 +54,13 @@ python tools/diagnostics/generate_flight_reference_contract.py
 
 Defaults: speeds 40.2336/45/49.1744 m/s, VLA 20/30/35 degrees, spin 0/400/2600/4000
 rpm, straight-ahead backspin, height .90 m, no wind. All 36 inputs share the same
-environment across seven outputs:
+environment across eight outputs:
 
 | Output | Purpose |
 |---|---|
-| live_discrete | Existing live implementation with explicit environment, stopping at first ground in a 500 m field |
-| live_forces_rk4 | Same live force laws in the independent integrator: isolates update/event numerics |
+| live_discrete | Historical drag in the current implementation with explicit environment, stopping at first ground in a 500 m field |
+| published_drag_discrete | Default published drag with existing lift in the current implementation |
+| live_forces_rk4 | Historical force laws in the independent integrator: isolates update/event numerics |
 | published2017 | Published drag/lift laws, constant world spin |
 | published_drag_live_lift | Change drag only in the common solver |
 | live_drag_published_lift | Change lift only in the common solver |
@@ -82,7 +83,7 @@ extra convention difference in the attribution controls.
 
 ## Ground validity of selected 3-D contacts
 
-`selected_intent_forward_3d_v2` retains the original aggregate outcomes and adds:
+`selected_intent_forward_3d_v3` retains the original aggregate outcomes and adds:
 
 - `contact_height_statuses` per Intent/cohort: center below ground (z<0), sphere
   intersects ground (0<=z<ball radius), clear of ground (z>=ball radius), and
@@ -102,7 +103,7 @@ Existing diagnostic flights still start at the standardized .90 m point. The new
 clearance cohort does not silently substitute actual impact height. An upstream
 pitch/ground or execution constraint can be assessed separately using these traces.
 
-## Fixed-launch findings
+## Historical fixed-launch findings (before adopting drag)
 
 All 252 default grid outputs landed. Example: 45 m/s, VLA 20 degrees, 2600 rpm,
 no wind, .90 m height. Distances are computed model results, not observed balls:
@@ -125,9 +126,11 @@ reference's stronger lift partly restores carry after increasing drag.
 Without spin, the same 45 m/s,20-degree case carries 121.88 m live versus 94.34 m
 with reference drag. The maximum discrete-vs-RK4 live-force carry difference
 across the grid was .60 m, much smaller than the force-law differences here.
-These controls motivate a future calibrated physics change; they do not adopt one.
+These historical controls motivated the subsequent drag-only change; the new discrete
+default carries 106.71 m for the 45 m/s,20-degree,2600-rpm case. Calibration of
+the combined collision/lift/fielding pipeline remains separate.
 
-## Validation and coverage
+## Original audit validation and coverage
 
 - Twenty-five batting-resolver tests (including six pre-refactor trajectory
   snapshots and explicit first-ground/environment cases), three reference-solver

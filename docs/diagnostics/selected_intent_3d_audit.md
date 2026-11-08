@@ -145,3 +145,19 @@ The v2 report retains these source cohorts/outcomes and adds explicit ground
 clearance counts, reference-height transitions, clear/invalid outcome partitions
 and bounded invalid-position samples. See [ground validity and fixed-flight
 controls](flight_and_ground_validity.md) for the exact .036 m radius boundaries.
+
+## Drag-only paired trajectories (v3)
+
+The default flight now uses published spin-dependent drag. Effective/transverse
+spin still drives the unchanged lift model; total spin (including gyro) is passed
+separately for drag. `--legacy-flight-drag` selects historical drag for both full
+games and their observers within the synchronous diagnostic thread.
+
+`drag_comparison` replays each accepted selected collision output under both drag
+laws with identical launch metrics, spin components, stadium and standard .90 m
+impact height. `attempted`, `paired`, `statuses`, both outcome groups and
+`transitions` expose the common denominator and any errors. Its input cohort is
+accepted flights under the selected game model, not all geometric contacts.
+Full-game old/new paths can have different contact cohorts; this per-collision
+comparison isolates flight within each report. These are shadow outbound results,
+not game home runs. See [model scope and validation](spin_dependent_drag.md).

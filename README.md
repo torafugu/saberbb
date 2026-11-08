@@ -682,5 +682,25 @@ cargo run --release --example flight_audit > flight_audit.json
 
 The selected-Intent audit now also reports below-ground/sphere-intersection
 counts, reference-to-contact height transitions, separate ground-clear outcomes
-and dedicated examples. Original outcomes and gameplay are preserved. See
+and dedicated examples. Ground checks do not remove outcomes. Published spin-dependent
+drag is now the gameplay default; lift and contact models are unchanged. See
 [reference assumptions, controls and findings](docs/diagnostics/flight_and_ground_validity.md).
+
+### Paired drag comparison
+
+The default trajectory uses Nathan (2017) spin-dependent drag with the existing
+lift model. Compare seeded full games with the historical drag control:
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --selected-intent-diagnostics --legacy-flight-drag > drag_legacy_360.json
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --selected-intent-diagnostics > drag_published_360.json
+```
+
+Both commands use seeds 7,42,20261108 and never save results or contact states.
+Check matching input hashes before comparing full-game totals. Game paths diverge
+after changed outcomes; `selected_intent_diagnostics.drag_comparison` separately
+replays identical selected collision outputs under both drag laws, with shared
+paired denominators, explicit failures and outbound transitions. This is a shadow
+trajectory comparison, not an alternate season's home-run count. See
+[drag change, units, scope and validation](docs/diagnostics/spin_dependent_drag.md).

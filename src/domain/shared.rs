@@ -21,3 +21,5 @@ pub mod batting_personnel;
 pub mod frozen_contact_collision;
 
 pub mod flight_reference;
+
+pub mod flight_drag;
