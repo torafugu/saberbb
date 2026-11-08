@@ -252,7 +252,7 @@ pub(crate) fn calculate_bat_angle(location: &BallLocation) -> f64 {
 }
 
 /// Automatically calculate the effective Attack Angle linked to bat_angle_deg (head drop amount for pitch location)
-fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64) -> f64 {
+pub fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64) -> f64 {
     // Baseline bat_angle_deg (e.g. 30° as the standard tilt)
     const BASE_BAT_ANGLE_DEG: f64 = 30.0;
 
@@ -525,13 +525,18 @@ fn calculate_timing_angle_error(
     angular_velocity_rad_s * timing_error_s
 }
 
+/// Vertical deflection used by the live launch-angle calculation (degrees).
+pub fn calculate_vertical_contact_deflection(offset_z_m: f64) -> f64 {
+    const COLLISION_RADIUS_M: f64 = 0.070; // Bat radius + ball radius
+    let clamped_z = offset_z_m.clamp(-COLLISION_RADIUS_M, COLLISION_RADIUS_M);
+    (clamped_z / COLLISION_RADIUS_M).asin().to_degrees() * 0.60
+}
+
 pub fn calculate_launch_angles(
     rng: &mut dyn RandomProvider,
     contact: &SwingContactResult,
     batter: &BatterInfo,
 ) -> Result<BattedBallAngles, GameError> {
-    // Sum of the bat and ball radii, used for contact checks on the cylindrical cross-section.
-    const COLLISION_RADIUS_M: f64 = 0.070; // Bat radius (3.3cm) + ball radius (3.7cm)
     // Approximate distance from the swing's center of rotation to the standard contact point.
     // Used to derive the angular velocity from the bat speed. (1.1m)
     // TODO: Consider adjusting this value based on the batter's height and swing mechanics for more accurate modeling.
@@ -539,13 +544,7 @@ pub fn calculate_launch_angles(
 
     // 1. Calculate VLA (vertical launch angle)
     // Clamp z_m to the effective radius and compute arcsin
-    let clamped_z = contact
-        .offset_z_m
-        .clamp(-COLLISION_RADIUS_M, COLLISION_RADIUS_M);
-    let normal_angle_z_rad = (clamped_z / COLLISION_RADIUS_M).asin();
-
-    const VLA_REBOUND_FACTOR: f64 = 0.60; // Contact surface deflection influence
-    let vla_deg = contact.attack_angle_deg + (normal_angle_z_rad.to_degrees() * VLA_REBOUND_FACTOR);
+    let vla_deg = contact.attack_angle_deg + calculate_vertical_contact_deflection(contact.offset_z_m);
 
     // 2. Calculate HLA (horizontal launch angle)
     let timing_error_sec = contact.timing_offset_sec;
@@ -708,14 +707,31 @@ fn calculate_collision_spin(
     swing_speed: f64,
     contact: &SwingContactResult,
 ) -> (f64, f64) {
+    calculate_collision_spin_from_offsets(
+        contact.length_offset_m,
+        contact.thickness_offset_m,
+        swing_speed,
+        ball.spin_rate,
+        ball.spin_angle,
+    )
+}
+
+/// Shared live spin calculation for deterministic replay of saved contact geometry.
+pub fn calculate_collision_spin_from_offsets(
+    length_offset_m: f64,
+    thickness_offset_m: f64,
+    swing_speed: f64,
+    pitch_spin_rate: f64,
+    pitch_spin_angle: f64,
+) -> (f64, f64) {
     // 1. Calculate total distance from sweet spot using Pythagorean theorem
-    let distance = (contact.length_offset_m.powi(2) + contact.thickness_offset_m.powi(2))
+    let distance = (length_offset_m.powi(2) + thickness_offset_m.powi(2))
         .sqrt()
         .min(1.0);
 
     // 2. Calculate contact point angle (radians) using atan2(y, x)
     // y = vertical, x = horizontal
-    let impact_angle_rad = contact.thickness_offset_m.atan2(contact.length_offset_m);
+    let impact_angle_rad = thickness_offset_m.atan2(length_offset_m);
 
     // 3. Convert contact angle to spin angle
     // The ball spins in the opposite direction from the contact point (+ PI)
@@ -740,8 +756,8 @@ fn calculate_collision_spin(
     let (combined_spin_rate, combined_spin_angle) = combine_batted_spin(
         raw_spin_rate,
         spin_angle_deg,
-        ball.spin_rate,
-        ball.spin_angle,
+        pitch_spin_rate,
+        pitch_spin_angle,
     );
 
     (combined_spin_rate, combined_spin_angle)
@@ -774,7 +790,7 @@ pub struct TrajectorySummaryResult {
     pub target_arrival: Option<TargetArrivalState>,
 }
 
-fn calculate_trajectory(
+pub fn calculate_trajectory(
     launch_speed_ms: f64, // Batted ball exit velocity (m/s)
     vla_deg: f64,         // Vertical launch angle VLA (deg)
     hla_deg: f64,         // Horizontal launch angle HLA (deg) (+: right/opposite, -: left/pull)
