@@ -2253,6 +2253,7 @@ mod tests {
                     catch_z_m: 1.75,
                     waiting_time_sec: 0.35,
                     first_bounce_time,
+                    pickup: None,
                 }),
             });
         }

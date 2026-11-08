@@ -30,6 +30,8 @@ mod bip_audit;
 mod contact_direction_audit;
 #[path = "support/moving_collision_audit.rs"]
 mod moving_collision_audit;
+#[path = "support/pickup_timing_audit.rs"]
+mod pickup_timing_audit;
 #[path = "support/selected_intent_audit.rs"]
 mod selected_intent_audit;
 #[path = "support/throw_origin_audit.rs"]

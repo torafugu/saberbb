@@ -20,7 +20,8 @@ BIP outcomes by trajectory, EV/VLA, position and fielding path/type/error.
   are not new throw-to-second/third simulations or proof of safe advancement.
 - Error-free DirectFly/BounceCatch positions are reconstructed with the same
   coarse estimator as fielding, not by replaying physical ball flight. Errors
-  and FinalPickup are excluded: their handling delays obscure the catch instant.
+  and legacy FinalPickup records are excluded from that reconstruction. Fresh
+  FinalPickup snapshots now have a separate [pickup timing audit](final_pickup_timing.md).
 - Straight-line catch/final distance differences do not evaluate cutoff choices,
   receiving, run-to-base alternatives or counterfactual safe/out outcomes.
 - Air risk-ok probes are control searches, not guaranteed successful catches.

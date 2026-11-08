@@ -704,3 +704,21 @@ replays identical selected collision outputs under both drag laws, with shared
 paired denominators, explicit failures and outbound transitions. This is a shadow
 trajectory comparison, not an alternate season's home-run count. See
 [drag change, units, scope and validation](docs/diagnostics/spin_dependent_drag.md).
+
+### FinalPickup timing and throw-origin audit
+
+The BIP observer also audits the existing FinalPickup coverage path. It captures
+fresh in-memory pickup instants/positions, handling delays and already-consumed
+handling draws, then reproduces the search and completion clock without RNG.
+It does not change candidate filters, pickup selection or gameplay timings.
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > final_pickup_timing_360.json
+```
+
+Read `bip_diagnostics.throw_origin_counterfactual.final_pickup`. Timing checks
+must reproduce before comparing same-target throws from the recorded pickup
+position. Missing older snapshots remain missing, and safety fallbacks stay
+explicit. These are fixed-target timing sensitivities, not alternate game results.
+See [fields, limitations and validation](docs/diagnostics/final_pickup_timing.md).
