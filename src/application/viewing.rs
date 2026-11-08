@@ -10,7 +10,7 @@ use std::collections::HashMap;
 pub struct Choice { pub id: u16, pub name: String, pub league: u16 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Catalog {
-    pub leagues: Vec<Choice>, pub teams: Vec<Choice>, pub seasons: Vec<u16>,
+    pub leagues: Vec<Choice>, pub teams: Vec<Choice>, pub seasons: Vec<u16>, pub standing_seasons: Vec<u16>,
     pub player_teams: HashMap<i64, u16>,
 }
 impl Catalog {
@@ -30,12 +30,14 @@ pub fn catalog() -> Result<Catalog> {
     let leagues = app_context().schedule_repository.load_all_leagues()?;
     let seasons = app_context().game_repository.load_processed_seasons()?;
     let conn = SqlDb::new()?.get_conn()?;
+    let standing_seasons = conn.prepare("SELECT DISTINCT season FROM game WHERE season IS NOT NULL ORDER BY season DESC")?
+        .query_map([], |r| r.get(0))?.collect::<rusqlite::Result<Vec<u16>>>()?;
     let mut query = conn.prepare("SELECT id,team_id FROM player_info")?;
     let player_teams = query.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<HashMap<i64,u16>>>()?;
     Ok(Catalog {
         teams: leagues.iter().flat_map(|l| l.teams.iter().map(move |t| Choice { id:t.id, name:t.name.to_string(), league:l.id })).collect(),
         leagues: leagues.iter().map(|l| Choice { id:l.id, name:l.name.to_string(), league:l.id }).collect(),
-        seasons, player_teams,
+        seasons, standing_seasons, player_teams,
     })
 }
 
@@ -77,6 +79,13 @@ pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result
             Ok(TableData::new("投手成績", &["選手","登板","回","勝","敗","S","H","ERA","SO","BB"], rows))
         }
     }
+}
+
+/// Zero selects career totals; scheduled seasons are selectable before their first game.
+pub fn season_standings(season:u16, league:u16, catalog:&Catalog)->Result<TableData> {
+    let repo=&app_context().statistics_repository;
+    let standings=if season==0 {repo.load_standings()?} else {repo.load_season_standings(season)?};
+    Ok(standings_table(standings,league,0,catalog))
 }
 
 fn decimal_rate(value:f64)->String {
@@ -144,7 +153,7 @@ mod tests {
     use super::*;
     #[test]
     fn catalog_filters_teams_without_leaking_other_leagues() {
-        let c = Catalog { leagues:vec![], teams:vec![Choice {id:1,name:"A".into(),league:7},Choice {id:2,name:"B".into(),league:8}],seasons:vec![],player_teams:HashMap::new() };
+        let c = Catalog { leagues:vec![], teams:vec![Choice {id:1,name:"A".into(),league:7},Choice {id:2,name:"B".into(),league:8}],seasons:vec![],standing_seasons:vec![],player_teams:HashMap::new() };
         assert!(c.includes_team(1,7,0)); assert!(!c.includes_team(2,7,0));
         assert!(!c.includes_team(1,0,2)); assert!(c.includes_team(2,0,2));
     }
@@ -175,7 +184,7 @@ mod tests {
     #[test]
     fn standings_keep_rank_and_gap_when_filtering_a_team() {
         use crate::domain::shared::{stats::Standing,team::Team};
-        let catalog=Catalog {leagues:vec![],teams:vec![Choice{id:1,name:"A".into(),league:1},Choice{id:2,name:"B".into(),league:1}],seasons:vec![],player_teams:HashMap::new()};
+        let catalog=Catalog {leagues:vec![],teams:vec![Choice{id:1,name:"A".into(),league:1},Choice{id:2,name:"B".into(),league:1}],seasons:vec![],standing_seasons:vec![],player_teams:HashMap::new()};
         let standing=|id,wins,losses| Standing {team:Team::min(id,"Team"),games:wins+losses,wins,losses,draws:0,pct:wins as f32/(wins+losses) as f32,gb:0.0,
             r:10,ra:5,remaining:3,homeruns:1,steals:2,ba:Some(0.25),era:Some(2.5),errors:1};
         let table=standings_table(vec![standing(1,8,2),standing(2,6,4)],1,2,&catalog);

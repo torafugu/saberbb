@@ -10,7 +10,7 @@ pub(super) fn compare_cells(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 #[component]
-pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: bool, #[props(default = true)] searchable: bool, #[props(default)] initial_sort: Option<(usize,bool)>) -> Element {
+pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: bool, #[props(default = true)] searchable: bool, #[props(default = true)] paginated: bool, #[props(default)] initial_sort: Option<(usize,bool)>) -> Element {
     let mut search = use_signal(String::new);
     let mut sort = use_signal(|| initial_sort);
     let mut page = use_signal(|| 0usize);
@@ -24,9 +24,9 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
     }
     let pages = rows.len().div_ceil(100).max(1);
     let current = page().min(pages - 1);
-    let visible = rows.iter().skip(if interactive {current*100} else {0}).take(if interactive {100} else {usize::MAX});
+    let visible = rows.iter().skip(if interactive && paginated {current*100} else {0}).take(if interactive && paginated {100} else {usize::MAX});
     rsx! {
-        section { class: "panel data-panel",
+        section { class: if data.title=="順位表" {"panel data-panel standings-panel"}else{"panel data-panel"},
             div { class: "section-heading",
                 h3 { {tr(&data.title)} }
                 if interactive && searchable {
@@ -53,7 +53,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
                     }
                 }
             }
-            if interactive {
+            if interactive && paginated {
                 div { class: "pagination",
                     span { {format!("{} {}",rows.len(),tr("件"))} }
                     button { id:format!("table-page-prev"), disabled: current==0, onclick: move |_| page.set(current.saturating_sub(1)), {tr("前へ")} }
@@ -85,6 +85,17 @@ mod tests {
     fn numeric_columns_sort_numerically() {
         assert!(compare_cells("12", "3").is_gt());
         assert!(compare_cells(".250", ".310").is_lt());
+    }
+    #[test]
+    fn standings_without_pagination_render_every_team_and_keep_sorting() {
+        fn fixture()->Element {
+            rsx! {DataTable {data:TableData::new("順位表", &["チーム"],(0..110).map(|i|vec![format!("Team{i}")]).collect()),searchable:false,paginated:false}}
+        }
+        let mut dom=VirtualDom::new(fixture);dom.rebuild_in_place();
+        let html=dioxus_ssr::render(&dom);
+        assert_eq!(html.matches("<tbody>").count(),1);
+        assert!(html.contains("Team109"));assert!(html.contains("id=\"sort-0\""));
+        assert!(!html.contains("pagination"));assert!(!html.contains("table-search"));
     }
     #[test]
     fn ssr_table_escapes_names_and_preserves_table_structure() {
