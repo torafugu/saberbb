@@ -49,6 +49,24 @@ pub enum FieldingSelectionPath {
     FinalPickup,
 }
 
+/// Fresh in-memory pickup provenance. Existing SQL fielding columns do not persist it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PickupTimingDiagnostics {
+    pub fielder_id: i64,
+    pub initial_position: PolarPosition,
+    pub prep_time_sec: f64,
+    pub running_speed_ms: f64,
+    pub catching: f64,
+    pub search_start_sec: f64,
+    pub search_step_sec: f64,
+    /// Arrival/search instant, before handling delay (not catch_time_sec).
+    pub pickup_time_sec: f64,
+    pub pickup_position: PolarPosition,
+    pub handling_delay_sec: f64,
+    /// The draw already consumed by gameplay, never a new diagnostic draw.
+    pub handling_random: Option<f64>,
+    pub safety_fallback: bool,
+}
 /// Snapshot of the effective interception; capturing it consumes no random values.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FieldingCatchDiagnostics {
@@ -60,6 +78,8 @@ pub struct FieldingCatchDiagnostics {
     pub catch_z_m: f64,
     pub waiting_time_sec: f64,
     pub first_bounce_time: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pickup: Option<PickupTimingDiagnostics>,
 }
 
 /// Types of fielding errors
@@ -168,6 +188,7 @@ impl<'a> FieldPlayPlayResult<'a> {
             catch_z_m: selected.catch_z_m,
             waiting_time_sec: selected.waiting_time_sec,
             first_bounce_time: selected.ball.first_bounce_time,
+            pickup: selected.pickup,
         }
     }
 
@@ -191,6 +212,7 @@ pub struct FielderInterception<'a> {
     pub catch_z_m: f64,                 // Ball height Z at the moment of catch
     pub waiting_time_sec: f64, // Time the fielder waited at the landing point (s) (>=0 means comfortable)
     pub ball: &'a BattedBall,
+    pub pickup: Option<PickupTimingDiagnostics>,
 }
 impl<'a> FielderInterception<'a> {
     // Helper to check whether the play recorded an error
@@ -445,6 +467,7 @@ fn search_fielder_interception<'a>(
                             catch_z_m: 0.0,
                             waiting_time_sec: 0.0,
                             ball: ball,
+                            pickup: None,
                         });
                     } else {
                         // [Passed]: caught up but touched/deflected it behind (error confirmed)
@@ -462,6 +485,7 @@ fn search_fielder_interception<'a>(
                             catch_z_m: b_z,
                             waiting_time_sec: waiting_time,
                             ball: ball,
+                            pickup: None,
                         });
                     }
                 }
@@ -486,6 +510,7 @@ fn search_fielder_interception<'a>(
                     catch_z_m: b_z,
                     waiting_time_sec: t - fielder_needed_time,
                     ball: ball,
+                    pickup: None,
                 });
             }
         }
@@ -638,6 +663,20 @@ pub fn evaluate_final_pickup<'a>(
                 catch_z_m: 0.0,
                 waiting_time_sec: (t - fielder_needed_time).max(0.0),
                 ball: ball,
+                pickup: Some(PickupTimingDiagnostics {
+                    fielder_id: fielder.id,
+                    initial_position: fielder.polar_position,
+                    prep_time_sec: fielder.info.prep_time,
+                    running_speed_ms: fielder.info.running_speed,
+                    catching: fielder.info.catching,
+                    search_start_sec: start_time,
+                    search_step_sec: DT,
+                    pickup_time_sec: t,
+                    pickup_position: PolarPosition::new(b_r, b_theta),
+                    handling_delay_sec: final_delay,
+                    handling_random: Some(rng_value),
+                    safety_fallback: false,
+                }),
             };
         }
 
@@ -657,6 +696,20 @@ pub fn evaluate_final_pickup<'a>(
         catch_z_m: 0.0,
         waiting_time_sec: 0.0,
         ball: ball,
+        pickup: Some(PickupTimingDiagnostics {
+            fielder_id: fielder.id,
+            initial_position: fielder.polar_position,
+            prep_time_sec: fielder.info.prep_time,
+            running_speed_ms: fielder.info.running_speed,
+            catching: fielder.info.catching,
+            search_start_sec: start_time,
+            search_step_sec: DT,
+            pickup_time_sec: ball.total_time,
+            pickup_position: PolarPosition::new(final_r, final_theta),
+            handling_delay_sec: 1.0,
+            handling_random: None,
+            safety_fallback: true,
+        }),
     }
 }
 
