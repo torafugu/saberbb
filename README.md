@@ -454,7 +454,7 @@ Ranking and games behind are calculated within each league.
 
 `game_team_stat_cache` and `team_stat_totals` are updated in the game-result save
 transaction. Team attribution uses the game header and each count's top/bottom
-side, preserving history when players change teams. A version-3 cache backfill
+side, preserving history when players change teams. A version-4 cache backfill
 runs once on existing databases; `--rebuild-stats`, setup and season reset include
 these new derived tables. Subsequent standings reads use saved team totals and
 lightweight schedule counts, without reading detailed batting/running/fielding
@@ -476,3 +476,33 @@ Team statistics use the following recorded information:
 - Errors: fielding records with an `error_type` other than NULL/empty/`None`.
   This is the engine's recorded fielding-error count, not an external scorer's
   ruling. Filtered/non-selected fielder-candidate diagnostics are not counted.
+
+### Investigating excessive offense
+
+The career batting table's `AB` counts terminal at-bats, excluding walks, hit by
+pitch, takes, swinging strikes, fouls and nonterminal wild pitches. Cache version
+4 corrects the previous pitch-record count used as `AB`. Existing databases
+rebuild their derived caches once on the first statistics read; saved game logs
+and home-run counts are preserved. This corrects the displayed denominator, not
+an excessive number of simulated home runs. Sacrifices are not separately
+recorded by the current result model.
+
+Run the read-only audit against your saved database (no contact-state logging
+or new simulated games required):
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+python3 tools/diagnostics/offense_audit.py > offense_audit.json
+# Optionally restrict the raw-log investigation to one season:
+python3 tools/diagnostics/offense_audit.py --season 2026 > offense_audit_2026.json
+```
+
+The JSON separates pitch records, PA, AB and HR, reports the HR leader by game,
+compares raw records with per-game caches and career totals, and summarizes EV,
+launch angles, contact offsets and home-run geometry. `cache_mismatches` can show
+incorrect AB values in version-3 caches; compare `raw_hr` and `cached_hr` separately.
+The GUI player batting table currently covers all seasons, whereas the standings
+can be season-filtered. The audit opens the database read-only and never rebuilds
+caches. Normal game results still use `calculate_batted_ball_with_metrics`; the
+Intent execution/contact/collision response path is diagnostic shadow data and
+does not yet replace that live result calculation.
