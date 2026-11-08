@@ -1,5 +1,6 @@
 //! Dioxus is the single results/statistics UI. Desktop loads the same local DB as the CLI.
 mod app;
+mod locale;
 pub use app::App;
 mod tables;
 mod game;

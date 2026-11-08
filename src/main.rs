@@ -83,6 +83,11 @@ fn main() -> Result<()> {
         schedule_games(num_of_schedules)?;
     }
 
+    if args.rebuild_stats {
+        saberbb::repositories::stat_cache::rebuild(&saberbb::repositories::db::DbClient::new()?)?;
+        println!("Statistics cache rebuilt.");
+    }
+
     // Execute VACUUM and PRAGMA optimize
     if args.maintenance {
         maintenance()?;
@@ -124,6 +129,7 @@ fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
          DELETE FROM player_game_contact_state;
          DELETE FROM player_game_pitching_decision;",
     )?;
+    saberbb::repositories::stat_cache::clear(&tx)?;
     tx.execute("UPDATE game_season SET current_season = ?1", [year])?;
     tx.execute("UPDATE game_season SET scheduled_season = ?1", [year - 1])?;
     tx.execute("UPDATE game_season SET current_round_seq = 1", [])?;
@@ -169,6 +175,10 @@ struct Args {
     /// Generate players and fill all vacant team manager positions
     #[arg(short, long)]
     generate: Option<u16>,
+
+    /// Rebuild saved statistics from existing pitch logs
+    #[arg(long)]
+    rebuild_stats: bool,
 
     /// DB maintenance
     #[arg(short, long)]

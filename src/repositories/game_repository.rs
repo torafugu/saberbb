@@ -174,6 +174,7 @@ impl GameResultWriter for SqlGameRepository {
             }
 
             refresh_player_game_pitching_decisions(&self.db_client, tx, game.id)?;
+            crate::repositories::stat_cache::refresh_game(tx,game.id).map_err(AppError::Internal)?;
 
             Ok(())
         })
@@ -1041,6 +1042,14 @@ mod tests {
             "../../migrations/ddl/player_game_fielding_candidate_table.sql"
         )).unwrap();
         conn.execute_batch(include_str!("../../migrations/ddl/player_game_contact_state_table.sql")).unwrap();
+        // Preserve legacy fixture defaults while adding current writer diagnostics.
+        conn.execute_batch(include_str!("../../migrations/upgrades/add_swing_decision_diagnostics.sql")).unwrap();
+        conn.execute_batch("ALTER TABLE player_game_batting ADD COLUMN actual_bat_angle_deg REAL;
+            ALTER TABLE player_game_batting ADD COLUMN timing_position_scale REAL;
+            ALTER TABLE player_game_batting ADD COLUMN hla_handedness_sign REAL;
+            ALTER TABLE player_game_batting ADD COLUMN signed_length_offset_m REAL;
+            ALTER TABLE player_game_batting ADD COLUMN signed_thickness_offset_m REAL;
+            ALTER TABLE player_game_batting ADD COLUMN hla_model_version INTEGER;").unwrap();
         drop(conn);
 
         let manager = SqliteManager::from_path(path.clone());

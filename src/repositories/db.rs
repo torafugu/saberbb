@@ -313,6 +313,7 @@ fn setup_database(conn: &mut Connection, migrations_dir: &Path) -> Result<()> {
         import_names(&tx, &path, table, columns)
             .with_context(|| format!("Failed to import {}", path.display()))?;
     }
+    crate::repositories::stat_cache::clear(&tx)?;
     tx.commit()?;
     Ok(())
 }

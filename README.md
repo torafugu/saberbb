@@ -346,3 +346,31 @@ cargo run --features gui-tests --example gui_browser
 cargo run --features gui-tests --example gui_snapshots -- /tmp/saberbb-gui-snapshots
 # http://127.0.0.1:8787 ; test harness only, not a public server
 ```
+
+### GUI language and saved statistics
+
+Use the **日本語 / English** buttons in the GUI header to switch labels and player
+name order immediately. Japanese uses family name followed by given name; English
+uses given name followed by family name. The preference is saved in the existing
+configuration file, retaining the database path and keybindings. Startup language
+initialization now overrides any earlier lazy default initialization.
+
+Batting/pitching displays read `batting_stat_totals` and `pitching_stat_totals`.
+At game-result save time, the same database transaction updates per-game rows in
+`game_batting_stat_cache` / `game_pitching_stat_cache`, then refreshes totals for
+only the affected players. Display queries never aggregate pitch logs or per-game
+rows. Rates are derived from saved integer counts, preserving the existing
+aggregation definitions (including the existing AB/innings definitions).
+
+Existing databases are backfilled automatically on the first statistics request,
+which may take time once. The additive schema is also in
+`migrations/upgrades/add_stat_cache.sql`; manual SQL application is optional.
+To explicitly rebuild derived statistics after manually editing/deleting raw logs:
+
+```sh
+cargo run -- --rebuild-stats
+```
+
+Rebuilds replace derived values; they do not add counts twice or alter raw pitch
+records. `--setup` and `--sampleyear` clear all derived tables with the game data.
+Neither the backfill nor display queries read `player_game_contact_state`.

@@ -1,3 +1,4 @@
+use super::locale::{tr,bilingual};
 use dioxus::prelude::*;
 use crate::application::viewing::{self, TableData};
 use crate::domain::shared::player::Player;
@@ -13,32 +14,32 @@ pub(super) fn Teams(team:u16, refresh:u32) -> Element {
     let roster=use_resource(use_reactive((&team,&refresh),|(team,_refresh)|async move {
         blocking(move || Ok((viewing::players(team)?,viewing::manager(team)?))).await
     }));
-    if team==0 { return rsx!{p {class:"empty","上のフィルターからチームを選択してください。選手の能力・球種とチーム日程を表示します。"}}; }
+    if team==0 { return rsx!{p {class:"empty",{tr("上のフィルターからチームを選択してください。選手の能力・球種とチーム日程を表示します。")}}}; }
     if let Some(id)=game() { return rsx!{GamePanel {key:"team-game-{id}-{refresh}",id,refresh,onclose:move |_|game.set(None)}}; }
     rsx!{
         div {class:"tabs",
-            button {id:format!("team-tab-0"),class:if tab()==0 {"active"}else{""},onclick:move |_|tab.set(0),"選手・監督"}
-            button {id:format!("team-tab-1"),class:if tab()==1 {"active"}else{""},onclick:move |_|tab.set(1),"チーム日程"}
+            button {id:format!("team-tab-0"),class:if tab()==0 {"active"}else{""},onclick:move |_|tab.set(0),{tr("選手・監督")}}
+            button {id:format!("team-tab-1"),class:if tab()==1 {"active"}else{""},onclick:move |_|tab.set(1),{tr("チーム日程")}}
         }
         if tab()==1 {
             TeamSchedule {key:"schedule-{team}-{refresh}",team,refresh,onopen:move |id|game.set(Some(id))}
         } else {
             match roster.read().as_ref() {
-                None=>rsx!{p {class:"loading","選手を読み込み中…"}},
+                None=>rsx!{p {class:"loading",{tr("選手を読み込み中…")}}},
                 Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
                 Some(Ok((players,manager)))=>rsx!{
                     div {class:"manager",
-                        if let Some(m)=manager {strong {"監督：{m.name}"} span {" / {m.batting_policy:?}"}}
-                        else {"監督未配置（管理TUIのキャラクター作成で補充できます）"}
+                        if let Some(m)=manager {strong {{format!("{}: {}",tr("監督"),m.name)}} span {" / {m.batting_policy:?}"}}
+                        else {{tr("監督未配置（管理TUIのキャラクター作成で補充できます）")}}
                     }
                     div {class:"toolbar",
-                        label {"ポジション" select {value:position,onchange:move |e|position.set(e.value()),
-                            option {value:"All","全選手"} option {value:"P","投手"} option {value:"C","捕手"}
-                            option {value:"IF","内野・DH"} option {value:"OF","外野"}
+                        label {{tr("ポジション")} select {value:position,onchange:move |e|position.set(e.value()),
+                            option {value:"All",{tr("全選手")}} option {value:"P",{tr("投手")}} option {value:"C",{tr("捕手")}}
+                            option {value:"IF",{tr("内野・DH")}} option {value:"OF",{tr("外野")}}
                         }}
                     }
                     section {class:"panel", div {class:"table-scroll",table {
-                        thead {tr {th {"選手"} th {"背番号"} th {"年齢"} th {"守備位置"} th {"打撃傾向"}}}
+                        thead {tr {th {{tr("選手")}} th {{tr("背番号")}} th {{tr("年齢")}} th {{tr("守備位置")}} th {{tr("打撃傾向")}}}}
                         tbody {for p in players.iter().filter(|p|position_matches(p,&position())) {
                             tr {td {button {id:format!("roster-{}",p.info.id),class:"roster-button",onclick:{let id=p.info.id;move |_|selected.set(Some(id))},"{p.info.full_name()}"}}
                                 td {"{p.info.uniform_number}"} td {"{p.info.age}"} td {"{p.defense_skills.position}"} td {"{p.batting_character:?}"}
@@ -46,7 +47,7 @@ pub(super) fn Teams(team:u16, refresh:u32) -> Element {
                         }}
                     }}}
                     if let Some(p)=players.iter().find(|p|Some(p.info.id)==selected()) {
-                        section {class:"panel player-detail",h2 {"{p.info.full_name()}"} p {class:"muted","#{p.info.uniform_number} · {p.info.age}歳 · {p.defense_skills.position}"}}
+                        section {class:"panel player-detail",h2 {"{p.info.full_name()}"} p {class:"muted",{bilingual(format!("#{} · {}歳 · {}",p.info.uniform_number,p.info.age,p.defense_skills.position),format!("#{} · Age {} · {}",p.info.uniform_number,p.info.age,p.defense_skills.position))}}}
                         for (index, table) in player_tables(p).into_iter().enumerate() {
                             DataTable {key:"player-{p.info.id}-{index}",data:table,interactive:false}
                         }
@@ -94,16 +95,16 @@ fn TeamSchedule(team:u16,refresh:u32,onopen:EventHandler<u32>)->Element {
     // The parent key includes refresh; a manual refresh remounts this resource.
     let _=refresh;
     rsx!{
-        div {class:"toolbar",label {"月" input {id:format!("schedule-month"),r#type:"month",value:month,onchange:move |e|month.set(e.value())}}}
+        div {class:"toolbar",label {{tr("月")} input {id:format!("schedule-month"),r#type:"month",value:month,onchange:move |e|month.set(e.value())}}}
         match data.read().as_ref() {
-            None=>rsx!{p {class:"loading","日程を読み込み中…"}},Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
+            None=>rsx!{p {class:"loading",{tr("日程を読み込み中…")}}},Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
             Some(Ok(games))=>rsx!{
-                if games.is_empty(){p {class:"empty","この月の日程はありません。"}}
+                if games.is_empty(){p {class:"empty",{tr("この月の日程はありません。")}}}
                 div {class:"game-list",for g in games {
                     button {class:"game-card",disabled:g.actual_date.is_none(),onclick:{let id=g.id;move |_|onopen.call(id)},
                         time {"{g.planned_date}"} strong {"{g.away_team.name}"}
                         span {class:"score",{format!("{} : {}", g.away_points.map(|v|v.to_string()).unwrap_or_else(||"—".into()), g.home_points.map(|v|v.to_string()).unwrap_or_else(||"—".into()))}}
-                        strong {class:"home","{g.home_team.name}"} span {class:"tag",if g.actual_date.is_some(){"結果を見る"}else{"未実施"}}
+                        strong {class:"home","{g.home_team.name}"} span {class:"tag",if g.actual_date.is_some(){{tr("結果を見る")}}else{{tr("未実施")}}}
                     }
                 }}
             },
