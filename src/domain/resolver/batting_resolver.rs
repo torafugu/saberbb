@@ -7,7 +7,7 @@ use crate::domain::shared::game_state::GameError;
 use crate::domain::shared::game_stats::PlayerGameBattingMetrics;
 use crate::domain::shared::player::{BatterInfo, PitchType, PitcherInfo};
 use crate::domain::shared::stadium::Stadium;
-use crate::domain::strategy::batting_strategy::{SwingExecution, calculate_attack_angle_modifier};
+use crate::domain::strategy::batting_strategy::SwingExecution;
 use crate::domain::strategy::pitching_strategy::{TargetZone, TargetZoneSimilarity};
 use crate::domain::util::{GRAVITY, PolarPosition, sigmoid};
 
@@ -310,10 +310,11 @@ pub fn calculate_swing_execution_error(
 
     // 3. Calculate actual bat angle and attack angle the batter swung
     let actual_bat_angle_deg = ideal_angle + delta_angle_deg;
+    // Keep the historical draw so this change does not shift the downstream RNG stream.
+    // Batter type shapes preferences/decisions, not an unconditional physical angle bonus.
+    let _legacy_attack_angle_sample = rng.normal_factor_std_5_percent();
     let actual_attack_angle_deg =
-        calculate_dynamic_attack_angle(batter.attack_angle, actual_bat_angle_deg)
-            + calculate_attack_angle_modifier(batter.batter_type)
-                * rng.normal_factor_std_5_percent();
+        calculate_dynamic_attack_angle(batter.attack_angle, actual_bat_angle_deg);
 
     SwingExecutionError {
         additional_x_m: 0.0,
@@ -1081,6 +1082,20 @@ mod tests {
     use crate::domain::util::Vector3D;
 
     type TestResult = Result<(), GameError>;
+
+    #[test]
+    fn batter_type_does_not_add_a_physical_attack_angle_bonus() {
+        let location=BallLocation {x:0.0,y:0.0};
+        for kind in [BatterType::AggressiveFreeSwinger,BatterType::ClassicAnalyst,BatterType::GameManager,BatterType::ClutchHunter] {
+            let mut batter=batter(RL::Right);batter.batter_type=kind;batter.attack_angle=5.0;
+            let mut rng=crate::domain::random_provider::RealRng::from_seed(42);
+            let error=calculate_swing_execution_error(&mut rng,&batter,&location);
+            assert!((error.actual_attack_angle_deg-calculate_dynamic_attack_angle(5.0,error.actual_bat_angle_deg)).abs()<1e-12);
+            let mut reference=crate::domain::random_provider::RealRng::from_seed(42);
+            reference.normal_factor_std_5_percent();
+            assert_eq!(rng.random(),reference.random(),"legacy RNG consumption changed");
+        }
+    }
 
     #[test]
     fn backward_trajectories_preserve_launch_direction_before_bounce() -> TestResult {

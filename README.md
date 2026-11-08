@@ -533,8 +533,9 @@ same function as live simulation. EV, launch HLA, spin, contact geometry, stadiu
 angle bonus is inferred by subtracting the shared contact-deflection and dynamic
 attack-angle terms from saved VLA; no new random numbers are drawn. This assumes
 that the batter's current base attack angle and type match their historical
-values. A sanity check rejects an inferred bonus outside 0.5–1.5 times the nominal
-modifier (or a nonzero residual for a zero modifier), but cannot prove that the
+values. Zero residuals are valid for records made after removal of the direct
+bonus. Nonzero legacy residuals must be within 0.5–1.5 times the historical nominal
+modifier, but this check cannot prove that the
 player has never been edited. Older/missing inputs, baseline mismatches and
 trajectory failures are counted in `exclusions`, with example record IDs.
 
@@ -550,3 +551,43 @@ On the isolated 27-game development fixture, all 2,209 contacts reproduced their
 baseline (no exclusions): 180 HR at baseline, 45 with half the aggressive bonus,
 25 with no aggressive bonus, and 14 with no type bonus. These are development
 fixture results, not estimates for another database's 441-HR batter.
+
+### Live removal of direct batter-type angle bonuses
+
+Live swing execution no longer adds the historical batter-type offsets (10° for
+AggressiveFreeSwinger, 2° for ClassicAnalyst, 3° for GameManager). A batter's own
+base attack angle and course-dependent dynamic angle remain. The historical RNG
+draw is still consumed so removing this term does not independently shift the
+random stream at that point. Player/manager preferences, intent selection and
+other type-dependent decisions remain in place. Intent execution/collision
+responses are still shadow diagnostics, not the live result generator.
+
+Saved results are preserved; the change affects newly simulated games. Use the
+read-only full-game check to evaluate a fresh run without resetting your DB:
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+# Quick check, three seeds:
+cargo run --release --example offense_season_check -- --season 2026 --games 36 > offense_season_check.json
+# 360 league games (120 per team in a six-team balanced schedule), three seeds:
+cargo run --release --example offense_season_check -- --season 2026 --games 360 > offense_season_360.json
+```
+
+Omit `--games` to run every scheduled game of that season, completed or pending.
+The checker reads current rosters, managers, stadium settings and the requested
+schedule; it does not reproduce historical lineups or unknown historical seeds.
+Each game starts from its frozen input and a seed derived from the master seed
+and game ID, using the same full simulation loop as ordinary play. It does not
+save results, advance the cursor or collect contact-state diagnostics. Failure
+aborts the run rather than accepting a partial summary. Progress goes to stderr;
+JSON goes to stdout. Input and engine hashes identify what was compared.
+
+The reports include batting average, HR/PA, runs, hits by type, strikeouts,
+recorded pitching outs, non-strikeout outs, HR leaders and team totals. The RA9
+reference uses runs allowed * 27 / recorded outs; earned runs are not recorded.
+Non-strikeout outs include baserunning outs. Compare before/after runs only with
+matching input hashes, game counts and seed lists. Different outcomes naturally
+change subsequent random consumption and plate appearances. Do not combine old
+saved statistics and newly generated statistics as one calibration comparison.
+
+See [the full-game comparison and remaining calibration issues](docs/diagnostics/type_angle_bonus_removal.md) for the 360-game, three-seed development check.

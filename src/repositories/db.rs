@@ -11,12 +11,13 @@ use tracing::info;
 #[derive(Clone, Debug)]
 pub struct SqliteManager {
     path: std::path::PathBuf,
+    read_only: bool,
 }
 
 impl SqliteManager {
     #[cfg(test)]
     pub(crate) fn from_path(path: std::path::PathBuf) -> Self {
-        Self { path }
+        Self { path, read_only: false }
     }
 }
 
@@ -25,7 +26,9 @@ impl Manager for SqliteManager {
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Connection, rusqlite::Error> {
-        let conn = Connection::open(&self.path)?;
+        let conn = if self.read_only {
+            Connection::open_with_flags(&self.path,rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?
+        } else { Connection::open(&self.path)? };
         // A game save or a separate process may briefly own SQLite's writer lock.
         // Set this explicitly on every pooled connection (SQLite defaults vary).
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
@@ -60,6 +63,13 @@ impl SqlDb {
         Ok(Self { pool })
     }
 
+    /// Open existing data for diagnostics without creating or modifying the source DB.
+    pub fn read_only(path: &Path) -> Result<Self> {
+        let manager=SqliteManager {path:path.to_path_buf(),read_only:true};
+        let pool=Pool::builder(manager).max_size(8).build()?;
+        Ok(Self {pool})
+    }
+
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self { pool }
     }
@@ -90,7 +100,7 @@ pub fn create_sqlite_pool() -> Result<Pool<SqliteManager>> {
         fs::create_dir_all(parent)?;
     }
 
-    let manager = SqliteManager { path: db_path };
+    let manager = SqliteManager { path: db_path, read_only: false };
 
     Pool::builder(manager)
         .max_size(8)
@@ -572,6 +582,24 @@ mod setup_tests {
             .unwrap();
         assert_eq!(id, 42);
         assert!(conn.prepare("SELECT * FROM count").is_err());
+    }
+}
+
+#[cfg(test)]
+mod read_only_tests {
+    use super::*;
+    #[test]
+    fn diagnostic_pool_rejects_writes_and_never_creates_a_missing_database() {
+        let dir=std::env::temp_dir().join(format!("saberbb-read-only-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&dir).unwrap();let path=dir.join("source.db");
+        let conn=Connection::open(&path).unwrap();conn.execute_batch("CREATE TABLE t(value);INSERT INTO t VALUES(1);").unwrap();drop(conn);
+        let db=SqlDb::read_only(&path).unwrap();let conn=db.get_conn().unwrap();
+        assert_eq!(conn.query_row("SELECT value FROM t",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert!(conn.execute("UPDATE t SET value=2",[]).is_err());
+        drop(conn);drop(db);
+        let missing=dir.join("missing.db");let db=SqlDb::read_only(&missing).unwrap();
+        assert!(db.get_conn().is_err());assert!(!missing.exists());drop(db);
+        fs::remove_dir_all(dir).unwrap();
     }
 }
 

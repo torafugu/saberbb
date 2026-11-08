@@ -51,7 +51,7 @@ impl<R: GameRoundRepository> GameService<R> {
 }
 
 /// Shared game loop; ordinary play and explicit-seed diagnostics use identical physics.
-pub(crate) fn simulate_game(schedule:GameSchedule,rng:Box<dyn RandomProvider>,settings:BattingStrategySettings,pitch_budget:Option<u32>,record_contact_states:bool) -> Result<GameResult> {
+pub fn simulate_game(schedule:GameSchedule,rng:Box<dyn RandomProvider>,settings:BattingStrategySettings,pitch_budget:Option<u32>,record_contact_states:bool) -> Result<GameResult> {
     let mut state=GameState::new(rng,schedule)?;
     state.record_contact_states=record_contact_states;
     state.batting_strategy_settings=settings;let mut pitches=0;
@@ -191,11 +191,11 @@ mod tests {
             batter_type: BatterType::ClassicAnalyst,
             zone_aptitude: crate::domain::shared::player::ZoneAptitude::Balanced,
             hot_zone_scale: 0.1,
-            batting_eye: 0.5,
-            swing_speed: 30.0,
-            swing_power: 1.0,
-            attack_angle: 28.0,
-            bat_control: 0.8,
+            batting_eye: 1.0,
+            swing_speed: 32.0,
+            swing_power: 0.5,
+            attack_angle: 10.0,
+            bat_control: 1.0,
             consistency: 0.03,
         });
 
@@ -220,9 +220,9 @@ mod tests {
                 arm_slot: ArmSlot::ThreeQuarter,
                 pitcher_style: PitcherStyle::BalancedPitcher,
                 pitcher_character: PitcherCharacter::Balanced,
-                velocity: 145.0,
+                velocity: 40.8, // Physical m/s, not km/h.
                 spin_rate: 2200.0,
-                control: 10.0,
+                control: 1.0,
                 stamina: 90.0,
                 injury_proneness: 0.1,
                 clutch: 0.6,
@@ -233,7 +233,7 @@ mod tests {
                 pitch_skills: vec![PitchSkill {
                     pitch_type: PitchType::FourSeamFastball,
                     velocity: 1.0,
-                    control: 10.0,
+                    control: 1.0,
                     stamina: 90.0,
                     injury_proneness: 0.1,
                     spin_rate: 1.0,

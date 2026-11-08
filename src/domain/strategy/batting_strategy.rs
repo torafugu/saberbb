@@ -245,8 +245,9 @@ pub fn default_plate_approach(batter_type: BatterType) -> Vec<ItemWeighted<Plate
     plate_approach
 }
 
-// TODO: Consider effects of situation.
-pub fn calculate_attack_angle_modifier(batter_type: BatterType) -> f64 {
+/// Historical direct angle bonus, retained only to interpret pre-fix saved diagnostics.
+/// Live swing execution must not apply this bonus.
+pub fn legacy_attack_angle_modifier(batter_type: BatterType) -> f64 {
     match batter_type {
         BatterType::AggressiveFreeSwinger => 10.0,
         BatterType::ClassicAnalyst => 2.0,
