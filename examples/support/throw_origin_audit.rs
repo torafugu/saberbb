@@ -252,9 +252,9 @@ impl ThrowOriginAudit {
     }
     pub fn json(&self) -> Value {
         let mut v = serde_json::to_value(self).unwrap();
-        v["final_pickup"]["source"] = json!("final_pickup_timing_v1");
+        v["final_pickup"]["source"] = json!("final_pickup_timing_v2");
         v["definitions"] = json!([
-            "Top-level counters retain the error-free DirectFly/BounceCatch cohort. final_pickup separately reconstructs fresh pickup search, position, handling and completion clocks (including captured fumbles and safety fallbacks); it never treats completion-time position as pickup position. Missing old snapshots remain missing. Safety fallback clocks reproduce the existing heuristic, not physical arrival; required-arrival deficits are reported and their throw comparisons are separate.",
+            "Top-level counters retain the error-free DirectFly/BounceCatch cohort. final_pickup separately reconstructs fresh pickup search, position, handling and completion clocks (including captured fumbles and safety fallbacks); it never treats completion-time position as pickup position. Missing old snapshots remain missing. Fallback clocks use their recorded policy: historical missing-policy snapshots replay legacy ball-end time, fresh snapshots require arrival before the unchanged one-second handling delay. Required-arrival deficits and policy counts are reported; fallback throw comparisons remain separate.",
             "The unique selected candidate identifies the thrower; legacy catch_fielder_id holds the receiver ID. Source-roster fielder skills and recorded cutoff/receiver are used; original defense time must reproduce within 1e-7 s.",
             "Change only the origin to the model catch position, using the live timing calculator (direct/relay/run-to-base options); keep target/runner time/fielding time fixed. Missing or nonpositive runner times cannot establish a ruling.",
             "Safe/out flips concern that targeted runner, possibly a lead runner. They do not predict hits, runs, alternate target choices, subsequent throws or full-game outcomes. baseline_matched + baseline_mismatch + missing_inputs = eligible within each throw cohort. FinalPickup clock/search/handling mismatches are excluded before throw comparison. Its target may be a lead runner; flips are not predicted hit conversions."

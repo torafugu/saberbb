@@ -1,8 +1,9 @@
 # FinalPickup clock and throw-origin reconstruction
 
-The existing FinalPickup coverage path remains unchanged. Distance/lane filters,
-search/selection, RNG consumption, processing delays and game rulings are not
-modified. This audit addresses the prior inability to recover the pickup position
+The existing FinalPickup coverage path is retained. Distance/lane filters,
+ordinary pickup search, RNG consumption and handling delays are unchanged.
+The follow-up reachable-fallback correction changes exhausted-search clocks and
+can therefore change handler selection and game outcomes. This audit addresses the prior inability to recover the pickup position
 from a completion clock that already includes handling delay.
 
 ## Command and output
@@ -18,7 +19,7 @@ hash, schedule, seeds and ordinary totals with the previous BIP report.
 
 New output:
 `reports[].bip_diagnostics.throw_origin_counterfactual.final_pickup`, source
-`final_pickup_timing_v1`. Existing top-level DirectFly/BounceCatch comparison
+`final_pickup_timing_v2`. Existing top-level DirectFly/BounceCatch comparison
 counters remain a separate cohort.
 
 ## Recorded provenance and checks
@@ -40,7 +41,7 @@ the same existing approximate ball-state estimator, not a new physical trajector
 or a bypass of candidate filters. The search must select the recorded first
 reachable instant and position. It also reconstructs ordinary .40-second handling,
 moving-cushion .65-second handling, fumble probability/delay from the already-used
-draw, and the existing total_time+1 safety fallback. Picked point, waiting time,
+draw, and safety fallback according to its recorded policy. Picked point, waiting time,
 error, delay, completion clock and recorded `time_to_field` must agree within
 1e-7. A unique selected-candidate identity is required. Failed/absent inputs remain
 status counts and are excluded from throw comparisons.
@@ -50,12 +51,13 @@ pickup/delay summaries, completion residual, model height at pickup, and the
 position shift that would result from mistakenly evaluating at completion time.
 Examples are bounded (first three per status/special case), not random samples.
 
-An arithmetic match is not proof of physical feasibility. Safety fallbacks occur
+An arithmetic match alone is not proof of physical feasibility. Historical safety fallbacks occur
 after the pickup search found no reachable point, yet use the historical
 completion heuristic. `completion_before_required_arrival` and
 `completion_minus_required_arrival_sec` compare recorded completion with
 prep+straight-line movement time to the picked point. Dedicated safety-fallback
-examples expose those cases. Neither movement model nor fallback is repaired here.
+examples expose those cases. The follow-up correction below repairs the fallback arrival bound; the movement
+and approximate ball-state models remain unchanged.
 
 ## Throw sensitivity
 
@@ -73,7 +75,7 @@ No alternate target, subsequent throw, runner decision or game is simulated.
 
 `throw_origin` covers ordinary successful pickup searches.
 `safety_fallback_throw_origin` separately covers reproduced safety fallbacks,
-whose physical arrival may be inconsistent. Each has eligible/missing/matched/
+whose historical physical arrival may be inconsistent. Each has eligible/missing/matched/
 mismatch counts, valid-target denominator, same-target safe/out flips, batter-only
 flips and corrected-minus-recorded time. Targets may be lead runners; a safe/out
 flip is **not** a predicted change in credited hits or full-game outcomes.
@@ -87,7 +89,7 @@ Coverage identities:
 - timing.matched = ordinary throw eligible + fallback throw eligible + no_grounder_play_record
 - For each throw cohort: matched + mismatch + missing_inputs = eligible
 
-## Validation
+## Original diagnostic validation (before fallback correction)
 
 Tests cover moving pickups and pre-delay position, exact completion arithmetic,
 tampered search/time/delay rejection, moving-cushion handling, fumbles, old missing
@@ -120,3 +122,69 @@ this fixture; reproducing the heuristic therefore must not be labeled a feasible
 pickup. The PR preserves that existing behavior and exposes it for separate
 assessment. All 499 library tests excluding the three previously established
 pitching timing/location failures, and all 26 offense-example tests pass.
+
+## Reachable fallback correction
+
+After the bounded search is exhausted, compute the same preparation plus
+straight-line movement time used by the ordinary pickup search, from the
+fielder's actual initial position to the stopped ball. The new pickup instant is
+`max(ball.total_time, required_arrival)`, and completion remains pickup+1 second.
+Keep the existing one-second fallback handling delay, no-draw behavior, fallback
+classification and final-position pickup. This prevents an unreachable fielder
+from beating a reachable covering fielder using an artificially short clock.
+Ordinary search successes, filters, bounce/flight models and throw origins do not
+change. Subsequent game paths/RNG consumption may diverge after handler/ruling
+changes; the fallback itself consumes no added random values.
+
+`PickupTimingDiagnostics.fallback_policy` is `reachable_arrival` on fresh records.
+A missing policy on a historical serialized snapshot defaults to `legacy_ball_end`.
+The diagnostic reproduces the recorded policy and reports
+`timing.by_fallback_policy`; their counts sum to timing.matched. Changing the
+policy tag alone without updating its pickup/completion times is rejected.
+Missing entire snapshots remain missing. The new source label is
+`final_pickup_timing_v2`. No DB columns/migrations or historical data rewrites.
+
+```sh
+export SABERBB_DB="/path/to/saberbb.db"
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > fallback_fixed_360.json
+```
+
+Compare against the previous `final_pickup_timing_360.json` for matching input
+hash, schedule and seeds. Confirm `completion_before_required_arrival=0` and
+inspect handler-position, hit/out, run and fallback counts. Correcting an
+artificially early defense does not guarantee fewer hits or runs. This change is
+not a calibration of offensive balance.
+
+Regression tests reproduce an exhausted catcher search, require arrival before
+one-second handling, verify no RNG draw, and confirm a reachable covering
+outfielder beats the old too-fast catcher. Ordinary pickup, fumble and wall-delay
+checks remain. A compatibility test removes the policy field from a historical
+snapshot and reproduces the legacy clock while flagging its arrival deficit.
+
+### Paired development run after correction
+
+Twelve scheduled games per seed, seeds 7/42/20261108 (36 games per model),
+same input hash `ad53dfab09a5f4b8e47dd9b112751650bcdc6bd4d3676be41bd3c092d43127c0`:
+
+| Metric | Before | Reachable fallback |
+|---|---:|---:|
+| Selected pickup snapshots | 1457 | 1472 |
+| Reproduced pickup clocks | 1457 | 1472 |
+| Selected safety fallbacks | 18 | 0 |
+| Completion before required arrival | 18 | 0 |
+| BIP handled by catcher | 16 | 5 |
+| Recorded outs | 1929 | 1932 |
+| Singles | 905 | 915 |
+| Doubles | 45 | 58 |
+| Home runs | 4 | 5 |
+| Runs | 464 | 488 |
+| Batting average | .3284 | .3339 |
+| RA9 reference | 6.4946 | 6.8199 |
+
+BIP-handler counts and full-game metrics are seeded outcome comparisons, not
+identical-play cohorts: changed selections/rulings alter subsequent game paths.
+The fixed regression separately proves the handler-selection correction for an
+identical ball/roster. A zero count of selected fallbacks does not mean none were
+evaluated: unreachable candidates now lose to reachable covering fielders.
+The source development DB SHA256 is unchanged. These numbers are not the user's
+1080-game dataset, and this correction does not solve the remaining high offense.

@@ -1,7 +1,8 @@
 //! Fresh FinalPickup clocks and positions; reconstruction never consumes play RNG.
 use saberbb::domain::{
     resolver::fielding_physics::{
-        CatchType, FieldError, FieldingCatchDiagnostics, estimate_ball_state_at_time,
+        CatchType, FieldError, FieldingCatchDiagnostics, PickupFallbackPolicy,
+        estimate_ball_state_at_time,
     },
     shared::ball::BattedBall,
     util::PolarPosition,
@@ -102,8 +103,24 @@ pub(super) fn reconstruct(
         if !p.safety_fallback || p.handling_random.is_some() {
             return Err("missing_or_invalid_safety_fallback");
         }
-        let (r, a, _, _, _, _) = estimate_ball_state_at_time(ball.total_time, ball);
-        (ball.total_time, PolarPosition::new(r, a), 1.0, 0.0, None)
+        let (r, a, x, y, _, _) = estimate_ball_state_at_time(ball.total_time, ball);
+        let needed =
+            p.prep_time_sec + ((x - x0).powi(2) + (y - y0).powi(2)).sqrt() / p.running_speed_ms;
+        match p.fallback_policy {
+            PickupFallbackPolicy::LegacyBallEnd => {
+                (ball.total_time, PolarPosition::new(r, a), 1.0, 0.0, None)
+            }
+            PickupFallbackPolicy::ReachableArrival => {
+                let time = ball.total_time.max(needed);
+                (
+                    time,
+                    PolarPosition::new(r, a),
+                    1.0,
+                    (time - needed).max(0.0),
+                    None,
+                )
+            }
+        }
     };
     if !near(sample, p.pickup_time_sec) || !position_near(position, p.pickup_position) {
         return Err("pickup_search_mismatch");
@@ -151,6 +168,7 @@ pub(super) struct PickupTimingAudit {
     completion_minus_required_arrival_sec: Moments,
     completion_before_required_arrival: u64,
     by_selection_path: BTreeMap<String, u64>,
+    by_fallback_policy: BTreeMap<String, u64>,
     by_result: BTreeMap<String, u64>,
     examples: BTreeMap<String, Vec<Value>>,
 }
@@ -183,6 +201,10 @@ impl PickupTimingAudit {
         let position = checked.ok()?;
         self.matched += 1;
         let p = diag.pickup.unwrap();
+        *self
+            .by_fallback_policy
+            .entry(p.fallback_policy.as_ref().into())
+            .or_default() += 1;
         let detail = if p.safety_fallback {
             Some("safety_fallback")
         } else if diag.error_type.is_some() {
@@ -356,10 +378,80 @@ mod tests {
                 let mut audit = PickupTimingAudit::default();
                 audit.record(d, &ball, d.catch_time_sec, Some(7), 1, 1, "Single");
                 assert_eq!(audit.safety_fallbacks, 1);
-                assert_eq!(audit.completion_before_required_arrival, 1);
-                assert!(audit.completion_minus_required_arrival_sec.max.unwrap() < 0.0);
+                assert_eq!(audit.completion_before_required_arrival, 0);
+                assert!(audit.completion_minus_required_arrival_sec.min.unwrap() >= 0.0);
                 assert_eq!(audit.examples["safety_fallback"].len(), 1);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod legacy_policy_tests {
+    use super::*;
+    use saberbb::domain::{
+        random_provider::FixedRng,
+        resolver::fielding_physics::{FieldingSelectionPath, evaluate_final_pickup},
+        shared::{
+            game_state::ActiveFielder,
+            player::{FielderInfo, FielderType, Position},
+        },
+    };
+    #[test]
+    fn missing_policy_on_historical_snapshot_replays_legacy_clock_and_flags_early_arrival() {
+        let ball = BattedBall {
+            total_time: 3.6,
+            final_position: PolarPosition::new(110.0, 0.0),
+            first_bounce_time: Some(1.0),
+            first_bounce_position: Some(PolarPosition::new(60.0, 0.0)),
+            ..BattedBall::default()
+        };
+        let f = ActiveFielder::new(
+            Position::C,
+            7,
+            FielderInfo {
+                fielder_type: FielderType::Catcher,
+                throw_speed: 35.0,
+                running_speed: 7.0,
+                reaction: 0.4,
+                prep_time: 0.6,
+                catching: 0.8,
+                reach_height: 2.5,
+                reach_range: 0.0,
+            },
+        );
+        let caught = evaluate_final_pickup(&mut FixedRng::new(0.9), &ball, &f);
+        let mut d = FieldingCatchDiagnostics {
+            selection_path: FieldingSelectionPath::FinalPickup,
+            fielder_position: Position::C,
+            catch_type: caught.catch_type,
+            error_type: caught.error_type,
+            catch_time_sec: caught.catch_time_sec,
+            catch_z_m: 0.0,
+            waiting_time_sec: caught.waiting_time_sec,
+            first_bounce_time: ball.first_bounce_time,
+            pickup: caught.pickup,
+        };
+        assert!(d.pickup.unwrap().safety_fallback);
+        let mut value = serde_json::to_value(d).unwrap();
+        let p = value["pickup"].as_object_mut().unwrap();
+        p.remove("fallback_policy");
+        p.insert("pickup_time_sec".into(), json!(ball.total_time));
+        value["catch_time_sec"] = json!(ball.total_time + 1.0);
+        d = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            d.pickup.unwrap().fallback_policy,
+            PickupFallbackPolicy::LegacyBallEnd
+        );
+        reconstruct(d, &ball, d.catch_time_sec, Some(7)).unwrap();
+        let mut audit = PickupTimingAudit::default();
+        audit.record(d, &ball, d.catch_time_sec, Some(7), 1, 1, "Out");
+        assert_eq!(audit.completion_before_required_arrival, 1);
+        assert_eq!(audit.by_fallback_policy["legacy_ball_end"], 1);
+        d.pickup.as_mut().unwrap().fallback_policy = PickupFallbackPolicy::ReachableArrival;
+        assert_eq!(
+            reconstruct(d, &ball, d.catch_time_sec, Some(7)),
+            Err("pickup_search_mismatch")
+        );
     }
 }

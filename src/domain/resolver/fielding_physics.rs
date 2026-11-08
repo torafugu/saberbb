@@ -49,6 +49,16 @@ pub enum FieldingSelectionPath {
     FinalPickup,
 }
 
+/// Policy is recorded so diagnostics can distinguish historical fallback clocks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, AsRefStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum PickupFallbackPolicy {
+    #[default]
+    LegacyBallEnd,
+    ReachableArrival,
+}
+
 /// Fresh in-memory pickup provenance. Existing SQL fielding columns do not persist it.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PickupTimingDiagnostics {
@@ -66,6 +76,8 @@ pub struct PickupTimingDiagnostics {
     /// The draw already consumed by gameplay, never a new diagnostic draw.
     pub handling_random: Option<f64>,
     pub safety_fallback: bool,
+    #[serde(default)]
+    pub fallback_policy: PickupFallbackPolicy,
 }
 /// Snapshot of the effective interception; capturing it consumes no random values.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -676,6 +688,7 @@ pub fn evaluate_final_pickup<'a>(
                     handling_delay_sec: final_delay,
                     handling_random: Some(rng_value),
                     safety_fallback: false,
+                    fallback_policy: PickupFallbackPolicy::ReachableArrival,
                 }),
             };
         }
@@ -684,17 +697,22 @@ pub fn evaluate_final_pickup<'a>(
     }
 
     // Fallback (return the final resting position as a safety measure)
-    let (final_r, final_theta, _x, _y, _z, _dir) =
+    let (final_r, final_theta, final_x, final_y, _z, _dir) =
         estimate_ball_state_at_time(ball.total_time, ball);
+    let movement = ((final_x - f_x0).powi(2) + (final_y - f_y0).powi(2)).sqrt();
+    let required_arrival = fielder.info.prep_time + movement / fielder.info.running_speed;
+    // Exhausting the bounded search does not make a distant fielder arrive early.
+    // Preserve the existing fallback handling delay, but start it only after arrival.
+    let pickup_time = ball.total_time.max(required_arrival);
     FielderInterception {
         fielder: fielder,
         catch_type: CatchType::FinalPickup,
         error_type: None,
-        catch_time_sec: ball.total_time + 1.0,
+        catch_time_sec: pickup_time + 1.0,
         catch_distance_m: final_r,
         catch_spray_angle_deg: final_theta,
         catch_z_m: 0.0,
-        waiting_time_sec: 0.0,
+        waiting_time_sec: (pickup_time - required_arrival).max(0.0),
         ball: ball,
         pickup: Some(PickupTimingDiagnostics {
             fielder_id: fielder.id,
@@ -704,11 +722,12 @@ pub fn evaluate_final_pickup<'a>(
             catching: fielder.info.catching,
             search_start_sec: start_time,
             search_step_sec: DT,
-            pickup_time_sec: ball.total_time,
+            pickup_time_sec: pickup_time,
             pickup_position: PolarPosition::new(final_r, final_theta),
             handling_delay_sec: 1.0,
             handling_random: None,
             safety_fallback: true,
+            fallback_policy: PickupFallbackPolicy::ReachableArrival,
         }),
     }
 }
@@ -1261,5 +1280,68 @@ mod air_probe_tests {
             && p.risk_ok_samples == 0 && p.max_margin_sec.is_none()
             && p.first_catch_time_sec.is_none()));
         assert!(probe_airborne_catches(&grounder, &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod reachable_pickup_fallback_tests {
+    use super::*;
+    use crate::domain::{
+        random_provider::{RandomProvider, RealRng},
+        resolver::fielding_resolver::process_fielding,
+        shared::player::Position,
+        test_support::active_fielder,
+    };
+    fn grounder() -> BattedBall {
+        BattedBall {
+            total_time: 3.6,
+            final_position: PolarPosition::new(110.0, 0.0),
+            first_bounce_time: Some(1.0),
+            first_bounce_position: Some(PolarPosition::new(60.0, 0.0)),
+            max_height: 0.1,
+            ..BattedBall::default()
+        }
+    }
+    #[test]
+    fn exhausted_search_waits_for_arrival_then_preserves_one_second_delay_without_rng() {
+        let ball = grounder();
+        let fielder = active_fielder(Position::C, 0.0, 0.0);
+        let mut rng = RealRng::from_seed(7);
+        let mut expected = RealRng::from_seed(7);
+        let caught = evaluate_final_pickup(&mut rng, &ball, &fielder);
+        let p = caught.pickup.unwrap();
+        let needed = fielder.info.prep_time + 110.0 / fielder.info.running_speed;
+        assert!(p.safety_fallback);
+        assert_eq!(p.fallback_policy, PickupFallbackPolicy::ReachableArrival);
+        assert_eq!(p.pickup_time_sec, needed);
+        assert_eq!(caught.catch_time_sec, needed + 1.0);
+        assert!(caught.catch_time_sec > ball.total_time + 10.0);
+        assert_eq!(p.handling_delay_sec, 1.0);
+        assert_eq!(p.pickup_position, ball.final_position);
+        assert_eq!(rng.random(), expected.random());
+    }
+    #[test]
+    fn unreachable_catcher_does_not_beat_reachable_covering_outfielder() {
+        let ball = grounder();
+        let mut catcher = active_fielder(Position::C, 0.0, 0.0);
+        catcher.id = 1;
+        let mut center = active_fielder(Position::CF, 150.0, 0.0);
+        center.id = 2;
+        let fielders = [catcher, center];
+        let mut rng = RealRng::from_seed(7);
+        let mut expected = RealRng::from_seed(7);
+        let result = process_fielding(&mut rng, &fielders, &ball).unwrap();
+        assert_eq!(result.selection_path, FieldingSelectionPath::FinalPickup);
+        assert_eq!(result.result().fielder.id, 2);
+        let p = result.diagnostics().pickup.unwrap();
+        assert!(!p.safety_fallback);
+        assert_eq!(p.handling_delay_sec, 0.4);
+        assert!(result.result().catch_time_sec > ball.total_time + 1.0); // Legacy catcher used to win at 4.6s.
+        assert!(
+            result.result().catch_time_sec
+                < fielders[0].info.prep_time + 110.0 / fielders[0].info.running_speed + 1.0
+        );
+        expected.random();
+        assert_eq!(rng.random(), expected.random());
     }
 }
