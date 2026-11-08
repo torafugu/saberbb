@@ -11,8 +11,14 @@ pub struct Standing {
     pub draws: u16,
     pub pct: f32,
     pub gb: f32,
-    pub r: u16,
-    pub ra: u16,
+    pub r: u32,
+    pub ra: u32,
+    pub remaining: u32,
+    pub homeruns: u32,
+    pub steals: u32,
+    pub ba: Option<f64>,
+    pub era: Option<f64>,
+    pub errors: u32,
 }
 
 #[derive(Debug, Validate)]

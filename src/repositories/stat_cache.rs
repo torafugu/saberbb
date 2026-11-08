@@ -10,7 +10,8 @@ use std::sync::Mutex;
 static CACHE_BUILD: Mutex<()> = Mutex::new(());
 
 pub fn ensure_schema(conn:&Connection)->Result<()> {
-    conn.execute_batch(include_str!("../../migrations/upgrades/add_stat_cache.sql"))?;Ok(())
+    conn.execute_batch(include_str!("../../migrations/upgrades/add_stat_cache.sql"))?;
+    super::team_stat_cache::ensure_schema(conn)?;Ok(())
 }
 // Separate keyed SQL avoids an OR predicate that would force a full log scan per game.
 fn scope(sql:&str,keyed:bool)->String {
@@ -70,13 +71,15 @@ pub fn refresh_game(conn:&Connection,game:u32)->Result<()> {
     fill(conn,Some(game))?;
     affected.extend(affected_players(conn,game)?);affected.sort_unstable();affected.dedup();
     for player in affected {refresh_totals(conn,Some(player))?;}
+    super::team_stat_cache::refresh_game(conn,game)?;
     Ok(())
 }
 fn rebuild_in_transaction(conn:&Connection)->Result<()> {
     conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;")?;
     fill(conn,None)?;
     refresh_totals(conn,None)?;
-    conn.execute("UPDATE stat_cache_state SET version=2,ready=1 WHERE id=1",[])?;Ok(())
+    super::team_stat_cache::rebuild(conn)?;
+    conn.execute("UPDATE stat_cache_state SET version=3,ready=1 WHERE id=1",[])?;Ok(())
 }
 fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
     let exists: bool = conn.query_row(
@@ -84,7 +87,7 @@ fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
         [], |row| row.get(0),
     )?;
     if !exists { return Ok(false); }
-    Ok(conn.query_row("SELECT version=2 AND ready=1 FROM stat_cache_state WHERE id=1", [], |row| row.get(0))
+    Ok(conn.query_row("SELECT version=3 AND ready=1 FROM stat_cache_state WHERE id=1", [], |row| row.get(0))
         .optional()?.unwrap_or(false))
 }
 
@@ -115,7 +118,8 @@ pub fn rebuild(db: &DbClient) -> Result<()> {
     Ok(())
 }
 pub fn clear(conn:&Connection)->Result<()> {
-    ensure_schema(conn)?;conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;UPDATE stat_cache_state SET version=2,ready=1 WHERE id=1;")?;Ok(())
+    super::team_stat_cache::clear(conn)?;
+    ensure_schema(conn)?;conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;UPDATE stat_cache_state SET version=3,ready=1 WHERE id=1;")?;Ok(())
 }
 
 #[cfg(test)]
@@ -127,13 +131,17 @@ mod tests {
         ensure_schema(&conn).unwrap();conn
     }
     fn seed(conn: &Connection) {
-        conn.execute_batch("CREATE TABLE player_game_batting(game_id INTEGER,count_seq INTEGER,batter_id INTEGER,pitcher_id INTEGER,result TEXT);
+        conn.execute_batch("CREATE TABLE game(id INTEGER PRIMARY KEY,away_team_id INTEGER,home_team_id INTEGER,actual_date TEXT,away_points INTEGER,home_points INTEGER);
+            INSERT INTO game VALUES(1,1,2,'2026-04-01',1,0),(2,1,2,'2026-04-02',2,0);
+            CREATE TABLE player_game_running(game_id INTEGER,count_seq INTEGER,event TEXT,ruling TEXT);
+            CREATE TABLE player_game_fielding(game_id INTEGER,count_seq INTEGER,error_type TEXT);
+            CREATE TABLE player_game_batting(game_id INTEGER,count_seq INTEGER,batter_id INTEGER,pitcher_id INTEGER,result TEXT);
             CREATE TABLE player_game_pitching(game_id INTEGER,count_seq INTEGER,pitcher_id INTEGER);
-            CREATE TABLE count(game_id INTEGER,seq INTEGER,inning_seq INTEGER,inning_tb TEXT,point INTEGER);
+            CREATE TABLE count(game_id INTEGER,seq INTEGER,inning_seq INTEGER,inning_tb TEXT,point INTEGER,out INTEGER DEFAULT 1);
             CREATE TABLE player_game_pitching_decision(game_id INTEGER,pitcher_id INTEGER,decision TEXT);
             INSERT INTO player_game_batting VALUES(1,1,1,10,'Single'),(1,2,1,10,'Strikeout'),(2,1,1,10,'Double');
             INSERT INTO player_game_pitching VALUES(1,1,10),(1,2,10),(2,1,10);
-            INSERT INTO count VALUES(1,1,1,'Top',1),(1,2,1,'Top',0),(2,1,1,'Top',2);
+            INSERT INTO count(game_id,seq,inning_seq,inning_tb,point) VALUES(1,1,1,'Top',1),(1,2,1,'Top',0),(2,1,1,'Top',2);
             INSERT INTO player_game_pitching_decision VALUES(1,10,'Win');").unwrap();
     }
     #[test]
@@ -164,7 +172,7 @@ mod tests {
         let conn=fixture();rebuild_in_transaction(&conn).unwrap();
         assert_eq!(conn.query_row("SELECT ab FROM batting_stat_totals",[],|r|r.get::<_,i64>(0)).unwrap(),3);
         clear(&conn).unwrap();
-        for table in ["game_batting_stat_cache","game_pitching_stat_cache","batting_stat_totals","pitching_stat_totals"] {
+        for table in ["game_batting_stat_cache","game_pitching_stat_cache","batting_stat_totals","pitching_stat_totals","game_team_stat_cache","team_stat_totals"] {
             assert_eq!(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),0);
         }
     }
@@ -221,7 +229,7 @@ mod tests {
     #[test]
     fn no_played_games_returns_empty_ready_cache() {
         let (db, path) = file_db();
-        db.get_conn().unwrap().execute_batch("DELETE FROM player_game_batting; DELETE FROM player_game_pitching; DELETE FROM player_game_pitching_decision; DELETE FROM count;").unwrap();
+        db.get_conn().unwrap().execute_batch("DELETE FROM player_game_batting; DELETE FROM player_game_pitching; DELETE FROM player_game_pitching_decision; DELETE FROM count; DELETE FROM game;").unwrap();
         ensure_ready(&db).unwrap();
         let conn = db.get_conn().unwrap();
         assert!(is_ready(&conn).unwrap());

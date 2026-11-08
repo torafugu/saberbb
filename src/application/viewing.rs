@@ -60,17 +60,10 @@ pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result
     let includes_player = |id: i64| catalog.player_teams.get(&id).is_some_and(|id| catalog.includes_team(*id, league, team));
     match kind {
         1 => {
-            let mut standings = repo.load_standings()?;
-            standings.retain(|s| catalog.includes_team(s.team.id, league, team));
-            standings.sort_by(|a,b| b.pct.total_cmp(&a.pct).then_with(|| b.wins.cmp(&a.wins)).then_with(|| a.team.id.cmp(&b.team.id)));
-            // Signed differences support a leader with fewer played games and an empty DB.
-            let leader = standings.first().map(|s| (s.wins as f32, s.losses as f32));
-            let rows = standings.iter().map(|s| {
-                let gb = leader.map(|(w,l)| ((w-s.wins as f32)+(s.losses as f32-l))/2.0).unwrap_or(0.0);
-                vec![s.team.name.to_string(),s.games.to_string(),s.wins.to_string(),s.losses.to_string(),s.draws.to_string(),format!("{:.3}",s.pct),format!("{gb:.1}")]
-            }).collect();
-            Ok(TableData::new("順位表", &["チーム","試合","勝","敗","分","勝率","ゲーム差"], rows))
+            let standings = repo.load_standings()?;
+            Ok(standings_table(standings,league,team,catalog))
         }
+
         2 => {
             let stats = if team == 0 { repo.load_batting_stats()? } else { repo.load_team_batting_stats(team)? };
             let rows = stats.into_iter().filter(|s| includes_player(s.batter.info.id)).map(|s|
@@ -84,6 +77,32 @@ pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result
             Ok(TableData::new("投手成績", &["選手","登板","回","勝","敗","S","H","ERA","SO","BB"], rows))
         }
     }
+}
+
+fn decimal_rate(value:f64)->String {
+    let value=format!("{value:.3}");
+    value.strip_prefix('0').unwrap_or(&value).to_string()
+}
+fn standings_table(mut standings:Vec<crate::domain::shared::stats::Standing>,league:u16,team:u16,catalog:&Catalog)->TableData {
+    standings.sort_by(|a,b|b.pct.total_cmp(&a.pct).then_with(||b.wins.cmp(&a.wins)).then_with(||a.team.id.cmp(&b.team.id)));
+    let mut leaders=HashMap::new();
+    let mut ranks=HashMap::new();
+    let mut rows=Vec::new();
+    for s in standings {
+        let team_league=catalog.teams.iter().find(|t|t.id==s.team.id).map(|t|t.league).unwrap_or(0);
+        let (w,l)=*leaders.entry(team_league).or_insert((s.wins as f32,s.losses as f32));
+        let state=ranks.entry(team_league).or_insert((0u32,-1.0f32,0u16,0u32));
+        state.0+=1;
+        if state.1!=s.pct || state.2!=s.wins {state.3=state.0;}
+        state.1=s.pct;state.2=s.wins;
+        let rank=state.3;
+        if !catalog.includes_team(s.team.id,league,team){continue;}
+        let gb=((w-s.wins as f32)+(s.losses as f32-l))/2.0;
+        rows.push(vec![rank.to_string(),s.team.name.to_string(),s.games.to_string(),s.wins.to_string(),s.losses.to_string(),s.draws.to_string(),
+            decimal_rate(s.pct as f64),format!("{gb:.1}"),s.remaining.to_string(),s.r.to_string(),s.ra.to_string(),s.homeruns.to_string(),s.steals.to_string(),
+            s.ba.map(decimal_rate).unwrap_or_else(||"—".into()),s.era.map(|v|format!("{v:.2}")).unwrap_or_else(||"—".into()),s.errors.to_string()]);
+    }
+    TableData::new("順位表", &["順位","チーム","試合","勝","敗","分","勝率","ゲーム差","残試合","得点","失点","本塁打","盗塁","打率","防御率","失策"],rows)
 }
 
 pub fn scoreboard(board: &ScoreBoard) -> TableData {
@@ -148,4 +167,21 @@ mod tests {
         assert_eq!(table.rows[0],vec!["A","0","0","0"]);
         assert_eq!(table.rows[1],vec!["B","1","x","1"]);
     }
+    #[test]
+    fn rate_display_omits_only_leading_zero_and_preserves_one() {
+        assert_eq!(decimal_rate(0.0),".000");assert_eq!(decimal_rate(0.125),".125");
+        assert_eq!(decimal_rate(2.0/3.0),".667");assert_eq!(decimal_rate(1.0),"1.000");
+    }
+    #[test]
+    fn standings_keep_rank_and_gap_when_filtering_a_team() {
+        use crate::domain::shared::{stats::Standing,team::Team};
+        let catalog=Catalog {leagues:vec![],teams:vec![Choice{id:1,name:"A".into(),league:1},Choice{id:2,name:"B".into(),league:1}],seasons:vec![],player_teams:HashMap::new()};
+        let standing=|id,wins,losses| Standing {team:Team::min(id,"Team"),games:wins+losses,wins,losses,draws:0,pct:wins as f32/(wins+losses) as f32,gb:0.0,
+            r:10,ra:5,remaining:3,homeruns:1,steals:2,ba:Some(0.25),era:Some(2.5),errors:1};
+        let table=standings_table(vec![standing(1,8,2),standing(2,6,4)],1,2,&catalog);
+        assert_eq!(table.columns.len(),16);assert_eq!(table.rows.len(),1);
+        assert_eq!(table.rows[0][0],"2");assert_eq!(table.rows[0][6],".600");assert_eq!(table.rows[0][7],"2.0");
+        assert_eq!(table.rows[0][13],".250");assert_eq!(table.rows[0][14],"2.50");
+    }
+
 }
