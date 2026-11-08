@@ -1034,6 +1034,7 @@ mod tests {
             ",
         )
         .unwrap();
+        conn.execute_batch(include_str!("../../migrations/ddl/player_game_running_table.sql")).unwrap();
         conn.execute_batch(
             &include_str!("../../migrations/ddl/player_game_fielding_table.sql")
                 .replace("DROP TABLE player_game_fielding;", ""),

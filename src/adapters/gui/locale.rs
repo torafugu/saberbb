@@ -62,6 +62,8 @@ pub fn translate(source:&str,language:Language)->String {
         "途中まで保存された結果は保持されます。進捗を確認してから再実行してください。"=>"Previously saved work is retained. Check progress before retrying.",
         "表示できるデータがありません。管理画面で作成・進行できます。"=>"No data available. Create characters, schedule or process games from Management.",
         "監督未配置（管理画面の選手・監督作成で補充できます）"=>"No manager assigned. Generate players & managers in Management to fill vacancies.",
+        "順位"=>"Rank", "残試合"=>"Remaining", "得点"=>"Runs", "失点"=>"Runs allowed", "盗塁"=>"SB", "打率"=>"AVG", "防御率"=>"ERA", "失策"=>"Errors",
+        "防御率は失点と記録アウト数による参考値です（自責点は未記録）。"=>"ERA is a reference value based on runs allowed and recorded outs; earned runs are not recorded.",
         _=>source,
     };
     translated.into()

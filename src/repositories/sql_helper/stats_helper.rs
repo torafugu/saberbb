@@ -22,8 +22,14 @@ impl FromRow for Standing {
             draws: row.get("draws").map_err(|e| AppError::Database(e))?,
             pct: row.get("pct").map_err(|e| AppError::Database(e))?,
             gb: 0.0,
-            r: 0,
-            ra: 0,
+            r: row.get("runs")?,
+            ra: row.get("runs_allowed")?,
+            remaining: row.get("remaining")?,
+            homeruns: row.get("homeruns")?,
+            steals: row.get("steals")?,
+            ba: row.get("ba")?,
+            era: row.get("era")?,
+            errors: row.get("errors")?,
         };
 
         standings.validate()?;

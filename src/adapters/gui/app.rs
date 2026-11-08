@@ -80,6 +80,8 @@ fn Statistics(kind:u8, catalog:Catalog, league:u16, team:u16, refresh:u32) -> El
     rsx! { match data.read().as_ref() {
         None=>rsx!{p {class:"loading",{tr("成績を読み込み中…（初回のみ集計します）")}}},
         Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
-        Some(Ok(table))=>rsx!{DataTable {data:table.clone(),initial_sort:if kind==1 {None}else{Some((1,true))}}},
+        Some(Ok(table))=>rsx!{
+            if kind==1 {p {class:"small-note",{tr("防御率は失点と記録アウト数による参考値です（自責点は未記録）。")}}}
+            DataTable {data:table.clone(),initial_sort:if kind==1 {None}else{Some((1,true))}}},
     } }
 }

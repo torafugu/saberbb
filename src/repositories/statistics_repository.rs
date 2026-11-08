@@ -49,50 +49,23 @@ impl SqlStatRepository {
 impl StatRepository for SqlStatRepository {
     #[tracing::instrument(skip(self), err)]
     fn load_standings(&self) -> Result<Vec<Standing>, AppError> {
-        let query = "SELECT 
-                            team_id,
-                            team_name,
-                            SUM(games) AS games,
-                            SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS wins,
-                            SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) AS losses,
-                            SUM(CASE WHEN result = 'draw' THEN 1 ELSE 0 END) AS draws,
-                            COALESCE(ROUND(CAST(SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS FLOAT) / NULLIF(SUM(games), 0), 3), 0.0) AS pct
-                            FROM (
-                                SELECT 
-                                    home_team_id AS team_id,
-                                    t_home.name AS team_name,
-                                    CASE 
-                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN 0 ELSE 1
-                                    END AS games,
-                                    CASE 
-                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN NULL
-                                        WHEN home_points > away_points THEN 'win'
-                                        WHEN home_points < away_points THEN 'loss'
-                                    ELSE 'draw'
-                                    END AS result
-                                FROM game
-                            LEFT JOIN 
-		                        Team t_home ON game.home_team_id = t_home.id
-                            UNION ALL
-                                SELECT 
-                                    away_team_id AS team_id,
-                                    t_away.name AS team_name,
-                                    CASE 
-                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN 0 ELSE 1
-                                    END AS games,
-                                    CASE 
-                                        WHEN actual_date IS NULL OR actual_date = '1900-01-01' THEN NULL
-                                        WHEN away_points > home_points THEN 'win'
-                                        WHEN away_points < home_points THEN 'loss'
-                                    ELSE 'draw'
-                                    END AS result
-                                FROM game
-                                LEFT JOIN 
-		                            Team t_away ON game.away_team_id = t_away.id
-                            ) AS combined_results
-                            GROUP BY team_id
-                            ORDER BY pct DESC, wins DESC";
-        self.db_client.query_rows::<Standing>(query, params![])
+        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        self.db_client.query_rows("WITH pending AS (
+            SELECT team_id,COUNT(*) AS remaining FROM (
+                SELECT away_team_id AS team_id FROM game WHERE actual_date IS NULL OR actual_date='1900-01-01'
+                UNION ALL SELECT home_team_id FROM game WHERE actual_date IS NULL OR actual_date='1900-01-01'
+            ) GROUP BY team_id
+        ) SELECT t.id AS team_id,t.name AS team_name,COALESCE(s.games,0) AS games,
+            COALESCE(s.wins,0) AS wins,COALESCE(s.losses,0) AS losses,COALESCE(s.draws,0) AS draws,
+            COALESCE(CAST(s.wins AS REAL)/NULLIF(s.wins+s.losses,0),0.0) AS pct,
+            COALESCE(p.remaining,0) AS remaining,COALESCE(s.runs,0) AS runs,
+            COALESCE(s.runs_allowed,0) AS runs_allowed,COALESCE(s.homeruns,0) AS homeruns,
+            COALESCE(s.steals,0) AS steals,COALESCE(s.errors,0) AS errors,
+            CAST(s.hits AS REAL)/NULLIF(s.at_bats,0) AS ba,
+            CAST(s.runs_allowed AS REAL)*27.0/NULLIF(s.pitching_outs,0) AS era
+            FROM team t LEFT JOIN team_stat_totals s ON s.team_id=t.id
+            LEFT JOIN pending p ON p.team_id=t.id
+            ORDER BY pct DESC,wins DESC,t.id",params![])
     }
 
     fn load_batting_stats(&self) -> Result<Vec<BattingStats>,AppError> { self.cached_batting(None) }
@@ -266,8 +239,9 @@ mod tests {
             ",
         )
         .unwrap();
+        conn.execute_batch("CREATE TABLE player_game_running(game_id INTEGER,count_seq INTEGER,event TEXT,ruling TEXT);
+            CREATE TABLE player_game_fielding(game_id INTEGER,count_seq INTEGER,error_type TEXT);").unwrap();
         drop(conn);
-
         let manager = SqliteManager::from_path(path.clone());
         let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
         (
@@ -639,11 +613,30 @@ mod tests {
     fn warmed_statistics_do_not_read_pitch_logs() {
         let (repo,path)=setup_repo();
         seed_player_info(&repo,1,"First","Last");
+        seed_team(&repo,1,"Team");
         // First read backfills an empty database. Subsequent reads need only totals and names.
         assert!(repo.load_batting_stats().unwrap().is_empty());
-        conn(&repo).execute_batch("DROP TABLE player_game_batting;DROP TABLE player_game_pitching;DROP TABLE player_game_pitching_decision;DROP TABLE count;").unwrap();
+        conn(&repo).execute_batch("DROP TABLE player_game_batting;DROP TABLE player_game_pitching;DROP TABLE player_game_pitching_decision;DROP TABLE count;DROP TABLE player_game_running;DROP TABLE player_game_fielding;").unwrap();
         assert!(repo.load_batting_stats().unwrap().is_empty());
         assert!(repo.load_pitching_stats().unwrap().is_empty());
+        assert_eq!(repo.load_standings().unwrap().len(),1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn standings_include_pending_games_runs_and_cached_team_rates() {
+        let (repo,path)=setup_repo();
+        seed_team(&repo,1,"Away");seed_team(&repo,2,"Home");seed_team(&repo,3,"No games");
+        seed_game(&repo,1,1,2,Some(4),Some(2),Some("2026-04-01"));
+        seed_game(&repo,2,1,2,None,None,None);
+        seed_count(&repo,1,1,"Top",1,1);seed_count(&repo,1,1,"Bottom",2,0);
+        seed_player_game_batting(&repo,1,1,20,10,"HomeRun");
+        let rows=repo.load_standings().unwrap();
+        let away=rows.iter().find(|r|r.team.id==1).unwrap();
+        assert_eq!((away.remaining,away.r,away.ra,away.homeruns),(1,4,2,1));
+        assert_eq!(away.ba,Some(1.0));assert_eq!(away.era,Some(54.0));
+        let empty=rows.iter().find(|r|r.team.id==3).unwrap();
+        assert_eq!(empty.ba,None);assert_eq!(empty.era,None);assert_eq!(empty.remaining,0);
         std::fs::remove_file(path).ok();
     }
 

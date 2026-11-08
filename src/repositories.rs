@@ -10,3 +10,5 @@ pub mod batting_personnel_repository;
 pub mod manager_repository;
 
 pub mod stat_cache;
+
+pub mod team_stat_cache;

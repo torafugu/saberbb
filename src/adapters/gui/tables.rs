@@ -36,7 +36,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
             }
             if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理画面で作成・進行できます。")} } }
             div { class: "table-scroll",
-                table {
+                table { class:if data.title=="順位表" {"standings-table"}else{""},
                     thead { tr {
                         for (i, column) in data.columns.iter().enumerate() {
                             th { aria_sort: if sort().is_some_and(|(c,_)|c==i) { if sort().unwrap().1 { "descending" } else { "ascending" } } else { "none" },

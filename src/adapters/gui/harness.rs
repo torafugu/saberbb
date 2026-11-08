@@ -70,6 +70,12 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     anyhow::ensure!(h.html().contains("aria-sort=\"descending\""),"descending sort did not update");
     h.save(output,"batting")?;
     h.click("nav-1").await?;anyhow::ensure!(h.html().contains("ゲーム差"),"standings failed");
+    for label in ["残試合","得点","失点","本塁打","盗塁","打率","防御率","失策"] {anyhow::ensure!(h.html().contains(label),"missing standings column: {label}");}
+    h.save(output,"standings")?;
+    h.click("language-en-US").await?;
+    anyhow::ensure!(h.html().contains("Remaining") && h.html().contains("Runs allowed"),"standings English labels missing");
+    h.save(output,"standings-english")?;
+    h.click("language-ja-JP").await?;
     h.click("nav-3").await?;anyhow::ensure!(h.html().contains("ERA"),"pitching statistics failed");
     h.input("team-filter","change",&team.to_string()).await?;
     h.click("nav-4").await?;

@@ -426,3 +426,44 @@ Existing affected databases can remove diagnostics without completed parent game
 using `migrations/upgrades/remove_orphaned_game_diagnostics.sql`; this preserves
 completed-game diagnostics, results, rosters and schedules. Do not use `--setup`
 as a repair command on a database whose existing game data should be retained.
+
+### Expanded standings
+
+The GUI standings follow the column order of the
+[Sports Navi standings](https://baseball.yahoo.co.jp/npb/standings/): rank, team,
+games, wins, losses, draws, winning percentage, games behind, remaining games,
+runs, runs allowed, home runs, stolen bases, batting average, ERA, and errors.
+Rank and team remain visible while horizontally scrolling. Win percentages and
+team batting averages omit the leading zero (`.625`, `.250`); `1.000` remains
+unchanged. Rates without a denominator display `—` (winning percentage remains
+`.000` without a decisive game).
+
+The existing all-saved-games scope remains unchanged. Remaining games count all
+created but unplayed schedules, including future seasons; it is not a fixed
+league game limit minus games played. Ranking and games behind are calculated
+within each league before applying the team viewing filter.
+
+`game_team_stat_cache` and `team_stat_totals` are updated in the game-result save
+transaction. Team attribution uses the game header and each count's top/bottom
+side, preserving history when players change teams. A version-3 cache backfill
+runs once on existing databases; `--rebuild-stats`, setup and season reset include
+these new derived tables. Subsequent standings reads use saved team totals and
+lightweight schedule counts, without reading detailed batting/running/fielding
+logs, contact states or fielder-candidate diagnostics.
+
+Team statistics use the following recorded information:
+
+- Runs/runs allowed: completed game scores; home runs: batting results.
+- Stolen bases: successful `BaseSteal` events; caught stealing and tag-ups excluded.
+- Batting average: hits divided by completed at-bat outcomes (`Single`, `Double`,
+  `Triple`, `HomeRun`, `Strikeout`, `Out`, `FieldersChoice`, `DoublePlay`). Takes,
+  intermediate strikes, fouls, walks and HBP are excluded. Sacrifice plays are
+  not separately classified by the current engine. Existing individual-player
+  AB/AVG definitions are unchanged.
+- ERA: **reference run-average**, runs allowed × 27 / recorded defensive outs.
+  Earned runs are not yet stored. Outs come from the maximum recorded cumulative
+  outs in each defensive half-inning; partial walk-off innings count only their
+  recorded outs. This limitation is disclosed in the GUI.
+- Errors: fielding records with an `error_type` other than NULL/empty/`None`.
+  This is the engine's recorded fielding-error count, not an external scorer's
+  ruling. Filtered/non-selected fielder-candidate diagnostics are not counted.
