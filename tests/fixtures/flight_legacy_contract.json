@@ -1,0 +1,189 @@
+{
+  "cases": [
+    {
+      "input": [
+        25.0,
+        -20.0,
+        0.0,
+        400.0,
+        0.0
+      ],
+      "output": {
+        "fence_impact_position": null,
+        "fence_impact_time": null,
+        "final_position": {
+          "angle": -0.05970254535220841,
+          "distance": 24.031658564866305,
+          "x": -0.02504112759987184,
+          "y": 24.03164551836267
+        },
+        "first_bounce_position": {
+          "angle": -0.004403457316314333,
+          "distance": 2.346416270070442,
+          "x": -0.00018033342017852955,
+          "y": 2.346416263140695
+        },
+        "first_bounce_time": 0.09999999999999999,
+        "launch_angle": -20.0,
+        "launch_speed": 25.0,
+        "max_height": 0.9,
+        "outbound_result": "InField",
+        "spin_angle": 0.0,
+        "spin_rate": 400.0,
+        "total_time": 1.6300000000000012
+      }
+    },
+    {
+      "input": [
+        45.0,
+        20.0,
+        0.0,
+        2600.0,
+        0.0
+      ],
+      "output": {
+        "fence_impact_position": null,
+        "fence_impact_time": null,
+        "final_position": {
+          "angle": -0.20366052625975728,
+          "distance": 120.02626676146355,
+          "x": -0.4266380767646101,
+          "y": 120.0255085081728
+        },
+        "first_bounce_position": null,
+        "first_bounce_time": null,
+        "launch_angle": 20.0,
+        "launch_speed": 45.0,
+        "max_height": 17.911848443773287,
+        "outbound_result": "HomeRun",
+        "spin_angle": 0.0,
+        "spin_rate": 2600.0,
+        "total_time": 3.1299999999999772
+      }
+    },
+    {
+      "input": [
+        45.0,
+        30.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output": {
+        "fence_impact_position": null,
+        "fence_impact_time": null,
+        "final_position": {
+          "angle": -0.161581943123518,
+          "distance": 120.00719070102122,
+          "x": -0.3384362604671023,
+          "y": 120.00671348240846
+        },
+        "first_bounce_position": null,
+        "first_bounce_time": null,
+        "launch_angle": 30.0,
+        "launch_speed": 45.0,
+        "max_height": 24.81715443451976,
+        "outbound_result": "HomeRun",
+        "spin_angle": 0.0,
+        "spin_rate": 0.0,
+        "total_time": 3.3099999999999734
+      }
+    },
+    {
+      "input": [
+        40.0,
+        10.0,
+        60.0,
+        2600.0,
+        90.0
+      ],
+      "output": {
+        "fence_impact_position": null,
+        "fence_impact_time": null,
+        "final_position": {
+          "angle": 62.49217016955813,
+          "distance": 38.35373097008712,
+          "x": 34.01775439194803,
+          "y": 17.714430994387616
+        },
+        "first_bounce_position": null,
+        "first_bounce_time": null,
+        "launch_angle": 10.0,
+        "launch_speed": 40.0,
+        "max_height": 3.2694976751755394,
+        "outbound_result": "Foul",
+        "spin_angle": 90.0,
+        "spin_rate": 2600.0,
+        "total_time": 1.0000000000000007
+      }
+    },
+    {
+      "input": [
+        40.0,
+        25.0,
+        -20.0,
+        2000.0,
+        180.0
+      ],
+      "output": {
+        "fence_impact_position": null,
+        "fence_impact_time": null,
+        "final_position": {
+          "angle": -20.081972309421204,
+          "distance": 118.25101112314384,
+          "x": -40.603163663501356,
+          "y": 111.06162583071081
+        },
+        "first_bounce_position": {
+          "angle": -20.059462418132423,
+          "distance": 97.04050580025942,
+          "x": -33.2844263402521,
+          "y": 91.15375323688276
+        },
+        "first_bounce_time": 2.7899999999999845,
+        "launch_angle": 25.0,
+        "launch_speed": 40.0,
+        "max_height": 12.154735727986184,
+        "outbound_result": "GroundRuleDouble",
+        "spin_angle": 180.0,
+        "spin_rate": 2000.0,
+        "total_time": 3.6699999999999657
+      }
+    },
+    {
+      "input": [
+        30.0,
+        0.0,
+        170.0,
+        400.0,
+        270.0
+      ],
+      "output": {
+        "fence_impact_position": {
+          "angle": 169.8724991350481,
+          "distance": 10.003662739700363,
+          "x": 1.759036536797587,
+          "y": -9.847794609549924
+        },
+        "fence_impact_time": 0.34000000000000014,
+        "final_position": {
+          "angle": 169.8724991350481,
+          "distance": 10.128089121314721,
+          "x": 1.7809155782143442,
+          "y": -9.970282290515502
+        },
+        "first_bounce_position": null,
+        "first_bounce_time": null,
+        "launch_angle": 0.0,
+        "launch_speed": 30.0,
+        "max_height": 0.9,
+        "outbound_result": "Foul",
+        "spin_angle": 270.0,
+        "spin_rate": 400.0,
+        "total_time": 0.34000000000000014
+      }
+    }
+  ],
+  "engine_source_sha256": "bcd034b62ae83fe44e04e311c9cdf2c9e82b67d90268568b1b8bba9815e25a05",
+  "source": "pre_environment_refactor"
+}

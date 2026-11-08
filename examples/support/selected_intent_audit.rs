@@ -20,6 +20,20 @@ use saberbb::domain::{
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+fn ball_radius_m() -> f64 {
+    finite::CollisionParameters::frozen(0.5, 0.07).ball_radius
+}
+fn height_category(z: f64) -> &'static str {
+    if !z.is_finite() {
+        "non_finite"
+    } else if z < 0.0 {
+        "center_below_ground"
+    } else if z < ball_radius_m() {
+        "sphere_intersects_ground"
+    } else {
+        "clear_of_ground"
+    }
+}
 fn legacy_kind(b: Option<&PlayerGameBatting>) -> &'static str {
     match b.map(|b| b.adjusted_contact_type) {
         Some(
@@ -43,6 +57,7 @@ struct Row<'a> {
     baseline: Option<Outcome>,
     band: Option<String>,
     contact_point: Option<[f64; 3]>,
+    reference_z: Option<f64>,
     checks: BTreeMap<String, f64>,
 }
 impl<'a> Row<'a> {
@@ -61,6 +76,7 @@ impl<'a> Row<'a> {
             baseline: None,
             band: None,
             contact_point: None,
+            reference_z: None,
             checks: BTreeMap::new(),
         }
     }
@@ -85,6 +101,7 @@ fn evaluate<'a>(
     let Some(state) = record.state.as_ref() else {
         return Ok(row);
     };
+    row.reference_z = Some(state.input.ball_position_world_m[2]);
     if let Some(observed) = state.observed_intent_plans.as_ref() {
         row.intent = format!("{:?}", observed.decision.selected_intent);
         if let Some(reason) = &observed.invalid_reason {
@@ -304,6 +321,12 @@ struct Cohort {
     contact_x_m: Moments,
     contact_y_m: Moments,
     contact_z_m: Moments,
+    reference_z_m: Moments,
+    reference_height_statuses: BTreeMap<String, u64>,
+    contact_height_statuses: BTreeMap<String, u64>,
+    height_transitions: BTreeMap<String, BTreeMap<String, u64>>,
+    ground_valid_outcomes: Group,
+    ground_invalid_outcomes: Group,
     axial_m: Moments,
     normal_z: Moments,
     centerline_speed_ms: Moments,
@@ -334,7 +357,27 @@ impl Cohort {
             self.binary_comparable += 1;
             self.binary_agree += u64::from(agree);
         }
+        self.reference_z_m.add(row.reference_z);
+        let reference_category = row.reference_z.map(height_category).unwrap_or("no_state");
+        let contact_category = row
+            .contact_point
+            .map(|p| height_category(p[2]))
+            .unwrap_or("no_geometry");
+        *self
+            .reference_height_statuses
+            .entry(reference_category.into())
+            .or_default() += 1;
+        *self
+            .contact_height_statuses
+            .entry(contact_category.into())
+            .or_default() += 1;
         if let Some(point) = row.contact_point {
+            *self
+                .height_transitions
+                .entry(reference_category.into())
+                .or_default()
+                .entry(contact_category.into())
+                .or_default() += 1;
             self.contact_x_m.add(Some(point[0]));
             self.contact_y_m.add(Some(point[1]));
             self.contact_z_m.add(Some(point[2]));
@@ -352,6 +395,11 @@ impl Cohort {
         }
         if let Some(outcome) = row.outcome {
             self.outcomes.add(outcome);
+            if contact_category == "clear_of_ground" {
+                self.ground_valid_outcomes.add(outcome);
+            } else {
+                self.ground_invalid_outcomes.add(outcome);
+            }
             let status = if row.baseline.is_some() {
                 "paired"
             } else if row.legacy == "contact" {
@@ -395,6 +443,8 @@ pub struct SelectedAudit {
     by_intent: BTreeMap<String, Cohort>,
     by_contact_band: BTreeMap<String, Cohort>,
     by_legacy_quality: BTreeMap<String, Cohort>,
+    by_height: BTreeMap<String, Cohort>,
+    invalid_ground_examples: BTreeMap<String, Vec<Value>>,
     checks_max: BTreeMap<String, f64>,
     examples: BTreeMap<String, Vec<Value>>,
 }
@@ -458,10 +508,24 @@ impl SelectedAudit {
                     .or_default()
                     .add(&row);
             }
+            if let Some(point) = row.contact_point {
+                self.by_height
+                    .entry(format!("{}|{}", row.intent, height_category(point[2])))
+                    .or_default()
+                    .add(&row);
+            }
             for (key, v) in &row.checks {
                 let m = self.checks_max.entry(key.clone()).or_default();
                 *m = m.max(*v);
             }
+            let sample = || {
+                json!({"game_id":game.id,"count_seq":record.count_seq,"batter_id":batter,"legacy":row.legacy,
+                "legacy_quality":row.quality,"search_status":row.search_status,"collision_status":row.collision_status,
+                "reference_position_world_m":record.state.as_ref().map(|s|s.input.ball_position_world_m),
+                "reference_velocity_world_ms":record.state.as_ref().map(|s|s.input.ball_velocity_world_ms),
+                "contact_height_category":row.contact_point.map(|p|height_category(p[2])),
+                "contact_point_world_m":row.contact_point,"selected_search":row.search,"selected_evaluation":row.evaluation})
+            };
             let examples = self
                 .examples
                 .entry(format!(
@@ -472,9 +536,19 @@ impl SelectedAudit {
                 ))
                 .or_default();
             if examples.len() < 2 {
-                examples.push(json!({"game_id":game.id,"count_seq":record.count_seq,"batter_id":batter,"legacy":row.legacy,
-                    "legacy_quality":row.quality,"search_status":row.search_status,"collision_status":row.collision_status,
-                    "contact_point_world_m":row.contact_point,"selected_search":row.search,"selected_evaluation":row.evaluation}));
+                examples.push(sample());
+            }
+            if let Some(point) = row
+                .contact_point
+                .filter(|p| height_category(p[2]) != "clear_of_ground")
+            {
+                let examples = self
+                    .invalid_ground_examples
+                    .entry(format!("{}|{}", row.intent, height_category(point[2])))
+                    .or_default();
+                if examples.len() < 2 {
+                    examples.push(sample());
+                }
             }
         }
         Ok(())
@@ -486,13 +560,15 @@ impl SelectedAudit {
                 .map(|(k, v)| (k.clone(), v.json()))
                 .collect::<BTreeMap<_, _>>()
         };
-        json!({"source":"selected_intent_forward_3d_v1","finite_model":finite::MODEL,"search_settings":ContactSearchSettings::default(),
+        json!({"source":"selected_intent_forward_3d_v2","finite_model":finite::MODEL,"search_settings":ContactSearchSettings::default(),
             "swing_records":self.records,"legacy_join_coverage":self.legacy_joins,"by_intent":groups(&self.by_intent),
             "by_intent_and_contact_band":groups(&self.by_contact_band),"by_intent_and_legacy_quality":groups(&self.by_legacy_quality),
+            "ball_radius_m":ball_radius_m(),"by_intent_and_height_validity":groups(&self.by_height),"invalid_ground_examples":self.invalid_ground_examples,
             "physics_checks_max":self.checks_max,"examples":self.examples,
             "definitions":["All recorded swings, including legacy misses, are the source denominator; takes have no contact state. Only the selected Intent is aggregated. Missing/duplicate legacy joins are unknown, never misses.",
                 "Agreement contact is a successful forward search (including unsupported caps), miss is only no_contact. Unresolved/overlap_at_start/unavailable remain distinct and are excluded from binary agreement. Every source swing has one search status and one final collision/flight status.",
                 "Use selected observed ExecutionSwingPlan geometry/velocity/time and existing finite collision response, not a pose inferred from legacy offsets. Decisions/identity/unique selection and settings must agree. Re-derived selected collision input/control/response must exactly reproduce stored diagnostics; physics identity residuals must be <=1e-7.",
+                "Ground validity classifies the searched ball center: z<0 is center_below_ground, 0<=z<ball_radius is sphere_intersects_ground, z>=ball_radius is clear_of_ground. Existing outcomes are retained; ground_valid/invalid_outcomes partition accepted flights. Reference-to-contact height transitions and dedicated invalid samples trace the origin; no clamping or live behavior changes.",
                 "Contact bands cover geometric contacts even when collision/flight is unavailable. Outcomes cover accepted selected 3-D flights including those on legacy misses. paired_live/paired_3d cover only accepted flights with a reproducible live contact baseline; they exclude legacy misses and cannot represent all swings.",
                 "Flight uses the existing standard impact height (.90m) and home-plate origin, not the searched 3-D contact position. Launch metrics/normal/velocity come directly from the 3-D collision; actual contact point is reported separately. Transverse spin drives flight; total/gyro spin are reported separately. Geometry and dynamics are still diagnostic model assumptions, not measured reality. Non-foul includes HR/automatic doubles, not predicted hits. No downstream fielding/running or alternate game is replayed.",
                 "States are collected only for one in-memory game and discarded after aggregation. No DB/contact-state writes. Existing deterministic sensor noise is keyed by game/count and does not consume the game RNG; match ordinary game reports to verify recording parity.",
@@ -558,6 +634,81 @@ mod tests {
             state: Some(state),
         });
         (schedule, game)
+    }
+    #[test]
+    fn below_ground_contact_has_dedicated_examples_and_preserves_shadow_flight() {
+        let (schedule, mut game) = fixture(0);
+        let state = game.player_contact_states[0].state.as_mut().unwrap();
+        // Translate ball and execution pivots together; local contact geometry/velocity is unchanged.
+        state.input.ball_position_world_m[2] -= 2.0;
+        for plan in &mut state
+            .observed_intent_plans
+            .as_mut()
+            .unwrap()
+            .intent_plans
+            .as_mut()
+            .unwrap()
+            .plans
+        {
+            if let Some(plan) = &mut plan.execution_plan {
+                plan.start_pivot_world_m[2] -= 2.0;
+            }
+        }
+        let mut audit = SelectedAudit::default();
+        audit.observe(&schedule, &game).unwrap();
+        let v = audit.json();
+        let c = &v["by_intent"]["LineDrive"];
+        assert_eq!(c["contact_height_statuses"]["center_below_ground"], 1);
+        assert_eq!(c["outcomes"]["all"]["n"], 1);
+        assert_eq!(c["ground_invalid_outcomes"]["all"]["n"], 1);
+        assert_eq!(c["ground_valid_outcomes"]["all"]["n"], 0);
+        let examples = v["invalid_ground_examples"]["LineDrive|center_below_ground"]
+            .as_array()
+            .unwrap();
+        assert_eq!(examples.len(), 1);
+        assert!(examples[0]["contact_point_world_m"][2].as_f64().unwrap() < 0.0);
+    }
+    #[test]
+    fn height_boundaries_use_ball_center_and_radius_without_clamping() {
+        assert_eq!(height_category(-0.1), "center_below_ground");
+        assert_eq!(height_category(0.0), "sphere_intersects_ground");
+        assert_eq!(
+            height_category(ball_radius_m() - 1e-8),
+            "sphere_intersects_ground"
+        );
+        assert_eq!(height_category(ball_radius_m()), "clear_of_ground");
+        assert_eq!(height_category(f64::NAN), "non_finite");
+    }
+    #[test]
+    fn invalid_height_keeps_original_outcome_and_has_separate_valid_cohort() {
+        use saberbb::domain::shared::ball::BattedBall;
+        let mut row = Row::new(None);
+        row.reference_z = Some(-0.2);
+        row.contact_point = Some([0.0, 0.0, -0.1]);
+        row.search_status = "contact".into();
+        row.collision_status = "accepted_flight".into();
+        row.outcome = Some(Outcome {
+            ball: BattedBall::default(),
+            hla: 0.0,
+            total_spin: None,
+            gyro_spin: None,
+        });
+        let mut c = Cohort::default();
+        c.add(&row);
+        let v = c.json();
+        assert_eq!(v["outcomes"]["all"]["n"], 1);
+        assert_eq!(v["ground_invalid_outcomes"]["all"]["n"], 1);
+        assert_eq!(v["ground_valid_outcomes"]["all"]["n"], 0);
+        assert_eq!(
+            v["height_transitions"]["center_below_ground"]["center_below_ground"],
+            1
+        );
+        row.contact_point = Some([0.0, 0.0, 0.1]);
+        c.add(&row);
+        let v = c.json();
+        assert_eq!(v["outcomes"]["all"]["n"], 2);
+        assert_eq!(v["ground_invalid_outcomes"]["all"]["n"], 1);
+        assert_eq!(v["ground_valid_outcomes"]["all"]["n"], 1);
     }
     #[test]
     fn aggregates_only_selected_response_without_mutating_or_inventing_legacy_join() {

@@ -100,6 +100,9 @@ pub enum GameError {
     #[error("Too long process time of calculate_trajectory")]
     TimeOut,
 
+    #[error("Invalid trajectory diagnostic environment")]
+    InvalidTrajectoryEnvironment,
+
     #[error("No fieldes to pick up the batted ball")]
     NoFieldersToPickUp,
 

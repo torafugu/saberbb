@@ -670,3 +670,17 @@ This flag collects raw shadow states for one game at a time in memory and saves
 none to the database. It includes legacy misses, separates unresolved searches
 and model exclusions, and preserves ordinary results. See [cohorts, assumptions
 and validation](docs/diagnostics/selected_intent_3d_audit.md).
+
+### Fixed-launch flight and ground-validity checks
+
+Run a database-free comparison of live flight, a measurement-fitted published
+reference, drag/lift controls, spin-decay sensitivity and vacuum:
+
+```sh
+cargo run --release --example flight_audit > flight_audit.json
+```
+
+The selected-Intent audit now also reports below-ground/sphere-intersection
+counts, reference-to-contact height transitions, separate ground-clear outcomes
+and dedicated examples. Original outcomes and gameplay are preserved. See
+[reference assumptions, controls and findings](docs/diagnostics/flight_and_ground_validity.md).
