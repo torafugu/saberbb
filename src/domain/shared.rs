@@ -17,3 +17,5 @@ pub mod finite_bat_collision;
 pub mod intent_collision_response;
 
 pub mod batting_personnel;
+
+pub mod frozen_contact_collision;
