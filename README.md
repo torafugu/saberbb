@@ -374,3 +374,12 @@ cargo run -- --rebuild-stats
 Rebuilds replace derived values; they do not add counts twice or alter raw pitch
 records. `--setup` and `--sampleyear` clear all derived tables with the game data.
 Neither the backfill nor display queries read `player_game_contact_state`.
+
+Concurrent first-time statistics requests share one backfill within the application;
+changing tabs or filters waits for that backfill instead of starting another writer.
+No new games are needed to build statistics from existing logs. A database with no
+played games displays empty statistics. Pooled connections wait up to 30 seconds
+for locks held by other database work/processes; a persistent lock requires ending
+the other transaction and refreshing, not resetting the database. To precompute
+an existing database before opening the GUI, close other writers and run
+`cargo run -- --rebuild-stats` once.

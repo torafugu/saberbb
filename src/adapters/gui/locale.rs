@@ -20,6 +20,7 @@ pub fn translate(source:&str,language:Language)->String {
         "再読み込み"=>"Refresh", "↻ 再読み込み"=>"↻ Refresh", "リーグ"=>"League", "チーム"=>"Team", "全リーグ"=>"All leagues", "全チーム"=>"All teams",
         "管理操作はTUIへ"=>"Manage in the TUI", "集計範囲：保存済み全試合（通算）"=>"Scope: all saved games (career)", "同じローカルDBから表示"=>"Using the same local database",
         "データベースを読み込み中…"=>"Loading database…", "成績を読み込み中…（初回のみ集計します）"=>"Loading statistics… (one-time backfill on first use)",
+        "別の処理がDBを使用中です。集計・試合保存の完了を待ち、DB編集ツールのトランザクションを終了して再読み込みしてください。"=>"The database is in use. Wait for statistics or game saves to finish, end transactions in database editing tools, then refresh.",
         "読み込みできませんでした"=>"Unable to load data", "DB設定と初期化を確認し、再読み込みしてください。"=>"Check your database settings and setup, then refresh.",
         "選手・チームを検索…"=>"Search players or teams…", "表を検索"=>"Search table", "前へ"=>"Previous", "次へ"=>"Next",
         "表示できるデータがありません。管理TUIで作成・進行した後、再読み込みしてください。"=>"No data available. Create and process games in the management TUI, then refresh.",

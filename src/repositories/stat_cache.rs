@@ -1,7 +1,13 @@
 //! Derived, per-game additive statistics. Rates are calculated after summing counts.
 use crate::repositories::db::DbClient;
 use anyhow::Result;
-use rusqlite::{Connection,TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+use std::sync::Mutex;
+
+// Dioxus resource cancellation does not stop an already-running blocking task.
+// Serialize cold backfills across repositories so switching tabs cannot start
+// another writer that times out while the first backfill is still running.
+static CACHE_BUILD: Mutex<()> = Mutex::new(());
 
 pub fn ensure_schema(conn:&Connection)->Result<()> {
     conn.execute_batch(include_str!("../../migrations/upgrades/add_stat_cache.sql"))?;Ok(())
@@ -72,20 +78,41 @@ fn rebuild_in_transaction(conn:&Connection)->Result<()> {
     refresh_totals(conn,None)?;
     conn.execute("UPDATE stat_cache_state SET version=2,ready=1 WHERE id=1",[])?;Ok(())
 }
-pub fn ensure_ready(db:&DbClient)->Result<()> {
-    let mut conn=db.get_conn()?;
-    // Fast path does not acquire a write lock or scan any pitch records.
-    let ready:Option<i64>=conn.query_row("SELECT version=2 AND ready=1 FROM stat_cache_state WHERE id=1",[],|r|r.get(0)).ok();
-    if ready==Some(1){return Ok(());}
-    let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    ensure_schema(&tx)?;
-    let ready:bool=tx.query_row("SELECT version=2 AND ready=1 FROM stat_cache_state WHERE id=1",[],|r|r.get(0))?;
-    if !ready {rebuild_in_transaction(&tx)?;}
-    tx.commit()?;Ok(())
+fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='stat_cache_state')",
+        [], |row| row.get(0),
+    )?;
+    if !exists { return Ok(false); }
+    Ok(conn.query_row("SELECT version=2 AND ready=1 FROM stat_cache_state WHERE id=1", [], |row| row.get(0))
+        .optional()?.unwrap_or(false))
 }
-pub fn rebuild(db:&DbClient)->Result<()> {
-    let mut conn=db.get_conn()?;let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    ensure_schema(&tx)?;rebuild_in_transaction(&tx)?;tx.commit()?;Ok(())
+
+pub fn ensure_ready(db: &DbClient) -> Result<()> {
+    // Warm displays remain read-only and do not wait for the initialization gate.
+    {
+        let conn = db.get_conn()?;
+        if is_ready(&conn)? { return Ok(()); }
+    }
+    let _build = CACHE_BUILD.lock().unwrap_or_else(|p| p.into_inner());
+    let mut conn = db.get_conn()?;
+    // The worker ahead of us may have finished while we waited, even if its UI
+    // resource was cancelled. Recheck before asking SQLite for a write lock.
+    if is_ready(&conn)? { return Ok(()); }
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    ensure_schema(&tx)?;
+    if !is_ready(&tx)? { rebuild_in_transaction(&tx)?; }
+    tx.commit()?;
+    Ok(())
+}
+pub fn rebuild(db: &DbClient) -> Result<()> {
+    let _build = CACHE_BUILD.lock().unwrap_or_else(|p| p.into_inner());
+    let mut conn = db.get_conn()?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    ensure_schema(&tx)?;
+    rebuild_in_transaction(&tx)?;
+    tx.commit()?;
+    Ok(())
 }
 pub fn clear(conn:&Connection)->Result<()> {
     ensure_schema(conn)?;conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;UPDATE stat_cache_state SET version=2,ready=1 WHERE id=1;")?;Ok(())
@@ -96,6 +123,10 @@ mod tests {
     use super::*;
     fn fixture()->Connection {
         let conn=Connection::open_in_memory().unwrap();
+        seed(&conn);
+        ensure_schema(&conn).unwrap();conn
+    }
+    fn seed(conn: &Connection) {
         conn.execute_batch("CREATE TABLE player_game_batting(game_id INTEGER,count_seq INTEGER,batter_id INTEGER,pitcher_id INTEGER,result TEXT);
             CREATE TABLE player_game_pitching(game_id INTEGER,count_seq INTEGER,pitcher_id INTEGER);
             CREATE TABLE count(game_id INTEGER,seq INTEGER,inning_seq INTEGER,inning_tb TEXT,point INTEGER);
@@ -104,7 +135,6 @@ mod tests {
             INSERT INTO player_game_pitching VALUES(1,1,10),(1,2,10),(2,1,10);
             INSERT INTO count VALUES(1,1,1,'Top',1),(1,2,1,'Top',0),(2,1,1,'Top',2);
             INSERT INTO player_game_pitching_decision VALUES(1,10,'Win');").unwrap();
-        ensure_schema(&conn).unwrap();conn
     }
     #[test]
     fn refresh_is_idempotent_and_replaces_contributions_in_totals() {
@@ -138,4 +168,67 @@ mod tests {
             assert_eq!(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),0);
         }
     }
+    fn file_db() -> (DbClient, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!("saberbb-cache-lock-{}-{}.db", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let pool = deadpool::managed::Pool::builder(crate::repositories::db::SqliteManager::from_path(path.clone()))
+            .max_size(8).build().unwrap();
+        let db = DbClient { db: crate::repositories::db::SqlDb::from_pool(pool) };
+        let conn = db.get_conn().unwrap();
+        assert_eq!(conn.query_row("PRAGMA busy_timeout", [], |r| r.get::<_, i64>(0)).unwrap(), 30_000);
+        seed(&conn);
+        drop(conn);
+        (db, path)
+    }
+    #[test]
+    fn existing_logs_backfill_once_under_concurrent_requests_without_new_games() {
+        let (db, path) = file_db();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8).map(|_| {
+            let db = db.clone(); let barrier = barrier.clone();
+            std::thread::spawn(move || { barrier.wait(); ensure_ready(&db).unwrap(); })
+        }).collect();
+        for worker in workers { worker.join().unwrap(); }
+        let conn = db.get_conn().unwrap();
+        assert!(is_ready(&conn).unwrap());
+        assert_eq!(conn.query_row("SELECT ab FROM batting_stat_totals WHERE player_id=1", [], |r| r.get::<_,i64>(0)).unwrap(), 3);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM game_pitching_stat_cache", [], |r| r.get::<_,i64>(0)).unwrap(), 2);
+        drop(conn); drop(db); std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn cold_request_waits_for_active_backfill_instead_of_sqlite_timeout() {
+        let (db, path) = file_db();
+        // Emulate a long-running first initializer. A following resource must wait
+        // at the process gate rather than time out trying BEGIN IMMEDIATE again.
+        let build = CACHE_BUILD.lock().unwrap_or_else(|p| p.into_inner());
+        let mut conn = db.get_conn().unwrap();
+        ensure_schema(&conn).unwrap();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let waiting_db = db.clone();
+        let worker = std::thread::spawn(move || {
+            waiting_db.get_conn().unwrap().busy_timeout(std::time::Duration::from_millis(10)).unwrap();
+            send.send(ensure_ready(&waiting_db)).unwrap();
+        });
+        let premature = receive.recv_timeout(std::time::Duration::from_millis(150));
+        rebuild_in_transaction(&tx).unwrap(); tx.commit().unwrap();
+        drop(build);
+        assert!(matches!(premature, Err(std::sync::mpsc::RecvTimeoutError::Timeout)), "initializer must wait for the current builder");
+        receive.recv_timeout(std::time::Duration::from_secs(5)).unwrap().unwrap();
+        worker.join().unwrap();
+        drop(conn); drop(db); std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn no_played_games_returns_empty_ready_cache() {
+        let (db, path) = file_db();
+        db.get_conn().unwrap().execute_batch("DELETE FROM player_game_batting; DELETE FROM player_game_pitching; DELETE FROM player_game_pitching_decision; DELETE FROM count;").unwrap();
+        ensure_ready(&db).unwrap();
+        let conn = db.get_conn().unwrap();
+        assert!(is_ready(&conn).unwrap());
+        for table in ["batting_stat_totals", "pitching_stat_totals"] {
+            assert_eq!(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get::<_,i64>(0)).unwrap(), 0);
+        }
+        drop(conn); drop(db); std::fs::remove_file(path).unwrap();
+    }
+
 }

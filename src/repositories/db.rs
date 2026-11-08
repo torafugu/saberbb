@@ -25,7 +25,11 @@ impl Manager for SqliteManager {
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Connection, rusqlite::Error> {
-        Connection::open(&self.path)
+        let conn = Connection::open(&self.path)?;
+        // A game save or a separate process may briefly own SQLite's writer lock.
+        // Set this explicitly on every pooled connection (SQLite defaults vary).
+        conn.busy_timeout(std::time::Duration::from_secs(30))?;
+        Ok(conn)
     }
 
     async fn recycle(

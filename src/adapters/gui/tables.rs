@@ -65,9 +65,17 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
     }
 }
 
+fn error_help(message: &str) -> &'static str {
+    if message.contains("database is locked") || message.contains("database is busy") {
+        "別の処理がDBを使用中です。集計・試合保存の完了を待ち、DB編集ツールのトランザクションを終了して再読み込みしてください。"
+    } else {
+        "DB設定と初期化を確認し、再読み込みしてください。"
+    }
+}
+
 #[component]
 pub(super) fn ErrorPanel(message: String) -> Element {
-    rsx! { div { class: "error", role: "alert", h3 { {tr("読み込みできませんでした")} } p { "{message}" } p { {tr("DB設定と初期化を確認し、再読み込みしてください。")} } } }
+    rsx! { div { class: "error", role: "alert", h3 { {tr("読み込みできませんでした")} } p { "{message}" } p { {tr(error_help(&message))} } } }
 }
 
 #[cfg(all(test, feature="gui-tests"))]
@@ -86,5 +94,15 @@ mod tests {
         let mut dom = VirtualDom::new(fixture); dom.rebuild_in_place();
         let html = dioxus_ssr::render(&dom);
         assert!(html.contains("<table")); assert!(html.contains("&#60;script&#62;")); assert!(!html.contains("<script>alert"));
+    }
+}
+
+#[cfg(test)]
+mod lock_error_tests {
+    #[test]
+    fn locked_database_does_not_suggest_initializing_the_database() {
+        let help = super::error_help("Internal error: database is locked: Error code 5");
+        assert!(help.contains("完了を待ち"));
+        assert!(!help.contains("初期化"));
     }
 }
