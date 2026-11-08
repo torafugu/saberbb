@@ -636,3 +636,7 @@ logging, no DB writes, and no changes to physics, running or fielding coefficien
 A missing flag key means zero occurrences; samples are illustrative, not randomly
 representative. See [BIP diagnostic findings](docs/diagnostics/bip_conversion_audit.md)
 for coverage, parity checks and the initial development fixture findings.
+
+For a frozen-contact HLA component comparison and same-target throw-origin timing
+comparison, add `--contact-direction-diagnostics` alongside `--bip-diagnostics`.
+See [definitions, limitations and running clock correction](docs/diagnostics/contact_direction_audit.md).

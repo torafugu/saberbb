@@ -234,10 +234,17 @@ impl BipAudit {
                         runners
                             .batter_runner_time_to(Base::Third, false, batter.batting_side)
                             .ok(),
+                        runners
+                            .batter_runner_time_to(Base::Second, true, batter.batting_side)
+                            .ok(),
+                        runners
+                            .batter_runner_time_to(Base::Third, true, batter.batting_side)
+                            .ok(),
                     )
                 })
             });
-            let (first, second, third) = runner_times.unwrap_or((None, None, None));
+            let (first, second, third, second_plan, third_plan) =
+                runner_times.unwrap_or((None, None, None, None, None));
             self.batter_first_sec.add(first);
             self.batter_second_no_lag_sec.add(second);
             self.batter_third_no_lag_sec.add(third);
@@ -370,6 +377,7 @@ impl BipAudit {
                 "ball_final_position":b.ball.final_position,"ball_first_bounce_time_sec":b.ball.first_bounce_time,
                 "modeled_catch_position":modeled_catch,"target_straight_line_distance_gap_m":target_distance_gap,"fielding":f,"running":running,
                 "batter_first_with_lag_sec":first,"batter_second_no_lag_sec":second,"batter_third_no_lag_sec":third,
+                "batter_second_plan_with_lag_sec":second_plan,"batter_third_plan_with_lag_sec":third_plan,
                 "candidate_count":candidates.len(),"probe_risk_ok_candidate_count":candidates.iter().filter(|c|c.diagnostics.air_probe.is_some_and(|p|p.risk_ok_samples>0)).count()});
             if b.ball.outbound_result == OutboundResult::GroundRuleDouble {
                 self.coverage("automatic_ground_rule_doubles");
@@ -434,7 +442,7 @@ impl BipAudit {
                 .filter(|r| r.target_runner_id == Some(b.batter_id) && r.ruling == Ruling::Out)
             {
                 if r.throw_target_base == Base::Second
-                    && second.is_some_and(|t| r.defense_time > t)
+                    && second_plan.is_some_and(|t| r.defense_time > t)
                     && r.defense_time < r.runner_time
                 {
                     self.flag(
@@ -443,7 +451,7 @@ impl BipAudit {
                     );
                 }
                 if r.throw_target_base == Base::Third
-                    && third.is_some_and(|t| r.defense_time > t)
+                    && third_plan.is_some_and(|t| r.defense_time > t)
                     && r.defense_time < r.runner_time
                 {
                     self.flag(
@@ -467,7 +475,7 @@ impl BipAudit {
                     self.flag("single_batter_out_trying_second", &sample);
                 }
                 if f.is_some_and(|f| f.catch_fielder_position.is_outfielder())
-                    && defense_time.zip(second).is_some_and(|(d, t)| d > t)
+                    && defense_time.zip(second_plan).is_some_and(|(d, t)| d > t)
                 {
                     self.flag("outfield_single_second_plan_threshold_met", &sample);
                     if !running.is_some_and(|r| {
@@ -500,7 +508,7 @@ impl BipAudit {
             "definitions":["BIP denominator: Single/Double/Triple/Out/FieldersChoice/DoublePlay; HR and nonterminal fouls excluded. Automatic ground-rule doubles remain in the denominator and are separately counted.",
                 "Contact population includes all recorded contact types before foul/HR exclusion, while BIP tables include only terminal BIP outcomes. Group n is plays, not outs; double plays are one BIP. Timings have independent n; missing values never become zero.",
                 "target_runner_margin_sec = recorded defense_time - recorded runner_time only for a known target with positive runner_time; >=0 means Safe. The target may be a lead runner, not the batter.",
-                "Batter first-base timing includes the live acceleration lag; second/third no-lag timings match the current outfield RunningPlan thresholds, not alternative throw simulations.",
+                "Batter first-base timing includes the live acceleration lag; second/third no-lag timings expose legacy RunningPlan thresholds; current planning includes acceleration. Plan-threshold flags use current acceleration-aware times, also included in samples. These are not alternative throw simulations.",
                 "Trajectory uses the live spin-adjusted classifier. Model catch positions use the fielding estimator, not the original physical integration; errors/fumbles and FinalPickup (which has an unrecorded pickup delay) are excluded from position reconstruction.",
                 "Live throw timing currently references ball.final_position; the modeled catch/final gap is diagnostic evidence, not a corrected throw time. Target straight-line gaps do not model cutoff/receiving/run-to-base choices.",
                 "Risk-ok air probes are counterfactual search diagnostics, not guaranteed catches or proof of a fielding bug. Samples are the first four per flag, not a representative random sample."]})

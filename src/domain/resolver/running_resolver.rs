@@ -824,9 +824,9 @@ impl RunnersOnBase {
         defense_play_result: &DefensePlayResult,
         batting_side: RL,
     ) -> Result<RunnerAdvanceResult, GameError> {
-        let batter_to_second_time =
-            self.batter_runner_time_to(Base::Second, false, batting_side)?;
-        let batter_to_third_time = self.batter_runner_time_to(Base::Third, false, batting_side)?;
+        // Planning and judging must use the same acceleration-aware arrival clock.
+        let batter_to_second_time = self.batter_runner_time_to(Base::Second, true, batting_side)?;
+        let batter_to_third_time = self.batter_runner_time_to(Base::Third, true, batting_side)?;
 
         let running_plan = RunningPlan::set(
             defense_play_result.defense_time,
@@ -1409,6 +1409,73 @@ mod tests {
         assert_eq!(result.runs_scored, 0);
         assert!(result.unsaved_runners.runner_1st.is_some());
         assert!(result.unsaved_runners.runner_2nd.is_some());
+        assert!(result.unsaved_runners.runner_3rd.is_some());
+    }
+
+    #[test]
+    fn outfield_planning_holds_at_first_during_second_base_acceleration_gap() {
+        for side in [RL::Left, RL::Right] {
+            let runners = runners(Some(runner(8.0)), None, None, None);
+            let no_lag = runners
+                .batter_runner_time_to(Base::Second, false, side)
+                .unwrap();
+            let with_lag = runners
+                .batter_runner_time_to(Base::Second, true, side)
+                .unwrap();
+            for time in [(no_lag + with_lag) / 2.0, with_lag] {
+                let result = runners
+                    .after_outfield_hit(
+                        &defense_result(Base::Second, PlayType::TouchPlay, 2.0, time),
+                        side,
+                    )
+                    .unwrap();
+                assert_eq!(result.batting_result, BattingResult::Single);
+                assert_eq!(result.ruling, Ruling::Safe);
+                assert!(result.unsaved_runners.runner_1st.is_some());
+                assert!(result.unsaved_runners.runner_2nd.is_none());
+            }
+            let result = runners
+                .after_outfield_hit(
+                    &defense_result(Base::Second, PlayType::TouchPlay, 2.0, with_lag + 0.01),
+                    side,
+                )
+                .unwrap();
+            assert_eq!(result.batting_result, BattingResult::Double);
+            assert_eq!(result.ruling, Ruling::Safe);
+            assert!(result.unsaved_runners.runner_2nd.is_some());
+        }
+    }
+
+    #[test]
+    fn outfield_planning_holds_at_second_during_third_base_acceleration_gap() {
+        let runners = runners(Some(runner(8.0)), Some(runner(7.0)), None, None);
+        let no_lag = runners
+            .batter_runner_time_to(Base::Third, false, RL::Left)
+            .unwrap();
+        let with_lag = runners
+            .batter_runner_time_to(Base::Third, true, RL::Left)
+            .unwrap();
+        let result = runners
+            .after_outfield_hit(
+                &defense_result(
+                    Base::Third,
+                    PlayType::TouchPlay,
+                    2.0,
+                    (no_lag + with_lag) / 2.0,
+                ),
+                RL::Left,
+            )
+            .unwrap();
+        assert_eq!(result.batting_result, BattingResult::Double);
+        assert!(result.unsaved_runners.runner_2nd.is_some());
+        let result = runners
+            .after_outfield_hit(
+                &defense_result(Base::Third, PlayType::TouchPlay, 2.0, with_lag + 0.01),
+                RL::Left,
+            )
+            .unwrap();
+        assert_eq!(result.batting_result, BattingResult::Triple);
+        assert_eq!(result.ruling, Ruling::Safe);
         assert!(result.unsaved_runners.runner_3rd.is_some());
     }
 
