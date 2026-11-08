@@ -14,7 +14,9 @@ impl Harness {
     }
     async fn settle(&mut self) {
         let edits=self.dom.render_immediate_to_vec();self.apply(edits);
-        for _ in 0..1200 {
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(120);
+        loop {
+            assert!(std::time::Instant::now()<deadline,"GUI did not settle within 120 seconds");
             if tokio::time::timeout(std::time::Duration::from_millis(100),self.dom.wait_for_work()).await.is_err(){
                 if self.html().contains("class=\"loading\"") || self.html().contains("class=\"job-banner\"") {continue;} else {break;}
             }
@@ -129,9 +131,9 @@ pub async fn snapshot_management(output: &Path) -> anyhow::Result<()> {
     h.click("manage-generate-run").await?;
     anyhow::ensure!(count("player_info")? == 0 && count("team_manager")? > 0,"generate 0 did not fill only manager vacancies");
     let managers=count("manager")?;
-    h.input("manage-generate-amount","input","180").await?;
+    h.input("manage-generate-amount","input","600").await?;
     h.click("manage-generate-run").await?;
-    anyhow::ensure!(count("player_info")? == 180 && count("manager")? == managers,"generation duplicated managers or lost players");
+    anyhow::ensure!(count("player_info")? == 600 && count("manager")? == managers,"generation duplicated managers or lost players");
     h.click("manage-schedule-run").await?;
     anyhow::ensure!(count("game")? > 0,"GUI scheduling did not save games");
     // Dispatch a second click and navigate before the worker completes. The root
@@ -147,7 +149,7 @@ pub async fn snapshot_management(output: &Path) -> anyhow::Result<()> {
     h.save(output,"management-process-result")?;
     h.click("nav-0").await?;
     let round:i64=db.get_conn()?.query_row("SELECT current_round_seq FROM game_season",[],|r|r.get(0))?;
-    anyhow::ensure!(round==2,"duplicate click ran another round: {round}");
+    anyhow::ensure!(round==2,"expected exactly one completed round, current_round_seq={round}; inspect management-process-result.html");
     anyhow::ensure!(count("player_game_batting")? > 0 && count("player_game_contact_state")? == 0,"normal GUI processing recorded contact diagnostics or saved no games");
     anyhow::ensure!(h.html().contains("game-card"),"completed games did not appear after automatic refresh");
     h.click("nav-5").await?;

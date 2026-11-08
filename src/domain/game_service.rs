@@ -370,6 +370,38 @@ mod tests {
     }
 
     #[test]
+    fn full_games_generate_unique_fielding_candidate_keys() {
+        use std::collections::HashSet;
+        for seed in [7, 42, 20261108] {
+            let mut schedule = schedule(1);
+            schedule.max_inning = 12;
+            // Use physical m/s velocities and contact-capable batting values;
+            // older lineup fixtures intentionally use extreme values for order.
+            for player in schedule.away_team.players.iter_mut().chain(schedule.home_team.players.iter_mut()) {
+                if let Some(batter)=player.offense_skills.batter.as_mut() {
+                    batter.swing_speed=32.0; batter.swing_power=0.5; batter.attack_angle=10.0;
+                    batter.batting_eye=1.0; batter.bat_control=1.0;
+                }
+                if let Some(pitcher)=player.defense_skills.pitcher.as_mut() {
+                    pitcher.velocity=40.8; pitcher.control=1.0;
+                    for pitch in &mut pitcher.pitch_skills {pitch.control=1.0;}
+                }
+            }
+            let game = simulate_game(schedule, Box::new(RealRng::from_seed(seed)),
+                BattingStrategySettings::player_driven(), Some(10_000), false).unwrap();
+            let mut keys = HashSet::new();
+            for candidate in &game.player_fielding_candidates {
+                assert!(keys.insert((candidate.count_seq, candidate.diagnostics.fielder_position)),
+                    "duplicate generated candidate: seed={seed}, count={}, position={:?}",
+                    candidate.count_seq, candidate.diagnostics.fielder_position);
+            }
+            assert!(!keys.is_empty());
+            let counts: HashSet<_> = game.innings.iter().flat_map(|i| &i.counts).map(|c| c.seq).collect();
+            assert!(keys.iter().all(|(seq,_)|counts.contains(seq)),"candidate without count: seed={seed}");
+        }
+    }
+
+    #[test]
     fn process_game_round_saves_all_scheduled_games_and_updates_once() {
         let mut service = GameService {
             repo: RecordingRepo::new(vec![schedule(1), schedule(2)]),
