@@ -28,6 +28,30 @@ BIP outcomes by trajectory, EV/VLA, position and fielding path/type/error.
 - Examples are the first four per flag; they are bounded illustrations rather
   than a representative sample. Missing flag keys mean zero occurrences.
 
+## Contact offset and exit speed
+
+Read `reports[].bip_diagnostics.contact_offset_ev` for the two-dimensional
+grid of absolute length and thickness offsets. It covers the recorded adjusted
+SolidContact, WeakContact and MarginalContact population. Its length boundaries
+are 2, 5, 10 and 16 cm. Thickness boundaries are 0.5, 1, 2, 2.5, 4, 5.5 and
+7 cm. Keys use meters with inclusive lower and exclusive upper bounds.
+Missing or nonfinite offsets have an `unknown` bin.
+
+Each populated cell counts contact quality, recorded fouls, terminal BIP and
+home runs. `all_contact_ev` includes recorded fouls. `bip_plus_hr_ev` uses
+terminal BIP and home runs. Each speed group reports EV moments, the count at
+95 mph (42.4688 m/s) or above and its share of valid speed samples. Use
+`ev_ms.n` as the denominator when pooling reports across seeds. Missing or
+invalid speeds are excluded from EV rates. Empty denominators are null.
+
+Run on the same input DB and seeds to locate where high-speed balls enter the
+distribution. The grid groups existing outputs by offset and does not itself
+estimate a causal effect of changing the contact model.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > contact_offset_ev_360.json
+```
+
 ## Development check: 36 games per seed
 
 The generated six-team development roster was simulated at seeds 7,42,20261108,

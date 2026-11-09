@@ -15,6 +15,11 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+const HARD_HIT_MPH: f64 = 95.0;
+const HARD_HIT_MS: f64 = HARD_HIT_MPH * 0.44704;
+const LENGTH_EDGES_M: &[f64] = &[0.02, 0.05, 0.10, 0.16];
+const THICKNESS_EDGES_M: &[f64] = &[0.005, 0.01, 0.02, 0.025, 0.04, 0.055, 0.07];
+
 #[derive(Default, Serialize)]
 struct Moments {
     n: u64,
@@ -133,9 +138,125 @@ struct ContactPopulation {
     abs_adapted_timing_ms: Moments,
 }
 #[derive(Default)]
+struct ExitSpeedGroup {
+    ev_ms: Moments,
+    hard_hits: u64,
+}
+impl ExitSpeedGroup {
+    fn add(&mut self, speed: f64) {
+        if speed.is_finite() && speed >= 0.0 {
+            self.ev_ms.add(Some(speed));
+            self.hard_hits += u64::from(speed >= HARD_HIT_MS);
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "ev_ms": self.ev_ms,
+            "hard_hits": self.hard_hits,
+            "hard_hit_rate": (self.ev_ms.n > 0)
+                .then(|| self.hard_hits as f64 / self.ev_ms.n as f64),
+        })
+    }
+}
+
+#[derive(Default)]
+struct ContactOffsetCell {
+    contacts: u64,
+    fouls: u64,
+    bip: u64,
+    home_runs: u64,
+    other_results: u64,
+    by_contact_quality: BTreeMap<String, u64>,
+    all_contact_ev: ExitSpeedGroup,
+    bip_plus_hr_ev: ExitSpeedGroup,
+}
+impl ContactOffsetCell {
+    fn add(&mut self, quality: &str, result: BattingResult, speed: f64) {
+        self.contacts += 1;
+        *self.by_contact_quality.entry(quality.into()).or_default() += 1;
+        self.all_contact_ev.add(speed);
+        match result {
+            BattingResult::Foul => self.fouls += 1,
+            BattingResult::HomeRun => self.home_runs += 1,
+            result if is_bip(result) => self.bip += 1,
+            _ => self.other_results += 1,
+        }
+        if is_bip(result) || result == BattingResult::HomeRun {
+            self.bip_plus_hr_ev.add(speed);
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "contacts": self.contacts,
+            "fouls": self.fouls,
+            "foul_rate": (self.contacts > 0).then(|| self.fouls as f64 / self.contacts as f64),
+            "bip": self.bip,
+            "home_runs": self.home_runs,
+            "other_results": self.other_results,
+            "by_contact_quality": self.by_contact_quality,
+            "all_contact_ev": self.all_contact_ev.json(),
+            "bip_plus_hr_ev": self.bip_plus_hr_ev.json(),
+        })
+    }
+}
+
+#[derive(Default)]
+struct ContactOffsetAudit {
+    total: ContactOffsetCell,
+    cells: BTreeMap<String, ContactOffsetCell>,
+}
+impl ContactOffsetAudit {
+    fn add(
+        &mut self,
+        length: f64,
+        thickness: Option<f64>,
+        quality: &str,
+        result: BattingResult,
+        speed: f64,
+    ) {
+        let length = band(length.abs(), LENGTH_EDGES_M);
+        let thickness = band(
+            thickness.map(f64::abs).unwrap_or(f64::NAN),
+            THICKNESS_EDGES_M,
+        );
+        self.total.add(quality, result, speed);
+        self.cells
+            .entry(format!("length_m:{length}|thickness_m:{thickness}"))
+            .or_default()
+            .add(quality, result, speed);
+    }
+
+    fn json(&self) -> Value {
+        let cells: BTreeMap<_, _> = self
+            .cells
+            .iter()
+            .map(|(k, cell)| (k, cell.json()))
+            .collect();
+        json!({
+            "source": "contact_offset_ev_v1",
+            "length_edges_m": LENGTH_EDGES_M,
+            "thickness_edges_m": THICKNESS_EDGES_M,
+            "hard_hit_threshold_mph": HARD_HIT_MPH,
+            "hard_hit_threshold_ms": HARD_HIT_MS,
+            "total": self.total.json(),
+            "cells": cells,
+            "definitions": [
+                "Absolute length and thickness offsets in meters, grouped into half-open bands. Unknown offsets retain a separate bin.",
+                "Population: recorded adjusted SolidContact, WeakContact and MarginalContact, including fouls and home runs. Swing misses are outside this denominator.",
+                "bip_plus_hr_ev covers terminal BIP plus home runs. Rates use each EV group's finite nonnegative sample count (ev_ms.n); an empty denominator produces null.",
+                "Foul rate uses all contacts in the cell. Counts sum to the total; unobserved cells are omitted."
+            ],
+        })
+    }
+}
+
+#[derive(Default)]
 pub struct BipAudit {
     source_pitch_records: u64,
     contact_population: BTreeMap<String, ContactPopulation>,
+    contact_offset_ev: ContactOffsetAudit,
     total: Group,
     tables: BTreeMap<String, BTreeMap<String, Group>>,
     coverage: BTreeMap<String, u64>,
@@ -177,10 +298,15 @@ impl BipAudit {
                     | SwingContactType::WeakContact
                     | SwingContactType::MarginalContact
             ) {
-                let c = self
-                    .contact_population
-                    .entry(format!("{:?}", b.adjusted_contact_type))
-                    .or_default();
+                let quality = format!("{:?}", b.adjusted_contact_type);
+                self.contact_offset_ev.add(
+                    b.length_offset_m,
+                    b.thickness_offset_m,
+                    &quality,
+                    b.result,
+                    b.ball.launch_speed,
+                );
+                let c = self.contact_population.entry(quality).or_default();
                 c.n += 1;
                 c.bip += u64::from(is_bip(b.result));
                 c.fouls += u64::from(b.result == BattingResult::Foul);
@@ -501,6 +627,7 @@ impl BipAudit {
     pub fn json(&self) -> Value {
         json!({"source_pitch_records":self.source_pitch_records,"contact_population":self.contact_population,"summary":self.total.json(),"tables":self.tables.iter().map(|(t,groups)|(t,groups.iter().map(|(k,g)|(k,g.json())).collect::<BTreeMap<_,_>>())).collect::<BTreeMap<_,_>>(),
             "coverage":self.coverage,"flags":self.flags,"samples":self.samples,
+            "contact_offset_ev":self.contact_offset_ev.json(),
             "batter_first_with_lag_sec":self.batter_first_sec,"batter_second_no_lag_sec":self.batter_second_no_lag_sec,"batter_third_no_lag_sec":self.batter_third_no_lag_sec,
             "final_minus_model_catch_distance_m":self.final_minus_model_catch_distance_m,
             "target_straight_line_distance_gap_m":self.target_straight_line_distance_gap_m,
@@ -604,6 +731,49 @@ mod tests {
         assert_eq!(r["summary"]["n"], 2);
         assert_eq!(r["coverage"]["automatic_ground_rule_doubles"], 1);
         assert_eq!(r["coverage"]["missing_primary_fielding_record"], 1);
+    }
+
+    #[test]
+    fn contact_offset_grid_separates_foul_ev_and_counts_home_runs_in_bip_plus_hr_ev() {
+        let mut audit = ContactOffsetAudit::default();
+        audit.add(0.02, Some(0.025), "WeakContact", BattingResult::Foul, 45.0);
+        audit.add(
+            0.02,
+            Some(0.025),
+            "WeakContact",
+            BattingResult::Out,
+            HARD_HIT_MS - 0.001,
+        );
+        audit.add(
+            0.02,
+            Some(0.025),
+            "WeakContact",
+            BattingResult::HomeRun,
+            HARD_HIT_MS,
+        );
+        audit.add(
+            f64::NAN,
+            None,
+            "MarginalContact",
+            BattingResult::Out,
+            f64::NAN,
+        );
+        let report = audit.json();
+        let cell = &report["cells"]["length_m:[0.02,0.05)|thickness_m:[0.025,0.04)"];
+        assert_eq!(cell["contacts"], 3);
+        assert_eq!(cell["fouls"], 1);
+        assert_eq!(cell["bip"], 1);
+        assert_eq!(cell["home_runs"], 1);
+        assert_eq!(cell["by_contact_quality"]["WeakContact"], 3);
+        assert_eq!(cell["all_contact_ev"]["hard_hits"], 2);
+        assert_eq!(cell["bip_plus_hr_ev"]["ev_ms"]["n"], 2);
+        assert_eq!(cell["bip_plus_hr_ev"]["hard_hit_rate"], 0.5);
+        let unknown = &report["cells"]["length_m:unknown|thickness_m:unknown"];
+        assert_eq!(unknown["contacts"], 1);
+        assert_eq!(unknown["bip_plus_hr_ev"]["ev_ms"]["n"], 0);
+        assert!(unknown["bip_plus_hr_ev"]["hard_hit_rate"].is_null());
+        assert_eq!(report["total"]["contacts"], 4);
+        assert_eq!(report["total"]["bip_plus_hr_ev"]["ev_ms"]["n"], 2);
     }
 
     #[test]
