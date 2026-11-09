@@ -1,4 +1,4 @@
-//! Optional paired replay of the live contact-position timing scale.
+//! Optional paired replay of timing displacement in contact geometry and exit speed.
 use super::{
     ball::{BattedBall, OutboundResult, PitchedBall},
     game_stats::PlayerGameBattingMetrics,
@@ -10,8 +10,8 @@ use crate::domain::{
     resolver::{
         batting_resolver::{
             BattedBallAngles, CONTACT_TIMING_POSITION_SCALE, SwingContactResult, SwingContactType,
-            SwingExecutionError, calculate_batted_ball, calculate_launch_angles,
-            calculate_launch_speed_with_power, contact_normal_hla_deg,
+            SwingExecutionError, calculate_batted_ball_from_speed, calculate_launch_angles,
+            calculate_launch_speed_with_depth, contact_normal_hla_deg,
             evaluate_swing_contact_with_timing_scale, wrap_hla_deg,
         },
         pitching_resolver::PitchDisplacement,
@@ -87,13 +87,86 @@ impl OutcomeCounts {
     }
 }
 
+#[derive(Default, Serialize)]
+struct FairExitSpeedPairs {
+    both_fair: u64,
+    delta_sum_ms: f64,
+    down_across_95_mph: u64,
+    up_across_95_mph: u64,
+    hard_fair_to_nonfair: u64,
+    nonfair_to_hard_fair: u64,
+}
+
+impl FairExitSpeedPairs {
+    fn add(&mut self, before: Option<f64>, after: Option<f64>) {
+        match (before, after) {
+            (Some(before), Some(after)) => {
+                self.both_fair += 1;
+                self.delta_sum_ms += after - before;
+                self.down_across_95_mph += u64::from(before >= HARD_HIT_MS && after < HARD_HIT_MS);
+                self.up_across_95_mph += u64::from(before < HARD_HIT_MS && after >= HARD_HIT_MS);
+            }
+            (Some(before), None) => self.hard_fair_to_nonfair += u64::from(before >= HARD_HIT_MS),
+            (None, Some(after)) => self.nonfair_to_hard_fair += u64::from(after >= HARD_HIT_MS),
+            (None, None) => {}
+        }
+    }
+
+    fn json(&self) -> Value {
+        let mut report = serde_json::to_value(self).unwrap();
+        report["mean_delta_ms"] =
+            json!((self.both_fair > 0).then(|| self.delta_sum_ms / self.both_fair as f64));
+        report
+    }
+}
+
+#[derive(Default)]
+struct Comparison {
+    outcomes: OutcomeCounts,
+    transitions: BTreeMap<String, u64>,
+    flight_errors: BTreeMap<String, u64>,
+    fair_exit_speed_pairs: FairExitSpeedPairs,
+}
+
+impl Comparison {
+    fn add(
+        &mut self,
+        before: &'static str,
+        baseline_speed: f64,
+        contact: &SwingContactResult,
+        speed: f64,
+        flight: Option<&BattedBall>,
+    ) {
+        let after = self.outcomes.add(contact, speed, flight);
+        self.fair_exit_speed_pairs.add(
+            (before == "fair").then_some(baseline_speed),
+            (after == "fair").then_some(speed),
+        );
+        *self
+            .transitions
+            .entry(format!("{before}->{after}"))
+            .or_default() += 1;
+    }
+
+    fn json(&self, swings: u64, geometry_scale: f64, depth_scale: f64) -> Value {
+        json!({
+            "geometry_scale": geometry_scale,
+            "exit_speed_depth_scale": depth_scale,
+            "outcomes": self.outcomes.json(swings),
+            "baseline_to_variant": self.transitions,
+            "flight_errors": self.flight_errors,
+            "fair_exit_speed_pairs": self.fair_exit_speed_pairs.json(),
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct TimingScaleAudit {
     swings: u64,
     baseline: OutcomeCounts,
-    comparison: OutcomeCounts,
-    transitions: BTreeMap<String, u64>,
-    comparison_errors: BTreeMap<String, u64>,
+    comparison: Comparison,
+    geometry_only: Comparison,
+    depth_only: Comparison,
     new_contacts_with_sampled_direction: u64,
 }
 
@@ -134,7 +207,7 @@ impl TimingScaleAudit {
 
     pub fn json(&self) -> Value {
         json!({
-            "source": "paired_timing_position_scale_v1",
+            "source": "paired_timing_position_scale_v2",
             "baseline_scale": CONTACT_TIMING_POSITION_SCALE,
             "comparison_scale": COMPARISON_SCALE,
             "hard_hit_threshold_ms": HARD_HIT_MS,
@@ -142,9 +215,12 @@ impl TimingScaleAudit {
             "near_center_thickness_lt_m": NEAR_THICKNESS_M,
             "swings": self.swings,
             "baseline": self.baseline.json(self.swings),
-            "comparison": self.comparison.json(self.swings),
-            "baseline_to_comparison": self.transitions,
-            "comparison_flight_errors": self.comparison_errors,
+            "comparison": self.comparison.outcomes.json(self.swings),
+            "baseline_to_comparison": self.comparison.transitions,
+            "comparison_flight_errors": self.comparison.flight_errors,
+            "fair_exit_speed_pairs": self.comparison.fair_exit_speed_pairs.json(),
+            "geometry_only": self.geometry_only.json(self.swings, COMPARISON_SCALE, CONTACT_TIMING_POSITION_SCALE),
+            "depth_only": self.depth_only.json(self.swings, CONTACT_TIMING_POSITION_SCALE, COMPARISON_SCALE),
             "new_contacts_with_sampled_direction": self.new_contacts_with_sampled_direction,
         })
     }
@@ -164,11 +240,10 @@ pub(crate) fn record(
         active.swing_index += 1;
         let stats = &mut active.stats;
         stats.swings += 1;
-        let before = stats.baseline.add(
-            live,
-            baseline.map_or(0.0, |(ball, _)| ball.launch_speed),
-            baseline.map(|(ball, _)| ball),
-        );
+        let baseline_speed = baseline.map_or(0.0, |(ball, _)| ball.launch_speed);
+        let before = stats
+            .baseline
+            .add(live, baseline_speed, baseline.map(|(ball, _)| ball));
 
         let bat_angle = live
             .actual_bat_angle_deg
@@ -194,10 +269,10 @@ pub(crate) fn record(
             COMPARISON_SCALE,
         );
 
-        let after = if comparison.adjusted_contact_type == SwingContactType::SwungAndMiss {
-            stats.comparison.add(&comparison, 0.0, None)
+        let changed_angles = if comparison.adjusted_contact_type == SwingContactType::SwungAndMiss {
+            None
         } else {
-            let angles = if let Some((ball, metrics)) = baseline {
+            Some(if let Some((ball, metrics)) = baseline {
                 // Preserve the realized face direction. The only angular
                 // difference is the contact-normal term at the new offset.
                 let normal = |c: &SwingContactResult| {
@@ -221,31 +296,68 @@ pub(crate) fn record(
                     .game_seed
                     .wrapping_add(active.swing_index.wrapping_mul(0x9e3779b97f4a7c15));
                 calculate_launch_angles(&mut RealRng::from_seed(seed), &comparison, batter)
-            };
-            match angles.and_then(|angles| {
-                calculate_batted_ball(batter, pitch, &comparison, &angles, stadium)
-            }) {
-                Ok(ball) => stats
-                    .comparison
-                    .add(&comparison, ball.launch_speed, Some(&ball)),
-                Err(error) => {
-                    *stats
-                        .comparison_errors
-                        .entry(error.to_string())
-                        .or_default() += 1;
-                    let speed = calculate_launch_speed_with_power(
-                        &comparison,
+            })
+        };
+
+        let baseline_angles = baseline.map(|(ball, metrics)| {
+            Ok(BattedBallAngles {
+                vla_deg: ball.launch_angle,
+                hla_deg: metrics.final_hla_deg,
+                approach_variation_deg: metrics.approach_variation_deg,
+                pull_bias_deg: metrics.pull_bias_deg,
+                timing_angle_error_deg: metrics.timing_angle_error,
+                angular_velocity_rad_s: metrics.angular_velocity,
+            })
+        });
+        for (audit, contact, angles, depth) in [
+            (
+                &mut stats.comparison,
+                &comparison,
+                &changed_angles,
+                comparison.timing_impact_x_m,
+            ),
+            (
+                &mut stats.geometry_only,
+                &comparison,
+                &changed_angles,
+                live.timing_impact_x_m,
+            ),
+            (
+                &mut stats.depth_only,
+                live,
+                &baseline_angles,
+                comparison.timing_impact_x_m,
+            ),
+        ] {
+            let (speed, flight) = match angles {
+                None => (0.0, None),
+                Some(angles) => {
+                    let speed = calculate_launch_speed_with_depth(
+                        contact,
                         pitch.speed,
                         batter.swing_speed,
                         batter.swing_power,
+                        depth,
                     );
-                    stats.comparison.add(&comparison, speed, None)
+                    let flight = angles
+                        .as_ref()
+                        .map_err(ToString::to_string)
+                        .and_then(|angles| {
+                            calculate_batted_ball_from_speed(
+                                batter, pitch, contact, angles, stadium, speed,
+                            )
+                            .map_err(|error| error.to_string())
+                        });
+                    match flight {
+                        Ok(ball) => (speed, Some(ball)),
+                        Err(error) => {
+                            *audit.flight_errors.entry(error).or_default() += 1;
+                            (speed, None)
+                        }
+                    }
                 }
-            }
-        };
-        *stats
-            .transitions
-            .entry(format!("{before}->{after}"))
-            .or_default() += 1;
+            };
+            audit.add(before, baseline_speed, contact, speed, flight.as_ref());
+        }
     });
 }

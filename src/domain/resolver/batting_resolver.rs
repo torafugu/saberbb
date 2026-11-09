@@ -609,10 +609,26 @@ pub fn calculate_launch_speed_with_power(
     swing_speed: f64,
     swing_power: f64,
 ) -> f64 {
+    calculate_launch_speed_with_depth(
+        contact_result,
+        ball_speed,
+        swing_speed,
+        swing_power,
+        contact_result.timing_impact_x_m,
+    )
+}
+
+pub(crate) fn calculate_launch_speed_with_depth(
+    contact_result: &SwingContactResult,
+    ball_speed: f64,
+    swing_speed: f64,
+    swing_power: f64,
+    depth_displacement_m: f64,
+) -> f64 {
     // 1. Theoretical maximum exit velocity on perfect sweet-spot contact (m/s)
     const C_PITCH: f64 = 0.18; // Pitch speed contribution (18%)
     // Dynamic C_SWING variation based on swing_power (1.12 ~ 1.28)
-    let power = calculate_effective_c_swing(sigmoid(swing_power), contact_result.timing_impact_x_m);
+    let power = calculate_effective_c_swing(sigmoid(swing_power), depth_displacement_m);
     let c_swing: f64 = 1.12 + (0.16 * power);
     let max_launch_speed = (C_PITCH * ball_speed) + (c_swing * swing_speed);
 
@@ -1098,6 +1114,17 @@ pub fn calculate_batted_ball(
         batter.swing_power,
     );
 
+    calculate_batted_ball_from_speed(batter, ball, contact, angles, stadium, launch_speed_ms)
+}
+
+pub(crate) fn calculate_batted_ball_from_speed(
+    batter: &BatterInfo,
+    ball: PitchedBall,
+    contact: &SwingContactResult,
+    angles: &BattedBallAngles,
+    stadium: &Stadium,
+    launch_speed_ms: f64,
+) -> Result<BattedBall, GameError> {
     // 2. Calculate batted ball spin
     // Inherit a small portion of the residual spin from pitch.spin_rate / pitch.spin_angle
     let (batted_spin_rate, batted_spin_angle) =
