@@ -57,26 +57,48 @@ cargo run --locked --release --example offense_season_check -- --season 2026 --g
 Set `SABERBB_DB` to the input database and run:
 
 ```sh
-cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --timing-scale-diagnostics > timing_scale_360.json
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --timing-scale-diagnostics > timing_scale_components_360.json
 ```
 
-Read `reports[].timing_scale_diagnostics`. The baseline is the live 0.75
-scale. The comparison applies 1.00 to the same realized swings. The timing
-displacement feeds both contact geometry and the existing exit-speed depth
-correction. Timing error in seconds and its face-rotation contribution stay
-fixed. For swings that make contact at both scales, the realized approach
-and pull are shared. If a baseline miss becomes contact, the comparison uses
-a separate seeded direction draw and counts it in
+Read `reports[].timing_scale_diagnostics`. All four conditions use the same
+realized swings.
+
+| JSON field | Contact geometry | Exit-speed depth correction |
+|---|---:|---:|
+| `baseline` | 0.75 | 0.75 |
+| `geometry_only` | 1.00 | 0.75 |
+| `depth_only` | 0.75 | 1.00 |
+| `comparison` | 1.00 | 1.00 |
+
+Geometry changes the contact decision, the offset-based speed losses, the
+contact-normal angle and the geometry used for spin. The depth scale changes
+only the timing displacement passed to the exit-speed power correction.
+Timing error in seconds and its face-rotation contribution stay fixed. When a
+baseline miss becomes contact, both conditions that change geometry share the
+same independent seeded direction draw. The report counts these swings once in
 `new_contacts_with_sampled_direction`.
 
 All rates use the swing count. Near-center contact means absolute length
 offset below 5 cm and absolute thickness offset below 2.5 cm. Hard hits are
-at least 95 mph. `baseline_to_comparison` counts transitions between miss,
-geometric foul, fair flight and flight error. Fair hard hits require a
-successful fair flight. The audit ends before fielding and measures changes
-in contact and ball flight on the observed swings. The live game continues
-with its original result and RNG stream, and the example performs no database
-writes.
+at least 95 mph. Transition counts distinguish misses, geometric fouls, fair
+flights and flight errors.
+
+Each variant has a `fair_exit_speed_pairs` section against the live baseline.
+`both_fair` counts swings fair in both conditions. Pool the mean exit-speed
+change by dividing the sum of `delta_sum_ms` across seeds by the sum of
+`both_fair`. The count is zero and the mean is null for an empty cohort.
+The difference in hard fair counts is the sum of two changes:
+
+- Among balls fair in both conditions, `up_across_95_mph` minus
+  `down_across_95_mph`.
+- From balls entering or leaving the observed fair cohort,
+  `nonfair_to_hard_fair` minus `hard_fair_to_nonfair`. Here nonfair includes
+  flight errors, which are reported separately.
+
+The two single-factor differences may interact. The combined change minus
+the sum of the two single-factor changes gives the interaction for a count
+or a rate with the same swing denominator. The audit ends before fielding
+and the example performs no database writes.
 
 ## Development check: 36 games per seed
 
