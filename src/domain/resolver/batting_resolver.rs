@@ -19,7 +19,7 @@ use strum_macros::{AsRefStr, EnumString};
 // 16cm from the sweet spot toward the end of the bat
 const MAX_LENGTH_OFFSET_M: f64 = 0.16;
 /// Trial setting: change to 1.0 for the unscaled control; recorded on every swing.
-const CONTACT_TIMING_POSITION_SCALE: f64 = 0.75;
+pub(crate) const CONTACT_TIMING_POSITION_SCALE: f64 = 0.75;
 // Standard reference swing speed (m/s)
 const REF_SWING_SPEED: f64 = 33.333;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
@@ -342,7 +342,7 @@ pub fn contact_normal_hla_deg(signed_thickness_m: f64, bat_angle_deg: f64) -> f6
     (2.0 * normal_y * normal_x).atan2(2.0 * normal_y * normal_y - 1.0).to_degrees()
 }
 
-fn wrap_hla_deg(angle: f64) -> f64 {
+pub(crate) fn wrap_hla_deg(angle: f64) -> f64 {
     (angle + 180.0).rem_euclid(360.0) - 180.0
 }
 
@@ -422,7 +422,7 @@ pub fn evaluate_swing_contact(
     )
 }
 
-fn evaluate_swing_contact_with_timing_scale(
+pub(crate) fn evaluate_swing_contact_with_timing_scale(
     rng: &mut dyn RandomProvider,
     batter: &BatterInfo,
     offset: &PitchDisplacement,

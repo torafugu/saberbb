@@ -960,6 +960,13 @@ impl GameState {
             }
 
             if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
+                super::timing_scale_audit::record(
+                    &batter,
+                    pitched_ball,
+                    &swing_contact,
+                    &self.stadium,
+                    None,
+                );
                 self.resolve_swing_miss(pitcher_id, batter_id, &swing_contact);
             } else {
                 self.resolve_contact(
@@ -1086,6 +1093,14 @@ impl GameState {
             swing_contact,
             &self.stadium,
         )?;
+
+        super::timing_scale_audit::record(
+            batter,
+            pitched_ball,
+            swing_contact,
+            &self.stadium,
+            Some((&batted_ball, &metrics)),
+        );
 
         info!("Batted Ball: {:#?}", batted_ball);
 

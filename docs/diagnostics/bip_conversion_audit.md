@@ -52,6 +52,32 @@ estimate a causal effect of changing the contact model.
 cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > contact_offset_ev_360.json
 ```
 
+## Paired timing-to-position scales
+
+Set `SABERBB_DB` to the input database and run:
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --timing-scale-diagnostics > timing_scale_360.json
+```
+
+Read `reports[].timing_scale_diagnostics`. The baseline is the live 0.75
+scale. The comparison applies 1.00 to the same realized swings. The timing
+displacement feeds both contact geometry and the existing exit-speed depth
+correction. Timing error in seconds and its face-rotation contribution stay
+fixed. For swings that make contact at both scales, the realized approach
+and pull are shared. If a baseline miss becomes contact, the comparison uses
+a separate seeded direction draw and counts it in
+`new_contacts_with_sampled_direction`.
+
+All rates use the swing count. Near-center contact means absolute length
+offset below 5 cm and absolute thickness offset below 2.5 cm. Hard hits are
+at least 95 mph. `baseline_to_comparison` counts transitions between miss,
+geometric foul, fair flight and flight error. Fair hard hits require a
+successful fair flight. The audit ends before fielding and measures changes
+in contact and ball flight on the observed swings. The live game continues
+with its original result and RNG stream, and the example performs no database
+writes.
+
 ## Development check: 36 games per seed
 
 The generated six-team development roster was simulated at seeds 7,42,20261108,
