@@ -11,6 +11,7 @@ use saberbb::{
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
             team::Team,
+            timing_scale_audit::TimingScaleAudit,
         },
         strategy::batting_strategy::BattingStrategySettings,
     },
@@ -63,6 +64,9 @@ struct Args {
     /// Collect per-game shadow states in memory and audit only the selected Intent 3-D path.
     #[arg(long)]
     selected_intent_diagnostics: bool,
+    /// Compare timing-to-position scales on the same realized swings.
+    #[arg(long)]
+    timing_scale_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -319,17 +323,28 @@ fn run(args: Args) -> Result<()> {
         let mut selected = args
             .selected_intent_diagnostics
             .then(selected_intent_audit::SelectedAudit::default);
+        let mut timing = args
+            .timing_scale_diagnostics
+            .then(TimingScaleAudit::default);
         let mut total = Counts::default();
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
         for (index, game) in games.iter().enumerate() {
-            let result = simulate_game(
-                game.clone(),
-                Box::new(RealRng::from_seed(derived_seed(*seed, game.id))),
-                BattingStrategySettings::player_driven(),
-                Some(args.max_pitches),
-                args.selected_intent_diagnostics,
-            )
+            let game_seed = derived_seed(*seed, game.id);
+            let run = || {
+                simulate_game(
+                    game.clone(),
+                    Box::new(RealRng::from_seed(game_seed)),
+                    BattingStrategySettings::player_driven(),
+                    Some(args.max_pitches),
+                    args.selected_intent_diagnostics,
+                )
+            };
+            let result = if let Some(timing) = timing.as_mut() {
+                timing.observe_game(game_seed, run)
+            } else {
+                run()
+            }
             .with_context(|| {
                 format!(
                     "seed {seed}, game {} failed; no partial summary accepted",
@@ -373,6 +388,9 @@ fn run(args: Args) -> Result<()> {
         if let Some(bip) = bip {
             report["bip_diagnostics"] = bip.json();
             report["bip_diagnostics"]["throw_origin_counterfactual"] = throws.unwrap().json();
+        }
+        if let Some(timing) = timing {
+            report["timing_scale_diagnostics"] = timing.json();
         }
         reports.push(report);
     }
