@@ -100,6 +100,28 @@ the sum of the two single-factor changes gives the interaction for a count
 or a rate with the same swing denominator. The audit ends before fielding
 and the example performs no database writes.
 
+## Full-game timing geometry sweep
+
+Set `SABERBB_DB` to the same input database used for the paired audit.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --timing-geometry-sweep > timing_geometry_sweep_360.json
+```
+
+Each geometry scale (0.75, 0.875 and 1.00) runs the same schedule and starts
+each game from the same derived seed. The exit-speed depth correction uses
+0.75 for all three trials. Once a play changes, subsequent game state and RNG
+consumption may diverge. This measures full-game effects. The frozen-swing
+audit is a separate mode.
+
+Read `timing_geometry_trials[].reports[].total` for batting average,
+`strikeouts_per_pa`, `babip`, `singles_per_pa`, home runs and runs. The
+per-seed totals retain the counts needed for weighted pooling. BABIP uses
+`(1B + 2B + 3B) / (AB - K - HR)` because the engine has no separate
+sacrifice-fly result. `babip_balls_in_play` is its denominator. Empty rate
+denominators are reported as null. The example reads the database without
+saving simulated results.
+
 ## Development check: 36 games per seed
 
 The generated six-team development roster was simulated at seeds 7,42,20261108,

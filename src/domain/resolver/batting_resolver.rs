@@ -19,7 +19,26 @@ use strum_macros::{AsRefStr, EnumString};
 // 16cm from the sweet spot toward the end of the bat
 const MAX_LENGTH_OFFSET_M: f64 = 0.16;
 /// Trial setting: change to 1.0 for the unscaled control; recorded on every swing.
-pub(crate) const CONTACT_TIMING_POSITION_SCALE: f64 = 0.75;
+pub const CONTACT_TIMING_POSITION_SCALE: f64 = 0.75;
+
+thread_local! {
+    static CONTACT_GEOMETRY_SCALE: std::cell::Cell<f64> =
+        const { std::cell::Cell::new(CONTACT_TIMING_POSITION_SCALE) };
+}
+
+/// Set the timing-to-position scale for a synchronous full-game diagnostic.
+/// The exit-speed depth correction still uses the default scale.
+pub fn with_contact_geometry_scale<T>(scale: f64, run: impl FnOnce() -> T) -> T {
+    assert!(scale.is_finite() && scale > 0.0);
+    struct Restore(f64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CONTACT_GEOMETRY_SCALE.set(self.0);
+        }
+    }
+    let _restore = Restore(CONTACT_GEOMETRY_SCALE.replace(scale));
+    run()
+}
 // Standard reference swing speed (m/s)
 const REF_SWING_SPEED: f64 = 33.333;
 // Maximum spin rate generated when fully brushing the ball at reference swing (rpm)
@@ -418,7 +437,11 @@ pub fn evaluate_swing_contact(
     swing_execution_error: &SwingExecutionError,
 ) -> SwingContactResult {
     evaluate_swing_contact_with_timing_scale(
-        rng, batter, offset, swing_execution_error, CONTACT_TIMING_POSITION_SCALE,
+        rng,
+        batter,
+        offset,
+        swing_execution_error,
+        CONTACT_GEOMETRY_SCALE.get(),
     )
 }
 
@@ -1148,7 +1171,19 @@ pub fn calculate_batted_ball_with_metrics(
     stadium: &Stadium,
 ) -> Result<(BattedBall, PlayerGameBattingMetrics), GameError> {
     let angles = calculate_launch_angles(rng, contact, batter)?;
-    let batted_ball = calculate_batted_ball(batter, ball, contact, &angles, stadium)?;
+    let batted_ball = if CONTACT_GEOMETRY_SCALE.get() == CONTACT_TIMING_POSITION_SCALE {
+        calculate_batted_ball(batter, ball, contact, &angles, stadium)?
+    } else {
+        let depth = batter.swing_speed * contact.timing_offset_sec * CONTACT_TIMING_POSITION_SCALE;
+        let speed = calculate_launch_speed_with_depth(
+            contact,
+            ball.speed,
+            batter.swing_speed,
+            batter.swing_power,
+            depth,
+        );
+        calculate_batted_ball_from_speed(batter, ball, contact, &angles, stadium, speed)?
+    };
     let metrics = PlayerGameBattingMetrics {
         hla_model_version: Some(2),
         hla_handedness_sign: Some(batter.batting_side.handedness_sign()),
@@ -1521,6 +1556,56 @@ mod tests {
             .zone_similarity,
             -0.2
         );
+    }
+
+    #[test]
+    fn full_game_geometry_scope_keeps_default_exit_speed_depth() -> TestResult {
+        let batter = batter(RL::Right);
+        let stadium = Stadium::default();
+        let pitch = PitchedBall {
+            pitch_type: PitchType::FourSeamFastball,
+            speed: 41.67,
+            spin_rate: 2300.0,
+            spin_angle: 0.0,
+            spin_efficiency: 0.95,
+            release_point: Vector3D { x: 1.6, y: 16.74, z: 1.7 },
+            flight_time: 0.42,
+            aim_zone: TargetZone::Center,
+            aim_location: BallLocation { x: 0.0, y: 0.0 },
+            actual_location: BallLocation { x: 0.0, y: 0.0 },
+        };
+        let offset = PitchDisplacement {
+            timing_offset_sec: 0.003,
+            ..Default::default()
+        };
+        let execution = SwingExecutionError {
+            actual_attack_angle_deg: 10.0,
+            ..Default::default()
+        };
+        let contact = || {
+            evaluate_swing_contact(&mut FixedRng::new(0.5), &batter, &offset, &execution)
+        };
+        let baseline = contact();
+        with_contact_geometry_scale(1.0, || -> TestResult {
+            let trial = contact();
+            assert_eq!(trial.timing_position_scale, Some(1.0));
+            assert_ne!(trial.length_offset_m, baseline.length_offset_m);
+            let (ball, _) = calculate_batted_ball_with_metrics(
+                &mut FixedRng::new(0.5), &batter, pitch, &trial, &stadium,
+            )?;
+            let expected = calculate_launch_speed_with_depth(
+                &trial, pitch.speed, batter.swing_speed, batter.swing_power,
+                baseline.timing_impact_x_m,
+            );
+            assert_eq!(ball.launch_speed, expected);
+            assert_ne!(
+                ball.launch_speed,
+                calculate_launch_speed_with_power(&trial, pitch.speed, batter.swing_speed, batter.swing_power)
+            );
+            Ok(())
+        })?;
+        assert_eq!(contact().timing_position_scale, Some(CONTACT_TIMING_POSITION_SCALE));
+        Ok(())
     }
 
     #[test]
