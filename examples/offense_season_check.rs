@@ -7,6 +7,7 @@ use saberbb::{
     domain::{
         game_service::simulate_game,
         random_provider::RealRng,
+        resolver::batting_resolver::{CONTACT_TIMING_POSITION_SCALE, with_contact_geometry_scale},
         seeded_diagnostic::derived_seed,
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
@@ -67,6 +68,9 @@ struct Args {
     /// Compare timing-to-position scales on the same realized swings.
     #[arg(long)]
     timing_scale_diagnostics: bool,
+    /// Run each scheduled game at geometry scales 0.75, 0.875 and 1.00.
+    #[arg(long, conflicts_with = "timing_scale_diagnostics")]
+    timing_geometry_sweep: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -125,6 +129,16 @@ impl Counts {
         } else {
             serde_json::Value::Null
         };
+        let in_play = self.ab - self.strikeouts - self.hr;
+        v["babip_balls_in_play"] = serde_json::json!(in_play);
+        v["babip"] = serde_json::json!(
+            (in_play > 0)
+                .then(|| (self.single + self.double + self.triple) as f64 / in_play as f64)
+        );
+        v["strikeouts_per_pa"] =
+            serde_json::json!((self.pa > 0).then(|| self.strikeouts as f64 / self.pa as f64));
+        v["singles_per_pa"] =
+            serde_json::json!((self.pa > 0).then(|| self.single as f64 / self.pa as f64));
         v["ra9_reference"] = if self.pitching_outs > 0 {
             serde_json::json!(self.runs_allowed as f64 * 27.0 / self.pitching_outs as f64)
         } else {
@@ -308,6 +322,52 @@ fn run(args: Args) -> Result<()> {
     let games = schedules(&conn, &repo, &args)?;
     let input_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&games)?));
     I18nManager::init("en-US");
+    let mut output = serde_json::json!({
+        "engine_source_sha256": saberbb::domain::seeded_diagnostic::ENGINE,
+        "flight_drag_model": saberbb::domain::shared::flight_drag::current_model(),
+        "flight_drag_settings": {
+            "density_kg_m3": saberbb::domain::shared::flight_drag::DENSITY_KG_M3,
+            "mass_kg": saberbb::domain::shared::flight_drag::MASS_KG,
+            "radius_m": saberbb::domain::shared::flight_drag::RADIUS_M,
+            "published_cd": "0.297 + 0.0292 * total_spin_rpm / 1000",
+            "lift": "unchanged legacy transverse-spin model"
+        },
+        "inputs_sha256": input_hash, "season": args.season, "games_per_seed": games.len(),
+        "definitions": {
+            "ra9_reference": "Runs allowed * 27 / recorded outs; earned runs not recorded",
+            "non_strikeout_outs": "All recorded outs minus defensive strikeouts, including baserunning outs",
+            "rosters": "Current source rosters, freshly initialized per game; historical lineups/seeds are not reproduced",
+            "babip": "(1B + 2B + 3B) / (AB - K - HR); sacrifice flies have no separate result category"
+        }
+    });
+    if args.timing_geometry_sweep {
+        let mut trials = Vec::new();
+        for scale in [CONTACT_TIMING_POSITION_SCALE, 0.875, 1.0] {
+            let reports =
+                with_contact_geometry_scale(scale, || simulate_reports(&args, &games, scale))?;
+            trials.push(serde_json::json!({
+                "geometry_scale": scale,
+                "exit_speed_depth_scale": CONTACT_TIMING_POSITION_SCALE,
+                "reports": reports,
+            }));
+        }
+        output["timing_geometry_trials"] = serde_json::json!(trials);
+    } else {
+        output["reports"] = serde_json::json!(simulate_reports(
+            &args,
+            &games,
+            CONTACT_TIMING_POSITION_SCALE
+        )?);
+    }
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+fn simulate_reports(
+    args: &Args,
+    games: &[GameSchedule],
+    scale: f64,
+) -> Result<Vec<serde_json::Value>> {
     let mut reports = Vec::new();
     for seed in &args.seeds {
         let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
@@ -347,7 +407,7 @@ fn run(args: Args) -> Result<()> {
             }
             .with_context(|| {
                 format!(
-                    "seed {seed}, game {} failed; no partial summary accepted",
+                    "geometry scale {scale}, seed {seed}, game {} failed; no partial summary accepted",
                     game.id
                 )
             })?;
@@ -368,7 +428,11 @@ fn run(args: Args) -> Result<()> {
                 bip.observe(game, &result);
             }
             if (index + 1) % 12 == 0 || index + 1 == games.len() {
-                eprintln!("seed {seed}: {}/{} games complete", index + 1, games.len());
+                eprintln!(
+                    "geometry scale {scale}, seed {seed}: {}/{} games complete",
+                    index + 1,
+                    games.len()
+                );
             }
         }
         let mut leaders: Vec<_> = players.into_iter().collect();
@@ -394,19 +458,7 @@ fn run(args: Args) -> Result<()> {
         }
         reports.push(report);
     }
-    println!(
-        "{}",
-        serde_json::to_string_pretty(
-            &serde_json::json!({"engine_source_sha256":saberbb::domain::seeded_diagnostic::ENGINE,
-        "flight_drag_model":saberbb::domain::shared::flight_drag::current_model(),
-        "flight_drag_settings":{"density_kg_m3":saberbb::domain::shared::flight_drag::DENSITY_KG_M3,"mass_kg":saberbb::domain::shared::flight_drag::MASS_KG,"radius_m":saberbb::domain::shared::flight_drag::RADIUS_M,"published_cd":"0.297 + 0.0292 * total_spin_rpm / 1000","lift":"unchanged legacy transverse-spin model"},
-        "inputs_sha256":input_hash,"season":args.season,"games_per_seed":games.len(),"reports":reports,
-        "definitions":{"ra9_reference":"Runs allowed * 27 / recorded outs; earned runs not recorded",
-            "non_strikeout_outs":"All recorded outs minus defensive strikeouts, including baserunning outs",
-            "rosters":"Current source rosters, freshly initialized per game; historical lineups/seeds are not reproduced"}})
-        )?
-    );
-    Ok(())
+    Ok(reports)
 }
 #[cfg(test)]
 mod tests {
@@ -426,5 +478,30 @@ mod tests {
         }
         assert_eq!((c.pitches, c.pa, c.ab, c.hr, c.strikeouts), (6, 3, 2, 1, 1));
         assert_eq!(c.json()["ba"], 0.5);
+    }
+    #[test]
+    fn batting_rates_use_their_own_denominators() {
+        let empty = Counts::default().json();
+        assert!(empty["babip"].is_null());
+        assert!(empty["strikeouts_per_pa"].is_null());
+        assert!(empty["singles_per_pa"].is_null());
+        let mut counts = Counts::default();
+        for result in [
+            BattingResult::Single,
+            BattingResult::Double,
+            BattingResult::Out,
+            BattingResult::FieldersChoice,
+            BattingResult::HomeRun,
+            BattingResult::Strikeout,
+            BattingResult::Walk,
+            BattingResult::Foul,
+        ] {
+            counts.batting(result);
+        }
+        let json = counts.json();
+        assert_eq!(json["babip_balls_in_play"], 4);
+        assert_eq!(json["babip"], 0.5);
+        assert_eq!(json["strikeouts_per_pa"], 1.0 / 7.0);
+        assert_eq!(json["singles_per_pa"], 1.0 / 7.0);
     }
 }
