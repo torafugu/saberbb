@@ -2254,6 +2254,7 @@ mod tests {
                     waiting_time_sec: 0.35,
                     first_bounce_time,
                     pickup: None,
+                    right_field_first_base: None,
                 }),
             });
         }

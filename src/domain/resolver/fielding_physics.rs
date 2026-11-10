@@ -79,6 +79,15 @@ pub struct PickupTimingDiagnostics {
     #[serde(default)]
     pub fallback_policy: PickupFallbackPolicy,
 }
+/// In-memory inputs for a hypothetical throw to first after a right-field catch.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RightFieldFirstBaseSnapshot {
+    pub catch_position: PolarPosition,
+    pub cover_start: PolarPosition,
+    pub cover_prep_sec: f64,
+    pub cover_speed_ms: f64,
+}
+
 /// Snapshot of the effective interception; capturing it consumes no random values.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FieldingCatchDiagnostics {
@@ -92,6 +101,8 @@ pub struct FieldingCatchDiagnostics {
     pub first_bounce_time: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pickup: Option<PickupTimingDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right_field_first_base: Option<RightFieldFirstBaseSnapshot>,
 }
 
 /// Types of fielding errors
@@ -201,6 +212,7 @@ impl<'a> FieldPlayPlayResult<'a> {
             waiting_time_sec: selected.waiting_time_sec,
             first_bounce_time: selected.ball.first_bounce_time,
             pickup: selected.pickup,
+            right_field_first_base: None,
         }
     }
 

@@ -292,6 +292,7 @@ mod tests {
             waiting_time_sec: caught.waiting_time_sec,
             first_bounce_time: ball.first_bounce_time,
             pickup: caught.pickup,
+            right_field_first_base: None,
         }
     }
     #[test]
@@ -431,6 +432,7 @@ mod legacy_policy_tests {
             waiting_time_sec: caught.waiting_time_sec,
             first_bounce_time: ball.first_bounce_time,
             pickup: caught.pickup,
+            right_field_first_base: None,
         };
         assert!(d.pickup.unwrap().safety_fallback);
         let mut value = serde_json::to_value(d).unwrap();

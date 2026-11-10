@@ -9,7 +9,9 @@ use crate::domain::resolver::batting_resolver::{
     calculate_batted_ball_with_metrics, calculate_batting_factor, calculate_swing_execution_error,
     calculate_swing_decision, evaluate_swing_contact, select_swing_execution,
 };
-use crate::domain::resolver::fielding_physics::{FieldingCatchDiagnostics, FielderRiskTolerance};
+use crate::domain::resolver::fielding_physics::{
+    CatchType, FieldingCatchDiagnostics, FielderRiskTolerance, RightFieldFirstBaseSnapshot,
+};
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_fielding,
@@ -1146,9 +1148,24 @@ impl GameState {
                 }
             }),
         );
-        let catch_diagnostics = field_play_result.diagnostics();
+        let mut catch_diagnostics = field_play_result.diagnostics();
         let fielder = field_play_result.result().fielder;
         let fielded_ball = field_play_result.result().ball();
+        if fielder.position == Position::RF
+            && catch_diagnostics.catch_type == CatchType::BounceCatch
+            && catch_diagnostics.error_type.is_none()
+        {
+            catch_diagnostics.right_field_first_base = fielders
+                .iter()
+                .find(|f| f.position == Position::FB)
+                .map(|cover| RightFieldFirstBaseSnapshot {
+                    catch_position: fielded_ball.catch_position,
+                    cover_start: cover.polar_position,
+                    cover_prep_sec: cover.info.prep_time,
+                    cover_speed_ms: cover.info.running_speed,
+                });
+        }
+
 
         info!("Fielded Ball: {:#?}", fielded_ball);
 

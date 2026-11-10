@@ -69,7 +69,7 @@ or running rule.
 Set `SABERBB_DB` to the same input database as the conversion sweep.
 
 ```sh
-cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > hard_grounder_first_trial_360.json
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > right_field_first_cover_360.json
 ```
 
 Read `reports[].bip_diagnostics.hard_grounder_first_base`. It includes
@@ -131,6 +131,33 @@ modeled results are.
 The trial does not account for a different cover assignment, relay choice,
 throw errors or the value of retiring a lead runner. It does not modify
 the original play or estimate changes in batting statistics.
+
+### Right-field bounce catches and first-base cover
+
+In the `target_unrecorded|outfield|RF|BounceCatch` group, `right_field_cover`
+compares four scenarios on the same eligible singles. These are hard
+grounders whose fielding completed before the modeled batter arrival.
+The primary running record contains no target runner ID.
+
+1. Previous estimated catch position, with first base already covered.
+2. The actual selected catch position, with first base already covered.
+3. The actual position, with the first baseman reacting at contact.
+4. The actual position, with the first baseman reacting at the catch.
+
+Fresh games capture the selected catch position and active first baseman's
+initial position, prep time and running speed in memory. Each cover scenario
+uses prep time plus straight-line travel time to first. The modeled
+completion is the later of direct ball arrival and cover arrival.
+All scenarios use the existing throw calculator and keep the same runner
+and recorded field completion times. Ties are safe. Counts include outs
+with at least 0.25 seconds of margin and cases where cover arrives after the
+ball. The position difference compares the old estimated origin with the
+position returned by the actual fielding calculation.
+
+Missing or invalid snapshots are counted separately. The cover clocks are
+scenarios, since the simulator does not track the first baseman's actual
+cover run on these plays. The trial assumes a clean throw and reception,
+with no relay or alternative cover fielder. It does not change gameplay.
 
 ## Contact offset and exit speed
 
