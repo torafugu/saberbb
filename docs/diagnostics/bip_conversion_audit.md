@@ -28,6 +28,42 @@ BIP outcomes by trajectory, EV/VLA, position and fielding path/type/error.
 - Examples are the first four per flag; they are bounded illustrations rather
   than a representative sample. Missing flag keys mean zero occurrences.
 
+## Single and out rates for similar batted balls
+
+Use the same `SABERBB_DB` as in the full-game geometry sweep.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --timing-geometry-sweep --bip-diagnostics > bip_conversion_sweep_360.json
+```
+
+Read `timing_geometry_trials[].reports[].bip_diagnostics.tables.by_trajectory_ev_vla_hla`.
+Without the geometry sweep, the same table is under `reports[]`. Each BIP
+belongs to one cell. A cell combines the live spin-adjusted trajectory
+(Grounder, Liner, Fly, PopUp), exit speed, vertical launch angle and
+horizontal launch angle. Speed edges in m/s are 20, 30, 35, 40, 42.4688
+(95 mph), 45, 50 and 55. Vertical angle edges in degrees are −10, 0, 10,
+25 and 50. Horizontal angle edges in degrees are −45, −30, −15, −5, 5, 15,
+30 and 45. Lower edges are inclusive and upper edges exclusive. Direction
+is the initial stadium-relative angle, negative toward left field and
+positive toward right field, with zero toward center. Records without a
+known stadium-relative angle go into `HLA:unknown`.
+
+The cell's `single_rate` divides singles by `n`. The `out_on_play_rate`
+uses Out, FieldersChoice and DoublePlay in the numerator. It counts batting
+result codes once per BIP. A play scored a single can still record a
+baserunning out. The cell also contains the existing fielding and running
+timing summaries, with separate sample counts for each timing.
+
+Compare the cell frequencies (`n` divided by all BIP) for changes in
+batted-ball mix. Compare the single and out rates for the same cells for
+changes in conversion. Pool seeds by summing counts before dividing.
+For comparisons restricted to shared cells, report the retained BIP counts
+and weight both conditions with the same cell mix when comparing conversion.
+Sparse cells and unknown directions warrant separate reporting. A difference
+within a cell can still reflect spin, position within the bin, base state or
+roster matchups. The grouped rates alone cannot attribute it to a fielding
+or running rule.
+
 ## Contact offset and exit speed
 
 Read `reports[].bip_diagnostics.contact_offset_ev` for the two-dimensional

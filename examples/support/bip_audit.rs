@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 
 const HARD_HIT_MPH: f64 = 95.0;
 const HARD_HIT_MS: f64 = HARD_HIT_MPH * 0.44704;
+const CONVERSION_EV_EDGES_MS: &[f64] = &[20.0, 30.0, 35.0, 40.0, HARD_HIT_MS, 45.0, 50.0, 55.0];
+const CONVERSION_HLA_EDGES_DEG: &[f64] = &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0];
 const LENGTH_EDGES_M: &[f64] = &[0.02, 0.05, 0.10, 0.16];
 const THICKNESS_EDGES_M: &[f64] = &[0.005, 0.01, 0.02, 0.025, 0.04, 0.055, 0.07];
 
@@ -78,11 +80,13 @@ impl Group {
     }
     fn json(&self) -> Value {
         let mut v = serde_json::to_value(self).unwrap();
-        v["hit_rate"] = if self.n > 0 {
-            json!(self.hits as f64 / self.n as f64)
-        } else {
-            Value::Null
-        };
+        for (key, count) in [
+            ("hit_rate", self.hits),
+            ("single_rate", self.singles),
+            ("out_on_play_rate", self.n - self.hits),
+        ] {
+            v[key] = json!((self.n > 0).then(|| count as f64 / self.n as f64));
+        }
         v
     }
 }
@@ -384,6 +388,13 @@ impl BipAudit {
             };
             let ev = band(b.ball.launch_speed, &[20.0, 35.0, 45.0]);
             let vla = band(b.ball.launch_angle, &[-10.0, 0.0, 10.0, 25.0, 50.0]);
+            // Only model 2 records guarantee that HLA is in stadium coordinates.
+            let hla = if b.hla_model_version == Some(2) {
+                band(b.final_hla_deg, CONVERSION_HLA_EDGES_DEG)
+            } else {
+                "unknown".into()
+            };
+            let conversion_ev = band(b.ball.launch_speed, CONVERSION_EV_EDGES_MS);
             let position = f.map_or_else(
                 || "unknown".into(),
                 |f| format!("{:?}", f.catch_fielder_position),
@@ -397,6 +408,10 @@ impl BipAudit {
                 (
                     "by_trajectory_ev_vla",
                     format!("{trajectory}|EV:{ev}|VLA:{vla}"),
+                ),
+                (
+                    "by_trajectory_ev_vla_hla",
+                    format!("{trajectory}|EV:{conversion_ev}|VLA:{vla}|HLA:{hla}"),
                 ),
                 ("by_fielder_position", position),
                 ("by_selection_path", path),
@@ -636,6 +651,8 @@ impl BipAudit {
                 "Contact population includes all recorded contact types before foul/HR exclusion, while BIP tables include only terminal BIP outcomes. Group n is plays, not outs; double plays are one BIP. Timings have independent n; missing values never become zero.",
                 "target_runner_margin_sec = recorded defense_time - recorded runner_time only for a known target with positive runner_time; >=0 means Safe. The target may be a lead runner, not the batter.",
                 "Batter first-base timing includes the live acceleration lag; second/third no-lag timings expose legacy RunningPlan thresholds; current planning includes acceleration. Plan-threshold flags use current acceleration-aware times, also included in samples. These are not alternative throw simulations.",
+                "single_rate = Single / BIP. out_on_play_rate = (Out + FieldersChoice + DoublePlay) / BIP; these are batting result codes, not individual outs recorded on the play.",
+                "The joint trajectory/EV/VLA/HLA table uses m/s and degrees. HLA is the recorded initial direction in stadium coordinates, negative left and positive right. Missing or unsupported HLA is unknown.",
                 "Trajectory uses the live spin-adjusted classifier. Model catch positions use the fielding estimator, not the original physical integration; errors/fumbles and FinalPickup (which has an unrecorded pickup delay) are excluded from position reconstruction.",
                 "Live throw timing currently references ball.final_position; the modeled catch/final gap is diagnostic evidence, not a corrected throw time. Target straight-line gaps do not model cutoff/receiving/run-to-base choices.",
                 "Risk-ok air probes are counterfactual search diagnostics, not guaranteed catches or proof of a fielding bug. Samples are the first four per flag, not a representative random sample."]})
@@ -676,7 +693,11 @@ mod tests {
             1,
             10,
             7,
-            PlayerGameBattingMetrics::default(),
+            PlayerGameBattingMetrics {
+                hla_model_version: Some(2),
+                final_hla_deg: -15.0,
+                ..Default::default()
+            },
             ball,
             None,
             BattingResult::Single,
@@ -715,6 +736,19 @@ mod tests {
                 .is_none()
         );
         assert_eq!(serde_json::to_vec(&game).unwrap(), before);
+        game.add_player_batting(
+            3,
+            10,
+            7,
+            PlayerGameBattingMetrics {
+                hla_model_version: Some(2),
+                final_hla_deg: -14.9,
+                ..Default::default()
+            },
+            ball,
+            None,
+            BattingResult::FieldersChoice,
+        );
         ball.outbound_result = OutboundResult::GroundRuleDouble;
         game.add_player_batting(
             2,
@@ -728,9 +762,19 @@ mod tests {
         let mut audit = BipAudit::default();
         audit.observe(&schedule, &game);
         let r = audit.json();
-        assert_eq!(r["summary"]["n"], 2);
+        assert_eq!(r["summary"]["n"], 3);
         assert_eq!(r["coverage"]["automatic_ground_rule_doubles"], 1);
-        assert_eq!(r["coverage"]["missing_primary_fielding_record"], 1);
+        assert_eq!(r["coverage"]["missing_primary_fielding_record"], 2);
+        let cells = &r["tables"]["by_trajectory_ev_vla_hla"];
+        let left = &cells["Liner|EV:[40,42.4688)|VLA:[10,25)|HLA:[-15,-5)"];
+        assert_eq!(left["n"], 2);
+        assert_eq!(left["single_rate"], 0.5);
+        assert_eq!(left["out_on_play_rate"], 0.5);
+        assert_eq!(left["results"]["FieldersChoice"], 1);
+        let unknown = &cells["Liner|EV:[40,42.4688)|VLA:[10,25)|HLA:unknown"];
+        assert_eq!(unknown["n"], 1);
+        assert_eq!(unknown["doubles"], 1);
+        assert_eq!(unknown["out_on_play_rate"], 0.0);
     }
 
     #[test]
