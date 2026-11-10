@@ -1,16 +1,22 @@
 //! Read-only aggregation of completed GameResult records. Never draws RNG or reruns a play.
 use saberbb::domain::{
     resolver::{
-        fielding_physics::{CatchType, FieldingCatchDiagnostics, estimate_ball_state_at_time},
+        fielding_physics::{
+            CatchType, FieldingCatchDiagnostics, PickupTimingDiagnostics,
+            estimate_ball_state_at_time,
+        },
+        fielding_timing::DefenseTimeCalculator,
         running_resolver::{RunnersOnBase, RunningEvent},
     },
     shared::{
         ball::OutboundResult,
         game::{BattingResult, GameResult, GameSchedule},
-        game_state::{ActiveRunner, Ruling},
-        game_stats::PlayerGameRunning,
+        game_state::{ActiveFielder, ActiveRunner, Ruling},
+        game_stats::{PlayerGameBatting, PlayerGameFielding, PlayerGameRunning},
+        player::Player,
         stadium::Base,
     },
+    util::{PolarPosition, calculate_polar_distance},
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -296,10 +302,145 @@ fn first_base_phase(
     }
 }
 
+struct FirstBaseOpportunity {
+    target: &'static str,
+    runner_sec: f64,
+    ready_sec: f64,
+    pickup: Option<PickupTimingDiagnostics>,
+}
+
+#[derive(Default, Serialize)]
+struct FirstBaseTrialGroup {
+    eligible: u64,
+    missing: BTreeMap<&'static str, u64>,
+    origin_sources: BTreeMap<&'static str, u64>,
+    methods: BTreeMap<&'static str, u64>,
+    modeled_out: u64,
+    modeled_safe: u64,
+    distance_to_first_m: Moments,
+    completion_minus_runner_sec: Moments,
+    margin_bands_sec: BTreeMap<String, u64>,
+}
+
+impl FirstBaseTrialGroup {
+    fn record(
+        &mut self,
+        opportunity: FirstBaseOpportunity,
+        b: &PlayerGameBatting,
+        fields: &[&PlayerGameFielding],
+        game: &GameResult,
+        roster: &BTreeMap<i64, &Player>,
+    ) {
+        self.eligible += 1;
+        let trial = (|| {
+            let [f] = fields else {
+                return Err("missing_or_ambiguous_primary_fielding");
+            };
+            let position = f.catch_fielder_position;
+            let diag = f.catch_diagnostics.ok_or("missing_fielding_diagnostics")?;
+            if diag.fielder_position != position {
+                return Err("inconsistent_fielder_position");
+            }
+            let mut selected = game.player_fielding_candidates.iter().filter(|c| {
+                c.count_seq == b.count_seq
+                    && c.diagnostics.selected
+                    && c.diagnostics.fielder_position == position
+            });
+            let id = selected
+                .next()
+                .ok_or("missing_selected_fielder")?
+                .diagnostics
+                .fielder_id;
+            if selected.next().is_some() {
+                return Err("ambiguous_selected_fielder");
+            }
+            let (origin, source) = match diag.catch_type {
+                CatchType::FinalPickup => {
+                    let pickup = opportunity
+                        .pickup
+                        .ok_or("missing_or_invalid_pickup_snapshot")?;
+                    if pickup.fielder_id != id {
+                        return Err("inconsistent_pickup_fielder");
+                    }
+                    (pickup.pickup_position, "recorded_pickup")
+                }
+                CatchType::BounceCatch
+                    if diag.error_type.is_none()
+                        && (diag.catch_time_sec - opportunity.ready_sec).abs() <= 1e-7 =>
+                {
+                    let (distance, angle, _, _, _, _) =
+                        estimate_ball_state_at_time(diag.catch_time_sec, &b.ball);
+                    (
+                        PolarPosition::new(distance, angle),
+                        "estimated_bounce_catch",
+                    )
+                }
+                _ => return Err("unsupported_catch_origin"),
+            };
+            if !origin.distance.is_finite() || origin.distance < 0.0 || !origin.angle.is_finite() {
+                return Err("invalid_origin");
+            }
+            let info = roster
+                .get(&id)
+                .and_then(|p| p.fielder().ok())
+                .ok_or("missing_fielder_skills")?;
+            if !info.prep_time.is_finite()
+                || info.prep_time < 0.0
+                || !info.throw_speed.is_finite()
+                || info.throw_speed <= 0.0
+                || (position.is_infielder()
+                    && (!info.running_speed.is_finite() || info.running_speed <= 0.0))
+            {
+                return Err("invalid_fielder_skills");
+            }
+            let thrower = ActiveFielder::new(position, id, info);
+            let calc = DefenseTimeCalculator::default();
+            let base = Base::First.polar_position();
+            let direct = calc.direct_play_time(&thrower, &origin, Base::First, false);
+            let (delivery, method) = if position.is_infielder() {
+                let carry = calc.run_to_base_time(&thrower, &origin, &base);
+                if carry < direct {
+                    (carry, "carry")
+                } else {
+                    (direct, "direct_throw")
+                }
+            } else if position.is_outfielder() {
+                (direct, "direct_throw")
+            } else {
+                return Err("unsupported_fielder_position");
+            };
+            let margin = opportunity.ready_sec + delivery - opportunity.runner_sec;
+            let distance = calculate_polar_distance(&origin, &base);
+            if !margin.is_finite() || !distance.is_finite() {
+                return Err("invalid_trial_time_or_distance");
+            }
+            Ok((source, method, distance, margin))
+        })();
+        let (source, method, distance, margin) = match trial {
+            Ok(values) => values,
+            Err(reason) => {
+                *self.missing.entry(reason).or_default() += 1;
+                return;
+            }
+        };
+        *self.origin_sources.entry(source).or_default() += 1;
+        *self.methods.entry(method).or_default() += 1;
+        self.modeled_out += u64::from(margin < 0.0);
+        self.modeled_safe += u64::from(margin >= 0.0);
+        self.distance_to_first_m.add(Some(distance));
+        self.completion_minus_runner_sec.add(Some(margin));
+        *self
+            .margin_bands_sec
+            .entry(band(margin, &[-0.5, -0.25, 0.0, 0.25, 0.5]))
+            .or_default() += 1;
+    }
+}
+
 #[derive(Default, Serialize)]
 struct HardGrounderFirstBase {
     n: u64,
     groups: BTreeMap<String, FirstBasePhaseGroup>,
+    unobserved_first_trial: BTreeMap<String, FirstBaseTrialGroup>,
 }
 
 impl HardGrounderFirstBase {
@@ -311,7 +452,7 @@ impl HardGrounderFirstBase {
         modeled_first: Option<f64>,
         ready: Option<f64>,
         diag: Option<FieldingCatchDiagnostics>,
-    ) {
+    ) -> Option<FirstBaseOpportunity> {
         let (target, first, defense) = match primary {
             Some(r)
                 if r.throw_target_base == Base::First && r.target_runner_id == Some(batter_id) =>
@@ -367,6 +508,19 @@ impl HardGrounderFirstBase {
             group
                 .delivery_after_field_sec
                 .add(defense.zip(ready).map(|(d, f)| d - f));
+        }
+        if result == BattingResult::Single
+            && phase == "field_complete_before_runner_delivery_unobserved"
+        {
+            let (runner_sec, ready_sec) = first.zip(ready)?;
+            Some(FirstBaseOpportunity {
+                target,
+                runner_sec,
+                ready_sec,
+                pickup,
+            })
+        } else {
+            None
         }
     }
 }
@@ -506,14 +660,31 @@ impl BipAudit {
                 && (45.0..50.0).contains(&b.ball.launch_speed)
                 && (0.0..10.0).contains(&b.ball.launch_angle)
             {
-                self.hard_grounder_first_base.add(
+                if let Some(opportunity) = self.hard_grounder_first_base.add(
                     b.result,
                     b.batter_id,
                     running,
                     first,
                     field_time,
                     diag,
-                );
+                ) {
+                    let (role, position) = match fields.as_slice() {
+                        [f] if f.catch_fielder_position.is_infielder() => {
+                            ("infield", f.catch_fielder_position.as_ref())
+                        }
+                        [f] if f.catch_fielder_position.is_outfielder() => {
+                            ("outfield", f.catch_fielder_position.as_ref())
+                        }
+                        _ => ("unknown", "unknown"),
+                    };
+                    let catch = diag.as_ref().map_or("unknown", |d| d.catch_type.as_ref());
+                    let key = format!("{}|{role}|{position}|{catch}", opportunity.target);
+                    self.hard_grounder_first_base
+                        .unobserved_first_trial
+                        .entry(key)
+                        .or_default()
+                        .record(opportunity, b, &fields, game, &roster);
+                }
             }
             let ev = band(b.ball.launch_speed, &[20.0, 35.0, 45.0]);
             let vla = band(b.ball.launch_angle, &[-10.0, 0.0, 10.0, 25.0, 50.0]);
