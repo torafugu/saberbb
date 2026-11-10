@@ -1,13 +1,14 @@
 //! Read-only aggregation of completed GameResult records. Never draws RNG or reruns a play.
 use saberbb::domain::{
     resolver::{
-        fielding_physics::{CatchType, estimate_ball_state_at_time},
+        fielding_physics::{CatchType, FieldingCatchDiagnostics, estimate_ball_state_at_time},
         running_resolver::{RunnersOnBase, RunningEvent},
     },
     shared::{
         ball::OutboundResult,
         game::{BattingResult, GameResult, GameSchedule},
         game_state::{ActiveRunner, Ruling},
+        game_stats::PlayerGameRunning,
         stadium::Base,
     },
 };
@@ -256,11 +257,126 @@ impl ContactOffsetAudit {
     }
 }
 
+#[derive(Default, Serialize)]
+struct FirstBasePhaseGroup {
+    n: u64,
+    runner_first_sec: Moments,
+    pickup_sec: Moments,
+    handling_sec: Moments,
+    field_complete_sec: Moments,
+    delivery_after_field_sec: Moments,
+    defense_complete_sec: Moments,
+}
+
+fn first_base_phase(
+    runner: Option<f64>,
+    pickup: Option<f64>,
+    ready: Option<f64>,
+    defense: Option<f64>,
+) -> &'static str {
+    let (Some(runner), Some(ready)) = (runner, ready) else {
+        return "missing_clock";
+    };
+    if pickup.is_some_and(|t| t >= runner) {
+        "pickup_at_or_after_runner"
+    } else if ready >= runner {
+        if pickup.is_some() {
+            "handling_crossed_runner"
+        } else {
+            "field_complete_late_pickup_unknown"
+        }
+    } else if let Some(defense) = defense {
+        if defense >= runner {
+            "delivery_crossed_runner"
+        } else {
+            "defense_completed_before_runner"
+        }
+    } else {
+        "field_complete_before_runner_delivery_unobserved"
+    }
+}
+
+#[derive(Default, Serialize)]
+struct HardGrounderFirstBase {
+    n: u64,
+    groups: BTreeMap<String, FirstBasePhaseGroup>,
+}
+
+impl HardGrounderFirstBase {
+    fn add(
+        &mut self,
+        result: BattingResult,
+        batter_id: i64,
+        primary: Option<&PlayerGameRunning>,
+        modeled_first: Option<f64>,
+        ready: Option<f64>,
+        diag: Option<FieldingCatchDiagnostics>,
+    ) {
+        let (target, first, defense) = match primary {
+            Some(r)
+                if r.throw_target_base == Base::First && r.target_runner_id == Some(batter_id) =>
+            {
+                (
+                    "batter_first_observed",
+                    Some(r.runner_time),
+                    Some(r.defense_time),
+                )
+            }
+            Some(r) if r.target_runner_id.is_some() => ("other_target", modeled_first, None),
+            Some(_) => ("target_unrecorded", modeled_first, None),
+            None => ("no_primary_grounder_record", modeled_first, None),
+        };
+        let first = first.filter(|t| t.is_finite() && *t > 0.0);
+        let pickup = diag.and_then(|d| d.pickup).filter(|p| {
+            p.pickup_time_sec.is_finite()
+                && p.pickup_time_sec >= 0.0
+                && p.handling_delay_sec.is_finite()
+                && p.handling_delay_sec >= 0.0
+                && ready
+                    .is_some_and(|t| (p.pickup_time_sec + p.handling_delay_sec - t).abs() <= 1e-7)
+        });
+        let invalid_defense = defense
+            .is_some_and(|t| !t.is_finite() || t < 0.0 || ready.is_some_and(|ready| t < ready))
+            || primary
+                .filter(|_| defense.is_some())
+                .zip(first.zip(defense))
+                .is_some_and(|(r, (first, defense))| {
+                    (defense >= first) != (r.ruling == Ruling::Safe)
+                });
+        let phase = if invalid_defense {
+            "inconsistent_defense_clock"
+        } else {
+            first_base_phase(first, pickup.map(|p| p.pickup_time_sec), ready, defense)
+        };
+        let catch = diag.map_or("unknown", |d| match d.catch_type {
+            CatchType::DirectFly => "DirectFly",
+            CatchType::BounceCatch => "BounceCatch",
+            CatchType::FinalPickup => "FinalPickup",
+            CatchType::Fumble => "Fumble",
+        });
+        let key = format!("{target}|{catch}|{}|{phase}", result.as_ref());
+        let group = self.groups.entry(key).or_default();
+        self.n += 1;
+        group.n += 1;
+        group.runner_first_sec.add(first);
+        group.pickup_sec.add(pickup.map(|p| p.pickup_time_sec));
+        group.handling_sec.add(pickup.map(|p| p.handling_delay_sec));
+        group.field_complete_sec.add(ready);
+        if !invalid_defense {
+            group.defense_complete_sec.add(defense);
+            group
+                .delivery_after_field_sec
+                .add(defense.zip(ready).map(|(d, f)| d - f));
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct BipAudit {
     source_pitch_records: u64,
     contact_population: BTreeMap<String, ContactPopulation>,
     contact_offset_ev: ContactOffsetAudit,
+    hard_grounder_first_base: HardGrounderFirstBase,
     total: Group,
     tables: BTreeMap<String, BTreeMap<String, Group>>,
     coverage: BTreeMap<String, u64>,
@@ -386,6 +502,19 @@ impl BipAudit {
             } else {
                 "unknown".into()
             };
+            if trajectory == "Grounder"
+                && (45.0..50.0).contains(&b.ball.launch_speed)
+                && (0.0..10.0).contains(&b.ball.launch_angle)
+            {
+                self.hard_grounder_first_base.add(
+                    b.result,
+                    b.batter_id,
+                    running,
+                    first,
+                    field_time,
+                    diag,
+                );
+            }
             let ev = band(b.ball.launch_speed, &[20.0, 35.0, 45.0]);
             let vla = band(b.ball.launch_angle, &[-10.0, 0.0, 10.0, 25.0, 50.0]);
             // Only model 2 records guarantee that HLA is in stadium coordinates.
@@ -643,6 +772,7 @@ impl BipAudit {
         json!({"source_pitch_records":self.source_pitch_records,"contact_population":self.contact_population,"summary":self.total.json(),"tables":self.tables.iter().map(|(t,groups)|(t,groups.iter().map(|(k,g)|(k,g.json())).collect::<BTreeMap<_,_>>())).collect::<BTreeMap<_,_>>(),
             "coverage":self.coverage,"flags":self.flags,"samples":self.samples,
             "contact_offset_ev":self.contact_offset_ev.json(),
+            "hard_grounder_first_base":self.hard_grounder_first_base,
             "batter_first_with_lag_sec":self.batter_first_sec,"batter_second_no_lag_sec":self.batter_second_no_lag_sec,"batter_third_no_lag_sec":self.batter_third_no_lag_sec,
             "final_minus_model_catch_distance_m":self.final_minus_model_catch_distance_m,
             "target_straight_line_distance_gap_m":self.target_straight_line_distance_gap_m,
@@ -818,6 +948,40 @@ mod tests {
         assert!(unknown["bip_plus_hr_ev"]["hard_hit_rate"].is_null());
         assert_eq!(report["total"]["contacts"], 4);
         assert_eq!(report["total"]["bip_plus_hr_ev"]["ev_ms"]["n"], 2);
+    }
+
+    #[test]
+    fn first_base_phases_follow_the_live_safe_at_tie_rule() {
+        let classify =
+            |pickup, ready, defense| first_base_phase(Some(4.0), pickup, Some(ready), defense);
+        assert_eq!(
+            classify(Some(4.0), 4.4, Some(5.2)),
+            "pickup_at_or_after_runner"
+        );
+        assert_eq!(
+            classify(Some(3.7), 4.0, Some(4.7)),
+            "handling_crossed_runner"
+        );
+        assert_eq!(
+            classify(Some(3.3), 3.7, Some(4.0)),
+            "delivery_crossed_runner"
+        );
+        assert_eq!(
+            classify(Some(3.3), 3.7, Some(3.9)),
+            "defense_completed_before_runner"
+        );
+        assert_eq!(
+            classify(None, 4.0, None),
+            "field_complete_late_pickup_unknown"
+        );
+        assert_eq!(
+            classify(Some(3.3), 3.7, None),
+            "field_complete_before_runner_delivery_unobserved"
+        );
+        assert_eq!(
+            first_base_phase(None, None, Some(3.7), None),
+            "missing_clock"
+        );
     }
 
     #[test]
