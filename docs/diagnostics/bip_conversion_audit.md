@@ -159,6 +159,30 @@ scenarios, since the simulator does not track the first baseman's actual
 cover run on these plays. The trial assumes a clean throw and reception,
 with no relay or alternative cover fielder. It does not change gameplay.
 
+### Experimental right-field force play in full games
+
+Set `SABERBB_DB` to the same input database used for the first-base cover audit.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --right-field-first-comparison > right_field_first_rule_360.json
+```
+
+The comparison runs both policies on the same schedule and game-start seeds.
+`right_field_first_trials` contains the baseline and experimental reports.
+The enabled reports include `right_field_first_outs` per seed. The new rule
+only replaces a conventional Single with no target runner, after a clean
+right-field BounceCatch on a Grounder with EV in [45, 50) m/s and VLA in
+[0, 10) degrees. The original rule is evaluated first.
+
+The existing direct throw timing and captured first-base cover inputs are
+used. The cover starts at the catch. Both ball and receiver must arrive
+at least 0.25 seconds before the batter. The rule uses the existing force
+play at first to advance any existing runners and cancels scoring if the
+batter is the third out. The model assumes clean delivery and reception.
+Games may diverge after the first changed play, so the number of trial
+outs and the net difference in singles are separate measurements.
+Ordinary simulation uses the baseline policy.
+
 ## Contact offset and exit speed
 
 Read `reports[].bip_diagnostics.contact_offset_ev` for the two-dimensional

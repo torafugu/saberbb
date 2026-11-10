@@ -16,6 +16,7 @@ use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
     evaluate_double_play, process_fielding,
 };
+use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::resolver::pitching_resolver::{
     MatchupContext, PitchDisplacement, calculate_ball_movement, calculate_hanging_pitch_effect,
     calculate_location_bias, calculate_pitch_offset, create_pitch, create_pitch_for_call,
@@ -23,7 +24,7 @@ use crate::domain::resolver::pitching_resolver::{
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
-use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall};
+use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall, TrajectoryType};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stats::{PlayerGameBattingMetrics, PlayerGameFieldingCandidate};
 use crate::domain::shared::stadium::{Base, Stadium};
@@ -43,6 +44,25 @@ use tracing::info;
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
 pub const MAX_STRIKE: u8 = 3;
+
+const RIGHT_FIELD_FIRST_MIN_MARGIN_SEC: f64 = 0.25;
+
+thread_local! {
+    static RIGHT_FIELD_FIRST_OUTS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Enable the experimental rule in a synchronous simulation and count the applied outs.
+pub fn with_right_field_first_trial<T>(run: impl FnOnce() -> T) -> (T, u64) {
+    struct Restore(Option<u64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RIGHT_FIELD_FIRST_OUTS.set(self.0);
+        }
+    }
+    let _restore = Restore(RIGHT_FIELD_FIRST_OUTS.replace(Some(0)));
+    let result = run();
+    (result, RIGHT_FIELD_FIRST_OUTS.get().unwrap())
+}
 
 // TODO: Move to running strategy
 const TEMP_ATTEMPT_STEAL_BASE_WEIGHT: f64 = 0.3;
@@ -721,6 +741,66 @@ impl GameState {
         Ok((defense_play_result, runner_advance_result))
     }
 
+    fn try_right_field_first(
+        &self,
+        ctx: &PlayContext,
+        batting_side: RL,
+        diagnostics: FieldingCatchDiagnostics,
+        original: &RunnerAdvanceResult,
+    ) -> Result<Option<(DefensePlayResult, RunnerAdvanceResult)>, GameError> {
+        let Some(outs) = RIGHT_FIELD_FIRST_OUTS.get() else {
+            return Ok(None);
+        };
+        let ball = &ctx.fielded_ball.ball;
+        if original.batting_result != BattingResult::Single
+            || original.target_runner.is_some()
+            || diagnostics.fielder_position != Position::RF
+            || diagnostics.catch_type != CatchType::BounceCatch
+            || diagnostics.error_type.is_some()
+            || !(45.0..50.0).contains(&ball.launch_speed)
+            || !(0.0..10.0).contains(&ball.launch_angle)
+            || ball.trajectory() != TrajectoryType::Grounder
+        {
+            return Ok(None);
+        }
+        let Some(snapshot) = diagnostics.right_field_first_base else {
+            return Ok(None);
+        };
+        let Some(first_baseman) = ctx.fielders.iter().find(|f| f.position == Position::FB) else {
+            return Ok(None);
+        };
+        let ready = ctx.fielded_ball.time_to_field;
+        let Some((ball_arrival, cover_duration)) = DefenseTimeCalculator::default()
+            .right_field_first_clocks(ctx.try_catch_fielder, snapshot, ready)
+        else {
+            return Ok(None);
+        };
+        let runners = &self.inning_state.runners;
+        let runner = runners.batter_runner_time_to(Base::First, true, batting_side)?;
+        let defense_time = ball_arrival.max(ready + cover_duration);
+        if !runner.is_finite() || defense_time > runner - RIGHT_FIELD_FIRST_MIN_MARGIN_SEC {
+            return Ok(None);
+        }
+        let defense = DefensePlayResult {
+            time_to_field: ready,
+            throw_target_base: Base::First,
+            play_type: PlayType::ForcePlay,
+            final_fielder_id: first_baseman.id,
+            final_fielder_position: Position::FB,
+            cutoff_fielder_id: None,
+            cutoff_fielder_position: None,
+            defense_time,
+        };
+        let mut advance = runners.after_infield_grounder(&defense, batting_side)?;
+        // A batter-runner putout at first for the third out cancels scoring.
+        if self.inning_state.out + 1 >= MAX_OUT {
+            advance.runs_scored = 0;
+            advance.unsaved_runners = RunnersUnsaved::default();
+        }
+        RIGHT_FIELD_FIRST_OUTS.set(Some(outs + 1));
+        Ok(Some((defense, advance)))
+    }
+
     fn try_double_play(
         &mut self,
         pitcher_id: i64,
@@ -1235,6 +1315,9 @@ impl GameState {
             &ctx,
             batting_side,
         )?;
+        let (defense_play_result, runner_advance_result) = self
+            .try_right_field_first(&ctx, batting_side, catch_diagnostics, &runner_advance_result)?
+            .unwrap_or((defense_play_result, runner_advance_result));
         point += runner_advance_result.runs_scored;
 
         self.game_result.add_player_fielding(
@@ -1455,6 +1538,90 @@ mod tests {
         assert!(!inning_state.runners.has_runner_on(Base::First));
         assert!(!inning_state.runners.has_runner_on(Base::Second));
         assert!(!inning_state.runners.has_runner_on(Base::Third));
+    }
+
+    #[test]
+    fn right_field_first_trial_uses_cover_margin_and_cancels_third_out_run() {
+        use crate::domain::resolver::fielding_physics::FieldingSelectionPath;
+        use crate::domain::shared::ball::FieldedBall;
+        use crate::domain::test_support::active_fielder;
+
+        let mut game = game_state();
+        game.inning_state.out = 2;
+        game.inning_state.runners.batter_runner = Some(runner(99));
+        game.inning_state.runners.runner_3rd = Some(runner(30));
+        let fielders = [
+            active_fielder(Position::RF, 70.0, 30.0),
+            active_fielder(Position::FB, 35.0, 33.0),
+        ];
+        let catch_position = Base::First.polar_position();
+        let mut ball = BattedBall::default();
+        ball.launch_speed = 47.0;
+        ball.launch_angle = 5.0;
+        let fielded_ball = FieldedBall {
+            ball,
+            fielded_by: Position::RF,
+            catch_position,
+            time_to_field: 1.0,
+            is_fly_catch: false,
+        };
+        let ctx = PlayContext {
+            runners: &game.inning_state.runners,
+            fielders: &fielders,
+            try_catch_fielder: &fielders[0],
+            fielded_ball: &fielded_ball,
+        };
+        let mut diagnostics = FieldingCatchDiagnostics {
+            selection_path: FieldingSelectionPath::Interception,
+            fielder_position: Position::RF,
+            catch_type: CatchType::BounceCatch,
+            error_type: None,
+            catch_time_sec: 1.0,
+            catch_z_m: 0.0,
+            waiting_time_sec: 0.0,
+            first_bounce_time: Some(0.5),
+            pickup: None,
+            right_field_first_base: Some(RightFieldFirstBaseSnapshot {
+                catch_position,
+                cover_start: catch_position,
+                cover_prep_sec: 0.5,
+                cover_speed_ms: 7.0,
+            }),
+        };
+        let mut original = RunnerAdvanceResult {
+            defense_time: 4.0,
+            runner_time: 0.0,
+            time_difference: 4.0,
+            throw_target_base: Base::Second,
+            target_runner: None,
+            play_type: PlayType::TouchPlay,
+            ruling: Ruling::Safe,
+            batting_result: BattingResult::Single,
+            runs_scored: 1,
+            unsaved_runners: RunnersUnsaved::default(),
+        };
+        let trial = |d, r: RunnerAdvanceResult| {
+            game.try_right_field_first(&ctx, RL::Right, d, &r).unwrap()
+        };
+        assert!(trial(diagnostics, original).is_none());
+        let (result, count) = with_right_field_first_trial(|| trial(diagnostics, original));
+        let (defense, advance) = result.unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(defense.throw_target_base, Base::First);
+        assert_eq!(defense.final_fielder_id, fielders[1].id);
+        assert_eq!(advance.target_runner.unwrap().id, 99);
+        assert_eq!(advance.ruling, Ruling::Out);
+        assert_eq!(advance.batting_result, BattingResult::Out);
+        assert_eq!(advance.runs_scored, 0);
+        assert!(advance.unsaved_runners.runner_1st.is_none());
+        assert!(trial(diagnostics, original).is_none());
+
+        original.target_runner = Some(runner(30));
+        assert!(with_right_field_first_trial(|| trial(diagnostics, original)).0.is_none());
+        original.target_runner = None;
+        diagnostics.right_field_first_base.as_mut().unwrap().cover_prep_sec =
+            advance.runner_time - fielded_ball.time_to_field - 0.125;
+        assert!(with_right_field_first_trial(|| trial(diagnostics, original)).0.is_none());
     }
 
     #[test]

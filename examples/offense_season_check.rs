@@ -11,6 +11,7 @@ use saberbb::{
         seeded_diagnostic::derived_seed,
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
+            game_state::with_right_field_first_trial,
             team::Team,
             timing_scale_audit::TimingScaleAudit,
         },
@@ -71,6 +72,9 @@ struct Args {
     /// Run each scheduled game at geometry scales 0.75, 0.875 and 1.00.
     #[arg(long, conflicts_with = "timing_scale_diagnostics")]
     timing_geometry_sweep: bool,
+    /// Compare baseline games with the experimental right-field force play at first.
+    #[arg(long, conflicts_with = "timing_geometry_sweep")]
+    right_field_first_comparison: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -340,11 +344,21 @@ fn run(args: Args) -> Result<()> {
             "babip": "(1B + 2B + 3B) / (AB - K - HR); sacrifice flies have no separate result category"
         }
     });
-    if args.timing_geometry_sweep {
+    if args.right_field_first_comparison {
+        let mut trials = Vec::new();
+        for enabled in [false, true] {
+            trials.push(serde_json::json!({
+                "enabled": enabled,
+                "reports": simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, enabled)?,
+            }));
+        }
+        output["right_field_first_trials"] = serde_json::json!(trials);
+    } else if args.timing_geometry_sweep {
         let mut trials = Vec::new();
         for scale in [CONTACT_TIMING_POSITION_SCALE, 0.875, 1.0] {
-            let reports =
-                with_contact_geometry_scale(scale, || simulate_reports(&args, &games, scale))?;
+            let reports = with_contact_geometry_scale(scale, || {
+                simulate_reports(&args, &games, scale, false)
+            })?;
             trials.push(serde_json::json!({
                 "geometry_scale": scale,
                 "exit_speed_depth_scale": CONTACT_TIMING_POSITION_SCALE,
@@ -356,7 +370,8 @@ fn run(args: Args) -> Result<()> {
         output["reports"] = serde_json::json!(simulate_reports(
             &args,
             &games,
-            CONTACT_TIMING_POSITION_SCALE
+            CONTACT_TIMING_POSITION_SCALE,
+            false,
         )?);
     }
     println!("{}", serde_json::to_string_pretty(&output)?);
@@ -367,6 +382,7 @@ fn simulate_reports(
     args: &Args,
     games: &[GameSchedule],
     scale: f64,
+    right_field_trial: bool,
 ) -> Result<Vec<serde_json::Value>> {
     let mut reports = Vec::new();
     for seed in &args.seeds {
@@ -387,6 +403,7 @@ fn simulate_reports(
             .timing_scale_diagnostics
             .then(TimingScaleAudit::default);
         let mut total = Counts::default();
+        let mut right_field_first_outs = 0;
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
         for (index, game) in games.iter().enumerate() {
@@ -400,14 +417,23 @@ fn simulate_reports(
                     args.selected_intent_diagnostics,
                 )
             };
-            let result = if let Some(timing) = timing.as_mut() {
-                timing.observe_game(game_seed, run)
+            let mut run_with_diagnostics = || {
+                if let Some(timing) = timing.as_mut() {
+                    timing.observe_game(game_seed, run)
+                } else {
+                    run()
+                }
+            };
+            let result = if right_field_trial {
+                let (result, outs) = with_right_field_first_trial(run_with_diagnostics);
+                right_field_first_outs += outs;
+                result
             } else {
-                run()
+                run_with_diagnostics()
             }
             .with_context(|| {
                 format!(
-                    "geometry scale {scale}, seed {seed}, game {} failed; no partial summary accepted",
+                    "geometry scale {scale}, right-field trial {right_field_trial}, seed {seed}, game {} failed; no partial summary accepted",
                     game.id
                 )
             })?;
@@ -429,7 +455,7 @@ fn simulate_reports(
             }
             if (index + 1) % 12 == 0 || index + 1 == games.len() {
                 eprintln!(
-                    "geometry scale {scale}, seed {seed}: {}/{} games complete",
+                    "geometry scale {scale}, right-field trial {right_field_trial}, seed {seed}: {}/{} games complete",
                     index + 1,
                     games.len()
                 );
@@ -455,6 +481,9 @@ fn simulate_reports(
         }
         if let Some(timing) = timing {
             report["timing_scale_diagnostics"] = timing.json();
+        }
+        if right_field_trial {
+            report["right_field_first_outs"] = serde_json::json!(right_field_first_outs);
         }
         reports.push(report);
     }
