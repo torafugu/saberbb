@@ -353,34 +353,15 @@ impl RightFieldCoverTrial {
             self.missing_snapshot += 1;
             return;
         };
-        let valid_position = |pos: PolarPosition| {
-            pos.distance.is_finite() && pos.distance >= 0.0 && pos.angle.is_finite()
+        let Some((ball, cover)) = DefenseTimeCalculator::default().right_field_first_clocks(
+            thrower,
+            snapshot,
+            opportunity.ready_sec,
+        ) else {
+            self.invalid_snapshot += 1;
+            return;
         };
-        if !valid_position(snapshot.catch_position)
-            || !valid_position(snapshot.cover_start)
-            || !snapshot.cover_prep_sec.is_finite()
-            || snapshot.cover_prep_sec < 0.0
-            || !snapshot.cover_speed_ms.is_finite()
-            || snapshot.cover_speed_ms <= 0.0
-        {
-            self.invalid_snapshot += 1;
-            return;
-        }
-        let distance =
-            calculate_polar_distance(&snapshot.cover_start, &Base::First.polar_position());
-        let cover = snapshot.cover_prep_sec + distance / snapshot.cover_speed_ms;
-        let ball = opportunity.ready_sec
-            + DefenseTimeCalculator::default().direct_play_time(
-                thrower,
-                &snapshot.catch_position,
-                Base::First,
-                false,
-            );
         let late_cover = opportunity.ready_sec + cover;
-        if !ball.is_finite() || !late_cover.is_finite() {
-            self.invalid_snapshot += 1;
-            return;
-        }
         let runner = opportunity.runner_sec;
         self.estimated_to_recorded_position_m
             .add(Some(calculate_polar_distance(

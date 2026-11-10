@@ -1,6 +1,7 @@
 use super::fielding_config::{
     BALL_FLIGHT_SPEED_CONTINUE_DISTANCE, CUTOFF_DISTANCE_COEFFICIENT, TOUCH_PENALTY_TIME,
 };
+use super::fielding_physics::RightFieldFirstBaseSnapshot;
 use crate::domain::shared::game::BASE_DISTANCE;
 use crate::domain::shared::game_state::{ActiveFielder, GameError};
 use crate::domain::shared::player::Position;
@@ -109,6 +110,42 @@ impl DefenseTimeCalculator {
             defense_time: throw_time,
             final_fielder_position,
         }
+    }
+
+    /// Ball arrival from contact and cover travel duration after the first baseman reacts.
+    pub fn right_field_first_clocks(
+        &self,
+        thrower: &ActiveFielder,
+        snapshot: RightFieldFirstBaseSnapshot,
+        field_complete_sec: f64,
+    ) -> Option<(f64, f64)> {
+        for position in [snapshot.catch_position, snapshot.cover_start] {
+            if !position.distance.is_finite()
+                || position.distance < 0.0
+                || !position.angle.is_finite()
+            {
+                return None;
+            }
+        }
+        if !snapshot.cover_prep_sec.is_finite()
+            || snapshot.cover_prep_sec < 0.0
+            || !snapshot.cover_speed_ms.is_finite()
+            || snapshot.cover_speed_ms <= 0.0
+            || !thrower.info.prep_time.is_finite()
+            || thrower.info.prep_time < 0.0
+            || !thrower.info.throw_speed.is_finite()
+            || thrower.info.throw_speed <= 0.0
+            || !field_complete_sec.is_finite()
+            || field_complete_sec < 0.0
+        {
+            return None;
+        }
+        let distance =
+            calculate_polar_distance(&snapshot.cover_start, &Base::First.polar_position());
+        let cover = snapshot.cover_prep_sec + distance / snapshot.cover_speed_ms;
+        let ball = field_complete_sec
+            + self.direct_play_time(thrower, &snapshot.catch_position, Base::First, false);
+        (ball.is_finite() && (field_complete_sec + cover).is_finite()).then_some((ball, cover))
     }
 
     pub fn cutoff_position(&self, catch_pos: &PolarPosition, target_base: Base) -> PolarPosition {
