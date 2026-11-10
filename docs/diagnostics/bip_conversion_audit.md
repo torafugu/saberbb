@@ -69,7 +69,7 @@ or running rule.
 Set `SABERBB_DB` to the same input database as the conversion sweep.
 
 ```sh
-cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > hard_grounder_first_base_360.json
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > hard_grounder_first_trial_360.json
 ```
 
 Read `reports[].bip_diagnostics.hard_grounder_first_base`. It includes
@@ -104,6 +104,33 @@ It can include transfer, throw, relay, receipt or run-to-base time.
 It cannot separate those components or determine whether throwing to first
 would have worked when the actual play targeted another base. Every timing
 summary has its own `n`.
+
+### Modeled one-base play for unobserved singles
+
+The same command also fills `hard_grounder_first_base.unobserved_first_trial`.
+It covers singles in `field_complete_before_runner_delivery_unobserved`.
+Group keys contain the original target category, infield/outfield role,
+fielder position and catch type. Eligible plays partition into
+`modeled_out`, `modeled_safe` and the reason counts in `missing`.
+
+The original field completion time and acceleration-aware batter arrival
+time stay fixed. FinalPickup uses the recorded pickup position and checks
+the pickup/handling clock and selected fielder ID. For an error-free
+BounceCatch, the existing fielding estimator supplies the origin at the
+recorded catch time. The report counts these origin sources separately.
+The selected fielder is identified by candidate diagnostics and gets
+throwing and running skills from the source roster.
+
+The trial assumes first base is covered. It uses the existing direct
+throw timing without a tag penalty. For infielders it also evaluates
+carrying the ball to first and chooses the faster option. Outfielders
+use a direct throw. Completion minus batter arrival is negative for an
+out and zero or positive for safe. Margin bands show how close those
+modeled results are.
+
+The trial does not account for a different cover assignment, relay choice,
+throw errors or the value of retiring a lead runner. It does not modify
+the original play or estimate changes in batting statistics.
 
 ## Contact offset and exit speed
 
