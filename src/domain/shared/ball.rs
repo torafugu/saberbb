@@ -13,7 +13,7 @@ use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumString};
 
 pub const FOUL_DEGREE: f64 = 45.0;
-const INFIELD_DISTANCE: f64 = 50.0;
+pub(crate) const INFIELD_DISTANCE: f64 = 50.0;
 const SHALLOW_DISTANCE: f64 = 45.0;
 
 // Scaling coefficient calibrated so that at 2500rpm, 150km/h (41.67m/s), efficiency 1.0, acceleration is approx. 3.5 m/s²
