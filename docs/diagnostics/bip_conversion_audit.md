@@ -64,6 +64,47 @@ within a cell can still reflect spin, position within the bin, base state or
 roster matchups. The grouped rates alone cannot attribute it to a fielding
 or running rule.
 
+## First-base timing on hard, low-angle grounders
+
+Set `SABERBB_DB` to the same input database as the conversion sweep.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --bip-diagnostics > hard_grounder_first_base_360.json
+```
+
+Read `reports[].bip_diagnostics.hard_grounder_first_base`. It includes
+terminal BIP classified as Grounder with EV in [45, 50) m/s and VLA in
+[0, 10) degrees. Its `n` is the sum of those cells across all HLA bands.
+Group keys contain target category, catch type, batting result and phase,
+separated by vertical bars.
+
+- `batter_first_observed` uses recorded runner and defense times when the
+  primary GrounderPlay record targets the batter at first. A tie is safe.
+- `other_target`, `target_unrecorded` and `no_primary_grounder_record`
+  compare fielding clocks with the roster-derived, acceleration-aware batter
+  time to first. The actual delivery to first is unobserved in these groups.
+  Later double-play legs are outside the primary comparison.
+
+A pickup snapshot is usable when its nonnegative pickup and handling times
+sum to the recorded field completion time within 1e-7 s. With usable clocks,
+the phase is the first checkpoint at or after the runner reaches first.
+
+| Phase | Recorded evidence |
+|---|---|
+| `pickup_at_or_after_runner` | The runner already arrived at pickup. |
+| `handling_crossed_runner` | Pickup preceded the runner and field completion did not. Handling includes any recorded fumble delay. |
+| `field_complete_late_pickup_unknown` | Field completion was late and the pickup/handling split is unavailable. |
+| `delivery_crossed_runner` | Field completion preceded the runner and defense completion did not. |
+| `defense_completed_before_runner` | Observed defense completed before the runner. |
+| `field_complete_before_runner_delivery_unobserved` | Field completion preceded the modeled runner, with no observed primary delivery to first. |
+
+Missing clocks and inconsistent observed defense clocks have separate
+categories. Delivery time is defense completion minus field completion.
+It can include transfer, throw, relay, receipt or run-to-base time.
+It cannot separate those components or determine whether throwing to first
+would have worked when the actual play targeted another base. Every timing
+summary has its own `n`.
+
 ## Contact offset and exit speed
 
 Read `reports[].bip_diagnostics.contact_offset_ev` for the two-dimensional
