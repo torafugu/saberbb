@@ -12,6 +12,7 @@ use saberbb::{
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::with_right_field_first_trial,
+            infield_opportunity_audit::InfieldOpportunityAudit,
             team::Team,
             timing_scale_audit::TimingScaleAudit,
         },
@@ -75,6 +76,9 @@ struct Args {
     /// Compare baseline games with the experimental right-field force play at first.
     #[arg(long, conflicts_with = "timing_geometry_sweep")]
     right_field_first_comparison: bool,
+    /// Audit earlier infield interception opportunities on outfield pickup singles.
+    #[arg(long)]
+    infield_opportunity_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -402,6 +406,9 @@ fn simulate_reports(
         let mut timing = args
             .timing_scale_diagnostics
             .then(TimingScaleAudit::default);
+        let mut infield = args
+            .infield_opportunity_diagnostics
+            .then(InfieldOpportunityAudit::default);
         let mut total = Counts::default();
         let mut right_field_first_outs = 0;
         let mut teams = BTreeMap::new();
@@ -418,6 +425,10 @@ fn simulate_reports(
                 )
             };
             let mut run_with_diagnostics = || {
+                let mut run = || match infield.as_mut() {
+                    Some(audit) => audit.observe_game(run),
+                    None => run(),
+                };
                 if let Some(timing) = timing.as_mut() {
                     timing.observe_game(game_seed, run)
                 } else {
@@ -481,6 +492,9 @@ fn simulate_reports(
         }
         if let Some(timing) = timing {
             report["timing_scale_diagnostics"] = timing.json();
+        }
+        if let Some(infield) = infield {
+            report["infield_opportunity_diagnostics"] = serde_json::to_value(infield)?;
         }
         if right_field_trial {
             report["right_field_first_outs"] = serde_json::json!(right_field_first_outs);

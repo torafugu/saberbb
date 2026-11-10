@@ -25,3 +25,5 @@ pub mod flight_reference;
 pub mod flight_drag;
 
 pub mod timing_scale_audit;
+
+pub mod infield_opportunity_audit;

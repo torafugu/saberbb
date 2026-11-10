@@ -1318,6 +1318,13 @@ impl GameState {
         let (defense_play_result, runner_advance_result) = self
             .try_right_field_first(&ctx, batting_side, catch_diagnostics, &runner_advance_result)?
             .unwrap_or((defense_play_result, runner_advance_result));
+        super::infield_opportunity_audit::record(
+            &ctx,
+            batting_side,
+            catch_diagnostics,
+            &field_play_result.candidate_diagnostics,
+            runner_advance_result.batting_result,
+        );
         point += runner_advance_result.runs_scored;
 
         self.game_result.add_player_fielding(

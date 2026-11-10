@@ -183,6 +183,46 @@ Games may diverge after the first changed play, so the number of trial
 outs and the net difference in singles are separate measurements.
 Ordinary simulation uses the baseline policy.
 
+## Infield interception opportunities before an outfield pickup
+
+Set `SABERBB_DB` to the same input database used for the BIP audit.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --infield-opportunity-diagnostics > infield_opportunity_360.json
+```
+
+`reports[].infield_opportunity_diagnostics` covers fair grounder singles
+with an outfielder selected for FinalPickup, including covering plays
+after an error. The hard, low-angle subset uses EV [45, 50) m/s and VLA
+[0, 10) degrees. Missing pickup or candidate inputs are counted separately.
+The audit uses the same simulated plays and never draws game RNG.
+
+For each play, the search starts at 0.10 seconds and ends at the first
+sample at or beyond the engine's 50 m infield radius or the recorded
+pickup time. Three scenarios report their earliest reachable interception:
+
+| Scenario | Candidate filters | Air / post-event grid |
+|---|---|---|
+| `original_filters_live_grid` | Recorded lane and final-distance filters | 10 / 50 ms |
+| `without_filters_live_grid` | Both filters removed | 10 / 50 ms |
+| `without_filters_10ms` | Both filters removed | 10 / 10 ms |
+
+Each search uses the current fielding trajectory estimator, the active
+infielders' initial positions, preparation times, running speeds and reach
+heights, and the original airborne risk margins. The counts by candidate
+reason and position describe the earliest candidate under each scenario.
+The geometric checks assume a clean interception and use the game's
+coarse fielding trajectory.
+
+A direct catch is counted separately. For a bounce, the first-base trial
+uses the faster of carrying the ball and a clean direct throw with cover
+starting at interception. Cover is assigned to the first baseman, or the
+pitcher if the first baseman fields the ball. The batter uses the live
+acceleration-aware arrival time. A tie is safe. These counts estimate
+whether the earliest interception leaves time for a play at first.
+They do not model alternate targets, subsequent advances or the effect
+of changing the rule in a full game.
+
 ## Contact offset and exit speed
 
 Read `reports[].bip_diagnostics.contact_offset_ev` for the two-dimensional
