@@ -3,7 +3,7 @@ use saberbb::domain::{
     resolver::{
         fielding_physics::{
             CatchType, FieldingCatchDiagnostics, PickupTimingDiagnostics,
-            estimate_ball_state_at_time,
+            RightFieldFirstBaseSnapshot, estimate_ball_state_at_time,
         },
         fielding_timing::DefenseTimeCalculator,
         running_resolver::{RunnersOnBase, RunningEvent},
@@ -13,7 +13,7 @@ use saberbb::domain::{
         game::{BattingResult, GameResult, GameSchedule},
         game_state::{ActiveFielder, ActiveRunner, Ruling},
         game_stats::{PlayerGameBatting, PlayerGameFielding, PlayerGameRunning},
-        player::Player,
+        player::{Player, Position},
         stadium::Base,
     },
     util::{PolarPosition, calculate_polar_distance},
@@ -310,6 +310,95 @@ struct FirstBaseOpportunity {
 }
 
 #[derive(Default, Serialize)]
+struct CoverScenario {
+    modeled_out: u64,
+    out_with_at_least_025_sec: u64,
+    cover_later_than_ball: u64,
+    completion_minus_runner_sec: Moments,
+}
+
+impl CoverScenario {
+    fn add(&mut self, ball_arrival: f64, cover_arrival: f64, runner_arrival: f64) {
+        let margin = ball_arrival.max(cover_arrival) - runner_arrival;
+        self.modeled_out += u64::from(margin < 0.0);
+        self.out_with_at_least_025_sec += u64::from(margin <= -0.25);
+        self.cover_later_than_ball += u64::from(cover_arrival > ball_arrival);
+        self.completion_minus_runner_sec.add(Some(margin));
+    }
+}
+
+#[derive(Default, Serialize)]
+struct RightFieldCoverTrial {
+    eligible: u64,
+    missing_snapshot: u64,
+    invalid_snapshot: u64,
+    estimated_origin_ideal_cover: CoverScenario,
+    recorded_origin_ideal_cover: CoverScenario,
+    cover_starts_at_contact: CoverScenario,
+    cover_starts_at_catch: CoverScenario,
+    estimated_to_recorded_position_m: Moments,
+}
+
+impl RightFieldCoverTrial {
+    fn record(
+        &mut self,
+        opportunity: &FirstBaseOpportunity,
+        snapshot: Option<RightFieldFirstBaseSnapshot>,
+        estimated: &PolarPosition,
+        thrower: &ActiveFielder,
+        estimated_delivery: f64,
+    ) {
+        self.eligible += 1;
+        let Some(snapshot) = snapshot else {
+            self.missing_snapshot += 1;
+            return;
+        };
+        let valid_position = |pos: PolarPosition| {
+            pos.distance.is_finite() && pos.distance >= 0.0 && pos.angle.is_finite()
+        };
+        if !valid_position(snapshot.catch_position)
+            || !valid_position(snapshot.cover_start)
+            || !snapshot.cover_prep_sec.is_finite()
+            || snapshot.cover_prep_sec < 0.0
+            || !snapshot.cover_speed_ms.is_finite()
+            || snapshot.cover_speed_ms <= 0.0
+        {
+            self.invalid_snapshot += 1;
+            return;
+        }
+        let distance =
+            calculate_polar_distance(&snapshot.cover_start, &Base::First.polar_position());
+        let cover = snapshot.cover_prep_sec + distance / snapshot.cover_speed_ms;
+        let ball = opportunity.ready_sec
+            + DefenseTimeCalculator::default().direct_play_time(
+                thrower,
+                &snapshot.catch_position,
+                Base::First,
+                false,
+            );
+        let late_cover = opportunity.ready_sec + cover;
+        if !ball.is_finite() || !late_cover.is_finite() {
+            self.invalid_snapshot += 1;
+            return;
+        }
+        let runner = opportunity.runner_sec;
+        self.estimated_to_recorded_position_m
+            .add(Some(calculate_polar_distance(
+                estimated,
+                &snapshot.catch_position,
+            )));
+        self.estimated_origin_ideal_cover.add(
+            opportunity.ready_sec + estimated_delivery,
+            0.0,
+            runner,
+        );
+        self.recorded_origin_ideal_cover.add(ball, 0.0, runner);
+        self.cover_starts_at_contact.add(ball, cover, runner);
+        self.cover_starts_at_catch.add(ball, late_cover, runner);
+    }
+}
+
+#[derive(Default, Serialize)]
 struct FirstBaseTrialGroup {
     eligible: u64,
     missing: BTreeMap<&'static str, u64>,
@@ -320,6 +409,8 @@ struct FirstBaseTrialGroup {
     distance_to_first_m: Moments,
     completion_minus_runner_sec: Moments,
     margin_bands_sec: BTreeMap<String, u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    right_field_cover: Option<RightFieldCoverTrial>,
 }
 
 impl FirstBaseTrialGroup {
@@ -413,6 +504,20 @@ impl FirstBaseTrialGroup {
             let distance = calculate_polar_distance(&origin, &base);
             if !margin.is_finite() || !distance.is_finite() {
                 return Err("invalid_trial_time_or_distance");
+            }
+            if opportunity.target == "target_unrecorded"
+                && position == Position::RF
+                && source == "estimated_bounce_catch"
+            {
+                self.right_field_cover
+                    .get_or_insert_with(RightFieldCoverTrial::default)
+                    .record(
+                        &opportunity,
+                        diag.right_field_first_base,
+                        &origin,
+                        &thrower,
+                        delivery,
+                    );
             }
             Ok((source, method, distance, margin))
         })();
@@ -1119,6 +1224,18 @@ mod tests {
         assert!(unknown["bip_plus_hr_ev"]["hard_hit_rate"].is_null());
         assert_eq!(report["total"]["contacts"], 4);
         assert_eq!(report["total"]["bip_plus_hr_ev"]["ev_ms"]["n"], 2);
+    }
+
+    #[test]
+    fn cover_scenario_requires_both_ball_and_receiver_before_runner() {
+        let mut scenario = CoverScenario::default();
+        scenario.add(3.5, 3.8, 4.0);
+        scenario.add(3.5, 4.0, 4.0);
+        scenario.add(3.6, 3.7, 4.0);
+        scenario.add(4.1, 3.8, 4.0);
+        assert_eq!(scenario.modeled_out, 2);
+        assert_eq!(scenario.out_with_at_least_025_sec, 1);
+        assert_eq!(scenario.cover_later_than_ball, 3);
     }
 
     #[test]
