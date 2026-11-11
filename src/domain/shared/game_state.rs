@@ -1324,6 +1324,7 @@ impl GameState {
             catch_diagnostics,
             &field_play_result.candidate_diagnostics,
             runner_advance_result.batting_result,
+            (metrics.hla_model_version == Some(2)).then_some(metrics.final_hla_deg),
         );
         point += runner_advance_result.runs_scored;
 

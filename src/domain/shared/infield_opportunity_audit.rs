@@ -111,12 +111,37 @@ fn first_completion(opportunity: Opportunity<'_>, fielders: &[ActiveFielder]) ->
     completion.is_finite().then_some(completion)
 }
 
+#[derive(Clone, Copy)]
+struct ArrivalGap {
+    ball_sec: f64,
+    prep_sec: f64,
+    travel_sec: f64,
+    delay_sec: f64,
+    position: Position,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ScanResult<'a> {
+    opportunities: [Option<Opportunity<'a>>; 3],
+    best_any: Option<ArrivalGap>,
+    best_after_bounce: Option<ArrivalGap>,
+}
+
+fn keep_smaller_gap(best: &mut Option<ArrivalGap>, point: ArrivalGap) {
+    if best.is_none_or(|previous| point.delay_sec < previous.delay_sec) {
+        *best = Some(point);
+    }
+}
+
 fn find_opportunities<'a>(
     ball: &BattedBall,
     candidates: &[(&'a ActiveFielder, &'a FielderCandidateDiagnostics)],
     pickup_sec: f64,
-) -> [Option<Opportunity<'a>>; 3] {
-    let mut opportunities = [None; 3];
+) -> ScanResult<'a> {
+    let mut scan = ScanResult::default();
+    let first_bounce = ball
+        .first_bounce_time
+        .filter(|t| t.is_finite() && (0.0..=ball.total_time).contains(t));
     for index in 0.. {
         // Same 0.10 s start and air sampling as live; the relaxed control
         // also samples every 10 ms after the bounce.
@@ -133,19 +158,28 @@ fn find_opportunities<'a>(
             let start = fielder.polar_position;
             let dx = x - start.distance * start.angle.to_radians().sin();
             let dy = y - start.distance * start.angle.to_radians().cos();
-            let needed = fielder.info.prep_time
-                + (dx.powi(2) + dy.powi(2)).sqrt() / fielder.info.running_speed;
+            let travel = (dx.powi(2) + dy.powi(2)).sqrt() / fielder.info.running_speed;
+            let needed = fielder.info.prep_time + travel;
+            if !height.is_finite() || height > fielder.info.reach_height || !needed.is_finite() {
+                continue;
+            }
+            let point = ArrivalGap {
+                ball_sec: t,
+                prep_sec: fielder.info.prep_time,
+                travel_sec: travel,
+                delay_sec: needed - t,
+                position: fielder.position,
+            };
+            keep_smaller_gap(&mut scan.best_any, point);
+            if first_bounce.is_some_and(|bounce| t >= bounce) {
+                keep_smaller_gap(&mut scan.best_after_bounce, point);
+            }
             let required_margin = if direct {
                 candidate.required_margin_sec
             } else {
                 0.0
             };
-            if !height.is_finite()
-                || height > fielder.info.reach_height
-                || !needed.is_finite()
-                || needed > t
-                || t - needed < required_margin
-            {
+            if needed > t || t - needed < required_margin {
                 continue;
             }
             let opportunity = Opportunity {
@@ -155,19 +189,79 @@ fn find_opportunities<'a>(
                 position: PolarPosition::new(distance, angle),
                 direct,
             };
-            opportunities[2].get_or_insert(opportunity);
+            scan.opportunities[2].get_or_insert(opportunity);
             if live_grid {
-                opportunities[1].get_or_insert(opportunity);
+                scan.opportunities[1].get_or_insert(opportunity);
                 if candidate.lane_eligible && candidate.distance_eligible {
-                    opportunities[0].get_or_insert(opportunity);
+                    scan.opportunities[0].get_or_insert(opportunity);
                 }
             }
         }
-        if opportunities.iter().all(Option::is_some) {
-            break;
-        }
     }
-    opportunities
+    scan
+}
+
+#[derive(Default, Serialize)]
+struct GapSummary {
+    samples: u64,
+    no_sample: u64,
+    delay_bands_sec: BTreeMap<&'static str, u64>,
+    by_position: BTreeMap<String, u64>,
+    ball_time_sum_sec: f64,
+    prep_time_sum_sec: f64,
+    travel_time_sum_sec: f64,
+    delay_sum_sec: f64,
+}
+
+impl GapSummary {
+    fn add(&mut self, point: Option<ArrivalGap>) {
+        let Some(point) = point else {
+            self.no_sample += 1;
+            return;
+        };
+        self.samples += 1;
+        let band = match point.delay_sec {
+            delay if delay <= 0.0 => "on_time",
+            delay if delay <= 0.1 => "(0,0.1]",
+            delay if delay <= 0.25 => "(0.1,0.25]",
+            delay if delay <= 0.5 => "(0.25,0.5]",
+            delay if delay <= 1.0 => "(0.5,1]",
+            _ => ">1",
+        };
+        *self.delay_bands_sec.entry(band).or_default() += 1;
+        *self
+            .by_position
+            .entry(point.position.as_ref().into())
+            .or_default() += 1;
+        self.ball_time_sum_sec += point.ball_sec;
+        self.prep_time_sum_sec += point.prep_sec;
+        self.travel_time_sum_sec += point.travel_sec;
+        self.delay_sum_sec += point.delay_sec;
+    }
+}
+
+#[derive(Default, Serialize)]
+struct ArrivalGaps {
+    best_any: GapSummary,
+    best_after_bounce: GapSummary,
+}
+
+impl ArrivalGaps {
+    fn add(&mut self, scan: ScanResult<'_>) {
+        self.best_any.add(scan.best_any);
+        self.best_after_bounce.add(scan.best_after_bounce);
+    }
+}
+
+fn band(value: f64, edges: &[f64]) -> String {
+    if !value.is_finite() {
+        return "unknown".into();
+    }
+    match edges.iter().position(|edge| value < *edge) {
+        Some(0) => format!("<{}", edges[0]),
+        Some(i) => format!("[{},{})", edges[i - 1], edges[i]),
+        None => format!(">={}", edges.last().unwrap()),
+    }
 }
 
 #[derive(Default, Serialize)]
@@ -176,13 +270,16 @@ struct Cohort {
     missing_inputs: u64,
     by_selection_path: BTreeMap<String, u64>,
     scenarios: BTreeMap<&'static str, Scenario>,
+    arrival_gaps: ArrivalGaps,
+    arrival_gaps_by_ev_hla: BTreeMap<String, ArrivalGaps>,
 }
 
 impl Cohort {
     fn add(
         &mut self,
         diagnostics: FieldingCatchDiagnostics,
-        opportunities: Option<[Option<Opportunity<'_>>; 3]>,
+        scan: Option<ScanResult<'_>>,
+        speed_direction: &str,
         fielders: &[ActiveFielder],
         runner_first: Option<f64>,
     ) {
@@ -191,11 +288,16 @@ impl Cohort {
             .by_selection_path
             .entry(diagnostics.selection_path.as_ref().into())
             .or_default() += 1;
-        let Some(opportunities) = opportunities else {
+        let Some(scan) = scan else {
             self.missing_inputs += 1;
             return;
         };
-        for (name, opportunity) in SCENARIOS.into_iter().zip(opportunities) {
+        self.arrival_gaps.add(scan);
+        self.arrival_gaps_by_ev_hla
+            .entry(speed_direction.into())
+            .or_default()
+            .add(scan);
+        for (name, opportunity) in SCENARIOS.into_iter().zip(scan.opportunities) {
             let scenario = self.scenarios.entry(name).or_default();
             if let Some(opportunity) = opportunity {
                 scenario.add(opportunity, fielders, runner_first);
@@ -240,6 +342,7 @@ pub(crate) fn record(
     diagnostics: FieldingCatchDiagnostics,
     candidates: &[FielderCandidateDiagnostics],
     result: BattingResult,
+    launch_direction_deg: Option<f64>,
 ) {
     ACTIVE.with_borrow_mut(|active| {
         let Some(audit) = active else { return };
@@ -289,9 +392,19 @@ pub(crate) fn record(
             }
             Some(find_opportunities(ball, &inputs, pickup.pickup_time_sec))
         })();
+        let ev = band(
+            ball.launch_speed,
+            &[20.0, 30.0, 35.0, 40.0, 95.0 * 0.44704, 45.0, 50.0, 55.0],
+        );
+        let hla = band(
+            launch_direction_deg.unwrap_or(f64::NAN),
+            &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0],
+        );
+        let speed_direction = format!("EV:{ev}|HLA:{hla}");
         audit.outfield_pickup_grounder_singles.add(
             diagnostics,
             opportunities,
+            &speed_direction,
             ctx.fielders,
             runner_first,
         );
@@ -299,6 +412,7 @@ pub(crate) fn record(
             audit.hard_low_grounder_subset.add(
                 diagnostics,
                 opportunities,
+                &speed_direction,
                 ctx.fielders,
                 runner_first,
             );
@@ -336,19 +450,27 @@ mod tests {
             selected: false,
             selected_path: None,
         };
-        let [live, relaxed, fine] = find_opportunities(&ball, &[(&fielder, &candidate)], 0.9);
+        let [live, relaxed, fine] =
+            find_opportunities(&ball, &[(&fielder, &candidate)], 0.9).opportunities;
         assert!(live.is_none() && relaxed.is_none());
         assert!((fine.unwrap().time_sec - 0.43).abs() < 1e-9);
 
         fielder.polar_position = PolarPosition::new(45.0, 0.0);
-        let [live, relaxed, fine] = find_opportunities(&ball, &[(&fielder, &candidate)], 0.9);
+        let [live, relaxed, fine] =
+            find_opportunities(&ball, &[(&fielder, &candidate)], 0.9).opportunities;
         assert!(live.is_none());
         assert!((relaxed.unwrap().time_sec - 0.45).abs() < 1e-9);
         assert!((fine.unwrap().time_sec - 0.45).abs() < 1e-9);
 
         fielder.polar_position = PolarPosition::new(52.0, 0.0);
+        let scan = find_opportunities(&ball, &[(&fielder, &candidate)], 0.9);
+        let best = scan.best_after_bounce.unwrap();
+        assert_eq!(best.position, Position::SS);
+        assert!((best.ball_sec - 0.49).abs() < 1e-9);
+        assert!((best.delay_sec - 1.41).abs() < 1e-9);
         assert!(
             find_opportunities(&ball, &[(&fielder, &candidate)], 0.9)
+                .opportunities
                 .iter()
                 .all(Option::is_none)
         );

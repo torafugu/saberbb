@@ -188,7 +188,7 @@ Ordinary simulation uses the baseline policy.
 Set `SABERBB_DB` to the same input database used for the BIP audit.
 
 ```sh
-cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --infield-opportunity-diagnostics > infield_opportunity_360.json
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 360 --infield-opportunity-diagnostics > infield_arrival_gap_360.json
 ```
 
 `reports[].infield_opportunity_diagnostics` covers fair grounder singles
@@ -222,6 +222,30 @@ acceleration-aware arrival time. A tie is safe. These counts estimate
 whether the earliest interception leaves time for a play at first.
 They do not model alternate targets, subsequent advances or the effect
 of changing the rule in a full game.
+
+### Closest arrival gap
+
+For each grounder, the audit also takes the minimum of
+`fielder prep time + travel time - ball arrival time` across eligible-height
+points and infielders in the same 10 ms search window. Positive values mean
+the fielder is late. `best_any` uses the whole window and
+`best_after_bounce` starts at the first ground bounce. This timing measure
+ignores candidate filters and the airborne risk margin. Its `on_time`
+band therefore measures geometric arrival.
+
+`arrival_gaps` pools the cohort. `arrival_gaps_by_ev_hla` uses the same
+exit-speed bands and stadium-relative launch-direction bands as the joint
+BIP table. Missing HLA is grouped separately. For each timing summary,
+`samples` and `no_sample` partition plays with usable scan inputs.
+`no_sample` can include a ball leaving the search window before its first
+bounce. The delay histogram and fielder counts sum to `samples`. Each sum
+is over one best point per play. Sum the counts and timing sums across
+seeds before taking means.
+
+The time terms describe the chosen point on each modeled ball path.
+They help distinguish short ball-arrival times from longer movement times.
+They do not estimate how repositioning or faster reactions would change
+fielding outcomes.
 
 ## Contact offset and exit speed
 
