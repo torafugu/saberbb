@@ -397,8 +397,23 @@ pub fn evaluate_fielder_interception_with_diagnostics<'a>(
     ball: &'a BattedBall,
     fielder: &'a ActiveFielder,
 ) -> (Option<FielderInterception<'a>>, AirSearchDiagnostics) {
+    evaluate_fielder_interception_with_margin(
+        rng,
+        ball,
+        fielder,
+        fielder.risk_tolerance.required_margin_sec(),
+    )
+}
+
+pub(crate) fn evaluate_fielder_interception_with_margin<'a>(
+    rng: &mut dyn RandomProvider,
+    ball: &'a BattedBall,
+    fielder: &'a ActiveFielder,
+    required_margin_sec: f64,
+) -> (Option<FielderInterception<'a>>, AirSearchDiagnostics) {
     let mut diagnostics = AirSearchDiagnostics::default();
-    let interception = search_fielder_interception(rng, ball, fielder, &mut diagnostics);
+    let interception =
+        search_fielder_interception(rng, ball, fielder, required_margin_sec, &mut diagnostics);
     (interception, diagnostics)
 }
 
@@ -406,6 +421,7 @@ fn search_fielder_interception<'a>(
     rng: &mut dyn RandomProvider,
     ball: &'a BattedBall,
     fielder: &'a ActiveFielder,
+    required_margin_sec: f64,
     diagnostics: &mut AirSearchDiagnostics,
 ) -> Option<FielderInterception<'a>> {
     // Fielder's Cartesian coordinates (x, y)
@@ -462,8 +478,7 @@ fn search_fielder_interception<'a>(
                 // 1. No-bounce catch avoidance judgment based on FielderRiskTolerance
                 if is_direct {
                     diagnostics.reachable_samples += 1;
-                    let is_acceptable_risk =
-                        waiting_time >= fielder.risk_tolerance.required_margin_sec();
+                    let is_acceptable_risk = waiting_time >= required_margin_sec;
 
                     // If the risk is deemed too high, skip the catch at this (no-bounce) point
                     // and continue the loop to find a safe point after the first bounce

@@ -8,20 +8,27 @@ use super::{
 use crate::domain::{
     random_provider::{FixedRng, RandomProvider, RealRng},
     resolver::fielding_physics::{
-        CatchType, FieldPlayPlayResult, FielderRiskTolerance, evaluate_fielder_interception,
+        CatchType, FieldPlayPlayResult, evaluate_fielder_interception_with_margin,
     },
 };
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
 #[derive(Default, Serialize)]
-struct Cohort {
-    baseline_singles: u64,
-    singles_with_risk_skipped_point: u64,
+struct MarginOutcome {
+    singles_with_changed_attempt: u64,
     replay_direct_out: u64,
     replay_without_direct_out: u64,
     direct_out_by_position: BTreeMap<String, u64>,
 }
+
+#[derive(Default, Serialize)]
+struct Cohort {
+    baseline_singles: u64,
+    by_margin_percent: BTreeMap<u8, MarginOutcome>,
+}
+
+const MARGIN_PERCENTS: [u8; 3] = [100, 50, 0];
 
 #[derive(Default, Serialize)]
 pub struct NoBounceCatchAudit {
@@ -59,27 +66,28 @@ impl NoBounceCatchAudit {
     }
 }
 
-enum Replay {
-    NoRiskSkip,
-    DirectOut(Position),
-    NoDirectOut,
+#[derive(Clone, Copy, Default)]
+struct Replay {
+    changed_attempt: bool,
+    direct_out: Option<Position>,
 }
 
 impl Cohort {
-    fn add(&mut self, replay: &Replay) {
+    fn add(&mut self, replays: &[Replay; 3]) {
         self.baseline_singles += 1;
-        match replay {
-            Replay::NoRiskSkip => return,
-            Replay::DirectOut(position) => {
-                self.replay_direct_out += 1;
-                *self
+        for (percent, replay) in MARGIN_PERCENTS.into_iter().zip(replays) {
+            let outcome = self.by_margin_percent.entry(percent).or_default();
+            if let Some(position) = replay.direct_out {
+                outcome.replay_direct_out += 1;
+                *outcome
                     .direct_out_by_position
                     .entry(position.as_ref().into())
                     .or_default() += 1;
+            } else if replay.changed_attempt {
+                outcome.replay_without_direct_out += 1;
             }
-            Replay::NoDirectOut => self.replay_without_direct_out += 1,
+            outcome.singles_with_changed_attempt += u64::from(replay.changed_attempt);
         }
-        self.singles_with_risk_skipped_point += 1;
     }
 }
 
@@ -88,47 +96,59 @@ fn replay(
     fielders: &[ActiveFielder],
     ball: &BattedBall,
     baseline: &FieldPlayPlayResult<'_>,
-) -> Replay {
-    let mut risk_skipped = false;
-    let mut first: Option<(f64, bool, Position)> = None;
+) -> [Replay; 3] {
+    let mut replays = [Replay::default(); 3];
+    let mut first: [Option<(f64, bool, Position)>; 3] = [None; 3];
     // Candidate rows preserve original fielder order, including filtered fielders.
     for (fielder, candidate) in fielders.iter().zip(&baseline.candidate_diagnostics) {
         let Some(search) = candidate.search else {
             continue;
         };
-        let interception = if search.reachable_samples > search.risk_ok_samples {
-            risk_skipped = true;
-            let mut fielder = fielder.clone();
-            fielder.risk_tolerance = FielderRiskTolerance::Aggressive;
-            // Reuse the original attempt's draw when available. New attempts
-            // draw only from the independent diagnostic stream.
-            let draw = search.fielding_error_draw.unwrap_or_else(|| rng.random());
-            evaluate_fielder_interception(&mut FixedRng::new(draw), ball, &fielder).map(|catch| {
-                (
-                    catch.catch_time_sec,
-                    catch.catch_type == CatchType::DirectFly && !catch.is_error(),
-                )
-            })
-        } else {
-            candidate.interception_time_sec.map(|time| {
-                (
-                    time,
-                    candidate.interception_catch_type == Some(CatchType::DirectFly)
-                        && candidate.interception_error_type.is_none(),
-                )
-            })
-        };
-        if let Some((time, direct)) = interception
-            && first.is_none_or(|(best, _, _)| time.total_cmp(&best).is_lt())
-        {
-            first = Some((time, direct, fielder.position));
+        let original = candidate.interception_time_sec.map(|time| {
+            (
+                time,
+                candidate.interception_catch_type == Some(CatchType::DirectFly)
+                    && candidate.interception_error_type.is_none(),
+            )
+        });
+        let mut draw = search.fielding_error_draw;
+        for (index, percent) in MARGIN_PERCENTS.into_iter().enumerate() {
+            let margin = candidate.required_margin_sec * f64::from(percent) / 100.0;
+            let interception = if percent < 100
+                && search.reachable_samples > search.risk_ok_samples
+                && search.max_air_margin_sec.is_some_and(|best| best >= margin)
+            {
+                // Share one draw per fielder across both replays. At zero margin
+                // the fallback draws occur in the same order as in the original audit.
+                let value = *draw.get_or_insert_with(|| rng.random());
+                let (catch, diagnostics) = evaluate_fielder_interception_with_margin(
+                    &mut FixedRng::new(value),
+                    ball,
+                    fielder,
+                    margin,
+                );
+                replays[index].changed_attempt |=
+                    diagnostics.last_evaluated_time_sec != search.last_evaluated_time_sec;
+                catch.map(|catch| {
+                    (
+                        catch.catch_time_sec,
+                        catch.catch_type == CatchType::DirectFly && !catch.is_error(),
+                    )
+                })
+            } else {
+                original
+            };
+            if let Some((time, direct)) = interception
+                && first[index].is_none_or(|(best, _, _)| time.total_cmp(&best).is_lt())
+            {
+                first[index] = Some((time, direct, fielder.position));
+            }
         }
     }
-    match (risk_skipped, first) {
-        (false, _) => Replay::NoRiskSkip,
-        (true, Some((_, true, position))) => Replay::DirectOut(position),
-        (true, _) => Replay::NoDirectOut,
+    for (result, winner) in replays.iter_mut().zip(first) {
+        result.direct_out = winner.and_then(|(_, direct, position)| direct.then_some(position));
     }
+    replays
 }
 
 pub(crate) fn record(
@@ -164,7 +184,8 @@ pub(crate) fn record(
 mod tests {
     use super::*;
     use crate::domain::{
-        resolver::fielding_resolver::process_fielding, test_support::active_fielder,
+        resolver::{fielding_physics::FielderRiskTolerance, fielding_resolver::process_fielding},
+        test_support::active_fielder,
         util::PolarPosition,
     };
 
@@ -190,18 +211,35 @@ mod tests {
 
         let clean = process_fielding(&mut FixedRng::new(0.5), &fielders, &ball).unwrap();
         assert_eq!(clean.result().catch_type, CatchType::BounceCatch);
-        assert!(matches!(
-            replay(&mut FixedRng::new(0.0), &fielders, &ball, &clean),
-            Replay::DirectOut(Position::CF)
-        ));
+        let clean_replay = replay(&mut FixedRng::new(0.0), &fielders, &ball, &clean);
+        assert_eq!(
+            clean_replay.map(|r| r.direct_out),
+            [None, Some(Position::CF), Some(Position::CF)]
+        );
+
+        let shorter_flight = BattedBall {
+            first_bounce_time: Some(0.29),
+            ..ball.clone()
+        };
+        let shorter_baseline =
+            process_fielding(&mut FixedRng::new(0.5), &fielders, &shorter_flight).unwrap();
+        assert_eq!(shorter_baseline.result().catch_type, CatchType::BounceCatch);
+        let shorter_replay = replay(
+            &mut FixedRng::new(0.0),
+            &fielders,
+            &shorter_flight,
+            &shorter_baseline,
+        );
+        assert_eq!(
+            shorter_replay.map(|r| r.direct_out),
+            [None, None, Some(Position::CF)]
+        );
 
         // The bounce succeeds with 0.04, but the rushed direct attempt with the
         // same draw fails because the error probability is three times higher.
         let rushed = process_fielding(&mut FixedRng::new(0.04), &fielders, &ball).unwrap();
         assert_eq!(rushed.result().catch_type, CatchType::BounceCatch);
-        assert!(matches!(
-            replay(&mut FixedRng::new(0.99), &fielders, &ball, &rushed),
-            Replay::NoDirectOut
-        ));
+        let rushed_replay = replay(&mut FixedRng::new(0.99), &fielders, &ball, &rushed);
+        assert_eq!(rushed_replay.map(|r| r.direct_out), [None; 3]);
     }
 }

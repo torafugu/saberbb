@@ -80,7 +80,7 @@ struct Args {
     /// Audit earlier infield interception opportunities on outfield pickup singles.
     #[arg(long)]
     infield_opportunity_diagnostics: bool,
-    /// Replay baseline singles with zero required margin for direct catches.
+    /// Replay baseline singles at 100%, 50%, and 0% of the direct-catch margin.
     #[arg(long)]
     no_bounce_catch_diagnostics: bool,
 }
