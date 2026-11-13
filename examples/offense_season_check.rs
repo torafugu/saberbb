@@ -8,6 +8,7 @@ use saberbb::{
         game_service::simulate_game,
         random_provider::RealRng,
         resolver::batting_resolver::{CONTACT_TIMING_POSITION_SCALE, with_contact_geometry_scale},
+        resolver::fielding_physics::{CatchType, with_direct_catch_margin_scale},
         seeded_diagnostic::derived_seed,
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
@@ -83,6 +84,9 @@ struct Args {
     /// Replay baseline singles at 100%, 50%, and 0% of the direct-catch margin.
     #[arg(long)]
     no_bounce_catch_diagnostics: bool,
+    /// Simulate full games with 100% and 50% of the normal direct-catch margin.
+    #[arg(long, conflicts_with_all = ["timing_geometry_sweep", "right_field_first_comparison", "no_bounce_catch_diagnostics"])]
+    no_bounce_margin_comparison: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -159,6 +163,42 @@ impl Counts {
         v
     }
 }
+#[derive(Default, Serialize)]
+struct FieldingCounts {
+    fielded_balls: u64,
+    direct_catches: u64,
+    candidate_attempts: u64,
+    candidate_errors: u64,
+    direct_candidate_attempts: u64,
+    direct_candidate_errors: u64,
+}
+
+impl FieldingCounts {
+    fn observe(&mut self, result: &GameResult) {
+        for fielding in &result.player_fieldings {
+            if let Some(catch) = fielding.catch_diagnostics {
+                self.fielded_balls += 1;
+                if catch.catch_type == CatchType::DirectFly && catch.error_type.is_none() {
+                    self.direct_catches += 1;
+                }
+            }
+        }
+        for candidate in &result.player_fielding_candidates {
+            let d = candidate.diagnostics;
+            if d.interception_catch_type.is_none() {
+                continue;
+            }
+            self.candidate_attempts += 1;
+            let error = u64::from(d.interception_error_type.is_some());
+            self.candidate_errors += error;
+            if d.search.is_some_and(|s| s.risk_ok_samples > 0) {
+                self.direct_candidate_attempts += 1;
+                self.direct_candidate_errors += error;
+            }
+        }
+    }
+}
+
 fn schedules(
     conn: &Connection,
     repo: &SqlGameRepository,
@@ -352,7 +392,20 @@ fn run(args: Args) -> Result<()> {
             "babip": "(1B + 2B + 3B) / (AB - K - HR); sacrifice flies have no separate result category"
         }
     });
-    if args.right_field_first_comparison {
+    if args.no_bounce_margin_comparison {
+        let mut trials = Vec::new();
+        for percent in [100, 50] {
+            eprintln!("Direct-catch margin: {percent}%");
+            let reports = with_direct_catch_margin_scale(f64::from(percent) / 100.0, || {
+                simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false)
+            })?;
+            trials.push(serde_json::json!({"margin_percent": percent, "reports": reports}));
+        }
+        output["no_bounce_margin_trials"] = serde_json::json!(trials);
+        output["definitions"]["candidate_errors"] = serde_json::json!(
+            "Modeled interception errors across all evaluated fielder attempts; multiple candidates can be counted for one batted ball. Not official scoring errors."
+        );
+    } else if args.right_field_first_comparison {
         let mut trials = Vec::new();
         for enabled in [false, true] {
             trials.push(serde_json::json!({
@@ -416,6 +469,9 @@ fn simulate_reports(
         let mut no_bounce = args
             .no_bounce_catch_diagnostics
             .then(NoBounceCatchAudit::default);
+        let mut fielding = args
+            .no_bounce_margin_comparison
+            .then(FieldingCounts::default);
         let mut total = Counts::default();
         let mut right_field_first_outs = 0;
         let mut teams = BTreeMap::new();
@@ -471,6 +527,9 @@ fn simulate_reports(
             if let Some(selected) = selected.as_mut() {
                 selected.observe(game, &result)?;
             }
+            if let Some(fielding) = fielding.as_mut() {
+                fielding.observe(&result);
+            }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(bip) = bip.as_mut() {
                 bip.observe(game, &result);
@@ -504,6 +563,13 @@ fn simulate_reports(
         if let Some(timing) = timing {
             report["timing_scale_diagnostics"] = timing.json();
         }
+        if let Some(fielding) = fielding {
+            report["fielding"] = serde_json::to_value(fielding)?;
+            report["total"]["extra_base_hits_per_pa"] = serde_json::json!(
+                (total.pa > 0)
+                    .then(|| (total.double + total.triple + total.hr) as f64 / total.pa as f64)
+            );
+        }
         if let Some(no_bounce) = no_bounce {
             ensure!(
                 no_bounce.baseline_singles() == total.single,
@@ -524,6 +590,18 @@ fn simulate_reports(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_margin_override_restores_original_thresholds() {
+        use saberbb::domain::resolver::fielding_physics::FielderRiskTolerance::*;
+        assert_eq!(Balanced.required_margin_sec(), 0.15);
+        with_direct_catch_margin_scale(0.5, || {
+            assert_eq!(Aggressive.required_margin_sec(), 0.0);
+            assert_eq!(Balanced.required_margin_sec(), 0.075);
+            assert_eq!(Conservative.required_margin_sec(), 0.175);
+        });
+        assert_eq!(Balanced.required_margin_sec(), 0.15);
+    }
+
     #[test]
     fn nonterminal_pitches_are_not_plate_appearances_or_at_bats() {
         let mut c = Counts::default();

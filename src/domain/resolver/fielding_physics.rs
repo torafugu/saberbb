@@ -279,13 +279,31 @@ pub enum FielderRiskTolerance {
     Conservative, // Prioritize avoiding errors/misses; safely field it on one bounce (low risk)
 }
 
+thread_local! {
+    static DIRECT_CATCH_MARGIN_SCALE: std::cell::Cell<f64> = const { std::cell::Cell::new(1.0) };
+}
+
+/// Scope the live margin override to one diagnostic trial on this thread.
+pub fn with_direct_catch_margin_scale<T>(scale: f64, run: impl FnOnce() -> T) -> T {
+    assert!(scale.is_finite() && (0.0..=1.0).contains(&scale));
+    struct Restore(f64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DIRECT_CATCH_MARGIN_SCALE.set(self.0);
+        }
+    }
+    let _restore = Restore(DIRECT_CATCH_MARGIN_SCALE.replace(scale));
+    run()
+}
+
 impl FielderRiskTolerance {
     pub fn required_margin_sec(self) -> f64 {
-        match self {
+        let margin = match self {
             Self::Aggressive => 0.0,
             Self::Balanced => 0.15,
             Self::Conservative => 0.35,
-        }
+        };
+        margin * DIRECT_CATCH_MARGIN_SCALE.get()
     }
 }
 
