@@ -1946,6 +1946,7 @@ mod tests {
                 max_air_margin_height_m: Some(1.8),
                 last_evaluated_time_sec: Some(0.55),
                 end_reason: CandidateEndReason::DirectFly,
+                ..AirSearchDiagnostics::default()
             }),
             interception_catch_type: Some(CatchType::DirectFly),
             interception_time_sec: Some(0.55),

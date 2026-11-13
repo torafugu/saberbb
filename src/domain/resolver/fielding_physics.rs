@@ -123,6 +123,9 @@ pub struct AirSearchDiagnostics {
     pub max_air_margin_time_sec: Option<f64>,
     pub max_air_margin_height_m: Option<f64>,
     pub last_evaluated_time_sec: Option<f64>,
+    /// Original draw, retained only in memory for a paired diagnostic replay.
+    #[serde(skip)]
+    pub fielding_error_draw: Option<f64>,
     pub end_reason: CandidateEndReason,
 }
 
@@ -475,6 +478,7 @@ fn search_fielder_interception<'a>(
                 let base_error_rate = (1.0 - fielder.info.catching).clamp(0.01, 0.50);
                 let error_probability = base_error_rate * difficulty * 0.10;
                 let rng_value = rng.random();
+                diagnostics.fielding_error_draw = Some(rng_value);
 
                 if rng_value < error_probability {
                     diagnostics.end_reason = CandidateEndReason::FieldingError;
