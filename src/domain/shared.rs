@@ -27,3 +27,4 @@ pub mod flight_drag;
 pub mod timing_scale_audit;
 
 pub mod infield_opportunity_audit;
+pub mod no_bounce_catch_audit;

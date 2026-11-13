@@ -13,6 +13,7 @@ use saberbb::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::with_right_field_first_trial,
             infield_opportunity_audit::InfieldOpportunityAudit,
+            no_bounce_catch_audit::NoBounceCatchAudit,
             team::Team,
             timing_scale_audit::TimingScaleAudit,
         },
@@ -79,6 +80,9 @@ struct Args {
     /// Audit earlier infield interception opportunities on outfield pickup singles.
     #[arg(long)]
     infield_opportunity_diagnostics: bool,
+    /// Replay baseline singles at 100%, 50%, and 0% of the direct-catch margin.
+    #[arg(long)]
+    no_bounce_catch_diagnostics: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -409,6 +413,9 @@ fn simulate_reports(
         let mut infield = args
             .infield_opportunity_diagnostics
             .then(InfieldOpportunityAudit::default);
+        let mut no_bounce = args
+            .no_bounce_catch_diagnostics
+            .then(NoBounceCatchAudit::default);
         let mut total = Counts::default();
         let mut right_field_first_outs = 0;
         let mut teams = BTreeMap::new();
@@ -425,7 +432,11 @@ fn simulate_reports(
                 )
             };
             let mut run_with_diagnostics = || {
-                let mut run = || match infield.as_mut() {
+                let mut run = || match no_bounce.as_mut() {
+                    Some(audit) => audit.observe_game(game_seed, run),
+                    None => run(),
+                };
+                let run = || match infield.as_mut() {
                     Some(audit) => audit.observe_game(run),
                     None => run(),
                 };
@@ -492,6 +503,13 @@ fn simulate_reports(
         }
         if let Some(timing) = timing {
             report["timing_scale_diagnostics"] = timing.json();
+        }
+        if let Some(no_bounce) = no_bounce {
+            ensure!(
+                no_bounce.baseline_singles() == total.single,
+                "no-bounce audit single count does not match the official batting results"
+            );
+            report["no_bounce_catch_diagnostics"] = serde_json::to_value(no_bounce)?;
         }
         if let Some(infield) = infield {
             report["infield_opportunity_diagnostics"] = serde_json::to_value(infield)?;
