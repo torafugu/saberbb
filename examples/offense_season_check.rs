@@ -84,7 +84,7 @@ struct Args {
     /// Replay baseline singles at 100%, 50%, and 0% of the direct-catch margin.
     #[arg(long)]
     no_bounce_catch_diagnostics: bool,
-    /// Simulate full games with 100% and 50% of the normal direct-catch margin.
+    /// Simulate full games with 100% and 50% of the pre-adjustment direct-catch margin.
     #[arg(long, conflicts_with_all = ["timing_geometry_sweep", "right_field_first_comparison", "no_bounce_catch_diagnostics"])]
     no_bounce_margin_comparison: bool,
 }
@@ -384,6 +384,7 @@ fn run(args: Args) -> Result<()> {
             "published_cd": "0.297 + 0.0292 * total_spin_rpm / 1000",
             "lift": "unchanged legacy transverse-spin model"
         },
+        "default_direct_catch_margin_percent": 50,
         "inputs_sha256": input_hash, "season": args.season, "games_per_seed": games.len(),
         "definitions": {
             "ra9_reference": "Runs allowed * 27 / recorded outs; earned runs not recorded",
@@ -593,13 +594,14 @@ mod tests {
     #[test]
     fn live_margin_override_restores_original_thresholds() {
         use saberbb::domain::resolver::fielding_physics::FielderRiskTolerance::*;
-        assert_eq!(Balanced.required_margin_sec(), 0.15);
-        with_direct_catch_margin_scale(0.5, || {
-            assert_eq!(Aggressive.required_margin_sec(), 0.0);
-            assert_eq!(Balanced.required_margin_sec(), 0.075);
-            assert_eq!(Conservative.required_margin_sec(), 0.175);
+        assert_eq!(Aggressive.required_margin_sec(), 0.0);
+        assert_eq!(Balanced.required_margin_sec(), 0.075);
+        assert_eq!(Conservative.required_margin_sec(), 0.175);
+        with_direct_catch_margin_scale(1.0, || {
+            assert_eq!(Balanced.required_margin_sec(), 0.15);
+            assert_eq!(Conservative.required_margin_sec(), 0.35);
         });
-        assert_eq!(Balanced.required_margin_sec(), 0.15);
+        assert_eq!(Balanced.required_margin_sec(), 0.075);
     }
 
     #[test]
