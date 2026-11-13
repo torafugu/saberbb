@@ -184,13 +184,20 @@ pub(crate) fn record(
 mod tests {
     use super::*;
     use crate::domain::{
-        resolver::{fielding_physics::FielderRiskTolerance, fielding_resolver::process_fielding},
+        resolver::{
+            fielding_physics::{FielderRiskTolerance, with_direct_catch_margin_scale},
+            fielding_resolver::process_fielding,
+        },
         test_support::active_fielder,
         util::PolarPosition,
     };
 
     #[test]
     fn replay_pairs_the_fielder_error_draw_and_preserves_candidate_filters() {
+        with_direct_catch_margin_scale(1.0, check_replay);
+    }
+
+    fn check_replay() {
         let ball = BattedBall {
             total_time: 0.5,
             first_bounce_time: Some(0.34),
