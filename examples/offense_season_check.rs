@@ -53,6 +53,9 @@ struct Args {
     /// Compare 0, +10, +15 and +20 mm for swings with the existing LineDrive intent.
     #[arg(long, conflicts_with_all = ["timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison"])]
     line_drive_lift_comparison: bool,
+    /// Comma-separated vertical offsets in mm; defaults to 0,10,15,20.
+    #[arg(long, value_delimiter = ',', requires = "line_drive_lift_comparison")]
+    line_drive_lift_offsets: Vec<u16>,
     /// Historical drag control; applies to gameplay and shadow flights on this thread.
     #[arg(long)]
     legacy_flight_drag: bool,
@@ -357,7 +360,25 @@ fn main() -> Result<()> {
     };
     with_model(model, || run(args))
 }
+fn line_drive_lift_offsets(args: &Args) -> Result<&[u16]> {
+    let offsets = if args.line_drive_lift_offsets.is_empty() {
+        &[0, 10, 15, 20]
+    } else {
+        args.line_drive_lift_offsets.as_slice()
+    };
+    ensure!(
+        offsets
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == offsets.len(),
+        "duplicate LineDrive lift offsets"
+    );
+    Ok(offsets)
+}
+
 fn run(args: Args) -> Result<()> {
+    let lift_offsets = line_drive_lift_offsets(&args)?;
     ensure!(
         args.games != Some(0) && !args.seeds.is_empty(),
         "games/seeds must be nonempty"
@@ -404,7 +425,7 @@ fn run(args: Args) -> Result<()> {
     });
     if args.line_drive_lift_comparison {
         let mut trials = Vec::new();
-        for offset_mm in [0, 10, 15, 20] {
+        for &offset_mm in lift_offsets {
             eprintln!("LineDrive vertical contact offset: +{offset_mm} mm");
             let reports = simulate_reports(
                 &args,
@@ -653,6 +674,35 @@ fn simulate_reports(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lift_offsets_keep_default_and_accept_full_schedule_shortlist() {
+        let comparison = ["check", "--season", "2026", "--line-drive-lift-comparison"];
+        let defaults = Args::try_parse_from(comparison).unwrap();
+        assert_eq!(line_drive_lift_offsets(&defaults).unwrap(), [0, 10, 15, 20]);
+
+        let select = |list| {
+            Args::try_parse_from(
+                comparison
+                    .into_iter()
+                    .chain(["--line-drive-lift-offsets", list]),
+            )
+        };
+        let shortlist = select("0,10,20").unwrap();
+        assert!(shortlist.games.is_none());
+        assert_eq!(line_drive_lift_offsets(&shortlist).unwrap(), [0, 10, 20]);
+        assert!(line_drive_lift_offsets(&select("0,10,10").unwrap()).is_err());
+        assert!(
+            Args::try_parse_from([
+                "check",
+                "--season",
+                "2026",
+                "--line-drive-lift-offsets",
+                "0,10,20"
+            ])
+            .is_err()
+        );
+    }
+
     #[test]
     fn live_margin_override_restores_original_thresholds() {
         use saberbb::domain::resolver::fielding_physics::FielderRiskTolerance::*;
