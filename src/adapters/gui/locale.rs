@@ -63,6 +63,9 @@ pub fn translate(source:&str,language:Language)->String {
         "表示できるデータがありません。管理画面で作成・進行できます。"=>"No data available. Create characters, schedule or process games from Management.",
         "監督未配置（管理画面の選手・監督作成で補充できます）"=>"No manager assigned. Generate players & managers in Management to fill vacancies.",
         "順位"=>"Rank", "残試合"=>"Remaining", "得点"=>"Runs", "失点"=>"Runs allowed", "盗塁"=>"SB", "打率"=>"AVG", "防御率"=>"ERA", "失策"=>"Errors",
+        "選手名"=>"Player", "打席"=>"PA", "打数"=>"AB", "安打"=>"H", "二塁打"=>"2B", "三塁打"=>"3B",
+        "塁打"=>"TB", "打点"=>"RBI", "三振"=>"SO", "四球"=>"BB", "死球"=>"HBP", "犠打"=>"SH", "犠飛"=>"SF",
+        "盗塁死"=>"CS", "併殺打"=>"GIDP", "出塁率"=>"OBP", "長打率"=>"SLG", "ＯＰＳ"=>"OPS", "得点圏打率"=>"AVG w/ RISP",
         "防御率は失点と記録アウト数による参考値です（自責点は未記録）。"=>"ERA is a reference value based on runs allowed and recorded outs; earned runs are not recorded.",
         _=>source,
     };

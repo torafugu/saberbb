@@ -60,13 +60,16 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     h.click("game-tab-2").await?;anyhow::ensure!(h.html().contains(">PA<"),"game batting table missing");
     h.click("game-tab-3").await?;anyhow::ensure!(h.html().contains("WHIP"),"game pitching table missing");
     h.click("nav-2").await?;
-    h.save(output,"batting")?;anyhow::ensure!(h.html().contains("RBI"),"batting statistics failed; inspect batting.html");
+    h.save(output,"batting")?;anyhow::ensure!(h.html().contains("打点"),"batting statistics failed; inspect batting.html");
+    for label in ["選手名","チーム","打席","犠飛","盗塁死","ＯＰＳ","得点圏打率","失策"] {
+        anyhow::ensure!(h.html().contains(&format!(">{label}</button>")), "missing batting column: {label}");
+    }
     h.input("table-search","input","__no_such_player__").await?;
     anyhow::ensure!(h.html().contains("表示できるデータがありません"),"table search did not filter rows");
     h.input("table-search","input","").await?;
-    h.click("sort-5").await?;
+    h.click("sort-9").await?;
     anyhow::ensure!(h.html().contains("aria-sort=\"ascending\""),"ascending sort did not update");
-    h.click("sort-5").await?;
+    h.click("sort-9").await?;
     anyhow::ensure!(h.html().contains("aria-sort=\"descending\""),"descending sort did not update");
     h.save(output,"batting")?;
     h.click("nav-1").await?;anyhow::ensure!(h.html().contains("ゲーム差"),"standings failed");
@@ -187,7 +190,7 @@ pub async fn snapshot_management(output: &Path) -> anyhow::Result<()> {
     anyhow::ensure!(count("player_game_contact_state")? > 0,"analysis processing did not record diagnostics");
     h.save(output,"management-complete")?;
     h.click("nav-2").await?;
-    anyhow::ensure!(h.html().contains("RBI") && !h.html().contains("読み込みできませんでした"),"batting stats not available after GUI processing");
+    anyhow::ensure!(h.html().contains("打点") && !h.html().contains("読み込みできませんでした"),"batting stats not available after GUI processing");
     h.click("nav-3").await?;
     anyhow::ensure!(h.html().contains("ERA") && !h.html().contains("読み込みできませんでした"),"pitching stats not available after GUI processing");
     println!("GUI management checks passed: validation, languages, error recovery, manager-only and player generation, scheduling, processing, diagnostics, duplicate suppression, navigation survival, automatic refresh and statistics.");

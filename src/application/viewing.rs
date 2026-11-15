@@ -68,9 +68,17 @@ pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result
 
         2 => {
             let stats = if team == 0 { repo.load_batting_stats()? } else { repo.load_team_batting_stats(team)? };
-            let rows = stats.into_iter().filter(|s| includes_player(s.batter.info.id)).map(|s|
-                vec![s.batter.info.full_name(),s.ab.to_string(),s.single.to_string(),s.double.to_string(),s.triple.to_string(),s.homerun.to_string(),format!("{:.3}",s.ba),format!("{:.0}",s.rbi)]).collect();
-            Ok(TableData::new("打撃成績", &["選手","AB","1B","2B","3B","HR","AVG","RBI"], rows))
+            let rows = stats.into_iter()
+                .filter_map(|s| {
+                    let team_id = *catalog.player_teams.get(&s.batter.info.id)?;
+                    if !catalog.includes_team(team_id, league, team) {
+                        return None;
+                    }
+                    let team_name = catalog.teams.iter().find(|t| t.id == team_id)
+                        .map(|t| t.name.as_str()).unwrap_or("—");
+                    Some(batting_row(&s, team_name))
+                }).collect();
+            Ok(TableData::new("打撃成績", BATTING_COLUMNS, rows))
         }
         _ => {
             let stats = if team == 0 { repo.load_pitching_stats()? } else { repo.load_team_pitching_stats(team)? };
@@ -79,6 +87,32 @@ pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result
             Ok(TableData::new("投手成績", &["選手","登板","回","勝","敗","S","H","ERA","SO","BB"], rows))
         }
     }
+}
+
+const BATTING_COLUMNS: &[&str] = &[
+    "選手名", "チーム", "打率", "試合", "打席", "打数", "安打", "二塁打", "三塁打",
+    "本塁打", "塁打", "打点", "得点", "三振", "四球", "死球", "犠打", "犠飛",
+    "盗塁", "盗塁死", "併殺打", "出塁率", "長打率", "ＯＰＳ", "得点圏打率", "失策",
+];
+
+fn batting_row(s: &crate::domain::shared::stats::BattingStats, team: &str) -> Vec<String> {
+    let hits = s.single + s.double + s.triple + s.homerun;
+    let total_bases = s.single + 2 * s.double + 3 * s.triple + 4 * s.homerun;
+    let ratio = |n, d| (d != 0).then(|| f64::from(n) / f64::from(d));
+    let display = |value: Option<f64>| value.map(decimal_rate).unwrap_or_else(|| "—".into());
+    let obp = ratio(hits + s.bb + s.hbp, s.ab + s.bb + s.hbp + s.sf);
+    let slg = ratio(total_bases, s.ab);
+    vec![
+        s.batter.info.full_name(), team.into(), display(ratio(hits, s.ab)),
+        s.games.to_string(), s.pa.to_string(), s.ab.to_string(), hits.to_string(),
+        s.double.to_string(), s.triple.to_string(), s.homerun.to_string(), total_bases.to_string(),
+        s.rbi.to_string(), s.runs.to_string(), s.so.to_string(), s.bb.to_string(),
+        s.hbp.to_string(),
+        // The simulator has no bunt outcome.
+        "0".into(), s.sf.to_string(), s.sb.to_string(), s.cs.to_string(), s.gidp.to_string(),
+        display(obp), display(slg), display(obp.zip(slg).map(|(obp, slg)| obp + slg)),
+        display(ratio(s.risp_hits, s.risp_ab)), s.errors.to_string(),
+    ]
 }
 
 /// Zero selects career totals; scheduled seasons are selectable before their first game.

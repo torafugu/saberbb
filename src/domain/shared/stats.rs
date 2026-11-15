@@ -24,13 +24,26 @@ pub struct Standing {
 #[derive(Debug, Validate)]
 pub struct BattingStats {
     pub batter: Player,
-    pub ab: u16,
-    pub single: u16,
-    pub double: u16,
-    pub triple: u16,
-    pub homerun: u16,
+    pub games: u32,
+    pub pa: u32,
+    pub ab: u32,
+    pub single: u32,
+    pub double: u32,
+    pub triple: u32,
+    pub homerun: u32,
     pub ba: f32,
-    pub rbi: f32,
+    pub rbi: u32,
+    pub runs: u32,
+    pub so: u32,
+    pub bb: u32,
+    pub hbp: u32,
+    pub sf: u32,
+    pub sb: u32,
+    pub cs: u32,
+    pub gidp: u32,
+    pub risp_hits: u32,
+    pub risp_ab: u32,
+    pub errors: u32,
 }
 
 #[derive(Debug, Validate)]

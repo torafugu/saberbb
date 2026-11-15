@@ -60,7 +60,20 @@ impl FromRow for BattingStats {
             triple: row.get("triple").map_err(|e| AppError::Database(e))?,
             homerun: row.get("homerun").map_err(|e| AppError::Database(e))?,
             ba: row.get("ba").map_err(|e| AppError::Database(e))?,
-            rbi: row.get("rbi").map_err(|e| AppError::Database(e))?,
+            rbi: row.get("rbi")?,
+            games: row.get("games")?,
+            pa: row.get("pa")?,
+            runs: row.get("runs")?,
+            so: row.get("so")?,
+            bb: row.get("bb")?,
+            hbp: row.get("hbp")?,
+            sf: row.get("sf")?,
+            sb: row.get("sb")?,
+            cs: row.get("cs")?,
+            gidp: row.get("gidp")?,
+            risp_hits: row.get("risp_hits")?,
+            risp_ab: row.get("risp_ab")?,
+            errors: row.get("errors")?,
         };
 
         batting_stats.validate()?;

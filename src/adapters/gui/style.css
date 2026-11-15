@@ -8,3 +8,6 @@
 
 .standings-panel .standings-table{width:90%;margin-inline:auto}
 .standings-panel .table-scroll{max-height:none}
+
+.batting-table th, .batting-table td { padding: 9px 8px; }
+.batting-table th:nth-child(2), .batting-table td:nth-child(2) { text-align: left; }
