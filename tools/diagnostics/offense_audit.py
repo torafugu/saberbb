@@ -92,8 +92,39 @@ def audit(path, season=None, limit=10, extra_base=False):
             if 'batter_info' in tables:
                 report['leader_skills'] = rows('SELECT * FROM batter_info WHERE player_id=?', (player_id,))
         if extra_base:
+            report['triples'] = rows(f"""SELECT g.season,b.game_id,g.actual_date,b.count_seq,b.batter_id
+                {scope} AND b.result='Triple' ORDER BY b.game_id,b.count_seq""", args)
+            report['triple_cache_checks'] = {}
+            for table in ('game_batting_stat_cache', 'batting_stat_totals'):
+                columns = {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}
+                report['triple_cache_checks'][table] = (
+                    triple_cache_check(rows, table, season) if 'triple' in columns else None
+                )
             report['extra_base'] = extra_base_audit(conn, season)
         return report
+
+
+def triple_cache_check(rows, table, season):
+    per_game = table == 'game_batting_stat_cache'
+    keys = 'game_id,player_id' if per_game else 'player_id'
+    raw_game = 'b.game_id,' if per_game else ''
+    cached_game = 'c.game_id,' if per_game else ''
+    cached_scope = 'JOIN game g ON g.id=c.game_id WHERE (?1 IS NULL OR g.season=?1)' if per_game else ''
+    return rows(f"""WITH raw AS (
+          SELECT {raw_game} b.batter_id AS player_id,COUNT(*) AS triples
+          FROM player_game_batting b JOIN game g ON g.id=b.game_id
+          WHERE b.result='Triple' AND (?1 IS NULL OR g.season=?1) GROUP BY {keys}
+        ), cached AS (
+          SELECT {cached_game} c.player_id,c.triple AS triples FROM {table} c
+          {cached_scope}
+        ), ids AS (
+          SELECT {keys} FROM raw UNION SELECT {keys} FROM cached WHERE triples != 0
+        )
+        SELECT {keys},COALESCE(raw.triples,0) AS raw_triples,
+               COALESCE(cached.triples,0) AS cached_triples
+        FROM ids LEFT JOIN raw USING({keys}) LEFT JOIN cached USING({keys})
+        WHERE COALESCE(raw.triples,0)!=COALESCE(cached.triples,0) ORDER BY {keys}
+    """, (season if per_game else None,))
 
 
 EV_EDGES = (20, 30, 35, 40, 45, 50)

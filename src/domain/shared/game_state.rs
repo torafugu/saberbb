@@ -1381,6 +1381,8 @@ impl GameState {
             .unwrap_or((defense_play_result, runner_advance_result));
         super::outfield_advance_audit::record(
             &ctx,
+            self.game_result.id,
+            self.count_seq,
             batting_side,
             &defense_play_result,
             runner_advance_result.batting_result,
