@@ -14,6 +14,9 @@ use saberbb::repositories::db::FromRow;
 use serde::Serialize;
 use std::{collections::BTreeMap, path::PathBuf};
 
+#[path = "support/vertical_contact_sweep.rs"]
+mod vertical_contact_sweep;
+
 #[derive(Parser)]
 struct Args {
     #[arg(long)]
@@ -23,6 +26,9 @@ struct Args {
     /// Replay matched contacts with VLA shifts of -3, 0, +3, and +6 degrees.
     #[arg(long)]
     lift_sweep: bool,
+    /// Recompute EV, angles, spin and flight after shifting the signed vertical contact offset.
+    #[arg(long, conflicts_with = "lift_sweep")]
+    vertical_contact_sweep: bool,
 }
 #[derive(Clone, Debug)]
 struct Contact {
@@ -122,6 +128,11 @@ fn matched_flight<'a>(
             .map_err(|_| anyhow::anyhow!("trajectory_failed"))
     };
     let baseline = trajectory(c.vla)?;
+    verify_trajectory(c, &baseline)?;
+    Ok((baseline, trajectory))
+}
+
+fn verify_trajectory(c: &Contact, baseline: &BattedBall) -> Result<()> {
     let angle_diff = (baseline.final_position.angle - c.angle + 180.0).rem_euclid(360.0) - 180.0;
     ensure!(
         baseline.outbound_result.as_ref() == c.kind
@@ -130,7 +141,7 @@ fn matched_flight<'a>(
             && (baseline.total_time - c.time).abs() < 1e-6,
         "baseline_reconstruction_mismatch"
     );
-    Ok((baseline, trajectory))
+    Ok(())
 }
 
 fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
@@ -277,6 +288,23 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
     let mut shifts = VLA_SHIFTS.map(|_| LiftScenario::default());
     let mut matched_lift_contacts = 0;
     let mut high_ev_fair_components = [AngleComponents::default(), AngleComponents::default()];
+    let mut vertical = args
+        .vertical_contact_sweep
+        .then(vertical_contact_sweep::Sweep::default);
+    let mut vertical_query = args
+        .vertical_contact_sweep
+        .then(|| {
+            conn.prepare(
+                "SELECT b.contact_offset_x_m,b.timing_impact_x_m,p.speed,i.swing_power,
+                b.hla_handedness_sign,b.hla_model_version,
+                b.approach_variation_deg,b.pull_bias_deg,b.timing_angle_error
+         FROM player_game_batting b
+         LEFT JOIN player_game_pitching p USING(game_id,count_seq)
+         LEFT JOIN batter_info i ON i.player_id=b.batter_id
+         WHERE b.game_id=?1 AND b.count_seq=?2",
+            )
+        })
+        .transpose()?;
     while let Some(r) = rows.next()? {
         let c = Contact {
             game_id: r.get(0)?,
@@ -300,6 +328,10 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
             base_attack: r.get(18)?,
             batter_type: r.get(19)?,
         };
+        if let (Some(sweep), Some(query)) = (&mut vertical, &mut vertical_query) {
+            sweep.observe(&c, stadiums.get(&c.stadium_id), query)?;
+            continue;
+        }
         let kind = c.batter_type.clone().unwrap_or_else(|| "unknown".into());
         total.observe(&c);
         by_type.entry(kind.clone()).or_default().observe(&c);
@@ -337,6 +369,19 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
                 }
             }
         }
+    }
+    if let Some(sweep) = vertical {
+        return Ok(serde_json::json!({
+            "scope":{"season":args.season,"batter_id":args.batter_id},
+            "source_counts":{"pitch_records":source_counts.0,"raw_hr":source_counts.1},
+            "vertical_contact_sweep":sweep,
+            "limitations":[
+                "Signed shifts are in world vertical contact offset, with positive shifts lifting VLA in the live model.",
+                "Saved positive-EV contacts only. Each shift uses the same baseline-matched pool; new geometric misses remain in that denominator. Previously missed swings are outside the pool.",
+                "Pitch, bat tilt, horizontal offset, timing, face-angle draws and stadium are fixed. Current batter power must reproduce recorded EV. Fielding, swing decisions and official batting outcomes are not replayed.",
+                "The power window uses trajectory-fair balls with EV >= 40 m/s and 20 <= VLA < 50 degrees."
+            ]
+        }));
     }
     if args.lift_sweep {
         let [below_20, at_least_20] = high_ev_fair_components;
@@ -440,6 +485,7 @@ mod tests {
                 season: Some(2026),
                 batter_id: Some(1),
                 lift_sweep: false,
+                vertical_contact_sweep: false,
             },
         )
         .unwrap();
@@ -454,6 +500,7 @@ mod tests {
                 season: Some(2027),
                 batter_id: None,
                 lift_sweep: false,
+                vertical_contact_sweep: false,
             },
         )
         .unwrap();
