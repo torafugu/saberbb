@@ -554,6 +554,24 @@ throws, model new runner decisions or award extra bases. Positive timing
 margins mean the batter's arrival precedes the tested defensive clock.
 The observer consumes no random numbers and does not write game results.
 
+### Signed vertical contact sweep
+
+```sh
+cargo run --release --example attack_angle_ablation -- --season 2026 --vertical-contact-sweep > vertical_contact_sweep_2026.json
+```
+
+The sweep shifts saved world-vertical contact by -10 to +30 mm in 5 mm steps.
+The saved horizontal offset, timing depth, bat tilt, pitch and stadium stay
+fixed. The live bat-frame projection, contact limits, exit-speed, launch-angle
+and spin calculations determine each trajectory. Baseline geometry, EV, HLA
+and flight must match before a contact enters the comparison. Current batter
+power is checked through the EV replay. The report counts geometric misses,
+changes in the hard-hit lift window (fair, EV at least 40 m/s, VLA 20–50°), exit
+speed changes for contacts entering that window, and home runs. The pool contains
+recorded positive-EV contacts, so a trial can lose a contact but does not recover
+original misses. Treat results as fixed-swing sensitivity, without modeling
+swing selection, fielding, or game outcomes.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,

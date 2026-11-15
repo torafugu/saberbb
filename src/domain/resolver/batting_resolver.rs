@@ -347,9 +347,14 @@ pub fn calculate_swing_execution_error(
 }
 
 /// Signed offsets in the bat's X/Z local frame. Magnitudes drive contact checks.
-fn project_contact_offsets(x: f64, z: f64, bat_angle_deg: f64) -> (f64, f64) {
+pub fn project_contact_offsets(x: f64, z: f64, bat_angle_deg: f64) -> (f64, f64) {
     let angle = bat_angle_deg.to_radians();
     (x * angle.cos() + z * angle.sin(), -x * angle.sin() + z * angle.cos())
+}
+
+/// Whether the projected bat-frame offsets are outside the live contact limits.
+pub fn contact_geometry_is_miss(length_m: f64, thickness_m: f64) -> bool {
+    length_m.abs() > MAX_LENGTH_OFFSET_M || thickness_m.abs() > 0.070
 }
 
 /// Trial horizontal projection of ideal elastic reflection from a cylindrical bat.
@@ -361,7 +366,7 @@ pub fn contact_normal_hla_deg(signed_thickness_m: f64, bat_angle_deg: f64) -> f6
     (2.0 * normal_y * normal_x).atan2(2.0 * normal_y * normal_y - 1.0).to_degrees()
 }
 
-pub(crate) fn wrap_hla_deg(angle: f64) -> f64 {
+pub fn wrap_hla_deg(angle: f64) -> f64 {
     (angle + 180.0).rem_euclid(360.0) - 180.0
 }
 
@@ -470,15 +475,10 @@ pub(crate) fn evaluate_swing_contact_with_timing_scale(
     let marginal_base_prob = marginal_probability_from_tip_offset(normalized_tip_offset);
 
     // TODO: Bat length should be passed in as a parameter to allow for different bat lengths (e.g. youth vs adult)
-    // 1. Bat length limit (e.g. miss if more than 35cm from the sweet spot toward the end)
-    let (original_contact_type, adjusted_contact_type) = if length_offset_m > MAX_LENGTH_OFFSET_M {
-        (
-            SwingContactType::SwungAndMiss,
-            SwingContactType::SwungAndMiss,
-        )
-
-    // 2. Bat thickness direction (bat radius 3.3cm + ball radius 3.7cm = 7.0cm limit)
-    } else if thickness_offset_m > 0.070 {
+    let (original_contact_type, adjusted_contact_type) = if contact_geometry_is_miss(
+        length_offset_m,
+        thickness_offset_m,
+    ) {
         (
             SwingContactType::SwungAndMiss,
             SwingContactType::SwungAndMiss,
