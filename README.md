@@ -587,6 +587,25 @@ swing. Their fair trajectories and home runs are estimates. The sweep holds
 the set of swings fixed and does not model a change in swing decisions or
 when a batter would select a power intent.
 
+### LineDrive intent lift trial in full games
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --line-drive-lift-comparison > line_drive_lift_2026.json
+```
+
+Each condition (0, +10, +15, +20 mm) uses the same source rosters, schedule
+and per-game starting RNG seeds. The trial applies a positive vertical
+contact shift before geometry and flight calculation, only on swings with
+the existing `LineDrive` intent. The usual player/manager selection decides
+when that intent is used. After a result changes, later game states, decisions
+and RNG draws may diverge. Results stay in memory and the source DB is read-only.
+
+Each trial reports HR/PA, doubles and triples per PA, runs per game, overall
+whiffs per swing, and whiffs per LineDrive swing. The LineDrive swing count
+shows how often the intervention was eligible. Whiffs include swinging
+third strikes, using the contact result before official scoring. The 0 mm
+condition runs the ordinary gameplay model with the same swing counters.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,
