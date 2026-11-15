@@ -524,7 +524,10 @@ excludes projected wall impacts and bounces that would occur after the ball
 was fielded. Timing summaries show the first fielding and batted-ball
 throw, with batter running time only when the batter was the target.
 The logs do not retain fence-crossing height or arrival times for bases
-the batter did not attempt. The report works without contact diagnostics.
+the batter did not attempt. The report works without contact diagnostics. It lists each recorded triple
+with season, game ID, count sequence and batter ID. Triple discrepancies are
+checked per game/player in the requested scope and across all seasons in the
+career cache. A null check indicates a missing cache or column.
 
 ### Lift sensitivity and outfield advance clocks
 
@@ -544,14 +547,17 @@ possible fair/foul changes, without modeling how a swing adjustment changes EV.
 
 The outfield check uses fresh seeded games and observes the live batter's
 second- and third-base clocks, grouped by location, batting result and live
-throw target. It compares the live defensive clock, a direct throw from the
-actual fielding position, and an additional throw from second to third when
-the live throw was to second and its receiver is known. An existing throw to
-third is also included in the fastest tested route. The extra leg uses the
-receiver's preparation and throwing model plus the tag allowance. Route
-comparisons are timing estimates on the same play and do not choose new
-throws, model new runner decisions or award extra bases. Positive timing
-margins mean the batter's arrival precedes the tested defensive clock.
+throw target. Both modeled routes start at the actual fielding position.
+For plays originally thrown to second with a known receiver, the model
+recalculates the return to second without a tag there, then adds the
+receiver's preparation, throw to third and tag allowance. The original
+defensive clock and the route using the recorded return to second remain
+available for comparison. The fastest tested route uses the recalculated
+routes from the actual fielding position. Deep-gap and wall-impact doubles
+and triples include per-play fielding, throw and batter arrival times.
+These timing estimates do not choose new throws, model new runner
+decisions or award extra bases. A positive margin means the batter
+arrives before the modeled defense.
 The observer consumes no random numbers and does not write game results.
 
 ### Signed vertical contact sweep

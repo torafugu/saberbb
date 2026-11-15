@@ -30,15 +30,31 @@ struct Routes {
     live_clock_vs_third: Margin,
     direct_throw_to_third: Margin,
     observed_return_to_second_then_throw_to_third: Margin,
+    from_catch_via_second_to_third: Margin,
     fastest_tested_route_to_third: Margin,
     third_opportunity_only_with_tested_routes: u64,
     third_opportunity_only_with_live_clock: u64,
+}
+
+#[derive(Serialize)]
+struct DeepExtraBasePlay {
+    game_id: u32,
+    count_seq: u16,
+    location: &'static str,
+    result: BattingResult,
+    live_throw_target: Base,
+    fielding_sec: f64,
+    live_defense_sec: f64,
+    direct_to_third_after_fielding_sec: f64,
+    via_second_after_fielding_sec: Option<f64>,
+    batter_to_third_sec: f64,
 }
 
 #[derive(Default, Serialize)]
 pub struct OutfieldAdvanceAudit {
     by_location_and_result: BTreeMap<&'static str, BTreeMap<String, BTreeMap<String, Routes>>>,
     unavailable_runner_times: u64,
+    deep_extra_base_plays: Vec<DeepExtraBasePlay>,
 }
 
 thread_local! {
@@ -67,6 +83,8 @@ impl OutfieldAdvanceAudit {
 
 pub(crate) fn record(
     ctx: &PlayContext<'_>,
+    game_id: u32,
+    count_seq: u16,
     batting_side: RL,
     defense: &DefensePlayResult,
     result: BattingResult,
@@ -119,34 +137,45 @@ pub(crate) fn record(
         routes.live_clock_vs_third.add(defense.defense_time, third);
 
         let clock = DefenseTimeCalculator::default();
-        let direct = defense.time_to_field
-            + clock.direct_play_time(
-                ctx.try_catch_fielder,
-                &ctx.fielded_ball.catch_position,
-                Base::Third,
-                true,
-            );
+        let direct_throw_sec = clock.direct_play_time(
+            ctx.try_catch_fielder,
+            &ctx.fielded_ball.catch_position,
+            Base::Third,
+            true,
+        );
+        let direct = field_time + direct_throw_sec;
         routes.direct_throw_to_third.add(direct, third);
         let mut fastest = direct;
-        if defense.throw_target_base == Base::Third {
-            fastest = fastest.min(defense.defense_time);
-        }
+        let mut via_second_throw_sec = None;
         if defense.throw_target_base == Base::Second {
             if let Some(receiver) = ctx
                 .fielders
                 .iter()
                 .find(|f| f.id == defense.final_fielder_id)
             {
-                let via_second = defense.defense_time
-                    + clock.direct_play_time(
-                        receiver,
-                        &Base::Second.polar_position(),
-                        Base::Third,
-                        true,
-                    );
+                let second_to_third = clock.direct_play_time(
+                    receiver,
+                    &Base::Second.polar_position(),
+                    Base::Third,
+                    true,
+                );
                 routes
                     .observed_return_to_second_then_throw_to_third
-                    .add(via_second, third);
+                    .add(defense.defense_time + second_to_third, third);
+                let cutoff = defense
+                    .cutoff_fielder_id
+                    .and_then(|id| ctx.fielders.iter().find(|f| f.id == id));
+                let from_catch_to_second = clock.best_outfield_throw_time(
+                    ctx.try_catch_fielder,
+                    &ctx.fielded_ball.catch_position,
+                    Base::Second,
+                    false,
+                    cutoff,
+                );
+                let throw_sec = from_catch_to_second + second_to_third;
+                via_second_throw_sec = Some(throw_sec);
+                let via_second = field_time + throw_sec;
+                routes.from_catch_via_second_to_third.add(via_second, third);
                 fastest = fastest.min(via_second);
             }
         }
@@ -155,5 +184,21 @@ pub(crate) fn record(
         let tested_first = fastest > third;
         routes.third_opportunity_only_with_tested_routes += u64::from(tested_first && !live_first);
         routes.third_opportunity_only_with_live_clock += u64::from(live_first && !tested_first);
+        if location != "other_outfield"
+            && matches!(result, BattingResult::Double | BattingResult::Triple)
+        {
+            audit.deep_extra_base_plays.push(DeepExtraBasePlay {
+                game_id,
+                count_seq,
+                location,
+                result,
+                live_throw_target: defense.throw_target_base,
+                fielding_sec: field_time,
+                live_defense_sec: defense.defense_time,
+                direct_to_third_after_fielding_sec: direct_throw_sec,
+                via_second_after_fielding_sec: via_second_throw_sec,
+                batter_to_third_sec: third,
+            });
+        }
     });
 }
