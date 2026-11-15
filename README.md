@@ -587,7 +587,14 @@ swing. Their fair trajectories and home runs are estimates. The sweep holds
 the set of swings fixed and does not model a change in swing decisions or
 when a batter would select a power intent.
 
-### LineDrive intent lift trial in full games
+### LineDrive intent lift in full games
+
+Normal games apply a +20 mm world-vertical contact offset when a swing has
+the selected `LineDrive` intent. `ContactFirst` uses 0 mm. The shift feeds
+the existing contact-geometry and flight calculations. It affects newly
+simulated games. The diagnostic below can override the standard value for
+comparison.
+
 
 ```sh
 cargo run --release --example offense_season_check -- --season 2026 --games 36 --line-drive-lift-comparison > line_drive_lift_2026.json
@@ -611,7 +618,8 @@ Each trial reports HR/PA, doubles and triples per PA, runs per game, overall
 whiffs per swing, and whiffs per LineDrive swing. The LineDrive swing count
 shows how often the intervention was eligible. Whiffs include swinging
 third strikes, using the contact result before official scoring. The 0 mm
-condition runs the ordinary gameplay model with the same swing counters.
+condition reproduces the previous contact offset, and +20 mm matches the
+current standard.
 
 ### Frozen-contact attack-angle ablation
 

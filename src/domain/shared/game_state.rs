@@ -47,6 +47,9 @@ pub const MAX_STRIKE: u8 = 3;
 
 const RIGHT_FIELD_FIRST_MIN_MARGIN_SEC: f64 = 0.25;
 
+/// World-vertical contact displacement for the selected LineDrive intent.
+pub const DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM: u16 = 20;
+
 thread_local! {
     static RIGHT_FIELD_FIRST_OUTS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
@@ -97,7 +100,8 @@ pub fn with_line_drive_lift_trial<T>(
 fn line_drive_lift_offset(intent: BattedBallIntent) -> f64 {
     match (intent, LINE_DRIVE_LIFT.get()) {
         (BattedBallIntent::LineDrive, Some((offset, _))) => offset,
-        _ => 0.0,
+        (BattedBallIntent::LineDrive, None) => f64::from(DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM) / 1000.0,
+        (BattedBallIntent::ContactFirst, _) => 0.0,
     }
 }
 
@@ -1614,9 +1618,10 @@ mod tests {
     use crate::domain::test_support::{active_runner as runner, game_state};
 
     #[test]
-    fn line_drive_lift_only_moves_line_drive_swings_and_restores_scope() {
+    fn line_drive_lift_defaults_to_twenty_mm_and_restores_scope() {
         use BattedBallIntent::{ContactFirst, LineDrive};
-        assert_eq!(line_drive_lift_offset(LineDrive), 0.0);
+        assert_eq!(line_drive_lift_offset(LineDrive), 0.020);
+        assert_eq!(line_drive_lift_offset(ContactFirst), 0.0);
         let (_, stats) = with_line_drive_lift_trial(15, || {
             assert_eq!(line_drive_lift_offset(LineDrive), 0.015);
             assert_eq!(line_drive_lift_offset(ContactFirst), 0.0);
@@ -1634,7 +1639,7 @@ mod tests {
         });
         assert_eq!((stats.swings, stats.whiffs), (2, 1));
         assert_eq!((stats.line_drive_swings, stats.line_drive_whiffs), (1, 1));
-        assert_eq!(line_drive_lift_offset(LineDrive), 0.0);
+        assert_eq!(line_drive_lift_offset(LineDrive), 0.020);
     }
 
     fn assert_no_runners(inning_state: &InningState) {
