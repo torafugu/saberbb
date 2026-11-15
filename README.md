@@ -511,6 +511,21 @@ caches. Normal game results still use `calculate_batted_ball_with_metrics`; the
 Intent execution/contact/collision response path is diagnostic shadow data and
 does not yet replace that live result calculation.
 
+For extra-base hit diagnostics on ordinary saved games:
+
+```sh
+python3 tools/diagnostics/offense_audit.py --season 2026 --extra-base > extra_base_audit_2026.json
+```
+
+The optional report adds EV × launch angle bins with home-run counts and
+rates. It also groups non-HR outcomes by wall impacts, deep first bounces
+in nominal outfield gaps, and other fielding locations. Saved fielding time
+excludes projected wall impacts and bounces that would occur after the ball
+was fielded. Timing summaries show the first fielding and batted-ball
+throw, with batter running time only when the batter was the target.
+The logs do not retain fence-crossing height or arrival times for bases
+the batter did not attempt. The report works without contact diagnostics.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,
