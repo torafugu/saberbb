@@ -28,7 +28,7 @@ use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall, Traje
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stats::{PlayerGameBattingMetrics, PlayerGameFieldingCandidate};
 use crate::domain::shared::stadium::{Base, Stadium};
-use crate::domain::strategy::batting_strategy::{SwingExecution, BattingStrategySettings};
+use crate::domain::strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings, SwingExecution};
 use crate::domain::strategy::pitching_strategy::{
     PitchCall, PitchEvaluationContext, catcher_preferences, pitcher_preferences,
     reconcile_pitch_call_proposals, select_pitching_strategy,
@@ -62,6 +62,56 @@ pub fn with_right_field_first_trial<T>(run: impl FnOnce() -> T) -> (T, u64) {
     let _restore = Restore(RIGHT_FIELD_FIRST_OUTS.replace(Some(0)));
     let result = run();
     (result, RIGHT_FIELD_FIRST_OUTS.get().unwrap())
+}
+
+#[derive(Clone, Copy, Default, Serialize)]
+pub struct LineDriveLiftStats {
+    pub swings: u64,
+    pub whiffs: u64,
+    pub line_drive_swings: u64,
+    pub line_drive_whiffs: u64,
+}
+
+thread_local! {
+    static LINE_DRIVE_LIFT: std::cell::Cell<Option<(f64, LineDriveLiftStats)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Scope the experimental line-drive contact offset to one synchronous simulation.
+pub fn with_line_drive_lift_trial<T>(
+    offset_mm: u16,
+    run: impl FnOnce() -> T,
+) -> (T, LineDriveLiftStats) {
+    struct Restore(Option<(f64, LineDriveLiftStats)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LINE_DRIVE_LIFT.set(self.0);
+        }
+    }
+    let offset_m = f64::from(offset_mm) / 1000.0;
+    let _restore = Restore(LINE_DRIVE_LIFT.replace(Some((offset_m, LineDriveLiftStats::default()))));
+    let result = run();
+    (result, LINE_DRIVE_LIFT.get().unwrap().1)
+}
+
+fn line_drive_lift_offset(intent: BattedBallIntent) -> f64 {
+    match (intent, LINE_DRIVE_LIFT.get()) {
+        (BattedBallIntent::LineDrive, Some((offset, _))) => offset,
+        _ => 0.0,
+    }
+}
+
+fn record_lift_swing(intent: BattedBallIntent, contact_type: SwingContactType) {
+    if let Some((offset, mut stats)) = LINE_DRIVE_LIFT.get() {
+        let whiff = contact_type == SwingContactType::SwungAndMiss;
+        stats.swings += 1;
+        stats.whiffs += u64::from(whiff);
+        if intent == BattedBallIntent::LineDrive {
+            stats.line_drive_swings += 1;
+            stats.line_drive_whiffs += u64::from(whiff);
+        }
+        LINE_DRIVE_LIFT.set(Some((offset, stats)));
+    }
 }
 
 // TODO: Move to running strategy
@@ -1015,12 +1065,15 @@ impl GameState {
         if swing_execution == SwingExecution::Take {
             self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
         } else {
+            let intent = batting_intent_decision.selected_intent;
             let swing_contact = self.evaluate_swing_contact(
                 &batter,
                 &pitched_ball,
                 &pitch_displacement,
                 &batting_factor,
+                line_drive_lift_offset(intent),
             );
+            record_lift_swing(intent, swing_contact.adjusted_contact_type);
 
             if self.record_contact_states {
                 let mut contact_state = crate::domain::shared::contact_state::build_contact_state(
@@ -1120,15 +1173,19 @@ impl GameState {
         pitched_ball: &PitchedBall,
         pitch_displacement: &PitchDisplacement,
         batting_factor: &BattingFactor,
+        vertical_contact_offset_m: f64,
     ) -> SwingContactResult {
         let displacement = adapt_to_pitch(pitch_displacement, batter.bat_control, batting_factor);
 
-        let swing_error = calculate_swing_execution_error(
+        let mut swing_error = calculate_swing_execution_error(
             self.rng.as_mut(),
             batter,
             &pitched_ball.actual_location,
         );
 
+        if vertical_contact_offset_m != 0.0 {
+            swing_error.additional_z_m += vertical_contact_offset_m;
+        }
         evaluate_swing_contact(self.rng.as_mut(), batter, &displacement, &swing_error)
     }
 
@@ -1555,6 +1612,30 @@ impl InningState {
 mod tests {
     use super::*;
     use crate::domain::test_support::{active_runner as runner, game_state};
+
+    #[test]
+    fn line_drive_lift_only_moves_line_drive_swings_and_restores_scope() {
+        use BattedBallIntent::{ContactFirst, LineDrive};
+        assert_eq!(line_drive_lift_offset(LineDrive), 0.0);
+        let (_, stats) = with_line_drive_lift_trial(15, || {
+            assert_eq!(line_drive_lift_offset(LineDrive), 0.015);
+            assert_eq!(line_drive_lift_offset(ContactFirst), 0.0);
+            record_lift_swing(LineDrive, SwingContactType::SwungAndMiss);
+            record_lift_swing(ContactFirst, SwingContactType::SolidContact);
+            let (_, control) = with_line_drive_lift_trial(0, || {
+                assert_eq!(line_drive_lift_offset(LineDrive), 0.0);
+                record_lift_swing(LineDrive, SwingContactType::SolidContact);
+            });
+            assert_eq!(
+                (control.swings, control.line_drive_swings, control.whiffs),
+                (1, 1, 0)
+            );
+            assert_eq!(line_drive_lift_offset(LineDrive), 0.015);
+        });
+        assert_eq!((stats.swings, stats.whiffs), (2, 1));
+        assert_eq!((stats.line_drive_swings, stats.line_drive_whiffs), (1, 1));
+        assert_eq!(line_drive_lift_offset(LineDrive), 0.0);
+    }
 
     fn assert_no_runners(inning_state: &InningState) {
         assert!(inning_state.runners.batter_runner.is_none());

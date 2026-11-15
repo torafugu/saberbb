@@ -12,7 +12,9 @@ use saberbb::{
         seeded_diagnostic::derived_seed,
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
-            game_state::with_right_field_first_trial,
+            game_state::{
+                LineDriveLiftStats, with_line_drive_lift_trial, with_right_field_first_trial,
+            },
             infield_opportunity_audit::InfieldOpportunityAudit,
             no_bounce_catch_audit::NoBounceCatchAudit,
             outfield_advance_audit::OutfieldAdvanceAudit,
@@ -48,6 +50,9 @@ mod throw_origin_audit;
 struct Args {
     #[arg(long)]
     season: u16,
+    /// Compare 0, +10, +15 and +20 mm for swings with the existing LineDrive intent.
+    #[arg(long, conflicts_with_all = ["timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison"])]
+    line_drive_lift_comparison: bool,
     /// Historical drag control; applies to gameplay and shadow flights on this thread.
     #[arg(long)]
     legacy_flight_drag: bool,
@@ -397,12 +402,31 @@ fn run(args: Args) -> Result<()> {
             "babip": "(1B + 2B + 3B) / (AB - K - HR); sacrifice flies have no separate result category"
         }
     });
-    if args.no_bounce_margin_comparison {
+    if args.line_drive_lift_comparison {
+        let mut trials = Vec::new();
+        for offset_mm in [0, 10, 15, 20] {
+            eprintln!("LineDrive vertical contact offset: +{offset_mm} mm");
+            let reports = simulate_reports(
+                &args,
+                &games,
+                CONTACT_TIMING_POSITION_SCALE,
+                false,
+                Some(offset_mm),
+            )?;
+            trials.push(
+                serde_json::json!({"vertical_contact_offset_mm":offset_mm,"reports":reports}),
+            );
+        }
+        output["line_drive_lift_trials"] = serde_json::json!(trials);
+        output["definitions"]["line_drive_lift_trials"] = serde_json::json!(
+            "Positive world-vertical contact offset applies only to swings whose selected intent is LineDrive. All trials share rosters, schedule and per-game starting RNG seeds; outcomes can change later draws."
+        );
+    } else if args.no_bounce_margin_comparison {
         let mut trials = Vec::new();
         for percent in [100, 50] {
             eprintln!("Direct-catch margin: {percent}%");
             let reports = with_direct_catch_margin_scale(f64::from(percent) / 100.0, || {
-                simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false)
+                simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)
             })?;
             trials.push(serde_json::json!({"margin_percent": percent, "reports": reports}));
         }
@@ -415,7 +439,7 @@ fn run(args: Args) -> Result<()> {
         for enabled in [false, true] {
             trials.push(serde_json::json!({
                 "enabled": enabled,
-                "reports": simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, enabled)?,
+                "reports": simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, enabled, None)?,
             }));
         }
         output["right_field_first_trials"] = serde_json::json!(trials);
@@ -423,7 +447,7 @@ fn run(args: Args) -> Result<()> {
         let mut trials = Vec::new();
         for scale in [CONTACT_TIMING_POSITION_SCALE, 0.875, 1.0] {
             let reports = with_contact_geometry_scale(scale, || {
-                simulate_reports(&args, &games, scale, false)
+                simulate_reports(&args, &games, scale, false, None)
             })?;
             trials.push(serde_json::json!({
                 "geometry_scale": scale,
@@ -438,6 +462,7 @@ fn run(args: Args) -> Result<()> {
             &games,
             CONTACT_TIMING_POSITION_SCALE,
             false,
+            None,
         )?);
     }
     println!("{}", serde_json::to_string_pretty(&output)?);
@@ -449,6 +474,7 @@ fn simulate_reports(
     games: &[GameSchedule],
     scale: f64,
     right_field_trial: bool,
+    lift_offset_mm: Option<u16>,
 ) -> Result<Vec<serde_json::Value>> {
     let mut reports = Vec::new();
     for seed in &args.seeds {
@@ -482,6 +508,7 @@ fn simulate_reports(
             .then(FieldingCounts::default);
         let mut total = Counts::default();
         let mut right_field_first_outs = 0;
+        let mut lift_stats = LineDriveLiftStats::default();
         let mut teams = BTreeMap::new();
         let mut players = BTreeMap::new();
         for (index, game) in games.iter().enumerate() {
@@ -517,6 +544,13 @@ fn simulate_reports(
             let result = if right_field_trial {
                 let (result, outs) = with_right_field_first_trial(run_with_diagnostics);
                 right_field_first_outs += outs;
+                result
+            } else if let Some(offset_mm) = lift_offset_mm {
+                let (result, stats) = with_line_drive_lift_trial(offset_mm, run_with_diagnostics);
+                lift_stats.swings += stats.swings;
+                lift_stats.whiffs += stats.whiffs;
+                lift_stats.line_drive_swings += stats.line_drive_swings;
+                lift_stats.line_drive_whiffs += stats.line_drive_whiffs;
                 result
             } else {
                 run_with_diagnostics()
@@ -559,6 +593,20 @@ fn simulate_reports(
         let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
+        if lift_offset_mm.is_some() {
+            report["line_drive_lift"] = serde_json::json!({
+                "swings": lift_stats.swings,
+                "whiffs": lift_stats.whiffs,
+                "whiffs_per_swing": (lift_stats.swings > 0).then(|| lift_stats.whiffs as f64 / lift_stats.swings as f64),
+                "line_drive_swings": lift_stats.line_drive_swings,
+                "line_drive_whiffs": lift_stats.line_drive_whiffs,
+                "line_drive_whiffs_per_swing": (lift_stats.line_drive_swings > 0)
+                    .then(|| lift_stats.line_drive_whiffs as f64 / lift_stats.line_drive_swings as f64),
+                "doubles_per_pa": (total.pa > 0).then(|| total.double as f64 / total.pa as f64),
+                "triples_per_pa": (total.pa > 0).then(|| total.triple as f64 / total.pa as f64),
+                "runs_per_game": total.runs as f64 / total.games as f64,
+            });
+        }
         if let Some(selected) = selected {
             report["selected_intent_diagnostics"] = selected.json();
         }
