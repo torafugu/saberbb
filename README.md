@@ -572,6 +572,21 @@ recorded positive-EV contacts, so a trial can lose a contact but does not recove
 original misses. Treat results as fixed-swing sensitivity, without modeling
 swing selection, fielding, or game outcomes.
 
+To add saved swinging misses and compare shifts of 0, +10, +15, and +20 mm:
+
+```sh
+cargo run --release --example attack_angle_ablation -- --season 2026 --vertical-contact-sweep --all-swings > all_swing_vertical_sweep_2026.json
+```
+
+Use `comparable_swings` as the common denominator. For each shift,
+`lost_contacts` and `recovered_contacts` give the paired transitions, and
+`geometric_misses` includes original misses that remain misses. Recovered
+contacts use the current batter's swing parameters and reproducible draws
+from the live face-angle distribution, held fixed across shifts for each
+swing. Their fair trajectories and home runs are estimates. The sweep holds
+the set of swings fixed and does not model a change in swing decisions or
+when a batter would select a power intent.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,

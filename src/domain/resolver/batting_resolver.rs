@@ -557,33 +557,33 @@ pub fn calculate_vertical_contact_deflection(offset_z_m: f64) -> f64 {
     (clamped_z / COLLISION_RADIUS_M).asin().to_degrees() * 0.60
 }
 
+/// Draw the same face-angle terms used by a live contact, in radians.
+pub fn sample_face_angle_terms(
+    rng: &mut dyn RandomProvider,
+    handedness_sign: f64,
+    swing_speed: f64,
+    timing_error_sec: f64,
+) -> (f64, f64, f64) {
+    const SWING_PATH_RADIUS_M: f64 = 1.10;
+    let approach = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians();
+    let pull = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians() * handedness_sign * -1.0;
+    let timing = calculate_timing_angle_error(timing_error_sec, swing_speed, SWING_PATH_RADIUS_M);
+    (approach, pull, timing)
+}
+
 pub fn calculate_launch_angles(
     rng: &mut dyn RandomProvider,
     contact: &SwingContactResult,
     batter: &BatterInfo,
 ) -> Result<BattedBallAngles, GameError> {
-    // Approximate distance from the swing's center of rotation to the standard contact point.
-    // Used to derive the angular velocity from the bat speed. (1.1m)
-    // TODO: Consider adjusting this value based on the batter's height and swing mechanics for more accurate modeling.
     const SWING_PATH_RADIUS_M: f64 = 1.10;
 
-    // 1. Calculate VLA (vertical launch angle)
-    // Clamp z_m to the effective radius and compute arcsin
     let vla_deg = contact.attack_angle_deg + calculate_vertical_contact_deflection(contact.offset_z_m);
-
-    // 2. Calculate HLA (horizontal launch angle)
     let timing_error_sec = contact.timing_offset_sec;
-
-    // TODO: bat control should impact the variation range.
-    let approach_variation_rad = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians();
-    // TODO: pull_bias_rad should be impacted by batter type and batter strategy.
-    let pull_bias_rad = rng.normal_std(5.0).clamp(-10.0, 10.0).to_radians()
-        * batter.batting_side.handedness_sign()
-        * -1.0;
-
+    let (approach_variation_rad, pull_bias_rad, timing_angle_error_rad) = sample_face_angle_terms(
+        rng, batter.batting_side.handedness_sign(), batter.swing_speed, timing_error_sec,
+    );
     let intended_face_angle_rad = approach_variation_rad + pull_bias_rad;
-    let timing_angle_error_rad =
-        calculate_timing_angle_error(timing_error_sec, batter.swing_speed, SWING_PATH_RADIUS_M);
     let angular_velocity_rad_s = if timing_error_sec.abs() > f64::EPSILON {
         timing_angle_error_rad / timing_error_sec
     } else {

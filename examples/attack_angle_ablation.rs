@@ -29,6 +29,9 @@ struct Args {
     /// Recompute EV, angles, spin and flight after shifting the signed vertical contact offset.
     #[arg(long, conflicts_with = "lift_sweep")]
     vertical_contact_sweep: bool,
+    /// Include saved misses; use deterministic sampled face angles for recovered contacts.
+    #[arg(long, requires = "vertical_contact_sweep")]
+    all_swings: bool,
 }
 #[derive(Clone, Debug)]
 struct Contact {
@@ -270,15 +273,23 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
         let s = Stadium::from_row(row)?;
         stadiums.insert(i64::from(s.id), s);
     }
-    let mut stmt=conn.prepare("SELECT b.game_id,b.count_seq,b.batter_id,g.stadium_id,
+    let (population, miss_flag) = if args.all_swings {
+        (
+            "(b.launch_speed>0 OR b.adjusted_contact_type IN ('SolidContact','WeakContact','MarginalContact','SwungAndMiss'))",
+            "b.adjusted_contact_type='SwungAndMiss'",
+        )
+    } else {
+        ("b.launch_speed>0", "0")
+    };
+    let mut stmt=conn.prepare(&format!("SELECT b.game_id,b.count_seq,b.batter_id,g.stadium_id,
         b.outbound_result,b.launch_speed,b.launch_angle,b.final_hla_deg,b.polar_distance,b.polar_angle,b.total_time,
         b.bat_speed,b.length_offset_m,b.thickness_offset_m,p.spin_rate,p.spin_angle,
-        b.contact_offset_z_m,b.actual_bat_angle_deg,i.attack_angle,i.batter_type
+        b.contact_offset_z_m,b.actual_bat_angle_deg,i.attack_angle,i.batter_type,{miss_flag}
         FROM player_game_batting b JOIN game g ON g.id=b.game_id
         LEFT JOIN player_game_pitching p ON p.game_id=b.game_id AND p.count_seq=b.count_seq
         LEFT JOIN batter_info i ON i.player_id=b.batter_id
-        WHERE b.launch_speed>0 AND (?1 IS NULL OR g.season=?1) AND (?2 IS NULL OR b.batter_id=?2)
-        ORDER BY b.game_id,b.count_seq")?;
+        WHERE {population} AND (?1 IS NULL OR g.season=?1) AND (?2 IS NULL OR b.batter_id=?2)
+        ORDER BY b.game_id,b.count_seq"))?;
     let mut rows = stmt.query(rusqlite::params![args.season, args.batter_id])?;
     let mut total = Group::default();
     let mut by_type = BTreeMap::<String, Group>::new();
@@ -290,14 +301,15 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
     let mut high_ev_fair_components = [AngleComponents::default(), AngleComponents::default()];
     let mut vertical = args
         .vertical_contact_sweep
-        .then(vertical_contact_sweep::Sweep::default);
+        .then(|| vertical_contact_sweep::Sweep::new(args.all_swings));
     let mut vertical_query = args
         .vertical_contact_sweep
         .then(|| {
             conn.prepare(
                 "SELECT b.contact_offset_x_m,b.timing_impact_x_m,p.speed,i.swing_power,
                 b.hla_handedness_sign,b.hla_model_version,
-                b.approach_variation_deg,b.pull_bias_deg,b.timing_angle_error
+                b.approach_variation_deg,b.pull_bias_deg,b.timing_angle_error,
+                i.swing_speed,i.batting_side,b.timing_error
          FROM player_game_batting b
          LEFT JOIN player_game_pitching p USING(game_id,count_seq)
          LEFT JOIN batter_info i ON i.player_id=b.batter_id
@@ -329,7 +341,7 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
             batter_type: r.get(19)?,
         };
         if let (Some(sweep), Some(query)) = (&mut vertical, &mut vertical_query) {
-            sweep.observe(&c, stadiums.get(&c.stadium_id), query)?;
+            sweep.observe(&c, stadiums.get(&c.stadium_id), query, r.get(20)?)?;
             continue;
         }
         let kind = c.batter_type.clone().unwrap_or_else(|| "unknown".into());
@@ -377,7 +389,11 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
             "vertical_contact_sweep":sweep,
             "limitations":[
                 "Signed shifts are in world vertical contact offset, with positive shifts lifting VLA in the live model.",
-                "Saved positive-EV contacts only. Each shift uses the same baseline-matched pool; new geometric misses remain in that denominator. Previously missed swings are outside the pool.",
+                if args.all_swings {
+                    "Each shift uses the same baseline-matched swing pool. Miss-to-contact geometry is deterministic; recovered trajectories use one reproducible pair of live-distribution face-angle draws per swing, shared across shifts. Current batter speed, side and attack angle are assumed for saved misses."
+                } else {
+                    "Saved positive-EV contacts only. Each shift uses the same baseline-matched pool; new geometric misses remain in that denominator. Previously missed swings are outside the pool."
+                },
                 "Pitch, bat tilt, horizontal offset, timing, face-angle draws and stadium are fixed. Current batter power must reproduce recorded EV. Fielding, swing decisions and official batting outcomes are not replayed.",
                 "The power window uses trajectory-fair balls with EV >= 40 m/s and 20 <= VLA < 50 degrees."
             ]
@@ -486,6 +502,7 @@ mod tests {
                 batter_id: Some(1),
                 lift_sweep: false,
                 vertical_contact_sweep: false,
+                all_swings: false,
             },
         )
         .unwrap();
@@ -501,6 +518,7 @@ mod tests {
                 batter_id: None,
                 lift_sweep: false,
                 vertical_contact_sweep: false,
+                all_swings: false,
             },
         )
         .unwrap();
