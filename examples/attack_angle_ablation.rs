@@ -1,4 +1,4 @@
-//! Replay saved contacts with only the batter-type attack-angle contribution varied.
+//! Replay saved contacts with their launch angle or legacy type contribution varied.
 use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use rusqlite::{Connection, OpenFlags};
@@ -20,6 +20,9 @@ struct Args {
     season: Option<u16>,
     #[arg(long)]
     batter_id: Option<i64>,
+    /// Replay matched contacts with VLA shifts of -3, 0, +3, and +6 degrees.
+    #[arg(long)]
+    lift_sweep: bool,
 }
 #[derive(Clone, Debug)]
 struct Contact {
@@ -93,7 +96,10 @@ fn required(value: Option<f64>) -> Result<f64> {
         .filter(|v| v.is_finite())
         .context("missing_or_nonfinite_input")
 }
-fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
+fn matched_flight<'a>(
+    c: &'a Contact,
+    stadium: &'a Stadium,
+) -> Result<(BattedBall, impl Fn(f64) -> Result<BattedBall> + 'a)> {
     ensure!(
         [c.ev, c.vla, c.hla, c.distance, c.angle, c.time]
             .iter()
@@ -111,7 +117,7 @@ fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
     let axis = required(c.pitch_axis)?;
     ensure!(spin >= 0.0, "invalid_pitch_spin");
     let (spin, axis) = calculate_collision_spin_from_offsets(length, thickness, speed, spin, axis);
-    let trajectory = |vla| {
+    let trajectory = move |vla| {
         calculate_trajectory(c.ev, vla, c.hla, spin, axis, stadium)
             .map_err(|_| anyhow::anyhow!("trajectory_failed"))
     };
@@ -124,6 +130,11 @@ fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
             && (baseline.total_time - c.time).abs() < 1e-6,
         "baseline_reconstruction_mismatch"
     );
+    Ok((baseline, trajectory))
+}
+
+fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
+    let (baseline, trajectory) = matched_flight(c, stadium)?;
     // Recover the actual sampled contribution, not just its nominal 10-degree mean.
     // This inversion assumes the batter's current base attack angle has not changed.
     let kind = c
@@ -160,6 +171,79 @@ fn replay(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
     };
     Ok([baseline, half_aggressive, no_aggressive, no_type])
 }
+const VLA_SHIFTS: [i32; 4] = [-3, 0, 3, 6];
+
+#[derive(Default, Serialize)]
+struct LiftScenario {
+    fair_contacts: u64,
+    fair_ev_at_least_40: u64,
+    fair_ev_at_least_40_vla_20_to_50: u64,
+    home_runs: u64,
+    airborne_wall_impacts: u64,
+}
+
+impl LiftScenario {
+    fn add(&mut self, ball: &BattedBall) {
+        if ball.outbound_result.as_ref() == "Foul" {
+            return;
+        }
+        self.fair_contacts += 1;
+        self.home_runs += u64::from(ball.outbound_result.as_ref() == "HomeRun");
+        if let Some(wall) = ball.fence_impact_time {
+            self.airborne_wall_impacts +=
+                u64::from(ball.first_bounce_time.is_none_or(|bounce| wall < bounce));
+        }
+        if ball.launch_speed >= 40.0 {
+            self.fair_ev_at_least_40 += 1;
+            self.fair_ev_at_least_40_vla_20_to_50 +=
+                u64::from((20.0..50.0).contains(&ball.launch_angle));
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct AngleComponents {
+    observations: u64,
+    mean_base_attack_deg: f64,
+    mean_tilt_contribution_deg: f64,
+    mean_contact_deflection_deg: f64,
+    mean_abs_unexplained_vla_deg: f64,
+    reconstructed_within_tolerance: u64,
+}
+
+impl AngleComponents {
+    fn add(&mut self, c: &Contact) {
+        let (Ok(base), Ok(tilt), Ok(offset)) = (
+            required(c.base_attack),
+            required(c.bat_angle),
+            required(c.z),
+        ) else {
+            return;
+        };
+        let tilt_contribution = calculate_dynamic_attack_angle(base, tilt) - base;
+        let deflection = calculate_vertical_contact_deflection(offset);
+        let residual = (c.vla - base - tilt_contribution - deflection).abs();
+        self.observations += 1;
+        let count = self.observations as f64;
+        self.mean_base_attack_deg += (base - self.mean_base_attack_deg) / count;
+        self.mean_tilt_contribution_deg +=
+            (tilt_contribution - self.mean_tilt_contribution_deg) / count;
+        self.mean_contact_deflection_deg += (deflection - self.mean_contact_deflection_deg) / count;
+        self.mean_abs_unexplained_vla_deg += (residual - self.mean_abs_unexplained_vla_deg) / count;
+        self.reconstructed_within_tolerance += u64::from(residual < 1e-7);
+    }
+}
+
+fn lift_flights(c: &Contact, stadium: &Stadium) -> Result<[BattedBall; 4]> {
+    let (baseline, flight) = matched_flight(c, stadium)?;
+    Ok([
+        flight(c.vla + f64::from(VLA_SHIFTS[0]))?,
+        baseline,
+        flight(c.vla + f64::from(VLA_SHIFTS[2]))?,
+        flight(c.vla + f64::from(VLA_SHIFTS[3]))?,
+    ])
+}
+
 fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
     let source_counts = conn.query_row(
         "SELECT COUNT(*),COALESCE(SUM(b.result='HomeRun'),0)
@@ -190,6 +274,9 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
     let mut by_player = BTreeMap::<i64, Group>::new();
     let mut exclusions = BTreeMap::<String, u64>::new();
     let mut exclusion_examples = Vec::new();
+    let mut shifts = VLA_SHIFTS.map(|_| LiftScenario::default());
+    let mut matched_lift_contacts = 0;
+    let mut high_ev_fair_components = [AngleComponents::default(), AngleComponents::default()];
     while let Some(r) = rows.next()? {
         let c = Contact {
             game_id: r.get(0)?,
@@ -220,8 +307,23 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
         let result = stadiums
             .get(&c.stadium_id)
             .context("missing_stadium")
-            .and_then(|s| replay(&c, s));
+            .and_then(|s| {
+                if args.lift_sweep {
+                    lift_flights(&c, s)
+                } else {
+                    replay(&c, s)
+                }
+            });
         match result {
+            Ok(balls) if args.lift_sweep => {
+                matched_lift_contacts += 1;
+                for (scenario, ball) in shifts.iter_mut().zip(&balls) {
+                    scenario.add(ball);
+                }
+                if c.ev >= 40.0 && c.kind != "Foul" {
+                    high_ev_fair_components[usize::from(c.vla >= 20.0)].add(&c);
+                }
+            }
             Ok(balls) => {
                 total.add(&c, &balls);
                 by_type.get_mut(&kind).unwrap().add(&c, &balls);
@@ -235,6 +337,24 @@ fn audit(conn: &Connection, args: &Args) -> Result<serde_json::Value> {
                 }
             }
         }
+    }
+    if args.lift_sweep {
+        let [below_20, at_least_20] = high_ev_fair_components;
+        return Ok(serde_json::json!({
+            "scope":{"season":args.season,"batter_id":args.batter_id},
+            "source_counts":{"pitch_records":source_counts.0,"raw_hr":source_counts.1},
+            "positive_ev_contacts":total.recorded_contacts,
+            "comparable_contacts":matched_lift_contacts,
+            "scenarios":VLA_SHIFTS.into_iter().zip(&shifts).map(|(shift, scenario)|
+                serde_json::json!({"vla_shift_deg":shift,"outcomes":scenario})).collect::<Vec<_>>(),
+            "high_ev_fair_angle_components":{"vla_below_20":below_20,"vla_at_least_20":at_least_20},
+            "exclusions":exclusions,"exclusion_examples":exclusion_examples,
+            "limitations":[
+                "All four shifts use the same matched contact pool. Only VLA changes; EV, HLA, spin and stadium are fixed. Foul trajectories may become fair or vice versa.",
+                "A VLA shift is a flight sensitivity, not a prediction for changing swing mechanics in games.",
+                "Angle components use the current batter attack angle and require saved bat tilt and vertical contact offset. Reconstruction residuals can reflect a legacy type bonus or historical input differences."
+            ]
+        }));
     }
     Ok(
         serde_json::json!({"scope":{"season":args.season,"batter_id":args.batter_id},
@@ -319,6 +439,7 @@ mod tests {
             &Args {
                 season: Some(2026),
                 batter_id: Some(1),
+                lift_sweep: false,
             },
         )
         .unwrap();
@@ -332,10 +453,26 @@ mod tests {
             &Args {
                 season: Some(2027),
                 batter_id: None,
+                lift_sweep: false,
             },
         )
         .unwrap();
         assert_eq!(empty["comparison_available"], false);
+    }
+
+    #[test]
+    fn lift_sweep_keeps_fixed_contact_inputs_without_requiring_batter_metadata() {
+        let mut c = fixture();
+        c.base_attack = None;
+        c.batter_type = None;
+        let balls = lift_flights(&c, &Stadium::default()).unwrap();
+        for (shift, ball) in VLA_SHIFTS.into_iter().zip(&balls) {
+            assert_eq!(ball.launch_angle, c.vla + f64::from(shift));
+            assert_eq!(ball.launch_speed, c.ev);
+            assert_eq!(ball.spin_rate, balls[1].spin_rate);
+            assert_eq!(ball.spin_angle, balls[1].spin_angle);
+        }
+        assert_eq!(balls[1].outbound_result.as_ref(), c.kind);
     }
 
     #[test]

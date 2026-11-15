@@ -526,6 +526,34 @@ throw, with batter running time only when the batter was the target.
 The logs do not retain fence-crossing height or arrival times for bases
 the batter did not attempt. The report works without contact diagnostics.
 
+### Lift sensitivity and outfield advance clocks
+
+```sh
+cargo run --release --example attack_angle_ablation -- --season 2026 --lift-sweep > lift_sweep_2026.json
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --outfield-advance-diagnostics > outfield_advance_2026.json
+```
+
+The lift sweep uses the same baseline-matched saved contacts for all four
+vertical launch angle shifts (-3°, 0°, +3°, +6°). Exit speed, horizontal launch
+angle, spin, and stadium geometry stay fixed. The report counts home runs and
+airborne wall impacts and compares the attack-angle, bat-tilt and vertical
+contact contributions across baseline fair contacts at 40 m/s or above.
+Angle attribution uses current batter data. Treat large reconstruction
+residuals as unresolved. The sweep measures flight sensitivity, including
+possible fair/foul changes, without modeling how a swing adjustment changes EV.
+
+The outfield check uses fresh seeded games and observes the live batter's
+second- and third-base clocks, grouped by location, batting result and live
+throw target. It compares the live defensive clock, a direct throw from the
+actual fielding position, and an additional throw from second to third when
+the live throw was to second and its receiver is known. An existing throw to
+third is also included in the fastest tested route. The extra leg uses the
+receiver's preparation and throwing model plus the tag allowance. Route
+comparisons are timing estimates on the same play and do not choose new
+throws, model new runner decisions or award extra bases. Positive timing
+margins mean the batter's arrival precedes the tested defensive clock.
+The observer consumes no random numbers and does not write game results.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,

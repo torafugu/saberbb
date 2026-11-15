@@ -1318,6 +1318,12 @@ impl GameState {
         let (defense_play_result, runner_advance_result) = self
             .try_right_field_first(&ctx, batting_side, catch_diagnostics, &runner_advance_result)?
             .unwrap_or((defense_play_result, runner_advance_result));
+        super::outfield_advance_audit::record(
+            &ctx,
+            batting_side,
+            &defense_play_result,
+            runner_advance_result.batting_result,
+        );
         let record_no_bounce = || {
             super::no_bounce_catch_audit::record(
                 &fielders,

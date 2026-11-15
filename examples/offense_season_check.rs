@@ -15,6 +15,7 @@ use saberbb::{
             game_state::with_right_field_first_trial,
             infield_opportunity_audit::InfieldOpportunityAudit,
             no_bounce_catch_audit::NoBounceCatchAudit,
+            outfield_advance_audit::OutfieldAdvanceAudit,
             team::Team,
             timing_scale_audit::TimingScaleAudit,
         },
@@ -81,6 +82,9 @@ struct Args {
     /// Audit earlier infield interception opportunities on outfield pickup singles.
     #[arg(long)]
     infield_opportunity_diagnostics: bool,
+    /// Compare batter arrivals with direct and second-to-third throws on the same outfield play.
+    #[arg(long)]
+    outfield_advance_diagnostics: bool,
     /// Replay baseline singles at 100%, 50%, and 0% of the direct-catch margin.
     #[arg(long)]
     no_bounce_catch_diagnostics: bool,
@@ -467,6 +471,9 @@ fn simulate_reports(
         let mut infield = args
             .infield_opportunity_diagnostics
             .then(InfieldOpportunityAudit::default);
+        let mut outfield = args
+            .outfield_advance_diagnostics
+            .then(OutfieldAdvanceAudit::default);
         let mut no_bounce = args
             .no_bounce_catch_diagnostics
             .then(NoBounceCatchAudit::default);
@@ -494,6 +501,10 @@ fn simulate_reports(
                     None => run(),
                 };
                 let run = || match infield.as_mut() {
+                    Some(audit) => audit.observe_game(run),
+                    None => run(),
+                };
+                let run = || match outfield.as_mut() {
                     Some(audit) => audit.observe_game(run),
                     None => run(),
                 };
@@ -577,6 +588,9 @@ fn simulate_reports(
                 "no-bounce audit single count does not match the official batting results"
             );
             report["no_bounce_catch_diagnostics"] = serde_json::to_value(no_bounce)?;
+        }
+        if let Some(outfield) = outfield {
+            report["outfield_advance_diagnostics"] = serde_json::to_value(outfield)?;
         }
         if let Some(infield) = infield {
             report["infield_opportunity_diagnostics"] = serde_json::to_value(infield)?;
