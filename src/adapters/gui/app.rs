@@ -89,6 +89,6 @@ fn Statistics(kind:u8, catalog:Catalog, league:u16, team:u16, season:u16, refres
         Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
         Some(Ok(table))=>rsx!{
             if kind==1 {p {class:"small-note",{tr("防御率は失点と記録アウト数による参考値です（自責点は未記録）。")}}}
-            DataTable {data:table.clone(),searchable:kind!=1,paginated:kind!=1,initial_sort:if kind==1 {None}else{Some((1,true))}}},
+            DataTable {data:table.clone(),searchable:kind!=1,paginated:kind!=1,initial_sort:match kind {1=>None,2=>Some((5,true)),_=>Some((1,true))}}},
     } }
 }

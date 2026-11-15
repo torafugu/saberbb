@@ -358,8 +358,12 @@ Batting/pitching displays read `batting_stat_totals` and `pitching_stat_totals`.
 At game-result save time, the same database transaction updates per-game rows in
 `game_batting_stat_cache` / `game_pitching_stat_cache`, then refreshes totals for
 only the affected players. Display queries never aggregate pitch logs or per-game
-rows. Rates are derived from saved integer counts, preserving the existing
-aggregation definitions (including the existing AB/innings definitions).
+rows. The batting table shows the player's current team and career totals from
+all saved games. Batting rates use saved counts, with scoring tag-ups counted
+as sacrifice flies and excluded from at-bats. A rate with no qualifying
+opportunities displays an em dash. Sacrifice bunts display zero because the
+simulator has no bunt outcome. Fielding errors count the recorded fielding
+errors attributed to the defender at the interception position.
 
 Existing databases are backfilled automatically on the first statistics request,
 which may take time once. The additive schema is also in

@@ -18,8 +18,12 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
     let mut rows: Vec<_> = data.rows.iter().filter(|r| query.is_empty() || r.iter().any(|c| c.to_lowercase().contains(&query))).cloned().collect();
     if let Some((column, descending)) = sort() {
         rows.sort_by(|a,b| {
-            let order = compare_cells(a.get(column).map(String::as_str).unwrap_or(""),b.get(column).map(String::as_str).unwrap_or(""));
-            if descending { order.reverse() } else { order }
+            let a = a.get(column).map(String::as_str).unwrap_or("");
+            let b = b.get(column).map(String::as_str).unwrap_or("");
+            (a == "—").cmp(&(b == "—")).then_with(|| {
+                let order = compare_cells(a, b);
+                if descending { order.reverse() } else { order }
+            })
         });
     }
     let pages = rows.len().div_ceil(100).max(1);
@@ -36,7 +40,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
             }
             if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理画面で作成・進行できます。")} } }
             div { class: "table-scroll",
-                table { class:if data.title=="順位表" {"standings-table"}else{""},
+                table { class:match data.title.as_str() {"順位表"=>"standings-table","打撃成績"=>"batting-table",_=>""},
                     thead { tr {
                         for (i, column) in data.columns.iter().enumerate() {
                             th { aria_sort: if sort().is_some_and(|(c,_)|c==i) { if sort().unwrap().1 { "descending" } else { "ascending" } } else { "none" },

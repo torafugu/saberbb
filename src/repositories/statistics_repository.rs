@@ -57,9 +57,8 @@ impl SqlStatRepository {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
             "SELECT s.player_id,pi.first_name AS batter_first_name,pi.last_name AS batter_last_name,
-             s.ab AS ab,s.single AS single,s.double AS double,s.triple AS triple,s.homerun AS homerun,
-             COALESCE(ROUND(CAST((s.single+s.double+s.triple+s.homerun) AS REAL)/NULLIF(s.ab,0),3),0.0) AS ba,
-             CAST(s.rbi AS REAL) AS rbi
+             s.*,
+             COALESCE(ROUND(CAST((s.single+s.double+s.triple+s.homerun) AS REAL)/NULLIF(s.ab,0),3),0.0) AS ba
              FROM batting_stat_totals s JOIN player_info pi ON pi.id=s.player_id
              WHERE ?1 IS NULL OR pi.team_id=?1 ORDER BY s.player_id",params![team])
     }
@@ -255,8 +254,10 @@ mod tests {
             ",
         )
         .unwrap();
-        conn.execute_batch("CREATE TABLE player_game_running(game_id INTEGER,count_seq INTEGER,event TEXT,ruling TEXT);
-            CREATE TABLE player_game_fielding(game_id INTEGER,count_seq INTEGER,error_type TEXT);").unwrap();
+        conn.execute_batch("CREATE TABLE player_game_running(game_id INTEGER,count_seq INTEGER,seq INTEGER,event TEXT,ruling TEXT,
+                target_runner_id INTEGER,runner_1st_id INTEGER,runner_2nd_id INTEGER,runner_3rd_id INTEGER);
+            CREATE TABLE player_game_fielding(game_id INTEGER,count_seq INTEGER,error_type TEXT,interception_fielder_position TEXT);
+            CREATE TABLE player_game_entry(game_id INTEGER,player_id INTEGER,position TEXT,start_count_seq INTEGER,end_count_seq INTEGER);").unwrap();
         drop(conn);
         let manager = SqliteManager::from_path(path.clone());
         let pool: SqlitePool = Pool::builder(manager).max_size(16).build().unwrap();
@@ -590,7 +591,7 @@ mod tests {
         assert_eq!(stats[0].ab, 1);
         assert_eq!(stats[0].homerun, 1);
         assert_eq!(stats[0].ba, 1.0);
-        assert_eq!(stats[0].rbi, 1.0);
+        assert_eq!(stats[0].rbi, 1);
         std::fs::remove_file(path).ok();
     }
 
