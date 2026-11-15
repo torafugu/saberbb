@@ -280,7 +280,7 @@ pub enum FielderRiskTolerance {
 }
 
 thread_local! {
-    static DIRECT_CATCH_MARGIN_SCALE: std::cell::Cell<f64> = const { std::cell::Cell::new(1.0) };
+    static DIRECT_CATCH_MARGIN_SCALE: std::cell::Cell<f64> = const { std::cell::Cell::new(0.5) };
 }
 
 /// Scope the live margin override to one diagnostic trial on this thread.
@@ -850,6 +850,7 @@ mod candidate_diagnostics_tests {
     fn risk_rejection_is_distinct_from_arriving_too_late() {
         let ball = short_fly();
         let mut fielder = nearby_fielder();
+        fielder.info.prep_time = 0.23;
         let (result, diagnostics) = evaluate_fielder_interception_with_diagnostics(
             &mut FixedRng::new(0.5), &ball, &fielder,
         );
@@ -857,7 +858,7 @@ mod candidate_diagnostics_tests {
         assert!(diagnostics.reachable_samples > 0);
         assert_eq!(diagnostics.risk_ok_samples, 0);
         assert!(diagnostics.max_air_margin_sec.unwrap() > 0.0);
-        assert!(diagnostics.max_air_margin_sec.unwrap() < 0.15);
+        assert!(diagnostics.max_air_margin_sec.unwrap() < FielderRiskTolerance::Balanced.required_margin_sec());
         assert_eq!(diagnostics.end_reason, CandidateEndReason::BounceCatch);
 
         fielder.risk_tolerance = FielderRiskTolerance::Aggressive;
@@ -1144,6 +1145,10 @@ mod air_probe_tests {
 
     #[test]
     fn normal_fine_search_finds_the_first_point_missed_by_the_coarse_probe() {
+        with_direct_catch_margin_scale(1.0, check_normal_fine_search);
+    }
+
+    fn check_normal_fine_search() {
         let (ball, fielder) = left_field_example();
         let (interception, normal) = evaluate_fielder_interception_with_diagnostics(
             &mut FixedRng::new(0.5), &ball, &fielder,
@@ -1177,7 +1182,7 @@ mod air_probe_tests {
             ..BattedBall::default()
         };
         let mut fielder = active_fielder(Position::CF, 0.0, 0.0);
-        fielder.info.prep_time = 1.90;
+        fielder.info.prep_time = 2.05 - FielderRiskTolerance::Balanced.required_margin_sec();
         fielder.info.reach_height = 3.0;
         for end in [2.05 - 1e-13, 2.05, 2.05 + 1e-13] {
             ball.first_bounce_time = Some(end);
@@ -1295,7 +1300,9 @@ mod air_probe_tests {
         fielder.info.running_speed = 1e9;
         fielder.info.prep_time = 0.15;
         fielder.info.reach_height = 100.0;
-        let balanced = probe_airborne_catches(&ball, &[fielder.clone()])[0];
+        let balanced = with_direct_catch_margin_scale(1.0, || {
+            probe_airborne_catches(&ball, &[fielder.clone()])[0]
+        });
         assert!(balanced.reachable_samples > 0);
         assert_eq!(balanced.risk_ok_samples, 0);
         fielder.risk_tolerance = FielderRiskTolerance::Aggressive;
