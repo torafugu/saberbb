@@ -593,7 +593,14 @@ when a batter would select a power intent.
 cargo run --release --example offense_season_check -- --season 2026 --games 36 --line-drive-lift-comparison > line_drive_lift_2026.json
 ```
 
-Each condition (0, +10, +15, +20 mm) uses the same source rosters, schedule
+Omit `--games` to use the entire schedule for the specified season. To run
+only the control and the two shortlisted offsets on that schedule:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --line-drive-lift-comparison --line-drive-lift-offsets 0,10,20 > line_drive_lift_full_2026.json
+```
+
+Each condition (default 0, +10, +15, +20 mm) uses the same source rosters, schedule
 and per-game starting RNG seeds. The trial applies a positive vertical
 contact shift before geometry and flight calculation, only on swings with
 the existing `LineDrive` intent. The usual player/manager selection decides
