@@ -13,7 +13,8 @@ use saberbb::{
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
-                LineDriveLiftStats, with_line_drive_lift_trial, with_right_field_first_trial,
+                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, with_line_drive_lift_trial,
+                with_right_field_first_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             no_bounce_catch_audit::NoBounceCatchAudit,
@@ -415,6 +416,7 @@ fn run(args: Args) -> Result<()> {
             "lift": "unchanged legacy transverse-spin model"
         },
         "default_direct_catch_margin_percent": 50,
+        "default_line_drive_lift_offset_mm": DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM,
         "inputs_sha256": input_hash, "season": args.season, "games_per_seed": games.len(),
         "definitions": {
             "ra9_reference": "Runs allowed * 27 / recorded outs; earned runs not recorded",
