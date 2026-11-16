@@ -1,16 +1,18 @@
 //! Observe the live outfield play and compare throws to third without consuming RNG.
 use super::{
     game::BattingResult,
+    game_state::Ruling,
     player::{Position, RL},
     stadium::Base,
 };
 use crate::domain::resolver::{
     fielding_physics::{
-        CatchType, FieldError, FieldingCatchDiagnostics, FieldingSelectionPath, ReachablePickup,
-        pickup_handling, pre_fence_pickup,
+        CatchType, FieldError, FieldPlayPlayResult, FieldingCatchDiagnostics,
+        FieldingSelectionPath, ReachablePickup, pickup_handling, pre_fence_pickup,
     },
-    fielding_resolver::{DefensePlayResult, PlayContext},
+    fielding_resolver::{DefensePlayResult, PlayContext, PlayType},
     fielding_timing::DefenseTimeCalculator,
+    running_resolver::RunnerAdvanceResult,
 };
 use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use serde::Serialize;
@@ -96,6 +98,7 @@ impl Recovery {
         ctx: &PlayContext<'_>,
         fielding: FieldingCatchDiagnostics,
         control_start_sec: f64,
+        earliest_control_sec: f64,
     ) -> Self {
         let ball = &ctx.fielded_ball.ball;
         let fielder = ctx.try_catch_fielder;
@@ -120,7 +123,7 @@ impl Recovery {
             if bounce >= fence || live.search_start_sec != fence {
                 return None;
             }
-            let first_reachable = pre_fence_pickup(ball, fielder);
+            let first_reachable = pre_fence_pickup(ball, fielder, earliest_control_sec);
             let modeled_recovery_sec =
                 first_reachable
                     .zip(live.handling_random)
@@ -179,12 +182,149 @@ struct DeepOutfieldPlay {
     recovery: Recovery,
 }
 
+#[derive(Serialize)]
+struct RunningOutcome {
+    result: BattingResult,
+    ruling: Ruling,
+    targeted_runner_id: Option<i64>,
+    runs_scored: u8,
+}
+
+impl From<&RunnerAdvanceResult> for RunningOutcome {
+    fn from(value: &RunnerAdvanceResult) -> Self {
+        Self {
+            result: value.batting_result,
+            ruling: value.ruling,
+            targeted_runner_id: value.target_runner.map(|runner| runner.id),
+            runs_scored: value.runs_scored,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct BaseRace {
+    ball_arrival_sec: f64,
+    ball_minus_batter_sec: f64,
+}
+
+impl BaseRace {
+    fn new(ball_arrival_sec: f64, batter_arrival_sec: f64) -> Self {
+        Self {
+            ball_arrival_sec,
+            ball_minus_batter_sec: ball_arrival_sec - batter_arrival_sec,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct PickupReplay {
+    pickup_position: PolarPosition,
+    ready_to_throw_sec: f64,
+    fixed_target_defense_sec: f64,
+    direct_to_second: BaseRace,
+    direct_to_third: BaseRace,
+    via_second_to_third: Option<BaseRace>,
+    running: Option<RunningOutcome>,
+}
+
+struct FixedPlay<'a, 'b> {
+    ctx: &'a PlayContext<'b>,
+    defense: &'a DefensePlayResult,
+    batting_side: RL,
+    batter_to_second_sec: f64,
+    batter_to_third_sec: f64,
+}
+
+impl FixedPlay<'_, '_> {
+    fn replay(&self, pickup_position: PolarPosition, ready_to_throw_sec: f64) -> PickupReplay {
+        let clock = DefenseTimeCalculator::default();
+        let fielder = self.ctx.try_catch_fielder;
+        let cutoff = self
+            .defense
+            .cutoff_fielder_id
+            .and_then(|id| self.ctx.fielders.iter().find(|f| f.id == id));
+        let target = self.defense.throw_target_base;
+        let defense_time = ready_to_throw_sec
+            + clock.best_outfield_throw_time(
+                fielder,
+                &pickup_position,
+                target,
+                self.defense.play_type != PlayType::ForcePlay,
+                cutoff,
+            );
+        let defense = DefensePlayResult {
+            time_to_field: ready_to_throw_sec,
+            defense_time,
+            ..self.defense.clone()
+        };
+        let running = self
+            .ctx
+            .runners
+            .after_outfield_hit(&defense, self.batting_side);
+        let direct_to = |base| {
+            ready_to_throw_sec + clock.direct_play_time(fielder, &pickup_position, base, true)
+        };
+        let via_second_to_third = if target == Base::Second {
+            self.ctx
+                .fielders
+                .iter()
+                .find(|f| f.id == self.defense.final_fielder_id)
+                .map(|receiver| {
+                    let return_to_second = clock.best_outfield_throw_time(
+                        fielder,
+                        &pickup_position,
+                        Base::Second,
+                        false,
+                        cutoff,
+                    );
+                    let second_to_third = clock.direct_play_time(
+                        receiver,
+                        &Base::Second.polar_position(),
+                        Base::Third,
+                        true,
+                    );
+                    BaseRace::new(
+                        ready_to_throw_sec + return_to_second + second_to_third,
+                        self.batter_to_third_sec,
+                    )
+                })
+        } else {
+            None
+        };
+        PickupReplay {
+            pickup_position,
+            ready_to_throw_sec,
+            fixed_target_defense_sec: defense_time,
+            direct_to_second: BaseRace::new(direct_to(Base::Second), self.batter_to_second_sec),
+            direct_to_third: BaseRace::new(direct_to(Base::Third), self.batter_to_third_sec),
+            via_second_to_third,
+            running: running.ok().as_ref().map(RunningOutcome::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct FixedPickupComparison {
+    game_id: u32,
+    count_seq: u16,
+    fielder_id: i64,
+    runner_base_mask: u8,
+    batter_to_second_sec: f64,
+    batter_to_third_sec: f64,
+    live_throw_target: Base,
+    live_defense_sec: f64,
+    live_running: RunningOutcome,
+    actual_pickup: PickupReplay,
+    pre_fence: Option<PickupReplay>,
+}
+
 #[derive(Default, Serialize)]
 pub struct OutfieldAdvanceAudit {
     by_location_and_result: BTreeMap<&'static str, BTreeMap<String, BTreeMap<String, Routes>>>,
     unavailable_runner_times: u64,
     deep_extra_base_plays: Vec<DeepOutfieldPlay>,
     deep_single_plays: Vec<DeepOutfieldPlay>,
+    fixed_pickup_comparisons: Vec<FixedPickupComparison>,
 }
 
 thread_local! {
@@ -217,8 +357,8 @@ pub(crate) fn record(
     count_seq: u16,
     batting_side: RL,
     defense: &DefensePlayResult,
-    fielding: FieldingCatchDiagnostics,
-    result: BattingResult,
+    field_play: &FieldPlayPlayResult,
+    running: &RunnerAdvanceResult,
 ) {
     // The optional right-field force at first has a different advance model.
     if !ctx.fielded_ball.fielded_by.is_outfielder() || defense.throw_target_base == Base::First {
@@ -236,6 +376,8 @@ pub(crate) fn record(
             audit.unavailable_runner_times += 1;
             return;
         };
+        let fielding = field_play.diagnostics();
+        let result = running.batting_result;
         let ball = &ctx.fielded_ball.ball;
         let field_time = defense.time_to_field;
         let control_start_sec = fielding
@@ -318,12 +460,54 @@ pub(crate) fn record(
         let tested_first = fastest > third;
         routes.third_opportunity_only_with_tested_routes += u64::from(tested_first && !live_first);
         routes.third_opportunity_only_with_live_clock += u64::from(live_first && !tested_first);
-        if location != "other_outfield"
+        let deep_hit = location != "other_outfield"
             && matches!(
                 result,
                 BattingResult::Single | BattingResult::Double | BattingResult::Triple
-            )
-        {
+            );
+        if !deep_hit && result != BattingResult::Triple && location != "wall_impact" {
+            return;
+        }
+        let earliest_control_sec = field_play
+            .covering_interception
+            .as_ref()
+            .map_or(0.0, |_| field_play.primary_interception.catch_time_sec);
+        let recovery = Recovery::new(ctx, fielding, control_start_sec, earliest_control_sec);
+        let early = recovery
+            .pre_fence_search
+            .as_ref()
+            .and_then(|p| p.first_reachable);
+        if early.is_some() || result == BattingResult::Triple {
+            let fixed = FixedPlay {
+                ctx,
+                defense,
+                batting_side,
+                batter_to_second_sec: second,
+                batter_to_third_sec: third,
+            };
+            let pre_fence = early
+                .zip(
+                    recovery
+                        .pre_fence_search
+                        .as_ref()
+                        .and_then(|p| p.modeled_recovery_sec),
+                )
+                .map(|(point, ready)| fixed.replay(point.position, ready));
+            audit.fixed_pickup_comparisons.push(FixedPickupComparison {
+                game_id,
+                count_seq,
+                fielder_id: ctx.try_catch_fielder.id,
+                runner_base_mask: ctx.runners.base_mask(),
+                batter_to_second_sec: second,
+                batter_to_third_sec: third,
+                live_throw_target: defense.throw_target_base,
+                live_defense_sec: defense.defense_time,
+                live_running: RunningOutcome::from(running),
+                actual_pickup: fixed.replay(ctx.fielded_ball.catch_position, field_time),
+                pre_fence,
+            });
+        }
+        if deep_hit {
             let plays = if result == BattingResult::Single {
                 &mut audit.deep_single_plays
             } else {
@@ -340,7 +524,7 @@ pub(crate) fn record(
                 direct_to_third_after_fielding_sec: direct_throw_sec,
                 via_second_after_fielding_sec: via_second_throw_sec,
                 batter_to_third_sec: third,
-                recovery: Recovery::new(ctx, fielding, control_start_sec),
+                recovery,
             });
         }
     });

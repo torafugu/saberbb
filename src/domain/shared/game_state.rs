@@ -1388,8 +1388,8 @@ impl GameState {
             self.count_seq,
             batting_side,
             &defense_play_result,
-            catch_diagnostics,
-            runner_advance_result.batting_result,
+            &field_play_result,
+            &runner_advance_result,
         );
         let record_no_bounce = || {
             super::no_bounce_catch_audit::record(

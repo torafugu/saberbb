@@ -401,7 +401,7 @@ pub struct DoublePlayDefensePlayResult {
     pub defense_time: f64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DefensePlayResult {
     pub time_to_field: f64,
     pub throw_target_base: Base,
