@@ -14,7 +14,7 @@ use crate::domain::resolver::fielding_physics::{
 };
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
-    evaluate_double_play, process_fielding,
+    evaluate_defense_play_from, evaluate_double_play, process_fielding,
 };
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::resolver::pitching_resolver::{
@@ -776,8 +776,10 @@ impl GameState {
         runners: &RunnersOnBase,
         ctx: &PlayContext,
         batting_side: RL,
+        catch_diagnostics: FieldingCatchDiagnostics,
     ) -> Result<(DefensePlayResult, RunnerAdvanceResult), GameError> {
-        let defense_play_result = evaluate_defense_play(&ctx, rng)?;
+        let pickup_position = catch_diagnostics.pre_fence_pickup_position(&ctx.fielded_ball.ball);
+        let defense_play_result = evaluate_defense_play_from(ctx, rng, pickup_position)?;
         info!("Defense Play Result: {:#?}", defense_play_result);
 
         let runner_advance_result = if ctx.fielded_ball.fielded_by.is_outfielder() {
@@ -1375,6 +1377,7 @@ impl GameState {
             &self.inning_state.runners,
             &ctx,
             batting_side,
+            catch_diagnostics,
         )?;
         let (defense_play_result, runner_advance_result) = self
             .try_right_field_first(&ctx, batting_side, catch_diagnostics, &runner_advance_result)?
