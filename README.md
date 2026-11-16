@@ -574,6 +574,21 @@ available. This is a pickup-only comparison with the original play held
 fixed; it does not recalculate the throw or batting result.
 The observer consumes no random numbers and does not write game results.
 
+For a paired comparison within the same play, read
+`outfield_advance_diagnostics.fixed_pickup_comparisons` in the baseline
+`--outfield-advance-diagnostics` report. It includes outfield triples and
+wall plays where the originally selected fielder could reach the ball before
+impact. Both replays hold the batter, other runners, selected fielder and
+throw target/cover assignment fixed. They compute defense from the respective
+pickup position and ready time, then rerun the normal outfield running
+resolver. The pre-fence pickup reuses the original handling draw. A null
+`pre_fence` means no complete earlier pickup could be reconstructed.
+The live outcome is also recorded because the original throw clock can use
+the projected stopping point. Direct routes to second and third and, when
+the live target was second, the relay via second are timing comparisons;
+they do not select a new throw target or change the replayed running ruling.
+Positive ball-minus-batter margins mean the batter arrives first.
+
 ### Pre-fence pickup trial
 
 ```sh

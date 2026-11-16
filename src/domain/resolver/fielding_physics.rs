@@ -724,13 +724,6 @@ fn search_reachable_pickup(
 pub(crate) fn pre_fence_pickup(
     ball: &BattedBall,
     fielder: &ActiveFielder,
-) -> Option<ReachablePickup> {
-    search_pre_fence_pickup(ball, fielder, 0.0)
-}
-
-fn search_pre_fence_pickup(
-    ball: &BattedBall,
-    fielder: &ActiveFielder,
     earliest_control_sec: f64,
 ) -> Option<ReachablePickup> {
     let bounce = ball.first_bounce_time?;
@@ -770,7 +763,7 @@ pub(crate) fn evaluate_final_pickup_after<'a>(
     let start_time = ball.fence_impact_time.or(ball.first_bounce_time).unwrap_or(0.0);
     let max_search_time = ball.total_time + 10.0;
     let early = if PRE_FENCE_PICKUP_TRIAL.get() && fielder.position.is_outfielder() {
-        search_pre_fence_pickup(ball, fielder, passed_at_sec)
+        pre_fence_pickup(ball, fielder, passed_at_sec)
     } else {
         None
     };
@@ -894,7 +887,7 @@ mod candidate_diagnostics_tests {
         ball.fence_impact_position = Some(PolarPosition::new(0.9, 0.0));
         let mut fielder = nearby_fielder();
 
-        let early = pre_fence_pickup(&ball, &fielder).unwrap();
+        let early = pre_fence_pickup(&ball, &fielder, 0.0).unwrap();
         assert_eq!(early.time_sec, 0.3);
         assert!(early.fielder_arrival_sec <= early.time_sec);
         assert_eq!(early.position, ball.first_bounce_position.unwrap());
@@ -921,7 +914,7 @@ mod candidate_diagnostics_tests {
         );
 
         fielder.info.prep_time = 0.45;
-        assert!(pre_fence_pickup(&ball, &fielder).is_none());
+        assert!(pre_fence_pickup(&ball, &fielder, 0.0).is_none());
         let baseline = evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder);
         let trial = with_pre_fence_pickup_trial(|| {
             evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder)
@@ -931,7 +924,7 @@ mod candidate_diagnostics_tests {
             baseline.pickup.unwrap().pickup_time_sec
         );
         ball.first_bounce_time = Some(0.5);
-        assert!(pre_fence_pickup(&ball, &fielder).is_none());
+        assert!(pre_fence_pickup(&ball, &fielder, 0.0).is_none());
     }
 
     #[test]
