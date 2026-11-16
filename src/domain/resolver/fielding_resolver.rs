@@ -5,14 +5,14 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::fielding_physics::{
     FieldError, FieldPlayPlayResult, FielderCandidateDiagnostics, FielderInterception,
     FieldingSelectionPath, evaluate_fielder_interception_with_diagnostics, evaluate_final_pickup,
-    probe_airborne_catches, probe_airborne_catches_coarse,
+    evaluate_final_pickup_after, probe_airborne_catches, probe_airborne_catches_coarse,
 };
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::shared::ball::{BattedBall, FieldedBall};
 use crate::domain::shared::game_state::{ActiveFielder, GameError};
 use crate::domain::shared::player::{CatcherInfo, PitcherInfo, Position};
 use crate::domain::shared::stadium::Base;
-use crate::domain::util::calculate_polar_distance;
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::t;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -103,6 +103,7 @@ fn infield_grounder_defense_play(
 fn outfield_hit_tagup_defense_play(
     ctx: &PlayContext,
     throw_target: &ThrowTarget,
+    origin: &PolarPosition,
 ) -> Result<DefensePlayResult, GameError> {
     let calculator = DefenseTimeCalculator::default();
 
@@ -114,7 +115,7 @@ fn outfield_hit_tagup_defense_play(
     // Catch + Throw time
     let defense_time = calculator.best_outfield_throw_time(
         ctx.try_catch_fielder,
-        &ctx.fielded_ball.ball.final_position,
+        origin,
         throw_target.base,
         throw_target.play_type != PlayType::ForcePlay,
         cutoff_fielder,
@@ -471,7 +472,15 @@ pub fn evaluate_defense_play(
     ctx: &PlayContext,
     rng: &mut dyn RandomProvider,
 ) -> Result<DefensePlayResult, GameError> {
-    if ctx.fielded_ball.ball.is_infield() {
+    evaluate_defense_play_from(ctx, rng, None)
+}
+
+pub(crate) fn evaluate_defense_play_from(
+    ctx: &PlayContext,
+    rng: &mut dyn RandomProvider,
+    pickup_position: Option<PolarPosition>,
+) -> Result<DefensePlayResult, GameError> {
+    if ctx.fielded_ball.ball.is_infield() && pickup_position.is_none() {
         let throw_target = judge_infield_grounder_throw_target(ctx, rng);
         let defense_play_result = infield_grounder_defense_play(ctx, &throw_target)?;
         Ok(defense_play_result)
@@ -482,7 +491,11 @@ pub fn evaluate_defense_play(
             judge_outfield_hit_throw_target(ctx, rng)
         };
 
-        let defense_play_result = outfield_hit_tagup_defense_play(ctx, &throw_target)?;
+        let defense_play_result = outfield_hit_tagup_defense_play(
+            ctx,
+            &throw_target,
+            &pickup_position.unwrap_or(ctx.fielded_ball.ball.final_position),
+        )?;
         Ok(defense_play_result)
     }
 }
@@ -559,7 +572,7 @@ pub fn process_fielding<'a>(
         // In this case, all the fielders should be comapred for the final pickup time.
         let covering = fielders
             .iter()
-            .map(|f| evaluate_final_pickup(rng, ball, f))
+            .map(|f| evaluate_final_pickup_after(rng, ball, f, primary.catch_time_sec))
             .min_by(|a, b| a.catch_time_sec.total_cmp(&b.catch_time_sec));
 
         let selection_path = if covering.is_some() {
@@ -1450,5 +1463,20 @@ mod tests {
         assert_eq!(result.final_fielder_position, Position::SB);
         assert_eq!(result.cutoff_fielder_position, Some(Position::SS));
         assert_near(result.defense_time, expected_defense_time);
+
+        let pickup_position = PolarPosition::new(78.0, -8.0);
+        let trial =
+            evaluate_defense_play_from(&ctx, &mut *fixed_rng(), Some(pickup_position)).unwrap();
+        let expected_trial_time = fielded_ball.time_to_field
+            + DefenseTimeCalculator::default().best_outfield_throw_time(
+                &center_fielder,
+                &pickup_position,
+                Base::Second,
+                true,
+                Some(shortstop),
+            );
+        assert_eq!(trial.throw_target_base, result.throw_target_base);
+        assert_near(trial.defense_time, expected_trial_time);
+        assert!(trial.defense_time < result.defense_time);
     }
 }

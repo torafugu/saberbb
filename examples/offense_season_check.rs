@@ -8,13 +8,15 @@ use saberbb::{
         game_service::simulate_game,
         random_provider::RealRng,
         resolver::batting_resolver::{CONTACT_TIMING_POSITION_SCALE, with_contact_geometry_scale},
-        resolver::fielding_physics::{CatchType, with_direct_catch_margin_scale},
+        resolver::fielding_physics::{
+            CatchType, with_direct_catch_margin_scale, with_pre_fence_pickup_trial,
+        },
         seeded_diagnostic::derived_seed,
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
-                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, with_line_drive_lift_trial,
-                with_right_field_first_trial,
+                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, Ruling,
+                with_line_drive_lift_trial, with_right_field_first_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             no_bounce_catch_audit::NoBounceCatchAudit,
@@ -100,6 +102,9 @@ struct Args {
     /// Simulate full games with 100% and 50% of the pre-adjustment direct-catch margin.
     #[arg(long, conflicts_with_all = ["timing_geometry_sweep", "right_field_first_comparison", "no_bounce_catch_diagnostics"])]
     no_bounce_margin_comparison: bool,
+    /// Compare current games with outfielders allowed to pick up a bounced ball before wall impact.
+    #[arg(long, conflicts_with_all = ["line_drive_lift_comparison", "timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison"])]
+    pre_fence_pickup_comparison: bool,
 }
 #[derive(Default, Serialize)]
 struct Counts {
@@ -425,7 +430,24 @@ fn run(args: Args) -> Result<()> {
             "babip": "(1B + 2B + 3B) / (AB - K - HR); sacrifice flies have no separate result category"
         }
     });
-    if args.line_drive_lift_comparison {
+    if args.pre_fence_pickup_comparison {
+        eprintln!("Pre-fence pickup comparison: baseline");
+        let baseline = simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)?;
+        eprintln!("Pre-fence pickup comparison: enabled");
+        let enabled = with_pre_fence_pickup_trial(|| {
+            simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)
+        })?;
+        output["pre_fence_pickup_trials"] = serde_json::json!([
+            {"enabled": false, "reports": baseline},
+            {"enabled": true, "reports": enabled},
+        ]);
+        output["definitions"]["pre_fence_pickup"] = serde_json::json!(
+            "Selected pickups on recorded plays before projected wall impact. Throw timing starts at the pickup position and running is resolved with the new defensive clock. Both trials share schedule, rosters and starting seed per game; changed plays can shift later draws."
+        );
+        output["definitions"]["recorded_running_outs_by_event"] = serde_json::json!(
+            "Recorded running rulings of Out grouped by event; GrounderPlay can include the batter-runner, and BaseSteal is counted separately."
+        );
+    } else if args.line_drive_lift_comparison {
         let mut trials = Vec::new();
         for &offset_mm in lift_offsets {
             eprintln!("LineDrive vertical contact offset: +{offset_mm} mm");
@@ -530,6 +552,8 @@ fn simulate_reports(
             .no_bounce_margin_comparison
             .then(FieldingCounts::default);
         let mut total = Counts::default();
+        let mut running_outs = BTreeMap::new();
+        let mut pre_fence_pickups = 0;
         let mut right_field_first_outs = 0;
         let mut lift_stats = LineDriveLiftStats::default();
         let mut teams = BTreeMap::new();
@@ -599,6 +623,31 @@ fn simulate_reports(
             if let Some(fielding) = fielding.as_mut() {
                 fielding.observe(&result);
             }
+            if args.pre_fence_pickup_comparison {
+                for running in &result.player_runnings {
+                    if running.ruling == Ruling::Out {
+                        *running_outs
+                            .entry(running.event.as_ref().to_owned())
+                            .or_insert(0u64) += 1;
+                    }
+                }
+                let balls: BTreeMap<_, _> = result
+                    .player_battings
+                    .iter()
+                    .map(|b| (b.count_seq, &b.ball))
+                    .collect();
+                pre_fence_pickups += result
+                    .player_fieldings
+                    .iter()
+                    .filter(|f| {
+                        f.catch_diagnostics
+                            .zip(balls.get(&f.count_seq))
+                            .is_some_and(|(catch, ball)| {
+                                catch.pre_fence_pickup_position(ball).is_some()
+                            })
+                    })
+                    .count();
+            }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(bip) = bip.as_mut() {
                 bip.observe(game, &result);
@@ -616,6 +665,14 @@ fn simulate_reports(
         let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
+        if args.pre_fence_pickup_comparison {
+            report["pre_fence_pickup"] = serde_json::json!({
+                "selected_pickups": pre_fence_pickups,
+                "recorded_running_outs_by_event": running_outs,
+                "doubles_per_pa": (total.pa > 0).then(|| total.double as f64 / total.pa as f64),
+                "triples_per_pa": (total.pa > 0).then(|| total.triple as f64 / total.pa as f64),
+            });
+        }
         if lift_offset_mm.is_some() {
             report["line_drive_lift"] = serde_json::json!({
                 "swings": lift_stats.swings,

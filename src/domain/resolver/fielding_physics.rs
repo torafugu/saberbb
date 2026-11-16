@@ -105,6 +105,14 @@ pub struct FieldingCatchDiagnostics {
     pub right_field_first_base: Option<RightFieldFirstBaseSnapshot>,
 }
 
+impl FieldingCatchDiagnostics {
+    pub fn pre_fence_pickup_position(&self, ball: &BattedBall) -> Option<PolarPosition> {
+        let pickup = self.pickup?;
+        let fence = ball.fence_impact_time?;
+        (pickup.pickup_time_sec < fence).then_some(pickup.pickup_position)
+    }
+}
+
 /// Types of fielding errors
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, AsRefStr)]
 pub enum FieldError {
@@ -280,6 +288,7 @@ pub enum FielderRiskTolerance {
 }
 
 thread_local! {
+    static PRE_FENCE_PICKUP_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static DIRECT_CATCH_MARGIN_SCALE: std::cell::Cell<f64> = const { std::cell::Cell::new(0.5) };
 }
 
@@ -293,6 +302,18 @@ pub fn with_direct_catch_margin_scale<T>(scale: f64, run: impl FnOnce() -> T) ->
         }
     }
     let _restore = Restore(DIRECT_CATCH_MARGIN_SCALE.replace(scale));
+    run()
+}
+
+/// Enable pre-fence pickups only during this diagnostic trial on the current thread.
+pub fn with_pre_fence_pickup_trial<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PRE_FENCE_PICKUP_TRIAL.set(self.0);
+        }
+    }
+    let _restore = Restore(PRE_FENCE_PICKUP_TRIAL.replace(true));
     run()
 }
 
@@ -678,6 +699,7 @@ fn search_reachable_pickup(
     fielder: &ActiveFielder,
     start_sec: f64,
     in_window: impl Fn(f64) -> bool,
+    earliest_control_sec: f64,
 ) -> Option<ReachablePickup> {
     let f_rad = fielder.polar_position.angle.to_radians();
     let f_x0 = fielder.polar_position.distance * f_rad.sin();
@@ -687,7 +709,7 @@ fn search_reachable_pickup(
         let (r, theta, x, y, _, _) = estimate_ball_state_at_time(t, ball);
         let distance = ((x - f_x0).powi(2) + (y - f_y0).powi(2)).sqrt();
         let arrival = fielder.info.prep_time + distance / fielder.info.running_speed;
-        if arrival <= t {
+        if arrival <= t && earliest_control_sec <= t {
             return Some(ReachablePickup {
                 time_sec: t,
                 position: PolarPosition::new(r, theta),
@@ -703,9 +725,17 @@ pub(crate) fn pre_fence_pickup(
     ball: &BattedBall,
     fielder: &ActiveFielder,
 ) -> Option<ReachablePickup> {
+    search_pre_fence_pickup(ball, fielder, 0.0)
+}
+
+fn search_pre_fence_pickup(
+    ball: &BattedBall,
+    fielder: &ActiveFielder,
+    earliest_control_sec: f64,
+) -> Option<ReachablePickup> {
     let bounce = ball.first_bounce_time?;
     let fence = ball.fence_impact_time?;
-    search_reachable_pickup(ball, fielder, bounce, |t| t < fence)
+    search_reachable_pickup(ball, fielder, bounce, |t| t < fence, earliest_control_sec)
 }
 
 pub(crate) fn pickup_handling(
@@ -728,12 +758,36 @@ pub fn evaluate_final_pickup<'a>(
     ball: &'a BattedBall,
     fielder: &'a ActiveFielder,
 ) -> FielderInterception<'a> {
+    evaluate_final_pickup_after(rng, ball, fielder, 0.0)
+}
+
+pub(crate) fn evaluate_final_pickup_after<'a>(
+    rng: &mut dyn RandomProvider,
+    ball: &'a BattedBall,
+    fielder: &'a ActiveFielder,
+    passed_at_sec: f64,
+) -> FielderInterception<'a> {
     let start_time = ball.fence_impact_time.or(ball.first_bounce_time).unwrap_or(0.0);
     let max_search_time = ball.total_time + 10.0;
-    if let Some(point) = search_reachable_pickup(ball, fielder, start_time, |t| t <= max_search_time) {
+    let early = if PRE_FENCE_PICKUP_TRIAL.get() && fielder.position.is_outfielder() {
+        search_pre_fence_pickup(ball, fielder, passed_at_sec)
+    } else {
+        None
+    };
+    let reachable = early.or_else(|| {
+        search_reachable_pickup(
+            ball,
+            fielder,
+            start_time,
+            |t| t <= max_search_time,
+            f64::NEG_INFINITY,
+        )
+    });
+    if let Some(point) = reachable {
         let t = point.time_sec;
         let rng_value = rng.random();
-        let moving_cushion = ball.fence_impact_time.is_some() && t < ball.total_time;
+        let moving_cushion =
+            early.is_none() && ball.fence_impact_time.is_some() && t < ball.total_time;
         let (final_delay, error_type) =
             pickup_handling(fielder.info.catching, moving_cushion, rng_value);
         return FielderInterception {
@@ -752,7 +806,11 @@ pub fn evaluate_final_pickup<'a>(
                 prep_time_sec: fielder.info.prep_time,
                 running_speed_ms: fielder.info.running_speed,
                 catching: fielder.info.catching,
-                search_start_sec: start_time,
+                search_start_sec: if early.is_some() {
+                    ball.first_bounce_time.unwrap()
+                } else {
+                    start_time
+                },
                 search_step_sec: DT,
                 pickup_time_sec: t,
                 pickup_position: point.position,
@@ -842,9 +900,36 @@ mod candidate_diagnostics_tests {
         assert_eq!(early.position, ball.first_bounce_position.unwrap());
         let live = evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder);
         assert_eq!(live.pickup.unwrap().pickup_time_sec, 0.45);
+        let trial = with_pre_fence_pickup_trial(|| {
+            evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder)
+        });
+        let pickup = trial.pickup.unwrap();
+        assert_eq!(pickup.pickup_time_sec, early.time_sec);
+        assert_eq!(pickup.pickup_position, early.position);
+        assert_eq!(pickup.handling_delay_sec, 0.40);
+        let cover = with_pre_fence_pickup_trial(|| {
+            evaluate_final_pickup_after(&mut FixedRng::new(0.5), &ball, &fielder, 0.36)
+        });
+        let cover_time = cover.pickup.unwrap().pickup_time_sec;
+        assert!((0.36..0.45).contains(&cover_time));
+        assert_eq!(
+            evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder)
+                .pickup
+                .unwrap()
+                .pickup_time_sec,
+            0.45
+        );
 
         fielder.info.prep_time = 0.45;
         assert!(pre_fence_pickup(&ball, &fielder).is_none());
+        let baseline = evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder);
+        let trial = with_pre_fence_pickup_trial(|| {
+            evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder)
+        });
+        assert_eq!(
+            trial.pickup.unwrap().pickup_time_sec,
+            baseline.pickup.unwrap().pickup_time_sec
+        );
         ball.first_bounce_time = Some(0.5);
         assert!(pre_fence_pickup(&ball, &fielder).is_none());
     }

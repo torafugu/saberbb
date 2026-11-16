@@ -574,6 +574,22 @@ available. This is a pickup-only comparison with the original play held
 fixed; it does not recalculate the throw or batting result.
 The observer consumes no random numbers and does not write game results.
 
+### Pre-fence pickup trial
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --pre-fence-pickup-comparison > outfield_pre_fence_trial_2026.json
+```
+
+Both arms use the same schedules, rosters and per-game starting seeds.
+The experimental arm lets outfielders in final-pickup recovery search from
+the first bounce to the projected wall impact. It uses ordinary pickup
+handling and computes the throw from the selected pickup position. It then
+runs the normal baserunning resolver with the new defensive time.
+Compare `total` and `pre_fence_pickup` within each seed for hit counts,
+doubles and triples per plate appearance, selected pre-fence pickups and
+recorded running outs by event. A changed play can change later random draws
+within its game. The comparison reads `SABERBB_DB` and saves no game results.
+
 ### Signed vertical contact sweep
 
 ```sh
