@@ -589,6 +589,18 @@ the live target was second, the relay via second are timing comparisons;
 they do not select a new throw target or change the replayed running ruling.
 Positive ball-minus-batter margins mean the batter arrives first.
 
+The same report includes `outfield_advance_diagnostics.third_base_advance`.
+For recorded deep-gap and wall-impact doubles where the live system planned
+to stop at second and the defense threw to second, it counts hypothetical
+attempts when the batter leads the fastest tested route to third by more
+than 0, 0.1, or 0.2 seconds. Counts follow the order of
+`required_batter_leads_sec`. Candidate rows list the tested arrivals from
+contact, the observed return to second, and the base-occupancy mask (first
+= 1, second = 2, third = 4). These are retrospective timing decisions
+using the realized recovery and covering assignment. They are not
+recorded attempts or a prediction model using only what a runner knows
+when rounding second.
+
 ### Pre-fence pickup trial
 
 ```sh

@@ -318,6 +318,66 @@ struct FixedPickupComparison {
     pre_fence: Option<PickupReplay>,
 }
 
+const THIRD_BASE_ADVANCE_MARGINS_SEC: [f64; 3] = [0.0, 0.1, 0.2];
+
+fn advance_with_margin(batter_lead_sec: f64, required_lead_sec: f64) -> bool {
+    batter_lead_sec > required_lead_sec
+}
+
+#[derive(Serialize)]
+struct ThirdBaseAdvanceCandidate {
+    game_id: u32,
+    count_seq: u16,
+    location: &'static str,
+    runner_base_mask: u8,
+    batter_to_second_sec: f64,
+    batter_to_third_sec: f64,
+    observed_return_to_second_sec: f64,
+    direct_to_third_sec: f64,
+    via_second_to_third_sec: Option<f64>,
+    batter_lead_at_third_sec: f64,
+}
+
+#[derive(Serialize)]
+struct ThirdBaseAdvanceAudit {
+    observed_doubles: u64,
+    doubles_planned_to_second_with_return_to_second: u64,
+    required_batter_leads_sec: [f64; 3],
+    would_attempt_third: [u64; 3],
+    candidates: Vec<ThirdBaseAdvanceCandidate>,
+}
+
+impl Default for ThirdBaseAdvanceAudit {
+    fn default() -> Self {
+        Self {
+            observed_doubles: 0,
+            doubles_planned_to_second_with_return_to_second: 0,
+            required_batter_leads_sec: THIRD_BASE_ADVANCE_MARGINS_SEC,
+            would_attempt_third: [0; 3],
+            candidates: Vec::new(),
+        }
+    }
+}
+
+impl ThirdBaseAdvanceAudit {
+    fn observe(&mut self, candidate: ThirdBaseAdvanceCandidate) {
+        self.doubles_planned_to_second_with_return_to_second += 1;
+        for (required, count) in self
+            .required_batter_leads_sec
+            .iter()
+            .zip(&mut self.would_attempt_third)
+        {
+            *count += u64::from(advance_with_margin(
+                candidate.batter_lead_at_third_sec,
+                *required,
+            ));
+        }
+        if advance_with_margin(candidate.batter_lead_at_third_sec, 0.0) {
+            self.candidates.push(candidate);
+        }
+    }
+}
+
 #[derive(Default, Serialize)]
 pub struct OutfieldAdvanceAudit {
     by_location_and_result: BTreeMap<&'static str, BTreeMap<String, BTreeMap<String, Routes>>>,
@@ -325,6 +385,7 @@ pub struct OutfieldAdvanceAudit {
     deep_extra_base_plays: Vec<DeepOutfieldPlay>,
     deep_single_plays: Vec<DeepOutfieldPlay>,
     fixed_pickup_comparisons: Vec<FixedPickupComparison>,
+    third_base_advance: ThirdBaseAdvanceAudit,
 }
 
 thread_local! {
@@ -460,6 +521,28 @@ pub(crate) fn record(
         let tested_first = fastest > third;
         routes.third_opportunity_only_with_tested_routes += u64::from(tested_first && !live_first);
         routes.third_opportunity_only_with_live_clock += u64::from(live_first && !tested_first);
+        if location != "other_outfield" && result == BattingResult::Double {
+            let advance = &mut audit.third_base_advance;
+            advance.observed_doubles += 1;
+            // The live planner tries for second when its clock is in (second, third].
+            if defense.throw_target_base == Base::Second
+                && defense.defense_time > second
+                && !live_first
+            {
+                advance.observe(ThirdBaseAdvanceCandidate {
+                    game_id,
+                    count_seq,
+                    location,
+                    runner_base_mask: ctx.runners.base_mask(),
+                    batter_to_second_sec: second,
+                    batter_to_third_sec: third,
+                    observed_return_to_second_sec: defense.defense_time,
+                    direct_to_third_sec: direct,
+                    via_second_to_third_sec: via_second_throw_sec.map(|throw| field_time + throw),
+                    batter_lead_at_third_sec: fastest - third,
+                });
+            }
+        }
         let deep_hit = location != "other_outfield"
             && matches!(
                 result,
@@ -528,4 +611,31 @@ pub(crate) fn record(
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn third_base_advance_requires_a_strict_lead_over_each_threshold() {
+        let mut audit = ThirdBaseAdvanceAudit::default();
+        for lead in [-0.05, 0.0, 0.05, 0.10, 0.15, 0.20, 0.21] {
+            audit.observe(ThirdBaseAdvanceCandidate {
+                game_id: 1,
+                count_seq: 1,
+                location: "wall_impact",
+                runner_base_mask: 0,
+                batter_to_second_sec: 8.0,
+                batter_to_third_sec: 11.0,
+                observed_return_to_second_sec: 9.0,
+                direct_to_third_sec: 11.0 + lead,
+                via_second_to_third_sec: None,
+                batter_lead_at_third_sec: lead,
+            });
+        }
+        assert_eq!(audit.doubles_planned_to_second_with_return_to_second, 7);
+        assert_eq!(audit.would_attempt_third, [5, 3, 1]);
+        assert_eq!(audit.candidates.len(), 5);
+    }
 }
