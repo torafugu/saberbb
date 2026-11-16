@@ -1385,6 +1385,7 @@ impl GameState {
             self.count_seq,
             batting_side,
             &defense_play_result,
+            catch_diagnostics,
             runner_advance_result.batting_result,
         );
         let record_no_bounce = || {

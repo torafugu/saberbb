@@ -558,6 +558,13 @@ and triples include per-play fielding, throw and batter arrival times.
 These timing estimates do not choose new throws, model new runner
 decisions or award extra bases. A positive margin means the batter
 arrives before the modeled defense.
+For wall-impact and deep-gap plays, `deep_extra_base_plays` and
+`deep_single_plays` include the selected fielder's starting point, recovery
+position, and straight-line displacement, plus bounce and wall events up to
+ball control (before handling delay for final pickups). The projected stop position and time describe the uninterrupted
+ball path. Final-pickup rows also show search start, modeled travel, waiting
+and handling times, and the fallback indicator. Pickup phases are available
+only when the live resolver recorded a pickup snapshot.
 The observer consumes no random numbers and does not write game results.
 
 ### Signed vertical contact sweep
