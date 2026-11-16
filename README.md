@@ -565,6 +565,13 @@ ball control (before handling delay for final pickups). The projected stop posit
 ball path. Final-pickup rows also show search start, modeled travel, waiting
 and handling times, and the fallback indicator. Pickup phases are available
 only when the live resolver recorded a pickup snapshot.
+When final pickup starts at the wall after an earlier first bounce,
+`recovery.pre_fence_search` uses the same ball interpolation, selected
+fielder, and 0.05 s search step from first bounce up to the wall. It reports
+the first reachable point and time gained if one exists. Modeled recovery
+uses ordinary rolling-ball handling and the original handling draw when
+available. This is a pickup-only comparison with the original play held
+fixed; it does not recalculate the throw or batting result.
 The observer consumes no random numbers and does not write game results.
 
 ### Signed vertical contact sweep

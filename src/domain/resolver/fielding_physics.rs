@@ -666,86 +666,108 @@ pub fn estimate_ball_state_at_time(
 }
 
 // Final processing when a hit gets through or the ball gets past the fielder
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct ReachablePickup {
+    pub time_sec: f64,
+    pub position: PolarPosition,
+    pub fielder_arrival_sec: f64,
+}
+
+fn search_reachable_pickup(
+    ball: &BattedBall,
+    fielder: &ActiveFielder,
+    start_sec: f64,
+    in_window: impl Fn(f64) -> bool,
+) -> Option<ReachablePickup> {
+    let f_rad = fielder.polar_position.angle.to_radians();
+    let f_x0 = fielder.polar_position.distance * f_rad.sin();
+    let f_y0 = fielder.polar_position.distance * f_rad.cos();
+    let mut t = start_sec;
+    while in_window(t) {
+        let (r, theta, x, y, _, _) = estimate_ball_state_at_time(t, ball);
+        let distance = ((x - f_x0).powi(2) + (y - f_y0).powi(2)).sqrt();
+        let arrival = fielder.info.prep_time + distance / fielder.info.running_speed;
+        if arrival <= t {
+            return Some(ReachablePickup {
+                time_sec: t,
+                position: PolarPosition::new(r, theta),
+                fielder_arrival_sec: arrival,
+            });
+        }
+        t += DT;
+    }
+    None
+}
+
+pub(crate) fn pre_fence_pickup(
+    ball: &BattedBall,
+    fielder: &ActiveFielder,
+) -> Option<ReachablePickup> {
+    let bounce = ball.first_bounce_time?;
+    let fence = ball.fence_impact_time?;
+    search_reachable_pickup(ball, fielder, bounce, |t| t < fence)
+}
+
+pub(crate) fn pickup_handling(
+    catching: f64,
+    moving_cushion: bool,
+    draw: f64,
+) -> (f64, Option<FieldError>) {
+    let base_delay = if moving_cushion { 0.65 } else { 0.40 };
+    let difficulty = if moving_cushion { 2.5 } else { 1.0 };
+    let error_probability = (1.0 - catching).clamp(0.01, 0.40) * difficulty * 0.08;
+    if draw < error_probability {
+        (base_delay + 1.5 + (draw * 10.0) % 1.0, Some(FieldError::Fumble))
+    } else {
+        (base_delay, None)
+    }
+}
+
 pub fn evaluate_final_pickup<'a>(
     rng: &mut dyn RandomProvider,
     ball: &'a BattedBall,
     fielder: &'a ActiveFielder,
 ) -> FielderInterception<'a> {
-    let f_rad = fielder.polar_position.angle.to_radians();
-    let f_x0 = fielder.polar_position.distance * f_rad.sin();
-    let f_y0 = fielder.polar_position.distance * f_rad.cos();
-
-    // Cushion ball occurrence time (or first bounce time if none, or 0.0s if neither)
-    let start_time = ball
-        .fence_impact_time
-        .map(|impact_time| impact_time)
-        .or(ball.first_bounce_time)
-        .unwrap_or(0.0);
-
-    let mut t = start_time;
-
-    // Search for a point the fielder can reach while the ball is moving (or right after it stops)
+    let start_time = ball.fence_impact_time.or(ball.first_bounce_time).unwrap_or(0.0);
     let max_search_time = ball.total_time + 10.0;
-
-    while t <= max_search_time {
-        let (b_r, b_theta, b_x, b_y, _b_z, _is_direct) = estimate_ball_state_at_time(t, ball);
-
-        let move_dist = ((b_x - f_x0).powi(2) + (b_y - f_y0).powi(2)).sqrt();
-        let fielder_needed_time = fielder.info.prep_time + (move_dist / fielder.info.running_speed);
-
-        // Can the fielder reach that point (b_x, b_y) by time t?
-        if fielder_needed_time <= t {
-            // Vary the action delay depending on whether the cushion ball is still moving or the pickup is after it stops
-            let is_moving_cushion = ball.fence_impact_time.is_some() && t < ball.total_time;
-            let base_pickup_delay = if is_moving_cushion { 0.65 } else { 0.40 };
-            let rng_value = rng.random();
-
-            // Error judgment in final processing (fumble / bobble)
-            // Error rate increases while handling the cushion (is_moving_cushion)
-            let difficulty = if is_moving_cushion { 2.5 } else { 1.0 };
-            let error_probability =
-                (1.0 - fielder.info.catching).clamp(0.01, 0.40) * difficulty * 0.08;
-
-            let (final_delay, error_type) = if rng_value < error_probability {
-                // Bobbling a cushion ball or fumbling a rolling ball (significant 1.5s ~ 2.5s delay)
-                let fumble_time = base_pickup_delay + 1.5 + (rng_value * 10.0) % 1.0;
-                (fumble_time, Some(FieldError::Fumble))
-            } else {
-                (base_pickup_delay, None)
-            };
-
-            return FielderInterception {
-                fielder: fielder,
-                catch_type: CatchType::FinalPickup,
-                error_type,
-                catch_time_sec: t + final_delay,
-                catch_distance_m: b_r, // Exact polar r at the interception point
-                catch_spray_angle_deg: b_theta, // Exact polar θ at the interception point
-                catch_z_m: 0.0,
-                waiting_time_sec: (t - fielder_needed_time).max(0.0),
-                ball: ball,
-                pickup: Some(PickupTimingDiagnostics {
-                    fielder_id: fielder.id,
-                    initial_position: fielder.polar_position,
-                    prep_time_sec: fielder.info.prep_time,
-                    running_speed_ms: fielder.info.running_speed,
-                    catching: fielder.info.catching,
-                    search_start_sec: start_time,
-                    search_step_sec: DT,
-                    pickup_time_sec: t,
-                    pickup_position: PolarPosition::new(b_r, b_theta),
-                    handling_delay_sec: final_delay,
-                    handling_random: Some(rng_value),
-                    safety_fallback: false,
-                    fallback_policy: PickupFallbackPolicy::ReachableArrival,
-                }),
-            };
-        }
-
-        t += DT;
+    if let Some(point) = search_reachable_pickup(ball, fielder, start_time, |t| t <= max_search_time) {
+        let t = point.time_sec;
+        let rng_value = rng.random();
+        let moving_cushion = ball.fence_impact_time.is_some() && t < ball.total_time;
+        let (final_delay, error_type) =
+            pickup_handling(fielder.info.catching, moving_cushion, rng_value);
+        return FielderInterception {
+            fielder: fielder,
+            catch_type: CatchType::FinalPickup,
+            error_type,
+            catch_time_sec: t + final_delay,
+            catch_distance_m: point.position.distance,
+            catch_spray_angle_deg: point.position.angle,
+            catch_z_m: 0.0,
+            waiting_time_sec: (t - point.fielder_arrival_sec).max(0.0),
+            ball: ball,
+            pickup: Some(PickupTimingDiagnostics {
+                fielder_id: fielder.id,
+                initial_position: fielder.polar_position,
+                prep_time_sec: fielder.info.prep_time,
+                running_speed_ms: fielder.info.running_speed,
+                catching: fielder.info.catching,
+                search_start_sec: start_time,
+                search_step_sec: DT,
+                pickup_time_sec: t,
+                pickup_position: point.position,
+                handling_delay_sec: final_delay,
+                handling_random: Some(rng_value),
+                safety_fallback: false,
+                fallback_policy: PickupFallbackPolicy::ReachableArrival,
+            }),
+        };
     }
 
     // Fallback (return the final resting position as a safety measure)
+    let f_rad = fielder.polar_position.angle.to_radians();
+    let f_x0 = fielder.polar_position.distance * f_rad.sin();
+    let f_y0 = fielder.polar_position.distance * f_rad.cos();
     let (final_r, final_theta, final_x, final_y, _z, _dir) =
         estimate_ball_state_at_time(ball.total_time, ball);
     let movement = ((final_x - f_x0).powi(2) + (final_y - f_y0).powi(2)).sqrt();
@@ -805,6 +827,26 @@ mod candidate_diagnostics_tests {
         fielder.info.prep_time = 0.15;
         fielder.info.reach_height = 100.0;
         fielder
+    }
+
+    #[test]
+    fn pre_fence_search_finds_only_reachable_points_strictly_before_wall() {
+        let mut ball = short_fly();
+        ball.fence_impact_time = Some(0.45);
+        ball.fence_impact_position = Some(PolarPosition::new(0.9, 0.0));
+        let mut fielder = nearby_fielder();
+
+        let early = pre_fence_pickup(&ball, &fielder).unwrap();
+        assert_eq!(early.time_sec, 0.3);
+        assert!(early.fielder_arrival_sec <= early.time_sec);
+        assert_eq!(early.position, ball.first_bounce_position.unwrap());
+        let live = evaluate_final_pickup(&mut FixedRng::new(0.5), &ball, &fielder);
+        assert_eq!(live.pickup.unwrap().pickup_time_sec, 0.45);
+
+        fielder.info.prep_time = 0.45;
+        assert!(pre_fence_pickup(&ball, &fielder).is_none());
+        ball.first_bounce_time = Some(0.5);
+        assert!(pre_fence_pickup(&ball, &fielder).is_none());
     }
 
     #[test]
