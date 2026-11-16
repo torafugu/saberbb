@@ -5,7 +5,10 @@ use super::{
     stadium::Base,
 };
 use crate::domain::resolver::{
-    fielding_physics::{CatchType, FieldError, FieldingCatchDiagnostics, FieldingSelectionPath},
+    fielding_physics::{
+        CatchType, FieldError, FieldingCatchDiagnostics, FieldingSelectionPath, ReachablePickup,
+        pickup_handling, pre_fence_pickup,
+    },
     fielding_resolver::{DefensePlayResult, PlayContext},
     fielding_timing::DefenseTimeCalculator,
 };
@@ -54,6 +57,17 @@ struct PickupPhases {
 }
 
 #[derive(Serialize)]
+struct PreFenceSearch {
+    alternative_search_start_sec: f64,
+    live_search_start_sec: f64,
+    live_pickup_start_sec: f64,
+    first_reachable: Option<ReachablePickup>,
+    pickup_start_gain_sec: Option<f64>,
+    modeled_recovery_sec: Option<f64>,
+    recovery_gain_sec: Option<f64>,
+}
+
+#[derive(Serialize)]
 struct Recovery {
     fielder_id: i64,
     fielder_position: Position,
@@ -74,6 +88,7 @@ struct Recovery {
     fence_to_recovery_sec: Option<f64>,
     fence_to_recovery_displacement_m: Option<f64>,
     pickup: Option<PickupPhases>,
+    pre_fence_search: Option<PreFenceSearch>,
 }
 
 impl Recovery {
@@ -99,6 +114,30 @@ impl Recovery {
             stopped_before_pickup_sec: (p.pickup_time_sec - ball.total_time).max(0.0),
             safety_fallback: p.safety_fallback,
         });
+        let pre_fence_search = fielding.pickup.and_then(|live| {
+            let bounce = first_bounce_sec?;
+            let fence = fence_impact_sec?;
+            if bounce >= fence || live.search_start_sec != fence {
+                return None;
+            }
+            let first_reachable = pre_fence_pickup(ball, fielder);
+            let modeled_recovery_sec =
+                first_reachable
+                    .zip(live.handling_random)
+                    .map(|(point, draw)| {
+                        point.time_sec + pickup_handling(live.catching, false, draw).0
+                    });
+            Some(PreFenceSearch {
+                alternative_search_start_sec: bounce,
+                live_search_start_sec: live.search_start_sec,
+                live_pickup_start_sec: live.pickup_time_sec,
+                first_reachable,
+                pickup_start_gain_sec: first_reachable
+                    .map(|point| live.pickup_time_sec - point.time_sec),
+                modeled_recovery_sec,
+                recovery_gain_sec: modeled_recovery_sec.map(|time| fielding.catch_time_sec - time),
+            })
+        });
         Self {
             fielder_id: fielder.id,
             fielder_position: fielder.position,
@@ -120,6 +159,7 @@ impl Recovery {
             fence_to_recovery_displacement_m: fence_impact_position
                 .map(|p| calculate_polar_distance(&p, &recovery_position)),
             pickup,
+            pre_fence_search,
         }
     }
 }
