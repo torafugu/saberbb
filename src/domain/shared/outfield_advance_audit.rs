@@ -1,9 +1,15 @@
 //! Observe the live outfield play and compare throws to third without consuming RNG.
-use super::{game::BattingResult, player::RL, stadium::Base};
+use super::{
+    game::BattingResult,
+    player::{Position, RL},
+    stadium::Base,
+};
 use crate::domain::resolver::{
+    fielding_physics::{CatchType, FieldError, FieldingCatchDiagnostics, FieldingSelectionPath},
     fielding_resolver::{DefensePlayResult, PlayContext},
     fielding_timing::DefenseTimeCalculator,
 };
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
@@ -37,7 +43,89 @@ struct Routes {
 }
 
 #[derive(Serialize)]
-struct DeepExtraBasePlay {
+struct PickupPhases {
+    search_start_sec: f64,
+    pickup_start_sec: f64,
+    modeled_travel_sec: f64,
+    wait_at_pickup_sec: f64,
+    handling_sec: f64,
+    stopped_before_pickup_sec: f64,
+    safety_fallback: bool,
+}
+
+#[derive(Serialize)]
+struct Recovery {
+    fielder_id: i64,
+    fielder_position: Position,
+    fielder_start: PolarPosition,
+    fielder_prep_sec: f64,
+    fielder_speed_ms: f64,
+    selection_path: FieldingSelectionPath,
+    catch_type: CatchType,
+    error: Option<FieldError>,
+    recovery_position: PolarPosition,
+    fielder_displacement_m: f64,
+    first_bounce_sec: Option<f64>,
+    first_bounce_position: Option<PolarPosition>,
+    fence_impact_sec: Option<f64>,
+    fence_impact_position: Option<PolarPosition>,
+    unfielded_ball_stop_sec: f64,
+    unfielded_ball_stop_position: PolarPosition,
+    fence_to_recovery_sec: Option<f64>,
+    fence_to_recovery_displacement_m: Option<f64>,
+    pickup: Option<PickupPhases>,
+}
+
+impl Recovery {
+    fn new(
+        ctx: &PlayContext<'_>,
+        fielding: FieldingCatchDiagnostics,
+        control_start_sec: f64,
+    ) -> Self {
+        let ball = &ctx.fielded_ball.ball;
+        let fielder = ctx.try_catch_fielder;
+        let recovery_position = ctx.fielded_ball.catch_position;
+        let displacement = calculate_polar_distance(&fielder.polar_position, &recovery_position);
+        let fence_impact_sec = ball.fence_impact_time.filter(|&t| t <= control_start_sec);
+        let fence_impact_position = fence_impact_sec.and(ball.fence_impact_position);
+        let first_bounce_sec = ball.first_bounce_time.filter(|&t| t <= control_start_sec);
+        let pickup = fielding.pickup.map(|p| PickupPhases {
+            search_start_sec: p.search_start_sec,
+            pickup_start_sec: p.pickup_time_sec,
+            modeled_travel_sec: calculate_polar_distance(&p.initial_position, &p.pickup_position)
+                / p.running_speed_ms,
+            wait_at_pickup_sec: fielding.waiting_time_sec,
+            handling_sec: p.handling_delay_sec,
+            stopped_before_pickup_sec: (p.pickup_time_sec - ball.total_time).max(0.0),
+            safety_fallback: p.safety_fallback,
+        });
+        Self {
+            fielder_id: fielder.id,
+            fielder_position: fielder.position,
+            fielder_start: fielder.polar_position,
+            fielder_prep_sec: fielder.info.prep_time,
+            fielder_speed_ms: fielder.info.running_speed,
+            selection_path: fielding.selection_path,
+            catch_type: fielding.catch_type,
+            error: fielding.error_type,
+            recovery_position,
+            fielder_displacement_m: displacement,
+            first_bounce_sec,
+            first_bounce_position: first_bounce_sec.and(ball.first_bounce_position),
+            fence_impact_sec,
+            fence_impact_position,
+            unfielded_ball_stop_sec: ball.total_time,
+            unfielded_ball_stop_position: ball.final_position,
+            fence_to_recovery_sec: fence_impact_sec.map(|t| fielding.catch_time_sec - t),
+            fence_to_recovery_displacement_m: fence_impact_position
+                .map(|p| calculate_polar_distance(&p, &recovery_position)),
+            pickup,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DeepOutfieldPlay {
     game_id: u32,
     count_seq: u16,
     location: &'static str,
@@ -48,13 +136,15 @@ struct DeepExtraBasePlay {
     direct_to_third_after_fielding_sec: f64,
     via_second_after_fielding_sec: Option<f64>,
     batter_to_third_sec: f64,
+    recovery: Recovery,
 }
 
 #[derive(Default, Serialize)]
 pub struct OutfieldAdvanceAudit {
     by_location_and_result: BTreeMap<&'static str, BTreeMap<String, BTreeMap<String, Routes>>>,
     unavailable_runner_times: u64,
-    deep_extra_base_plays: Vec<DeepExtraBasePlay>,
+    deep_extra_base_plays: Vec<DeepOutfieldPlay>,
+    deep_single_plays: Vec<DeepOutfieldPlay>,
 }
 
 thread_local! {
@@ -87,6 +177,7 @@ pub(crate) fn record(
     count_seq: u16,
     batting_side: RL,
     defense: &DefensePlayResult,
+    fielding: FieldingCatchDiagnostics,
     result: BattingResult,
 ) {
     // The optional right-field force at first has a different advance model.
@@ -107,14 +198,17 @@ pub(crate) fn record(
         };
         let ball = &ctx.fielded_ball.ball;
         let field_time = defense.time_to_field;
+        let control_start_sec = fielding
+            .pickup
+            .map_or(fielding.catch_time_sec, |pickup| pickup.pickup_time_sec);
         let location = if ball
             .fence_impact_time
-            .is_some_and(|time| time <= field_time)
+            .is_some_and(|time| time <= control_start_sec)
         {
             "wall_impact"
         } else if ball
             .first_bounce_time
-            .is_some_and(|time| time <= field_time)
+            .is_some_and(|time| time <= control_start_sec)
             && ball
                 .first_bounce_position
                 .is_some_and(|p| p.distance >= 75.0 && (8.0..18.0).contains(&p.angle.abs()))
@@ -185,9 +279,17 @@ pub(crate) fn record(
         routes.third_opportunity_only_with_tested_routes += u64::from(tested_first && !live_first);
         routes.third_opportunity_only_with_live_clock += u64::from(live_first && !tested_first);
         if location != "other_outfield"
-            && matches!(result, BattingResult::Double | BattingResult::Triple)
+            && matches!(
+                result,
+                BattingResult::Single | BattingResult::Double | BattingResult::Triple
+            )
         {
-            audit.deep_extra_base_plays.push(DeepExtraBasePlay {
+            let plays = if result == BattingResult::Single {
+                &mut audit.deep_single_plays
+            } else {
+                &mut audit.deep_extra_base_plays
+            };
+            plays.push(DeepOutfieldPlay {
                 game_id,
                 count_seq,
                 location,
@@ -198,6 +300,7 @@ pub(crate) fn record(
                 direct_to_third_after_fielding_sec: direct_throw_sec,
                 via_second_after_fielding_sec: via_second_throw_sec,
                 batter_to_third_sec: third,
+                recovery: Recovery::new(ctx, fielding, control_start_sec),
             });
         }
     });
