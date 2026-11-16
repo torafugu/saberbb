@@ -12,7 +12,7 @@ use crate::domain::resolver::{
     },
     fielding_resolver::{DefensePlayResult, PlayContext, PlayType},
     fielding_timing::DefenseTimeCalculator,
-    running_resolver::RunnerAdvanceResult,
+    running_resolver::{RunnerAdvanceResult, RunnersOnBase},
 };
 use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use serde::Serialize;
@@ -325,6 +325,104 @@ fn advance_with_margin(batter_lead_sec: f64, required_lead_sec: f64) -> bool {
 }
 
 #[derive(Serialize)]
+struct LeadRunnerTiming {
+    runner_id: i64,
+    starting_base: Base,
+    to_third_sec: f64,
+    to_home_sec: f64,
+    at_second_base_turn: LeadRunnerProgress,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LeadRunnerProgress {
+    BeforeThird,
+    AtThird,
+    PastThird,
+    Home,
+}
+
+#[derive(Serialize)]
+struct ThirdBaseClearance {
+    lead_runners: Vec<LeadRunnerTiming>,
+    continuous_running_all_home_by_turn: bool,
+    continuous_running_all_home_before_batter_reaches_third: bool,
+    latest_projected_home_sec: Option<f64>,
+    reactive_via_second_to_third_sec: Option<f64>,
+    would_attempt_with_clearance_by_margin: [bool; 3],
+}
+
+impl ThirdBaseClearance {
+    fn project(
+        runners: &RunnersOnBase,
+        candidate: &ThirdBaseAdvanceCandidate,
+        second_return: Option<(f64, f64)>,
+    ) -> Option<Self> {
+        let turn = candidate.batter_to_second_sec;
+        let batter_arrival = candidate.batter_to_third_sec;
+        let mut lead_runners = Vec::new();
+        for (starting_base, runner) in [
+            (Base::First, runners.runner_1st),
+            (Base::Second, runners.runner_2nd),
+            (Base::Third, runners.runner_3rd),
+        ] {
+            let Some(runner) = runner else { continue };
+            let to_third_sec = if starting_base == Base::Third {
+                0.0
+            } else {
+                runners.total_runner_time(starting_base, Base::Third).ok()?
+            };
+            let to_home_sec = runners.total_runner_time(starting_base, Base::Home).ok()?;
+            if !to_third_sec.is_finite()
+                || !to_home_sec.is_finite()
+                || to_third_sec < 0.0
+                || to_home_sec <= to_third_sec
+            {
+                return None;
+            }
+            let at_second_base_turn = if to_home_sec <= turn {
+                LeadRunnerProgress::Home
+            } else if to_third_sec < turn {
+                LeadRunnerProgress::PastThird
+            } else if to_third_sec == turn {
+                LeadRunnerProgress::AtThird
+            } else {
+                LeadRunnerProgress::BeforeThird
+            };
+            lead_runners.push(LeadRunnerTiming {
+                runner_id: runner.id,
+                starting_base,
+                to_third_sec,
+                to_home_sec,
+                at_second_base_turn,
+            });
+        }
+        // Requiring a projected score is a conservative sufficient condition for clearance.
+        // The running model has no timestamp for a runner's commitment past third.
+        let latest_projected_home_sec = lead_runners.iter().map(|r| r.to_home_sec).reduce(f64::max);
+        let continuous_running_all_home_by_turn =
+            latest_projected_home_sec.is_none_or(|home| home <= turn);
+        let continuous_running_all_home_before_batter_reaches_third =
+            latest_projected_home_sec.is_none_or(|home| home < batter_arrival);
+        let reactive_via_second_to_third_sec = second_return
+            .map(|(ball_at_second, throw_to_third)| ball_at_second.max(turn) + throw_to_third);
+        Some(Self {
+            lead_runners,
+            continuous_running_all_home_by_turn,
+            continuous_running_all_home_before_batter_reaches_third,
+            latest_projected_home_sec,
+            reactive_via_second_to_third_sec,
+            would_attempt_with_clearance_by_margin: THIRD_BASE_ADVANCE_MARGINS_SEC.map(
+                |required| {
+                    continuous_running_all_home_before_batter_reaches_third
+                        && advance_with_margin(candidate.batter_lead_at_third_sec, required)
+                },
+            ),
+        })
+    }
+}
+
+#[derive(Serialize)]
 struct ThirdBaseAdvanceCandidate {
     game_id: u32,
     count_seq: u16,
@@ -336,6 +434,7 @@ struct ThirdBaseAdvanceCandidate {
     direct_to_third_sec: f64,
     via_second_to_third_sec: Option<f64>,
     batter_lead_at_third_sec: f64,
+    runner_clearance: Option<ThirdBaseClearance>,
 }
 
 #[derive(Serialize)]
@@ -484,6 +583,7 @@ pub(crate) fn record(
         routes.direct_throw_to_third.add(direct, third);
         let mut fastest = direct;
         let mut via_second_throw_sec = None;
+        let mut second_return = None;
         if defense.throw_target_base == Base::Second {
             if let Some(receiver) = ctx
                 .fielders
@@ -509,6 +609,7 @@ pub(crate) fn record(
                     false,
                     cutoff,
                 );
+                second_return = Some((field_time + from_catch_to_second, second_to_third));
                 let throw_sec = from_catch_to_second + second_to_third;
                 via_second_throw_sec = Some(throw_sec);
                 let via_second = field_time + throw_sec;
@@ -529,7 +630,7 @@ pub(crate) fn record(
                 && defense.defense_time > second
                 && !live_first
             {
-                advance.observe(ThirdBaseAdvanceCandidate {
+                let mut candidate = ThirdBaseAdvanceCandidate {
                     game_id,
                     count_seq,
                     location,
@@ -540,7 +641,13 @@ pub(crate) fn record(
                     direct_to_third_sec: direct,
                     via_second_to_third_sec: via_second_throw_sec.map(|throw| field_time + throw),
                     batter_lead_at_third_sec: fastest - third,
-                });
+                    runner_clearance: None,
+                };
+                if candidate.batter_lead_at_third_sec > 0.0 {
+                    candidate.runner_clearance =
+                        ThirdBaseClearance::project(ctx.runners, &candidate, second_return);
+                }
+                advance.observe(candidate);
             }
         }
         let deep_hit = location != "other_outfield"
@@ -632,10 +739,59 @@ mod tests {
                 direct_to_third_sec: 11.0 + lead,
                 via_second_to_third_sec: None,
                 batter_lead_at_third_sec: lead,
+                runner_clearance: None,
             });
         }
         assert_eq!(audit.doubles_planned_to_second_with_return_to_second, 7);
         assert_eq!(audit.would_attempt_third, [5, 3, 1]);
         assert_eq!(audit.candidates.len(), 5);
+    }
+
+    #[test]
+    fn third_base_clearance_checks_lead_runners_and_reactive_relay() {
+        use crate::domain::shared::{game_state::ActiveRunner, player::RunningSkills};
+
+        let candidate = ThirdBaseAdvanceCandidate {
+            game_id: 1,
+            count_seq: 1,
+            location: "wall_impact",
+            runner_base_mask: 1,
+            batter_to_second_sec: 8.0,
+            batter_to_third_sec: 12.0,
+            observed_return_to_second_sec: 9.0,
+            direct_to_third_sec: 12.3,
+            via_second_to_third_sec: Some(12.5),
+            batter_lead_at_third_sec: 0.3,
+            runner_clearance: None,
+        };
+        let mut runners = RunnersOnBase {
+            runner_1st: Some(ActiveRunner {
+                id: 42,
+                skills: RunningSkills {
+                    speed: 8.0,
+                    lead_distance: 0.0,
+                    start_reaction: 0.0,
+                },
+            }),
+            ..Default::default()
+        };
+        let fast = ThirdBaseClearance::project(&runners, &candidate, Some((7.5, 5.0))).unwrap();
+        assert!(matches!(
+            fast.lead_runners[0].at_second_base_turn,
+            LeadRunnerProgress::PastThird
+        ));
+        assert!(!fast.continuous_running_all_home_by_turn);
+        assert!(fast.continuous_running_all_home_before_batter_reaches_third);
+        assert_eq!(fast.reactive_via_second_to_third_sec, Some(13.0));
+        assert_eq!(fast.would_attempt_with_clearance_by_margin, [true; 3]);
+
+        runners.runner_1st.as_mut().unwrap().skills.speed = 6.0;
+        let slow = ThirdBaseClearance::project(&runners, &candidate, Some((9.0, 3.5))).unwrap();
+        assert!(matches!(
+            slow.lead_runners[0].at_second_base_turn,
+            LeadRunnerProgress::BeforeThird
+        ));
+        assert_eq!(slow.reactive_via_second_to_third_sec, Some(12.5));
+        assert_eq!(slow.would_attempt_with_clearance_by_margin, [false; 3]);
     }
 }

@@ -601,6 +601,18 @@ using the realized recovery and covering assignment. They are not
 recorded attempts or a prediction model using only what a runner knows
 when rounding second.
 
+Each candidate's `runner_clearance` reports the lead runners' modeled
+third-base and home arrivals if they continue running, plus their progress
+at the batter's modeled second-base arrival. The clearance screen requires
+all lead runners to be projected home before the batter reaches third as
+a sufficient condition. A runner who holds at third blocks the advance,
+so a passing screen depends on the lead runners continuing. It does not
+model their actual decision to hold or their commitment point past third.
+The reactive relay clock separately assumes the second-base receiver
+initiates the throw to third only after both the batter rounds second and
+the ball reaches second. The threshold comparison still uses the fastest
+tested route, which allows the defense to act before seeing the batter round.
+
 ### Pre-fence pickup trial
 
 ```sh
