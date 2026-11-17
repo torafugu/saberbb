@@ -658,6 +658,7 @@ fn simulate_reports(
             }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(audit) = fair_launch.as_mut() {
+                audit.observe_launch_speed_terms(game, &result, scale);
                 audit.observe(&result);
             }
             if let Some(bip) = bip.as_mut() {

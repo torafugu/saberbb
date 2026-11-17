@@ -648,24 +648,56 @@ pub(crate) fn calculate_launch_speed_with_depth(
     swing_power: f64,
     depth_displacement_m: f64,
 ) -> f64 {
+    launch_speed_terms(
+        ball_speed,
+        swing_speed,
+        swing_power,
+        depth_displacement_m,
+        contact_result.thickness_offset_m,
+        contact_result.length_offset_m,
+    )
+    .exit_speed_ms()
+}
+
+/// The pitch and bat contributions before the two contact-offset factors.
+pub struct LaunchSpeedTerms {
+    pub pitch_term_ms: f64,
+    pub swing_term_ms: f64,
+    pub thickness_retention: f64,
+    pub length_retention: f64,
+}
+
+impl LaunchSpeedTerms {
+    pub fn exit_speed_ms(&self) -> f64 {
+        (self.pitch_term_ms + self.swing_term_ms) * self.thickness_retention * self.length_retention
+    }
+}
+
+pub fn launch_speed_terms(
+    ball_speed: f64,
+    swing_speed: f64,
+    swing_power: f64,
+    depth_displacement_m: f64,
+    thickness_offset_m: f64,
+    length_offset_m: f64,
+) -> LaunchSpeedTerms {
     // 1. Theoretical maximum exit velocity on perfect sweet-spot contact (m/s)
     const C_PITCH: f64 = 0.18; // Pitch speed contribution (18%)
     // Dynamic C_SWING variation based on swing_power (1.12 ~ 1.28)
     let power = calculate_effective_c_swing(sigmoid(swing_power), depth_displacement_m);
     let c_swing: f64 = 1.12 + (0.16 * power);
-    let max_launch_speed = (C_PITCH * ball_speed) + (c_swing * swing_speed);
 
     // 2. Thickness-direction energy decay rate (E_thick: 0.0 ~ 1.0)
     const SWEET_SPOT_RADIUS_M: f64 = 0.020; // Sweet spot radius (2.0cm)
     const MAX_CONTACT_RADIUS_M: f64 = 0.070; // Contact limit (7.0cm)
 
-    let e_thick = if contact_result.thickness_offset_m <= SWEET_SPOT_RADIUS_M {
+    let e_thick = if thickness_offset_m <= SWEET_SPOT_RADIUS_M {
         1.0
-    } else if contact_result.thickness_offset_m >= MAX_CONTACT_RADIUS_M {
+    } else if thickness_offset_m >= MAX_CONTACT_RADIUS_M {
         0.0
     } else {
         // Smoothly decay between 2cm ~ 7cm using Smoothstep / Cosine
-        let normalized_dist = (contact_result.thickness_offset_m - SWEET_SPOT_RADIUS_M)
+        let normalized_dist = (thickness_offset_m - SWEET_SPOT_RADIUS_M)
             / (MAX_CONTACT_RADIUS_M - SWEET_SPOT_RADIUS_M);
         (normalized_dist * std::f64::consts::FRAC_PI_2)
             .cos()
@@ -676,12 +708,14 @@ pub(crate) fn calculate_launch_speed_with_depth(
     // Decays as distance from the sweet spot approaches 35cm (handle/tip)
     const MAX_LENGTH_OFFSET_M: f64 = 0.35;
     let e_len =
-        (1.0 - (contact_result.length_offset_m / MAX_LENGTH_OFFSET_M).powi(2)).clamp(0.0, 1.0);
+        (1.0 - (length_offset_m / MAX_LENGTH_OFFSET_M).powi(2)).clamp(0.0, 1.0);
 
-    // 4. Calculate final batted ball exit velocity
-    let launch_speed_ms = max_launch_speed * e_thick * e_len;
-
-    launch_speed_ms
+    LaunchSpeedTerms {
+        pitch_term_ms: C_PITCH * ball_speed,
+        swing_term_ms: c_swing * swing_speed,
+        thickness_retention: e_thick,
+        length_retention: e_len,
+    }
 }
 
 #[derive(Clone, Debug)]
