@@ -3,14 +3,18 @@ use super::bip_audit::{CONVERSION_EV_EDGES_MS, CONVERSION_HLA_EDGES_DEG, band, i
 use saberbb::domain::{
     resolver::{
         batting_resolver::{
-            CONTACT_TIMING_POSITION_SCALE, LaunchSpeedTerms, SwingContactType, launch_speed_terms,
+            CONTACT_TIMING_POSITION_SCALE, LaunchSpeedTerms, SwingContactType,
+            calculate_trajectory, launch_speed_terms,
         },
         fielding_physics::CatchType,
     },
     shared::{
+        ball::{BattedBall, OutboundResult},
         game::{BattingResult, GameResult, GameSchedule},
         game_stats::PlayerGameBatting,
+        stadium::Stadium,
     },
+    util::calculate_polar_distance,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -71,6 +75,102 @@ impl ExitSpeedTotals {
     }
 }
 
+const BAT_TERM_PERCENTS: [u8; 3] = [100, 97, 94];
+
+fn scaled_exit_speed(terms: &LaunchSpeedTerms, percent: u8) -> f64 {
+    let swing_term = terms.swing_term_ms * (f64::from(percent) / 100.0);
+    (terms.pitch_term_ms + swing_term) * terms.thickness_retention * terms.length_retention
+}
+
+#[derive(Default, Serialize)]
+struct HomeRunFlightTrial {
+    home_runs: u64,
+    fence_impacts: u64,
+    ground_rule_doubles: u64,
+    foul: u64,
+    in_field: u64,
+    replay_errors: u64,
+}
+
+impl HomeRunFlightTrial {
+    fn observe(&mut self, ball: &BattedBall) {
+        self.fence_impacts += u64::from(ball.fence_impact_position.is_some());
+        match ball.outbound_result {
+            OutboundResult::HomeRun => self.home_runs += 1,
+            OutboundResult::GroundRuleDouble => self.ground_rule_doubles += 1,
+            OutboundResult::Foul => self.foul += 1,
+            OutboundResult::InField => self.in_field += 1,
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct HomeRunFlightSweep {
+    selected: u64,
+    exit_speed_reproduced: u64,
+    missing_flight_inputs: u64,
+    baseline_errors: u64,
+    baseline_mismatch: u64,
+    baseline_reproduced: u64,
+    trials: BTreeMap<u8, HomeRunFlightTrial>,
+}
+
+impl HomeRunFlightSweep {
+    fn observe(&mut self, terms: &LaunchSpeedTerms, b: &PlayerGameBatting, stadium: &Stadium) {
+        self.exit_speed_reproduced += 1;
+        let live = &b.ball;
+        if b.hla_model_version != Some(2)
+            || ![
+                b.final_hla_deg,
+                live.launch_angle,
+                live.spin_rate,
+                live.spin_angle,
+            ]
+            .into_iter()
+            .all(f64::is_finite)
+            || live.spin_rate < 0.0
+        {
+            self.missing_flight_inputs += 1;
+            return;
+        }
+        let replay = |percent| {
+            calculate_trajectory(
+                scaled_exit_speed(terms, percent),
+                live.launch_angle,
+                b.final_hla_deg,
+                live.spin_rate,
+                live.spin_angle,
+                stadium,
+            )
+        };
+        let Ok(baseline) = replay(100) else {
+            self.baseline_errors += 1;
+            return;
+        };
+        if baseline.outbound_result != OutboundResult::HomeRun
+            || live.outbound_result != baseline.outbound_result
+            || (baseline.total_time - live.total_time).abs() > 1e-9
+            || calculate_polar_distance(&baseline.final_position, &live.final_position) > 1e-8
+        {
+            self.baseline_mismatch += 1;
+            return;
+        }
+        self.baseline_reproduced += 1;
+        for percent in BAT_TERM_PERCENTS {
+            let trial = self.trials.entry(percent).or_default();
+            let flight = if percent == 100 {
+                Ok(baseline)
+            } else {
+                replay(percent)
+            };
+            match flight {
+                Ok(ball) => trial.observe(&ball),
+                Err(_) => trial.replay_errors += 1,
+            }
+        }
+    }
+}
+
 #[derive(Default, Serialize)]
 struct BatTermTrial {
     exit_speed: ExitSpeedTotals,
@@ -89,11 +189,8 @@ struct BatTermSweep {
 
 impl BatTermSweep {
     fn observe(&mut self, terms: &LaunchSpeedTerms, vla: f64) {
-        for percent in [100, 97, 94] {
-            let swing_term = terms.swing_term_ms * (f64::from(percent) / 100.0);
-            let ev = (terms.pitch_term_ms + swing_term)
-                * terms.thickness_retention
-                * terms.length_retention;
+        for percent in BAT_TERM_PERCENTS {
+            let ev = scaled_exit_speed(terms, percent);
             let trial = self.trials.entry(percent).or_default();
             trial.exit_speed.observe(ev);
             *trial
@@ -143,6 +240,7 @@ struct ExitSpeedTermAudit {
 pub(super) struct FairLaunchAudit {
     solid_contact_exit_speed_terms: ExitSpeedTermAudit,
     bat_speed_term_sweep: BatTermSweeps,
+    home_run_flight_sweep: HomeRunFlightSweep,
     swing_decisions_missing: u64,
     recorded_swings: u64,
     swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
@@ -182,9 +280,11 @@ impl FairLaunchAudit {
         let sweeps = &mut self.bat_speed_term_sweep;
         for b in &game.player_battings {
             let in_play = is_bip(b.result);
-            if !in_play && b.result != BattingResult::HomeRun {
+            let home_run = b.result == BattingResult::HomeRun;
+            if !in_play && !home_run {
                 continue;
             }
+            self.home_run_flight_sweep.selected += u64::from(home_run);
             let length = b.length_offset_m.abs();
             let selected_solid = in_play
                 && b.adjusted_contact_type == SwingContactType::SolidContact
@@ -254,6 +354,10 @@ impl FairLaunchAudit {
             }
             for sweep in groups.into_iter().flatten() {
                 sweep.observe(&terms, b.ball.launch_angle);
+            }
+            if home_run {
+                self.home_run_flight_sweep
+                    .observe(&terms, b, &schedule.stadium);
             }
             if !selected_solid {
                 continue;
@@ -427,6 +531,49 @@ impl FairLaunchAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn home_run_sweep_reproduces_the_baseline_and_counts_a_lost_home_run() {
+        use saberbb::domain::shared::game_stats::PlayerGameBattingMetrics;
+        let stadium = Stadium::default();
+        let (terms, ball) = (300..600)
+            .find_map(|swing_tenths| {
+                let terms = LaunchSpeedTerms {
+                    pitch_term_ms: 7.0,
+                    swing_term_ms: f64::from(swing_tenths) / 10.0,
+                    thickness_retention: 1.0,
+                    length_retention: 1.0,
+                };
+                let live =
+                    calculate_trajectory(terms.exit_speed_ms(), 28.0, 0.0, 1800.0, 0.0, &stadium)
+                        .ok()?;
+                let reduced = calculate_trajectory(
+                    scaled_exit_speed(&terms, 94),
+                    28.0,
+                    0.0,
+                    1800.0,
+                    0.0,
+                    &stadium,
+                )
+                .ok()?;
+                (live.outbound_result == OutboundResult::HomeRun
+                    && reduced.outbound_result != OutboundResult::HomeRun)
+                    .then_some((terms, live))
+            })
+            .expect("a marginal home run in the default stadium");
+        let mut game = GameResult::new(1, chrono::NaiveDate::MIN, &[], &[]);
+        let metrics = PlayerGameBattingMetrics {
+            hla_model_version: Some(2),
+            ..Default::default()
+        };
+        game.add_player_batting(1, 1, 2, metrics, ball, None, BattingResult::HomeRun);
+        let mut sweep = HomeRunFlightSweep::default();
+        sweep.observe(&terms, &game.player_battings[0], &stadium);
+        assert_eq!(sweep.baseline_reproduced, 1);
+        assert_eq!(sweep.trials[&100].home_runs, 1);
+        assert_eq!(sweep.trials[&94].home_runs, 0);
+        assert_eq!(sweep.trials[&94].replay_errors, 0);
+    }
 
     #[test]
     fn bat_term_sweep_scales_only_the_swing_contribution() {
