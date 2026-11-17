@@ -4,7 +4,8 @@ use saberbb::domain::{
     resolver::{
         batting_resolver::{
             CONTACT_TIMING_POSITION_SCALE, LaunchSpeedTerms, SwingContactType,
-            calculate_trajectory, launch_speed_terms,
+            calculate_dynamic_attack_angle, calculate_trajectory,
+            calculate_vertical_contact_deflection, launch_speed_terms,
         },
         fielding_physics::CatchType,
     },
@@ -264,6 +265,13 @@ struct ContactFlightAudit {
     by_contact_type_bat_angle_signed_thickness: BTreeMap<String, ContactFlightCounts>,
 }
 
+fn is_fast_low(b: &PlayerGameBatting) -> bool {
+    is_bip(b.result)
+        && b.ball.launch_speed.is_finite()
+        && b.ball.launch_speed >= HIGH_EV_MIN_MS
+        && TARGET_VLA.contains(&b.ball.launch_angle)
+}
+
 impl ContactFlightAudit {
     fn observe(&mut self, b: &PlayerGameBatting) {
         let ball = &b.ball;
@@ -272,10 +280,7 @@ impl ContactFlightAudit {
         } else {
             f64::NAN
         };
-        let fast_low = is_bip(b.result)
-            && ev.is_finite()
-            && ev >= HIGH_EV_MIN_MS
-            && TARGET_VLA.contains(&ball.launch_angle);
+        let fast_low = is_fast_low(b);
         self.total.observe(b.result, fast_low);
 
         // The flight model uses the cosine of spin angle for lift versus sink.
@@ -355,11 +360,70 @@ impl ContactFlightAudit {
 }
 
 #[derive(Default, Serialize)]
+struct VerticalLaunchTerms {
+    selected: u64,
+    missing_inputs: u64,
+    baseline_mismatch: u64,
+    reproduced: u64,
+    base_attack_angle_sum_deg: f64,
+    bat_angle_adjustment_sum_deg: f64,
+    effective_attack_angle_sum_deg: f64,
+    contact_deflection_sum_deg: f64,
+    abs_contact_deflection_sum_deg: f64,
+    launch_angle_sum_deg: f64,
+    by_attack_angle_and_contact_deflection: BTreeMap<String, u64>,
+}
+
+impl VerticalLaunchTerms {
+    fn observe(&mut self, b: &PlayerGameBatting, base_attack: Option<f64>) {
+        self.selected += 1;
+        let (Some(base), Some(bat), Some(z)) =
+            (base_attack, b.actual_bat_angle_deg, b.contact_offset_z_m)
+        else {
+            self.missing_inputs += 1;
+            return;
+        };
+        if ![base, bat, z, b.ball.launch_angle]
+            .into_iter()
+            .all(f64::is_finite)
+        {
+            self.missing_inputs += 1;
+            return;
+        }
+        let attack = calculate_dynamic_attack_angle(base, bat);
+        let deflection = calculate_vertical_contact_deflection(z);
+        if (attack + deflection - b.ball.launch_angle).abs() > 1e-8 {
+            self.baseline_mismatch += 1;
+            return;
+        }
+        self.reproduced += 1;
+        self.base_attack_angle_sum_deg += base;
+        self.bat_angle_adjustment_sum_deg += attack - base;
+        self.effective_attack_angle_sum_deg += attack;
+        self.contact_deflection_sum_deg += deflection;
+        self.abs_contact_deflection_sum_deg += deflection.abs();
+        self.launch_angle_sum_deg += b.ball.launch_angle;
+        let edges = &[
+            -20.0, -10.0, -5.0, 0.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 30.0,
+        ];
+        let attack_band = band(attack, edges);
+        let deflection_band = band(deflection, edges);
+        *self
+            .by_attack_angle_and_contact_deflection
+            .entry(format!(
+                "attack_deg:{attack_band}|deflection_deg:{deflection_band}"
+            ))
+            .or_default() += 1;
+    }
+}
+
+#[derive(Default, Serialize)]
 pub(super) struct FairLaunchAudit {
     solid_contact_exit_speed_terms: ExitSpeedTermAudit,
     bat_speed_term_sweep: BatTermSweeps,
     home_run_flight_sweep: HomeRunFlightSweep,
     contact_flight_audit: ContactFlightAudit,
+    vertical_launch_terms: BTreeMap<&'static str, VerticalLaunchTerms>,
     swing_decisions_missing: u64,
     recorded_swings: u64,
     swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
@@ -383,12 +447,12 @@ impl FairLaunchAudit {
         game: &GameResult,
         geometry_scale: f64,
     ) {
-        let powers: BTreeMap<_, _> = schedule
+        let batter_skills: BTreeMap<_, _> = schedule
             .away_team
             .players
             .iter()
             .chain(&schedule.home_team.players)
-            .filter_map(|p| Some((p.info.id, p.offense_skills.batter.as_ref()?.swing_power)))
+            .filter_map(|p| Some((p.info.id, p.offense_skills.batter.as_ref()?)))
             .collect();
         let pitches: BTreeMap<_, _> = game
             .player_pitchings
@@ -402,6 +466,24 @@ impl FairLaunchAudit {
             let home_run = b.result == BattingResult::HomeRun;
             if !in_play && !home_run {
                 continue;
+            }
+            let skills = batter_skills.get(&b.batter_id);
+            let angle_cohort = if home_run {
+                Some("home_runs")
+            } else if is_fast_low(b) {
+                Some(match b.signed_length_offset_m.filter(|x| x.is_finite()) {
+                    Some(length) if length < 0.0 => "fast_low_negative_length",
+                    Some(_) => "fast_low_nonnegative_length",
+                    None => "fast_low_unknown_length",
+                })
+            } else {
+                None
+            };
+            if let Some(cohort) = angle_cohort {
+                self.vertical_launch_terms
+                    .entry(cohort)
+                    .or_default()
+                    .observe(b, skills.map(|batter| batter.attack_angle));
             }
             self.home_run_flight_sweep.selected += u64::from(home_run);
             let length = b.length_offset_m.abs();
@@ -425,9 +507,9 @@ impl FairLaunchAudit {
                 b.adapted_timing_offset_sec
                     .map(|timing| b.bat_speed * timing * CONTACT_TIMING_POSITION_SCALE)
             };
-            let (Some(&pitch), Some(&power), Some(thickness), Some(depth)) = (
+            let (Some(&pitch), Some(power), Some(thickness), Some(depth)) = (
                 pitches.get(&(b.count_seq, b.pitcher_id)),
-                powers.get(&b.batter_id),
+                skills.map(|batter| batter.swing_power),
                 b.thickness_offset_m,
                 depth,
             ) else {
@@ -653,6 +735,43 @@ impl FairLaunchAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vertical_launch_terms_preserve_signed_deflection_and_reject_mismatches() {
+        use saberbb::domain::shared::game_stats::PlayerGameBattingMetrics;
+        let mut game = GameResult::new(1, chrono::NaiveDate::MIN, &[], &[]);
+        let base = 12.0;
+        let bat = 40.0;
+        let z = -0.015;
+        let deflection = calculate_vertical_contact_deflection(z);
+        let metrics = PlayerGameBattingMetrics {
+            actual_bat_angle_deg: Some(bat),
+            contact_offset_z_m: Some(z),
+            ..Default::default()
+        };
+        let ball = BattedBall {
+            launch_angle: 15.5 + deflection,
+            ..BattedBall::default()
+        };
+        game.add_player_batting(1, 1, 2, metrics, ball, None, BattingResult::Single);
+        let mut terms = VerticalLaunchTerms::default();
+        let batting = &game.player_battings[0];
+        terms.observe(batting, Some(base));
+        terms.observe(batting, Some(base + 1.0));
+        terms.observe(batting, None);
+        assert_eq!(
+            (
+                terms.selected,
+                terms.reproduced,
+                terms.baseline_mismatch,
+                terms.missing_inputs
+            ),
+            (3, 1, 1, 1)
+        );
+        assert_eq!(terms.bat_angle_adjustment_sum_deg, 3.5);
+        assert_eq!(terms.contact_deflection_sum_deg, deflection);
+        assert!(terms.contact_deflection_sum_deg < 0.0);
+    }
 
     #[test]
     fn home_run_sweep_reproduces_the_baseline_and_counts_a_lost_home_run() {
