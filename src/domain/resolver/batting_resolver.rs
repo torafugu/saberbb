@@ -887,6 +887,62 @@ pub fn calculate_trajectory_with_environment(
     stadium: &Stadium,
     environment: TrajectoryEnvironment,
 ) -> Result<BattedBall, GameError> {
+    integrate_trajectory(
+        launch_speed_ms,
+        vla_deg,
+        hla_deg,
+        spin_rate_rpm,
+        spin_angle_deg,
+        stadium,
+        environment,
+        GROUND_FRICTION,
+        None::<fn(GrounderFlightSample)>,
+    )
+}
+
+const GROUND_FRICTION: f64 = 0.25;
+
+#[derive(Clone, Copy)]
+pub(crate) struct GrounderFlightSample {
+    pub time_sec: f64,
+    pub position: PolarPosition,
+    pub height_m: f64,
+    pub horizontal_speed_ms: f64,
+    pub after_bounce: bool,
+}
+
+/// Replay the exact live integrator with fixed launch inputs and a different ground loss.
+pub(crate) fn replay_grounder_flight(
+    ball: &BattedBall,
+    hla_deg: f64,
+    stadium: &Stadium,
+    friction_scale: f64,
+    observe: impl FnMut(GrounderFlightSample),
+) -> Result<BattedBall, GameError> {
+    integrate_trajectory(
+        ball.launch_speed,
+        ball.launch_angle,
+        hla_deg,
+        ball.spin_rate,
+        ball.spin_angle,
+        stadium,
+        TrajectoryEnvironment::for_stadium(stadium),
+        GROUND_FRICTION * friction_scale,
+        Some(observe),
+    )
+}
+
+fn integrate_trajectory(
+    launch_speed_ms: f64,
+    vla_deg: f64,
+    hla_deg: f64,
+    spin_rate_rpm: f64,
+    spin_angle_deg: f64,
+    stadium: &Stadium,
+    environment: TrajectoryEnvironment,
+    ground_friction: f64,
+    mut observe: Option<impl FnMut(GrounderFlightSample)>,
+) -> Result<BattedBall, GameError> {
     if ![
         environment.impact_height_m,
         environment.wind_speed_ms,
@@ -944,7 +1000,6 @@ pub fn calculate_trajectory_with_environment(
 
     const RESTITUTION_COEFF: f64 = 0.45; // Ground restitution coefficient
     const WALL_RESTITUTION: f64 = 0.60; // Fence restitution coefficient
-    const GROUND_FRICTION: f64 = 0.25; // Ground friction coefficient
 
     loop {
         let prev_x = pos_x;
@@ -1066,6 +1121,7 @@ pub fn calculate_trajectory_with_environment(
         }
 
         // 3. Ground bounce processing
+        let mut stopped = false;
         if pos_z <= 0.0 {
             pos_z = 0.0;
             bounce_count += 1;
@@ -1081,8 +1137,8 @@ pub fn calculate_trajectory_with_environment(
             }
 
             v_z = -v_z * RESTITUTION_COEFF;
-            v_x *= 1.0 - GROUND_FRICTION;
-            v_y *= 1.0 - GROUND_FRICTION;
+            v_x *= 1.0 - ground_friction;
+            v_y *= 1.0 - ground_friction;
 
             // NOTE: After the bounce, ground friction turns the spin into topspin (180°) and the spin rate decays
             current_spin_rate *= 0.5;
@@ -1093,11 +1149,24 @@ pub fn calculate_trajectory_with_environment(
                 v_z = 0.0;
                 let horiz_speed = (v_x.powi(2) + v_y.powi(2)).sqrt();
                 if horiz_speed < 0.2 {
-                    break; // Stopped, end the loop
+                    stopped = true;
                 }
             }
         }
 
+        if let Some(observe) = &mut observe {
+            observe(GrounderFlightSample {
+                time_sec: current_time,
+                position: PolarPosition::new(pos_x.hypot(pos_y), pos_x.atan2(pos_y).to_degrees()),
+                height_m: pos_z,
+                horizontal_speed_ms: v_x.hypot(v_y),
+                after_bounce: bounce_count > 0,
+            });
+        }
+
+        if stopped {
+            break;
+        }
         if current_time > 20.0 {
             return Err(GameError::TimeOut);
         }

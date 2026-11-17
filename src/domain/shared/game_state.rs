@@ -1401,6 +1401,7 @@ impl GameState {
         };
         super::infield_opportunity_audit::record(
             &ctx,
+            &self.stadium,
             (self.game_result.id, self.count_seq),
             &defense_play_result,
             batting_side,
