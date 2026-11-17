@@ -421,6 +421,112 @@ fn stationary_first_completion<'a>(
         .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
+fn matches_live_flight(ball: &BattedBall, live: &BattedBall) -> bool {
+    ball.outbound_result == live.outbound_result
+        && (ball.total_time - live.total_time).abs() <= 1e-9
+        && calculate_polar_distance(&ball.final_position, &live.final_position) <= 1e-8
+        && ball.first_bounce_time == live.first_bounce_time
+}
+
+#[derive(Default, Serialize)]
+struct PreBounceReach {
+    plays: u64,
+    missing_inputs: u64,
+    replay_errors: u64,
+    baseline_mismatch: u64,
+    crossed_50m_before_bounce: u64,
+    crossing_time_sum_sec: f64,
+    crossing_height_sum_m: f64,
+    crossing_height_bands: BTreeMap<String, u64>,
+    crossing_best_arrival_margin_sum_sec: f64,
+    crossing_above_all_reach_heights: u64,
+    crossing_height_ok_but_late: u64,
+    crossing_reachable: u64,
+    height_ok_before_crossing: u64,
+    reachable_before_crossing: u64,
+    live_candidate_margin_ok_before_crossing: u64,
+}
+
+fn air_arrival_margin(sample: GrounderFlightSample, fielder: &ActiveFielder) -> f64 {
+    sample.time_sec - fielder.info.prep_time
+        - calculate_polar_distance(&fielder.polar_position, &sample.position)
+            / fielder.info.running_speed
+}
+
+impl PreBounceReach {
+    fn observe(
+        &mut self,
+        live: &BattedBall,
+        hla: f64,
+        stadium: &Stadium,
+        candidates: &[(&ActiveFielder, &FielderCandidateDiagnostics)],
+    ) {
+        let mut crossing = None;
+        let mut height_ok = false;
+        let mut reachable = false;
+        let mut live_candidate_margin_ok = false;
+        let replay = replay_grounder_flight(live, hla, stadium, 1.0, |sample| {
+            if sample.after_bounce || crossing.is_some() {
+                return;
+            }
+            if sample.position.distance >= INFIELD_DISTANCE {
+                crossing = Some(sample);
+                return;
+            }
+            if sample.time_sec < 0.10 {
+                return;
+            }
+            for &(fielder, candidate) in candidates {
+                if sample.height_m > fielder.info.reach_height {
+                    continue;
+                }
+                height_ok = true;
+                let margin = air_arrival_margin(sample, fielder);
+                reachable |= margin >= 0.0;
+                live_candidate_margin_ok |= candidate.lane_eligible
+                    && candidate.distance_eligible
+                    && margin >= candidate.required_margin_sec;
+            }
+        });
+        let Ok(ball) = replay else {
+            self.replay_errors += 1;
+            return;
+        };
+        if !matches_live_flight(&ball, live) {
+            self.baseline_mismatch += 1;
+            return;
+        }
+        let Some(crossing) = crossing else { return };
+        self.crossed_50m_before_bounce += 1;
+        self.crossing_time_sum_sec += crossing.time_sec;
+        self.crossing_height_sum_m += crossing.height_m;
+        *self.crossing_height_bands
+            .entry(band(crossing.height_m, &[1.0, 2.0, 3.0, 4.0]))
+            .or_default() += 1;
+        // Inputs guarantee at least one infielder with valid timing parameters.
+        let mut fastest_margin = f64::NEG_INFINITY;
+        let mut height_eligible_margin = f64::NEG_INFINITY;
+        for &(fielder, _) in candidates {
+            let margin = air_arrival_margin(crossing, fielder);
+            fastest_margin = fastest_margin.max(margin);
+            if crossing.height_m <= fielder.info.reach_height {
+                height_eligible_margin = height_eligible_margin.max(margin);
+            }
+        }
+        self.crossing_best_arrival_margin_sum_sec += fastest_margin;
+        if height_eligible_margin >= 0.0 {
+            self.crossing_reachable += 1;
+        } else if height_eligible_margin.is_finite() {
+            self.crossing_height_ok_but_late += 1;
+        } else {
+            self.crossing_above_all_reach_heights += 1;
+        }
+        self.height_ok_before_crossing += u64::from(height_ok);
+        self.reachable_before_crossing += u64::from(reachable);
+        self.live_candidate_margin_ok_before_crossing += u64::from(live_candidate_margin_ok);
+    }
+}
+
 #[derive(Default, Serialize)]
 struct GrounderFlightSweep {
     missing_inputs: u64,
@@ -500,12 +606,7 @@ impl GrounderFlightSweep {
                 }
                 continue;
             };
-            if scale == 1.0
-                && (ball.outbound_result != live.outbound_result
-                    || (ball.total_time - live.total_time).abs() > 1e-9
-                    || calculate_polar_distance(&ball.final_position, &live.final_position) > 1e-8
-                    || ball.first_bounce_time != live.first_bounce_time)
-            {
+            if scale == 1.0 && !matches_live_flight(&ball, live) {
                 self.baseline_mismatch += 1;
                 break;
             }
@@ -541,6 +642,8 @@ impl GrounderFlightSweep {
 
 #[derive(Default, Serialize)]
 pub struct InfieldOpportunityAudit {
+    hard_low_pre_bounce_reach_by_ev_vla_hla_and_result:
+        BTreeMap<String, BTreeMap<String, PreBounceReach>>,
     hard_low_single_ground_friction_sweep: GrounderFlightSweep,
     hard_low_grounder_first_base_recovery: BTreeMap<&'static str, FirstBaseRecovery>,
     hard_low_grounder_outs_by_live_target: BTreeMap<String, u64>,
@@ -688,9 +791,21 @@ pub(crate) fn record(
         let speed_direction = format!("EV:{ev}|HLA:{hla}");
         if hard_low_comparison {
             let vla = band(ball.launch_angle, &[0.0, 2.5, 5.0, 7.5, 10.0]);
+            let band_key = format!("EV:{ev}|VLA:{vla}|HLA:{hla}");
+            let air = audit
+                .hard_low_pre_bounce_reach_by_ev_vla_hla_and_result
+                .entry(band_key.clone())
+                .or_default()
+                .entry(result.as_ref().into())
+                .or_default();
+            air.plays += 1;
+            match (inputs.as_deref(), launch_direction_deg.filter(|hla| hla.is_finite())) {
+                (Some(inputs), Some(hla)) => air.observe(ball, hla, stadium, inputs),
+                _ => air.missing_inputs += 1,
+            }
             let group = audit
                 .hard_low_grounders_by_ev_vla_hla_and_result
-                .entry(format!("EV:{ev}|VLA:{vla}|HLA:{hla}"))
+                .entry(band_key)
                 .or_default()
                 .entry(result.as_ref().into())
                 .or_default();
