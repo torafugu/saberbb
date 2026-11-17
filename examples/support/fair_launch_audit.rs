@@ -237,10 +237,129 @@ struct ExitSpeedTermAudit {
 }
 
 #[derive(Default, Serialize)]
+struct ContactFlightCounts {
+    fair_balls: u64,
+    singles: u64,
+    home_runs: u64,
+    fast_low_balls: u64,
+    fast_low_singles: u64,
+}
+
+impl ContactFlightCounts {
+    fn observe(&mut self, result: BattingResult, fast_low: bool) {
+        let single = result == BattingResult::Single;
+        self.fair_balls += 1;
+        self.singles += u64::from(single);
+        self.home_runs += u64::from(result == BattingResult::HomeRun);
+        self.fast_low_balls += u64::from(fast_low);
+        self.fast_low_singles += u64::from(fast_low && single);
+    }
+}
+
+#[derive(Default, Serialize)]
+struct ContactFlightAudit {
+    total: ContactFlightCounts,
+    by_exit_speed_launch_angle_backspin: BTreeMap<String, ContactFlightCounts>,
+    by_contact_parameter: BTreeMap<&'static str, BTreeMap<String, ContactFlightCounts>>,
+    by_contact_type_bat_angle_signed_thickness: BTreeMap<String, ContactFlightCounts>,
+}
+
+impl ContactFlightAudit {
+    fn observe(&mut self, b: &PlayerGameBatting) {
+        let ball = &b.ball;
+        let ev = if ball.launch_speed > 0.0 {
+            ball.launch_speed
+        } else {
+            f64::NAN
+        };
+        let fast_low = is_bip(b.result)
+            && ev.is_finite()
+            && ev >= HIGH_EV_MIN_MS
+            && TARGET_VLA.contains(&ball.launch_angle);
+        self.total.observe(b.result, fast_low);
+
+        // The flight model uses the cosine of spin angle for lift versus sink.
+        let backspin = if ball.spin_rate >= 0.0 {
+            ball.spin_rate * ball.spin_angle.to_radians().cos()
+        } else {
+            f64::NAN
+        };
+        let speed = band(ev, &[25.0, 35.0, 40.0, 45.0, 47.5, 50.0, 55.0]);
+        let angle = band(
+            ball.launch_angle,
+            &[
+                -10.0, 0.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 45.0, 60.0,
+            ],
+        );
+        let spin = band(
+            backspin,
+            &[-1500.0, -500.0, 0.0, 500.0, 1500.0, 2500.0, 3500.0],
+        );
+        self.by_exit_speed_launch_angle_backspin
+            .entry(format!("EV:{speed}|VLA:{angle}|backspin_rpm:{spin}"))
+            .or_default()
+            .observe(b.result, fast_low);
+
+        let contact_type = b.adjusted_contact_type.as_ref();
+        let bat_angle = band(
+            b.actual_bat_angle_deg.unwrap_or(f64::NAN),
+            &[0.0, 10.0, 20.0, 30.0, 40.0, 50.0],
+        );
+        let signed_thickness = band(
+            b.signed_thickness_offset_m.unwrap_or(f64::NAN),
+            &[-0.025, -0.01, -0.005, 0.0, 0.005, 0.01, 0.025],
+        );
+        self.by_contact_type_bat_angle_signed_thickness
+            .entry(format!("contact:{contact_type}|bat_angle_deg:{bat_angle}|signed_thickness_m:{signed_thickness}"))
+            .or_default()
+            .observe(b.result, fast_low);
+
+        for (parameter, bin) in [
+            ("contact_type", contact_type.to_owned()),
+            ("bat_angle_deg", bat_angle),
+            ("signed_thickness_m", signed_thickness),
+            (
+                "signed_length_m",
+                band(
+                    b.signed_length_offset_m.unwrap_or(f64::NAN),
+                    &[-0.1, -0.05, -0.02, 0.0, 0.02, 0.05, 0.1],
+                ),
+            ),
+            (
+                "bat_speed_ms",
+                band(
+                    if b.bat_speed > 0.0 {
+                        b.bat_speed
+                    } else {
+                        f64::NAN
+                    },
+                    &[30.0, 32.5, 35.0, 40.0],
+                ),
+            ),
+            (
+                "timing_error_ms",
+                band(
+                    b.adapted_timing_offset_sec.unwrap_or(f64::NAN) * 1000.0,
+                    &[-10.0, -5.0, -2.0, 0.0, 2.0, 5.0, 10.0],
+                ),
+            ),
+        ] {
+            self.by_contact_parameter
+                .entry(parameter)
+                .or_default()
+                .entry(bin)
+                .or_default()
+                .observe(b.result, fast_low);
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
 pub(super) struct FairLaunchAudit {
     solid_contact_exit_speed_terms: ExitSpeedTermAudit,
     bat_speed_term_sweep: BatTermSweeps,
     home_run_flight_sweep: HomeRunFlightSweep,
+    contact_flight_audit: ContactFlightAudit,
     swing_decisions_missing: u64,
     recorded_swings: u64,
     swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
@@ -400,6 +519,9 @@ impl FairLaunchAudit {
             .collect();
         for b in &game.player_battings {
             self.observe_swing(b);
+            if b.result == BattingResult::HomeRun || is_bip(b.result) {
+                self.contact_flight_audit.observe(b);
+            }
             // The stored ball carries the launch parameters even on the early-return
             // paths for direct catches, home runs, and ground-rule doubles.
             if b.result == BattingResult::HomeRun {
@@ -634,6 +756,7 @@ mod tests {
             };
             let ball = BattedBall {
                 launch_speed: 45.0,
+                launch_angle: 8.0,
                 ..BattedBall::default()
             };
             game.add_player_batting(
@@ -650,6 +773,17 @@ mod tests {
         }
         let mut audit = FairLaunchAudit::default();
         audit.observe(&game);
+        let flights = &audit.contact_flight_audit;
+        assert_eq!(flights.total.fair_balls, 2);
+        assert_eq!(flights.total.home_runs, 1);
+        assert_eq!(flights.total.fast_low_balls, 1);
+        let launch = &flights.by_exit_speed_launch_angle_backspin["EV:[45,47.5)|VLA:[7,10)|backspin_rpm:[0,500)"];
+        assert_eq!(launch.fair_balls, 2);
+        assert_eq!(launch.fast_low_balls, 1);
+        assert_eq!(
+            flights.by_contact_parameter["signed_thickness_m"]["unknown"].fair_balls,
+            2
+        );
         assert_eq!(audit.recorded_swings, 4);
         assert_eq!(
             audit.swing_outcomes_by_adjusted_contact_type["SwungAndMiss"].whiffs,
