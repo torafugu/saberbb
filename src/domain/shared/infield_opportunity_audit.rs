@@ -329,6 +329,8 @@ struct GrounderOutcome {
 
 #[derive(Default, Serialize)]
 pub struct InfieldOpportunityAudit {
+    unreproduced_hard_low_out_count: u64,
+    unreproduced_hard_low_out_examples: Vec<OutReplayExample>,
     hard_low_grounders_by_ev_vla_hla_and_result:
         BTreeMap<String, BTreeMap<String, GrounderOutcome>>,
     outfield_pickup_grounder_singles: Cohort,
@@ -359,8 +361,38 @@ impl InfieldOpportunityAudit {
     }
 }
 
+#[derive(Serialize)]
+struct OutReplayExample {
+    game_id: u32,
+    count_seq: u16,
+    live_fielder: Position,
+    catch_type: CatchType,
+    error_type: Option<crate::domain::resolver::fielding_physics::FieldError>,
+    live_position: PolarPosition,
+    live_fielding_complete_sec: f64,
+    observed_control_sec: Option<f64>,
+    model_at_observed_control: Option<ReplayPoint>,
+    diagnostic_interception: Option<(Position, f64, PolarPosition)>,
+    diagnostic_first_completion_sec: Option<f64>,
+    batter_first_sec: Option<f64>,
+    live_throw_target: Base,
+    live_defense_sec: f64,
+}
+
+#[derive(Serialize)]
+struct ReplayPoint {
+    position: PolarPosition,
+    height_m: f64,
+    position_error_m: f64,
+    inside_search_radius: bool,
+    height_reachable: bool,
+    fielder_arrival_minus_ball_sec: f64,
+}
+
 pub(crate) fn record(
     ctx: &PlayContext<'_>,
+    play_key: (u32, u16),
+    defense: &crate::domain::resolver::fielding_resolver::DefensePlayResult,
     batting_side: RL,
     diagnostics: FieldingCatchDiagnostics,
     candidates: &[FielderCandidateDiagnostics],
@@ -439,6 +471,59 @@ pub(crate) fn record(
                 // without stopping at their different observed fielding times.
                 let scan = find_opportunities(ball, inputs, f64::INFINITY);
                 group.arrival_gaps.add(scan);
+                if result == BattingResult::Out {
+                    let fine = scan.opportunities[2];
+                    let diagnostic_first = fine
+                        .filter(|p| !p.direct)
+                        .and_then(|p| first_completion(p, ctx.fielders));
+                    let reproduced = fine.is_some_and(|p| p.direct)
+                        || diagnostic_first.zip(runner_first)
+                            .is_some_and(|(defense, runner)| defense < runner);
+                    if !reproduced {
+                        audit.unreproduced_hard_low_out_count += 1;
+                        if audit.unreproduced_hard_low_out_examples.len() < 4 {
+                            let live_position = ctx.fielded_ball.catch_position;
+                            let fielder = ctx.try_catch_fielder;
+                            let control = diagnostics.pickup.map(|p| p.pickup_time_sec)
+                                .or_else(|| diagnostics.error_type.is_none()
+                                    .then_some(diagnostics.catch_time_sec));
+                            let point = control.filter(|time| {
+                                time.is_finite() && (0.0..=ball.total_time).contains(time)
+                            }).map(|time| {
+                                let (distance, angle, _, _, height, _) =
+                                    estimate_ball_state_at_time(time, ball);
+                                let position = PolarPosition::new(distance, angle);
+                                ReplayPoint {
+                                    position,
+                                    height_m: height,
+                                    position_error_m: calculate_polar_distance(&live_position, &position),
+                                    inside_search_radius: distance < INFIELD_DISTANCE,
+                                    height_reachable: height <= fielder.info.reach_height,
+                                    fielder_arrival_minus_ball_sec: fielder.info.prep_time
+                                        + calculate_polar_distance(&fielder.polar_position, &position)
+                                            / fielder.info.running_speed
+                                        - time,
+                                }
+                            });
+                            audit.unreproduced_hard_low_out_examples.push(OutReplayExample {
+                                game_id: play_key.0,
+                                count_seq: play_key.1,
+                                live_fielder: fielder.position,
+                                catch_type: diagnostics.catch_type,
+                                error_type: diagnostics.error_type,
+                                live_position,
+                                live_fielding_complete_sec: diagnostics.catch_time_sec,
+                                observed_control_sec: control,
+                                model_at_observed_control: point,
+                                diagnostic_interception: fine.map(|p| (p.fielder.position, p.time_sec, p.position)),
+                                diagnostic_first_completion_sec: diagnostic_first,
+                                batter_first_sec: runner_first,
+                                live_throw_target: defense.throw_target_base,
+                                live_defense_sec: defense.defense_time,
+                            });
+                        }
+                    }
+                }
                 for (name, opportunity) in SCENARIOS.into_iter().zip(scan.opportunities) {
                     let scenario = group.scenarios.entry(name).or_default();
                     if let Some(opportunity) = opportunity {
