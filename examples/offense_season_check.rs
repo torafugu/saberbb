@@ -40,6 +40,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 mod bip_audit;
 #[path = "support/contact_direction_audit.rs"]
 mod contact_direction_audit;
+#[path = "support/fair_launch_audit.rs"]
+mod fair_launch_audit;
 #[path = "support/moving_collision_audit.rs"]
 mod moving_collision_audit;
 #[path = "support/pickup_timing_audit.rs"]
@@ -72,6 +74,9 @@ struct Args {
     /// Include BIP quality, fielding/running timing groups and bounded example plays.
     #[arg(long)]
     bip_diagnostics: bool,
+    /// Compare exit-speed and launch-angle frequencies over all fair batting outcomes.
+    #[arg(long)]
+    fair_launch_diagnostics: bool,
     /// Replay frozen contacts with individual HLA components removed; no game changes.
     #[arg(long)]
     contact_direction_diagnostics: bool,
@@ -524,6 +529,9 @@ fn simulate_reports(
     let mut reports = Vec::new();
     for seed in &args.seeds {
         let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
+        let mut fair_launch = args
+            .fair_launch_diagnostics
+            .then(fair_launch_audit::FairLaunchAudit::default);
         let mut direction = args
             .contact_direction_diagnostics
             .then(contact_direction_audit::DirectionAudit::default);
@@ -649,6 +657,9 @@ fn simulate_reports(
                     .count();
             }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
+            if let Some(audit) = fair_launch.as_mut() {
+                audit.observe(&result);
+            }
             if let Some(bip) = bip.as_mut() {
                 bip.observe(game, &result);
             }
@@ -719,6 +730,14 @@ fn simulate_reports(
         }
         if let Some(outfield) = outfield {
             report["outfield_advance_diagnostics"] = serde_json::to_value(outfield)?;
+        }
+        if let Some(audit) = fair_launch {
+            ensure!(
+                audit.non_hr_in_play == total.ab - total.strikeouts - total.hr
+                    && audit.home_runs == total.hr,
+                "fair launch audit counts do not match the official batting results"
+            );
+            report["fair_launch_diagnostics"] = serde_json::to_value(audit)?;
         }
         if let Some(infield) = infield {
             report["infield_opportunity_diagnostics"] = serde_json::to_value(infield)?;
