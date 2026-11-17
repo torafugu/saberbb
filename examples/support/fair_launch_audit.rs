@@ -1,7 +1,7 @@
 //! Launch parameters paired with official fair-ball results, regardless of fielding path.
 use super::bip_audit::{CONVERSION_EV_EDGES_MS, CONVERSION_HLA_EDGES_DEG, band, is_bip};
 use saberbb::domain::{
-    resolver::fielding_physics::CatchType,
+    resolver::{batting_resolver::SwingContactType, fielding_physics::CatchType},
     shared::game::{BattingResult, GameResult},
 };
 use serde::Serialize;
@@ -26,12 +26,21 @@ impl Outcomes {
 }
 
 #[derive(Default, Serialize)]
+struct ContactQualityLaunch {
+    non_hr_in_play: u64,
+    missing_exit_speed: u64,
+    exit_speed_sum_ms: f64,
+    ev_ge_45_ms: u64,
+}
+
+#[derive(Default, Serialize)]
 pub(super) struct FairLaunchAudit {
     pub(super) home_runs: u64,
     pub(super) non_hr_in_play: u64,
     missing_exit_speed: u64,
     ev_ge_45_ms: u64,
     ev_ge_45_ms_missing_vla: u64,
+    by_adjusted_contact_type: BTreeMap<String, ContactQualityLaunch>,
     ev_ge_45_ms_by_vla: BTreeMap<String, Outcomes>,
     ev_ge_45_ms_vla_7_to_10: Outcomes,
     ev_ge_45_ms_vla_7_to_10_by_ev_vla_hla: BTreeMap<String, Outcomes>,
@@ -60,6 +69,7 @@ impl FairLaunchAudit {
                     b.ball.launch_speed,
                     b.ball.launch_angle,
                     hla,
+                    b.adjusted_contact_type,
                     b.result,
                     direct_catches.contains(&b.count_seq),
                 );
@@ -72,18 +82,27 @@ impl FairLaunchAudit {
         ev: f64,
         vla: f64,
         hla: Option<f64>,
+        contact_type: SwingContactType,
         result: BattingResult,
         direct_catch: bool,
     ) {
         self.non_hr_in_play += 1;
+        let contact = self
+            .by_adjusted_contact_type
+            .entry(format!("{contact_type:?}"))
+            .or_default();
+        contact.non_hr_in_play += 1;
         if !ev.is_finite() || ev <= 0.0 {
             self.missing_exit_speed += 1;
+            contact.missing_exit_speed += 1;
             return;
         }
+        contact.exit_speed_sum_ms += ev;
         if ev < HIGH_EV_MIN_MS {
             return;
         }
         self.ev_ge_45_ms += 1;
+        contact.ev_ge_45_ms += 1;
         if !vla.is_finite() || !(-90.0..=90.0).contains(&vla) {
             self.ev_ge_45_ms_missing_vla += 1;
             return;
@@ -115,14 +134,60 @@ mod tests {
 
     #[test]
     fn keeps_direct_catch_outs_and_uses_half_open_launch_bands() {
+        use SwingContactType::{MarginalContact, SolidContact, WeakContact};
         let mut audit = FairLaunchAudit::default();
-        audit.observe_in_play(44.99, 7.0, Some(0.0), BattingResult::Out, false);
-        audit.observe_in_play(45.0, 7.0, Some(0.0), BattingResult::Out, true);
-        audit.observe_in_play(45.0, 9.99, None, BattingResult::Single, false);
-        audit.observe_in_play(45.0, 10.0, Some(0.0), BattingResult::Double, false);
-        audit.observe_in_play(45.0, f64::NAN, None, BattingResult::Out, false);
+        audit.observe_in_play(
+            44.99,
+            7.0,
+            Some(0.0),
+            WeakContact,
+            BattingResult::Out,
+            false,
+        );
+        audit.observe_in_play(45.0, 7.0, Some(0.0), SolidContact, BattingResult::Out, true);
+        audit.observe_in_play(45.0, 9.99, None, SolidContact, BattingResult::Single, false);
+        audit.observe_in_play(
+            45.0,
+            10.0,
+            Some(0.0),
+            SolidContact,
+            BattingResult::Double,
+            false,
+        );
+        audit.observe_in_play(
+            45.0,
+            f64::NAN,
+            None,
+            SolidContact,
+            BattingResult::Out,
+            false,
+        );
 
-        assert_eq!(audit.non_hr_in_play, 5);
+        audit.observe_in_play(
+            f64::NAN,
+            7.0,
+            None,
+            MarginalContact,
+            BattingResult::Out,
+            false,
+        );
+        assert_eq!(audit.non_hr_in_play, 6);
+        let solid = &audit.by_adjusted_contact_type["SolidContact"];
+        assert_eq!(
+            (
+                solid.non_hr_in_play,
+                solid.ev_ge_45_ms,
+                solid.exit_speed_sum_ms
+            ),
+            (4, 4, 180.0)
+        );
+        let weak = &audit.by_adjusted_contact_type["WeakContact"];
+        assert_eq!((weak.non_hr_in_play, weak.ev_ge_45_ms), (1, 0));
+        let marginal = &audit.by_adjusted_contact_type["MarginalContact"];
+        assert_eq!(
+            (marginal.non_hr_in_play, marginal.missing_exit_speed),
+            (1, 1)
+        );
         assert_eq!(audit.ev_ge_45_ms, 4);
         assert_eq!(audit.ev_ge_45_ms_missing_vla, 1);
         let target = &audit.ev_ge_45_ms_vla_7_to_10;
