@@ -429,8 +429,50 @@ fn matches_live_flight(ball: &BattedBall, live: &BattedBall) -> bool {
 }
 
 #[derive(Default, Serialize)]
+struct FirstBounceComparison {
+    samples: u64,
+    missing_bounce: u64,
+    distance_sum_m: f64,
+    time_sum_sec: f64,
+    exit_speed_sum_ms: f64,
+    vertical_angle_sum_deg: f64,
+    spin_rate_sum_rpm: f64,
+    spin_toward_backspin_sum_rpm: f64,
+    distance_bands_m: BTreeMap<String, u64>,
+    time_bands_sec: BTreeMap<String, u64>,
+}
+
+impl FirstBounceComparison {
+    fn observe(&mut self, ball: &BattedBall) {
+        let sample = ball.first_bounce_position.zip(ball.first_bounce_time);
+        let Some((position, time)) = sample.filter(|(p, t)| {
+            p.distance.is_finite() && p.distance >= 0.0
+                && t.is_finite() && (0.0..=ball.total_time).contains(t)
+        }) else {
+            self.missing_bounce += 1;
+            return;
+        };
+        self.samples += 1;
+        self.distance_sum_m += position.distance;
+        self.time_sum_sec += time;
+        self.exit_speed_sum_ms += ball.launch_speed;
+        self.vertical_angle_sum_deg += ball.launch_angle;
+        self.spin_rate_sum_rpm += ball.spin_rate;
+        // Same spin-angle convention as the live Magnus force: 0° backspin, 180° topspin.
+        self.spin_toward_backspin_sum_rpm += ball.spin_rate * ball.spin_angle.to_radians().cos();
+        *self.distance_bands_m
+            .entry(band(position.distance, &[20.0, 30.0, 40.0, 50.0, 60.0, 70.0]))
+            .or_default() += 1;
+        *self.time_bands_sec
+            .entry(band(time, &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75]))
+            .or_default() += 1;
+    }
+}
+
+#[derive(Default, Serialize)]
 struct PreBounceReach {
     plays: u64,
+    first_bounce: FirstBounceComparison,
     missing_inputs: u64,
     replay_errors: u64,
     baseline_mismatch: u64,
@@ -799,6 +841,9 @@ pub(crate) fn record(
                 .entry(result.as_ref().into())
                 .or_default();
             air.plays += 1;
+            // Compare every recorded first bounce in this cohort, including balls
+            // that never reached 50 m before bouncing.
+            air.first_bounce.observe(ball);
             match (inputs.as_deref(), launch_direction_deg.filter(|hla| hla.is_finite())) {
                 (Some(inputs), Some(hla)) => air.observe(ball, hla, stadium, inputs),
                 _ => air.missing_inputs += 1,
