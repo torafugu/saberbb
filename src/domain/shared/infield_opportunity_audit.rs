@@ -10,7 +10,7 @@ use crate::domain::{
     resolver::{
         fielding_physics::{
             CatchType, FielderCandidateDiagnostics, FieldingCatchDiagnostics,
-            estimate_ball_state_at_time,
+            estimate_ball_state_at_time, pickup_handling,
         },
         fielding_resolver::PlayContext,
         fielding_timing::DefenseTimeCalculator,
@@ -328,7 +328,60 @@ struct GrounderOutcome {
 }
 
 #[derive(Default, Serialize)]
+struct FirstBaseRecovery {
+    plays: u64,
+    missing_inputs: u64,
+    moving_interception_out: u64,
+    stationary_recovery_out: u64,
+    additional_stationary_out: u64,
+    additional_stationary_examples: Vec<StationaryExample>,
+}
+
+#[derive(Serialize)]
+struct StationaryExample {
+    game_id: u32,
+    count_seq: u16,
+    stop_distance_m: f64,
+    ball_stops_sec: f64,
+    fielder: Position,
+    fielding_complete_sec: f64,
+    defense_first_sec: f64,
+    batter_first_sec: f64,
+}
+
+fn stationary_first_completion<'a>(
+    ball: &BattedBall,
+    candidates: &[(&'a ActiveFielder, &'a FielderCandidateDiagnostics)],
+    fielders: &[ActiveFielder],
+) -> Option<(Opportunity<'a>, f64)> {
+    let position = ball.final_position;
+    if !position.distance.is_finite() || position.distance >= INFIELD_DISTANCE {
+        return None;
+    }
+    candidates
+        .iter()
+        .filter_map(|&(fielder, candidate)| {
+            let arrival = fielder.info.prep_time
+                + calculate_polar_distance(&fielder.polar_position, &position)
+                    / fielder.info.running_speed;
+            // Assume clean handling of a stationary ball and reuse live pickup timing.
+            let handling = pickup_handling(fielder.info.catching, false, 1.0).0;
+            let opportunity = Opportunity {
+                fielder,
+                candidate,
+                time_sec: arrival.max(ball.total_time) + handling,
+                position,
+                direct: false,
+            };
+            first_completion(opportunity, fielders).map(|first| (opportunity, first))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+}
+
+#[derive(Default, Serialize)]
 pub struct InfieldOpportunityAudit {
+    hard_low_grounder_first_base_recovery: BTreeMap<&'static str, FirstBaseRecovery>,
+    hard_low_grounder_outs_by_live_target: BTreeMap<String, u64>,
     unreproduced_hard_low_out_count: u64,
     unreproduced_hard_low_out_examples: Vec<OutReplayExample>,
     hard_low_grounders_by_ev_vla_hla_and_result:
@@ -465,11 +518,61 @@ pub(crate) fn record(
                 .or_default()
                 .entry(result.as_ref().into())
                 .or_default();
+            let recovery_group = if result == BattingResult::Single {
+                Some("single")
+            } else {
+                *audit
+                    .hard_low_grounder_outs_by_live_target
+                    .entry(defense.throw_target_base.as_ref().into())
+                    .or_default() += 1;
+                (defense.throw_target_base == Base::First).then_some("live_first_out")
+            };
+            let recovery = recovery_group.map(|key| {
+                let row = audit
+                    .hard_low_grounder_first_base_recovery
+                    .entry(key)
+                    .or_default();
+                row.plays += 1;
+                row
+            });
             group.plays += 1;
             if let Some(inputs) = &inputs {
                 // Both outcomes use the projected path through the infield,
                 // without stopping at their different observed fielding times.
                 let scan = find_opportunities(ball, inputs, f64::INFINITY);
+                if let Some(recovery) = recovery {
+                    if let Some(runner) = runner_first {
+                        let moving_out = scan.opportunities[2].is_some_and(|p| {
+                            p.direct
+                                || first_completion(p, ctx.fielders)
+                                    .is_some_and(|first| first < runner)
+                        });
+                        recovery.moving_interception_out += u64::from(moving_out);
+                        if let Some((pickup, first)) =
+                            stationary_first_completion(ball, inputs, ctx.fielders)
+                                .filter(|&(_, first)| first < runner)
+                        {
+                            recovery.stationary_recovery_out += 1;
+                            if !moving_out {
+                                recovery.additional_stationary_out += 1;
+                                if recovery.additional_stationary_examples.len() < 4 {
+                                    recovery.additional_stationary_examples.push(StationaryExample {
+                                        game_id: play_key.0,
+                                        count_seq: play_key.1,
+                                        stop_distance_m: pickup.position.distance,
+                                        ball_stops_sec: ball.total_time,
+                                        fielder: pickup.fielder.position,
+                                        fielding_complete_sec: pickup.time_sec,
+                                        defense_first_sec: first,
+                                        batter_first_sec: runner,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        recovery.missing_inputs += 1;
+                    }
+                }
                 group.arrival_gaps.add(scan);
                 if result == BattingResult::Out {
                     let fine = scan.opportunities[2];
@@ -488,7 +591,7 @@ pub(crate) fn record(
                                 .or_else(|| diagnostics.error_type.is_none()
                                     .then_some(diagnostics.catch_time_sec));
                             let point = control.filter(|time| {
-                                time.is_finite() && (0.0..=ball.total_time).contains(time)
+                                time.is_finite() && *time >= 0.0
                             }).map(|time| {
                                 let (distance, angle, _, _, height, _) =
                                     estimate_ball_state_at_time(time, ball);
@@ -532,6 +635,9 @@ pub(crate) fn record(
                 }
             } else {
                 group.missing_inputs += 1;
+                if let Some(recovery) = recovery {
+                    recovery.missing_inputs += 1;
+                }
             }
         }
         if !pickup_single {
