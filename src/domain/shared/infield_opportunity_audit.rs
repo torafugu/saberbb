@@ -1,13 +1,14 @@
 //! Frozen-play checks of infield interception and first-base timing.
 use super::{
-    ball::{BattedBall, INFIELD_DISTANCE, TrajectoryType},
+    ball::{BattedBall, INFIELD_DISTANCE, OutboundResult, TrajectoryType},
     game::BattingResult,
     game_state::ActiveFielder,
     player::{Position, RL},
-    stadium::Base,
+    stadium::{Base, Stadium},
 };
 use crate::domain::{
     resolver::{
+        batting_resolver::{GrounderFlightSample, replay_grounder_flight},
         fielding_physics::{
             CatchType, FielderCandidateDiagnostics, FieldingCatchDiagnostics,
             estimate_ball_state_at_time, pickup_handling,
@@ -421,7 +422,126 @@ fn stationary_first_completion<'a>(
 }
 
 #[derive(Default, Serialize)]
+struct GrounderFlightSweep {
+    missing_inputs: u64,
+    baseline_mismatch: u64,
+    trials: BTreeMap<&'static str, GrounderFlightTotals>,
+}
+
+#[derive(Default, Serialize)]
+struct GrounderFlightTotals {
+    replay_errors: u64,
+    out_of_play: u64,
+    fair_plays: u64,
+    first_bounce_samples: u64,
+    first_bounce_time_sum_sec: f64,
+    first_bounce_speed_sum_ms: f64,
+    crossed_50m: u64,
+    crossed_50m_after_bounce: u64,
+    crossing_time_sum_sec: f64,
+    crossing_speed_sum_ms: f64,
+    bounce_to_crossing_time_sum_sec: f64,
+    stopped_inside_50m: u64,
+    post_bounce_reachable_before_50m: u64,
+    post_bounce_first_out: u64,
+    stationary_first_out: u64,
+    moving_or_stationary_first_out: u64,
+}
+
+impl GrounderFlightSweep {
+    fn observe(
+        &mut self,
+        live: &BattedBall,
+        hla: f64,
+        stadium: &Stadium,
+        candidates: &[(&ActiveFielder, &FielderCandidateDiagnostics)],
+        fielders: &[ActiveFielder],
+        runner: f64,
+    ) {
+        for (label, scale) in [("1.0", 1.0), ("1.2", 1.2), ("1.4", 1.4)] {
+            let totals = self.trials.entry(label).or_default();
+            let mut bounce: Option<GrounderFlightSample> = None;
+            let mut crossing = None;
+            let mut reachable = false;
+            let mut moving_out = false;
+            let replay = replay_grounder_flight(live, hla, stadium, scale, |sample| {
+                if sample.after_bounce && bounce.is_none() {
+                    bounce = Some(sample);
+                }
+                if crossing.is_none() && sample.position.distance >= INFIELD_DISTANCE {
+                    crossing = Some(sample);
+                }
+                if !sample.after_bounce || crossing.is_some() || sample.time_sec < 0.10 {
+                    return;
+                }
+                for &(fielder, candidate) in candidates {
+                    let arrival = fielder.info.prep_time
+                        + calculate_polar_distance(&fielder.polar_position, &sample.position)
+                            / fielder.info.running_speed;
+                    if arrival > sample.time_sec || sample.height_m > fielder.info.reach_height {
+                        continue;
+                    }
+                    reachable = true;
+                    let interception = Opportunity {
+                        fielder,
+                        candidate,
+                        time_sec: sample.time_sec,
+                        position: sample.position,
+                        direct: false,
+                    };
+                    moving_out |= first_completion(interception, fielders)
+                        .is_some_and(|first| first < runner);
+                }
+            });
+            let Ok(ball) = replay else {
+                totals.replay_errors += 1;
+                if scale == 1.0 {
+                    break;
+                }
+                continue;
+            };
+            if scale == 1.0
+                && (ball.outbound_result != live.outbound_result
+                    || (ball.total_time - live.total_time).abs() > 1e-9
+                    || calculate_polar_distance(&ball.final_position, &live.final_position) > 1e-8
+                    || ball.first_bounce_time != live.first_bounce_time)
+            {
+                self.baseline_mismatch += 1;
+                break;
+            }
+            if ball.outbound_result != OutboundResult::InField {
+                totals.out_of_play += 1;
+                continue;
+            }
+            totals.fair_plays += 1;
+            if let Some(bounce) = bounce {
+                totals.first_bounce_samples += 1;
+                totals.first_bounce_time_sum_sec += bounce.time_sec;
+                totals.first_bounce_speed_sum_ms += bounce.horizontal_speed_ms;
+            }
+            if let Some(crossing) = crossing {
+                totals.crossed_50m += 1;
+                totals.crossing_time_sum_sec += crossing.time_sec;
+                totals.crossing_speed_sum_ms += crossing.horizontal_speed_ms;
+                if let Some(bounce) = bounce.filter(|b| b.time_sec <= crossing.time_sec) {
+                    totals.crossed_50m_after_bounce += 1;
+                    totals.bounce_to_crossing_time_sum_sec += crossing.time_sec - bounce.time_sec;
+                }
+            }
+            totals.stopped_inside_50m += u64::from(ball.final_position.distance < INFIELD_DISTANCE);
+            let stationary_out = stationary_first_completion(&ball, candidates, fielders)
+                .is_some_and(|(_, first)| first < runner);
+            totals.post_bounce_reachable_before_50m += u64::from(reachable);
+            totals.post_bounce_first_out += u64::from(moving_out);
+            totals.stationary_first_out += u64::from(stationary_out);
+            totals.moving_or_stationary_first_out += u64::from(moving_out || stationary_out);
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
 pub struct InfieldOpportunityAudit {
+    hard_low_single_ground_friction_sweep: GrounderFlightSweep,
     hard_low_grounder_first_base_recovery: BTreeMap<&'static str, FirstBaseRecovery>,
     hard_low_grounder_outs_by_live_target: BTreeMap<String, u64>,
     unreproduced_hard_low_out_count: u64,
@@ -486,6 +606,7 @@ struct ReplayPoint {
 
 pub(crate) fn record(
     ctx: &PlayContext<'_>,
+    stadium: &Stadium,
     play_key: (u32, u16),
     defense: &crate::domain::resolver::fielding_resolver::DefensePlayResult,
     batting_side: RL,
@@ -543,6 +664,19 @@ pub(crate) fn record(
             }
             Some(inputs)
         })();
+        if hard_low_comparison && result == BattingResult::Single {
+            let sweep = &mut audit.hard_low_single_ground_friction_sweep;
+            match (
+                inputs.as_deref(),
+                launch_direction_deg.filter(|hla| hla.is_finite()),
+                runner_first,
+            ) {
+                (Some(inputs), Some(hla), Some(runner)) => {
+                    sweep.observe(ball, hla, stadium, inputs, ctx.fielders, runner);
+                }
+                _ => sweep.missing_inputs += 1,
+            }
+        }
         let ev = band(
             ball.launch_speed,
             &[20.0, 30.0, 35.0, 40.0, 95.0 * 0.44704, 45.0, 50.0, 55.0],
