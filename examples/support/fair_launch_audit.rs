@@ -2,7 +2,9 @@
 use super::bip_audit::{CONVERSION_EV_EDGES_MS, CONVERSION_HLA_EDGES_DEG, band, is_bip};
 use saberbb::domain::{
     resolver::{
-        batting_resolver::{CONTACT_TIMING_POSITION_SCALE, SwingContactType, launch_speed_terms},
+        batting_resolver::{
+            CONTACT_TIMING_POSITION_SCALE, LaunchSpeedTerms, SwingContactType, launch_speed_terms,
+        },
         fielding_physics::CatchType,
     },
     shared::{
@@ -70,6 +72,53 @@ impl ExitSpeedTotals {
 }
 
 #[derive(Default, Serialize)]
+struct BatTermTrial {
+    exit_speed: ExitSpeedTotals,
+    exit_speed_bands_ms: BTreeMap<String, u64>,
+    max_exit_speed_ms: Option<f64>,
+    ev_ge_45_ms_vla_7_to_10: u64,
+}
+
+#[derive(Default, Serialize)]
+struct BatTermSweep {
+    selected: u64,
+    missing_inputs: u64,
+    baseline_mismatch: u64,
+    trials: BTreeMap<u8, BatTermTrial>,
+}
+
+impl BatTermSweep {
+    fn observe(&mut self, terms: &LaunchSpeedTerms, vla: f64) {
+        for percent in [100, 97, 94] {
+            let swing_term = terms.swing_term_ms * (f64::from(percent) / 100.0);
+            let ev = (terms.pitch_term_ms + swing_term)
+                * terms.thickness_retention
+                * terms.length_retention;
+            let trial = self.trials.entry(percent).or_default();
+            trial.exit_speed.observe(ev);
+            *trial
+                .exit_speed_bands_ms
+                .entry(band(
+                    ev,
+                    &[25.0, 30.0, 35.0, 40.0, 45.0, 47.5, 50.0, 52.5, 55.0, 60.0],
+                ))
+                .or_default() += 1;
+            trial.max_exit_speed_ms = Some(trial.max_exit_speed_ms.map_or(ev, |max| max.max(ev)));
+            trial.ev_ge_45_ms_vla_7_to_10 +=
+                u64::from(ev >= HIGH_EV_MIN_MS && TARGET_VLA.contains(&vla));
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct BatTermSweeps {
+    all_fair: BatTermSweep,
+    non_hr_in_play: BatTermSweep,
+    live_home_runs: BatTermSweep,
+    selected_solid_contacts: BatTermSweep,
+}
+
+#[derive(Default, Serialize)]
 struct ExitSpeedComparison {
     observed: ExitSpeedTotals,
     neutral_swing_power: ExitSpeedTotals,
@@ -93,6 +142,7 @@ struct ExitSpeedTermAudit {
 #[derive(Default, Serialize)]
 pub(super) struct FairLaunchAudit {
     solid_contact_exit_speed_terms: ExitSpeedTermAudit,
+    bat_speed_term_sweep: BatTermSweeps,
     swing_decisions_missing: u64,
     recorded_swings: u64,
     swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
@@ -129,16 +179,27 @@ impl FairLaunchAudit {
             .map(|p| ((p.count_seq, p.pitcher_id), p.ball.speed))
             .collect();
         let audit = &mut self.solid_contact_exit_speed_terms;
+        let sweeps = &mut self.bat_speed_term_sweep;
         for b in &game.player_battings {
-            let length = b.length_offset_m.abs();
-            if !is_bip(b.result)
-                || b.adjusted_contact_type != SwingContactType::SolidContact
-                || !(30.0..35.0).contains(&b.bat_speed)
-                || !(0.0..0.05).contains(&length)
-            {
+            let in_play = is_bip(b.result);
+            if !in_play && b.result != BattingResult::HomeRun {
                 continue;
             }
-            audit.selected += 1;
+            let length = b.length_offset_m.abs();
+            let selected_solid = in_play
+                && b.adjusted_contact_type == SwingContactType::SolidContact
+                && (30.0..35.0).contains(&b.bat_speed)
+                && (0.0..0.05).contains(&length);
+            let mut groups = [
+                Some(&mut sweeps.all_fair),
+                in_play.then_some(&mut sweeps.non_hr_in_play),
+                (!in_play).then_some(&mut sweeps.live_home_runs),
+                selected_solid.then_some(&mut sweeps.selected_solid_contacts),
+            ];
+            for sweep in groups.iter_mut().flatten() {
+                sweep.selected += 1;
+            }
+            audit.selected += u64::from(selected_solid);
             let depth = if geometry_scale == CONTACT_TIMING_POSITION_SCALE {
                 b.timing_impact_x_m
             } else {
@@ -151,17 +212,32 @@ impl FairLaunchAudit {
                 b.thickness_offset_m,
                 depth,
             ) else {
-                audit.missing_inputs += 1;
+                for sweep in groups.iter_mut().flatten() {
+                    sweep.missing_inputs += 1;
+                }
+                audit.missing_inputs += u64::from(selected_solid);
                 continue;
             };
-            if ![pitch, power, thickness, depth, b.ball.launch_speed]
-                .into_iter()
-                .all(f64::is_finite)
+            if ![
+                pitch,
+                power,
+                thickness,
+                depth,
+                b.bat_speed,
+                length,
+                b.ball.launch_speed,
+            ]
+            .into_iter()
+            .all(f64::is_finite)
                 || pitch <= 0.0
+                || b.bat_speed <= 0.0
                 || thickness < 0.0
                 || b.ball.launch_speed <= 0.0
             {
-                audit.missing_inputs += 1;
+                for sweep in groups.iter_mut().flatten() {
+                    sweep.missing_inputs += 1;
+                }
+                audit.missing_inputs += u64::from(selected_solid);
                 continue;
             }
             let replay = |power, depth, thickness, length| {
@@ -170,7 +246,16 @@ impl FairLaunchAudit {
             let terms = replay(power, depth, thickness, length);
             let observed = terms.exit_speed_ms();
             if (observed - b.ball.launch_speed).abs() > 1e-8 {
-                audit.baseline_mismatch += 1;
+                for sweep in groups.iter_mut().flatten() {
+                    sweep.baseline_mismatch += 1;
+                }
+                audit.baseline_mismatch += u64::from(selected_solid);
+                continue;
+            }
+            for sweep in groups.into_iter().flatten() {
+                sweep.observe(&terms, b.ball.launch_angle);
+            }
+            if !selected_solid {
                 continue;
             }
             let neutral_power = replay(0.0, depth, thickness, length).exit_speed_ms();
@@ -342,6 +427,23 @@ impl FairLaunchAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bat_term_sweep_scales_only_the_swing_contribution() {
+        let terms = LaunchSpeedTerms {
+            pitch_term_ms: 8.0,
+            swing_term_ms: 40.0,
+            thickness_retention: 0.95,
+            length_retention: 1.0,
+        };
+        let mut sweep = BatTermSweep::default();
+        sweep.observe(&terms, 8.0);
+        for (percent, expected, high) in [(100, 45.6, 1), (97, 44.46, 0), (94, 43.32, 0)] {
+            let trial = &sweep.trials[&percent];
+            assert!((trial.exit_speed.exit_speed_sum_ms - expected).abs() < 1e-10);
+            assert_eq!(trial.ev_ge_45_ms_vla_7_to_10, high);
+        }
+    }
 
     #[test]
     fn swing_funnel_distinguishes_takes_and_swinging_strikeouts() {
