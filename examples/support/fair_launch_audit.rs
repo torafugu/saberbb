@@ -2,7 +2,10 @@
 use super::bip_audit::{CONVERSION_EV_EDGES_MS, CONVERSION_HLA_EDGES_DEG, band, is_bip};
 use saberbb::domain::{
     resolver::{batting_resolver::SwingContactType, fielding_physics::CatchType},
-    shared::game::{BattingResult, GameResult},
+    shared::{
+        game::{BattingResult, GameResult},
+        game_stats::PlayerGameBatting,
+    },
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,7 +37,42 @@ struct ContactQualityLaunch {
 }
 
 #[derive(Default, Serialize)]
+struct SwingOutcomes {
+    swings: u64,
+    fouls: u64,
+    non_hr_in_play: u64,
+    home_runs: u64,
+    whiffs: u64,
+    other: u64,
+}
+
+#[derive(Default, Serialize)]
+struct ExitSpeedTotals {
+    plays: u64,
+    missing_exit_speed: u64,
+    exit_speed_sum_ms: f64,
+    ev_ge_45_ms: u64,
+}
+
+impl ExitSpeedTotals {
+    fn observe(&mut self, ev: f64) {
+        self.plays += 1;
+        if ev.is_finite() && ev > 0.0 {
+            self.exit_speed_sum_ms += ev;
+            self.ev_ge_45_ms += u64::from(ev >= HIGH_EV_MIN_MS);
+        } else {
+            self.missing_exit_speed += 1;
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
 pub(super) struct FairLaunchAudit {
+    swing_decisions_missing: u64,
+    recorded_swings: u64,
+    swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
+    solid_contact_ev_by_bat_speed_and_contact_offsets:
+        BTreeMap<String, BTreeMap<&'static str, ExitSpeedTotals>>,
     pub(super) home_runs: u64,
     pub(super) non_hr_in_play: u64,
     missing_exit_speed: u64,
@@ -59,6 +97,7 @@ impl FairLaunchAudit {
             .map(|f| f.count_seq)
             .collect();
         for b in &game.player_battings {
+            self.observe_swing(b);
             // The stored ball carries the launch parameters even on the early-return
             // paths for direct catches, home runs, and ground-rule doubles.
             if b.result == BattingResult::HomeRun {
@@ -74,6 +113,65 @@ impl FairLaunchAudit {
                     direct_catches.contains(&b.count_seq),
                 );
             }
+        }
+    }
+
+    fn observe_swing(&mut self, b: &PlayerGameBatting) {
+        let Some(decision) = b.swing_decision else {
+            self.swing_decisions_missing += 1;
+            return;
+        };
+        if !decision.swung {
+            return;
+        }
+        self.recorded_swings += 1;
+        let contact = self
+            .swing_outcomes_by_adjusted_contact_type
+            .entry(b.adjusted_contact_type.as_ref().into())
+            .or_default();
+        contact.swings += 1;
+        let outcome = match b.result {
+            BattingResult::Foul => {
+                contact.fouls += 1;
+                "foul"
+            }
+            BattingResult::HomeRun => {
+                contact.home_runs += 1;
+                "home_run"
+            }
+            result if is_bip(result) => {
+                contact.non_hr_in_play += 1;
+                "non_hr_in_play"
+            }
+            BattingResult::StrikeSwung | BattingResult::Strikeout => {
+                contact.whiffs += 1;
+                return;
+            }
+            _ => {
+                contact.other += 1;
+                return;
+            }
+        };
+        if b.adjusted_contact_type == SwingContactType::SolidContact {
+            let speed = if b.bat_speed > 0.0 {
+                b.bat_speed
+            } else {
+                f64::NAN
+            };
+            let bat_speed = band(speed, &[30.0, 35.0, 37.5, 40.0, 42.5, 45.0]);
+            let length = band(b.length_offset_m.abs(), &[0.02, 0.05, 0.10, 0.16]);
+            let thickness = band(
+                b.thickness_offset_m.map(f64::abs).unwrap_or(f64::NAN),
+                &[0.005, 0.01, 0.02, 0.025, 0.04, 0.055, 0.07],
+            );
+            self.solid_contact_ev_by_bat_speed_and_contact_offsets
+                .entry(format!(
+                    "bat_speed_ms:{bat_speed}|abs_length_m:{length}|abs_thickness_m:{thickness}"
+                ))
+                .or_default()
+                .entry(outcome)
+                .or_default()
+                .observe(b.ball.launch_speed);
         }
     }
 
@@ -131,6 +229,85 @@ impl FairLaunchAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn swing_funnel_distinguishes_takes_and_swinging_strikeouts() {
+        use saberbb::domain::{
+            resolver::batting_resolver::{CountStatus, SwingDecisionDiagnostics},
+            shared::{ball::BattedBall, game_stats::PlayerGameBattingMetrics},
+        };
+        let mut game = GameResult::new(1, chrono::NaiveDate::MIN, &[], &[]);
+        let decision = SwingDecisionDiagnostics {
+            count_status: CountStatus::C02,
+            location_x: 0.0,
+            location_y: 0.0,
+            count_factor: 0.0,
+            approach_factor: 0.0,
+            protection_factor: 0.0,
+            zone_factor: 0.0,
+            pitch_factor: 0.0,
+            anticipation_factor: 0.0,
+            aptitude_factor: 0.0,
+            score: 0.0,
+            probability: 0.5,
+            swung: true,
+        };
+        for (result, contact, swung) in [
+            (BattingResult::Strikeout, SwingContactType::Take, false),
+            (
+                BattingResult::Strikeout,
+                SwingContactType::SwungAndMiss,
+                true,
+            ),
+            (BattingResult::Foul, SwingContactType::SolidContact, true),
+            (BattingResult::Out, SwingContactType::SolidContact, true),
+            (BattingResult::HomeRun, SwingContactType::SolidContact, true),
+        ] {
+            let metrics = PlayerGameBattingMetrics {
+                adjusted_contact_type: contact,
+                bat_speed: 40.0,
+                length_offset_m: 0.03,
+                thickness_offset_m: Some(0.007),
+                ..PlayerGameBattingMetrics::default()
+            };
+            let ball = BattedBall {
+                launch_speed: 45.0,
+                ..BattedBall::default()
+            };
+            game.add_player_batting(
+                game.player_battings.len() as u16,
+                1,
+                2,
+                metrics,
+                ball,
+                None,
+                result,
+            );
+            game.player_battings.last_mut().unwrap().swing_decision =
+                Some(SwingDecisionDiagnostics { swung, ..decision });
+        }
+        let mut audit = FairLaunchAudit::default();
+        audit.observe(&game);
+        assert_eq!(audit.recorded_swings, 4);
+        assert_eq!(
+            audit.swing_outcomes_by_adjusted_contact_type["SwungAndMiss"].whiffs,
+            1
+        );
+        let solid = &audit.swing_outcomes_by_adjusted_contact_type["SolidContact"];
+        assert_eq!(
+            (
+                solid.swings,
+                solid.fouls,
+                solid.non_hr_in_play,
+                solid.home_runs
+            ),
+            (3, 1, 1, 1)
+        );
+        let cell = &audit.solid_contact_ev_by_bat_speed_and_contact_offsets["bat_speed_ms:[40,42.5)|abs_length_m:[0.02,0.05)|abs_thickness_m:[0.005,0.01)"];
+        assert_eq!(cell["non_hr_in_play"].ev_ge_45_ms, 1);
+        assert_eq!(cell["foul"].exit_speed_sum_ms, 45.0);
+        assert_eq!(cell["home_run"].plays, 1);
+    }
 
     #[test]
     fn keeps_direct_catch_outs_and_uses_half_open_launch_bands() {
