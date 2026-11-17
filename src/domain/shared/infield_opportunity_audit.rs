@@ -333,8 +333,50 @@ struct FirstBaseRecovery {
     missing_inputs: u64,
     moving_interception_out: u64,
     stationary_recovery_out: u64,
+    stop_outside_radius: u64,
+    stop_inside_radius_first_late_or_tied: u64,
+    stationary_completion_unavailable: u64,
     additional_stationary_out: u64,
     additional_stationary_examples: Vec<StationaryExample>,
+}
+
+impl FirstBaseRecovery {
+    fn record_stationary(
+        &mut self,
+        play_key: (u32, u16),
+        ball: &BattedBall,
+        completion: Option<(Opportunity<'_>, f64)>,
+        runner: f64,
+        moving_out: bool,
+    ) {
+        match completion {
+            Some((pickup, first)) if first < runner => {
+                self.stationary_recovery_out += 1;
+                if !moving_out {
+                    self.additional_stationary_out += 1;
+                    if self.additional_stationary_examples.len() < 4 {
+                        self.additional_stationary_examples.push(StationaryExample {
+                            game_id: play_key.0,
+                            count_seq: play_key.1,
+                            stop_distance_m: pickup.position.distance,
+                            ball_stops_sec: ball.total_time,
+                            fielder: pickup.fielder.position,
+                            fielding_complete_sec: pickup.time_sec,
+                            defense_first_sec: first,
+                            batter_first_sec: runner,
+                        });
+                    }
+                }
+            }
+            Some(_) => self.stop_inside_radius_first_late_or_tied += 1,
+            None if ball.final_position.distance.is_finite()
+                && ball.final_position.distance >= INFIELD_DISTANCE =>
+            {
+                self.stop_outside_radius += 1;
+            }
+            None => self.stationary_completion_unavailable += 1,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -548,27 +590,13 @@ pub(crate) fn record(
                                     .is_some_and(|first| first < runner)
                         });
                         recovery.moving_interception_out += u64::from(moving_out);
-                        if let Some((pickup, first)) =
-                            stationary_first_completion(ball, inputs, ctx.fielders)
-                                .filter(|&(_, first)| first < runner)
-                        {
-                            recovery.stationary_recovery_out += 1;
-                            if !moving_out {
-                                recovery.additional_stationary_out += 1;
-                                if recovery.additional_stationary_examples.len() < 4 {
-                                    recovery.additional_stationary_examples.push(StationaryExample {
-                                        game_id: play_key.0,
-                                        count_seq: play_key.1,
-                                        stop_distance_m: pickup.position.distance,
-                                        ball_stops_sec: ball.total_time,
-                                        fielder: pickup.fielder.position,
-                                        fielding_complete_sec: pickup.time_sec,
-                                        defense_first_sec: first,
-                                        batter_first_sec: runner,
-                                    });
-                                }
-                            }
-                        }
+                        recovery.record_stationary(
+                            play_key,
+                            ball,
+                            stationary_first_completion(ball, inputs, ctx.fielders),
+                            runner,
+                            moving_out,
+                        );
                     } else {
                         recovery.missing_inputs += 1;
                     }
