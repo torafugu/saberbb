@@ -470,6 +470,117 @@ impl FirstBounceComparison {
 }
 
 #[derive(Default, Serialize)]
+struct GrounderAngleBand {
+    plays: u64,
+    by_result: BTreeMap<String, u64>,
+    single_rate: f64,
+}
+
+impl GrounderAngleBand {
+    fn observe(&mut self, result: BattingResult) {
+        self.plays += 1;
+        *self.by_result.entry(result.as_ref().into()).or_default() += 1;
+        self.single_rate =
+            self.by_result.get("Single").copied().unwrap_or_default() as f64 / self.plays as f64;
+    }
+}
+
+const BACKSPIN_REDUCTION_RPM: f64 = 200.0;
+
+#[derive(Default, Serialize)]
+struct LaunchSensitivity {
+    plays: u64,
+    missing_inputs: u64,
+    baseline_errors: u64,
+    baseline_mismatch: u64,
+    angle_minus_1_deg: BounceDeltas,
+    backspin_minus_200_rpm: BounceDeltas,
+}
+
+#[derive(Default, Serialize)]
+struct BounceDeltas {
+    replay_errors: u64,
+    outbound_result_changed: u64,
+    missing_bounce: u64,
+    paired_samples: u64,
+    distance_delta_sum_m: f64,
+    time_delta_sum_sec: f64,
+    baseline_bounce_at_or_beyond_50m: u64,
+    trial_bounce_at_or_beyond_50m: u64,
+    moved_inside_50m: u64,
+    moved_outside_50m: u64,
+}
+
+impl BounceDeltas {
+    fn observe(&mut self, baseline: &BattedBall, trial: &BattedBall) {
+        if trial.outbound_result != baseline.outbound_result {
+            self.outbound_result_changed += 1;
+            return;
+        }
+        let bounces = baseline.first_bounce_position.zip(baseline.first_bounce_time)
+            .zip(trial.first_bounce_position.zip(trial.first_bounce_time));
+        let Some(((before, before_time), (after, after_time))) = bounces else {
+            self.missing_bounce += 1;
+            return;
+        };
+        self.paired_samples += 1;
+        self.distance_delta_sum_m += after.distance - before.distance;
+        self.time_delta_sum_sec += after_time - before_time;
+        let before_outside = before.distance >= INFIELD_DISTANCE;
+        let after_outside = after.distance >= INFIELD_DISTANCE;
+        self.baseline_bounce_at_or_beyond_50m += u64::from(before_outside);
+        self.trial_bounce_at_or_beyond_50m += u64::from(after_outside);
+        self.moved_inside_50m += u64::from(before_outside && !after_outside);
+        self.moved_outside_50m += u64::from(!before_outside && after_outside);
+    }
+}
+
+impl LaunchSensitivity {
+    fn observe(&mut self, live: &BattedBall, hla: Option<f64>, stadium: &Stadium) {
+        self.plays += 1;
+        let Some(hla) = hla.filter(|hla| hla.is_finite() && live.spin_angle.is_finite()) else {
+            self.missing_inputs += 1;
+            return;
+        };
+        let replay = |launch: &BattedBall| replay_grounder_flight(launch, hla, stadium, 1.0, |_| {});
+        let Ok(baseline) = replay(live) else {
+            self.baseline_errors += 1;
+            return;
+        };
+        if !matches_live_flight(&baseline, live)
+            || baseline.first_bounce_position.map(|p| p.distance)
+                != live.first_bounce_position.map(|p| p.distance)
+        {
+            self.baseline_mismatch += 1;
+            return;
+        }
+
+        let lower_angle = BattedBall {
+            launch_angle: live.launch_angle - 1.0,
+            ..*live
+        };
+        let spin_angle = live.spin_angle.to_radians();
+        let backspin = live.spin_rate * spin_angle.cos() - BACKSPIN_REDUCTION_RPM;
+        let sidespin = live.spin_rate * spin_angle.sin();
+        // Recompose the spin vector with the original signed sidespin component.
+        let lower_backspin = BattedBall {
+            spin_rate: backspin.hypot(sidespin),
+            spin_angle: sidespin.atan2(backspin).to_degrees().rem_euclid(360.0),
+            ..*live
+        };
+        for (launch, deltas) in [
+            (lower_angle, &mut self.angle_minus_1_deg),
+            (lower_backspin, &mut self.backspin_minus_200_rpm),
+        ] {
+            match replay(&launch) {
+                Ok(trial) => deltas.observe(&baseline, &trial),
+                Err(_) => deltas.replay_errors += 1,
+            }
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
 struct PreBounceReach {
     plays: u64,
     first_bounce: FirstBounceComparison,
@@ -684,6 +795,8 @@ impl GrounderFlightSweep {
 
 #[derive(Default, Serialize)]
 pub struct InfieldOpportunityAudit {
+    hard_low_grounder_half_degree_bands: BTreeMap<String, GrounderAngleBand>,
+    hard_low_grounder_launch_sensitivity: BTreeMap<String, BTreeMap<String, LaunchSensitivity>>,
     hard_low_pre_bounce_reach_by_ev_vla_hla_and_result:
         BTreeMap<String, BTreeMap<String, PreBounceReach>>,
     hard_low_single_ground_friction_sweep: GrounderFlightSweep,
@@ -769,10 +882,42 @@ pub(crate) fn record(
         let pickup_single = result == BattingResult::Single
             && diagnostics.fielder_position.is_outfielder()
             && diagnostics.catch_type == CatchType::FinalPickup;
-        let hard_low_comparison = matches!(result, BattingResult::Single | BattingResult::Out)
-            && ball.launch_speed.is_finite()
+        let hard_low = ball.launch_speed.is_finite()
             && ball.launch_speed >= 45.0
             && (0.0..10.0).contains(&ball.launch_angle);
+        let hard_low_comparison =
+            hard_low && matches!(result, BattingResult::Single | BattingResult::Out);
+        if !pickup_single && !hard_low {
+            return;
+        }
+        let ev = band(
+            ball.launch_speed,
+            &[20.0, 30.0, 35.0, 40.0, 95.0 * 0.44704, 45.0, 50.0, 55.0],
+        );
+        let hla = band(
+            launch_direction_deg.unwrap_or(f64::NAN),
+            &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0],
+        );
+        if hard_low {
+            const HALF_DEGREE_EDGES: [f64; 21] = [
+                0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
+                5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0,
+            ];
+            let vla = band(ball.launch_angle, &HALF_DEGREE_EDGES);
+            audit.hard_low_grounder_half_degree_bands
+                .entry(format!("EV:{ev}|VLA:{vla}|HLA:{hla}"))
+                .or_default()
+                .observe(result);
+            if hard_low_comparison && ball.launch_angle >= 5.0 {
+                let vla = band(ball.launch_angle, &[5.0, 7.5, 10.0]);
+                audit.hard_low_grounder_launch_sensitivity
+                    .entry(format!("EV:{ev}|VLA:{vla}|HLA:{hla}"))
+                    .or_default()
+                    .entry(result.as_ref().into())
+                    .or_default()
+                    .observe(ball, launch_direction_deg, stadium);
+            }
+        }
         if !pickup_single && !hard_low_comparison {
             return;
         }
@@ -822,14 +967,6 @@ pub(crate) fn record(
                 _ => sweep.missing_inputs += 1,
             }
         }
-        let ev = band(
-            ball.launch_speed,
-            &[20.0, 30.0, 35.0, 40.0, 95.0 * 0.44704, 45.0, 50.0, 55.0],
-        );
-        let hla = band(
-            launch_direction_deg.unwrap_or(f64::NAN),
-            &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0],
-        );
         let speed_direction = format!("EV:{ev}|HLA:{hla}");
         if hard_low_comparison {
             let vla = band(ball.launch_angle, &[0.0, 2.5, 5.0, 7.5, 10.0]);
