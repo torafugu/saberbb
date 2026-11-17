@@ -1,4 +1,4 @@
-//! Frozen-play checks of infield interception opportunities on outfield pickup singles.
+//! Frozen-play checks of infield interception and first-base timing.
 use super::{
     ball::{BattedBall, INFIELD_DISTANCE, TrajectoryType},
     game::BattingResult,
@@ -43,6 +43,10 @@ struct Scenario {
     first_out: u64,
     first_safe: u64,
     first_unknown: u64,
+    interception_time_sum_sec: f64,
+    timed_first_plays: u64,
+    defense_first_time_sum_sec: f64,
+    batter_first_time_sum_sec: f64,
     by_position: BTreeMap<String, u64>,
     by_live_candidate_reason: BTreeMap<String, u64>,
 }
@@ -55,6 +59,7 @@ impl Scenario {
         runner_first: Option<f64>,
     ) {
         self.reachable += 1;
+        self.interception_time_sum_sec += opportunity.time_sec;
         *self
             .by_position
             .entry(opportunity.fielder.position.as_ref().into())
@@ -69,8 +74,16 @@ impl Scenario {
         }
         self.bounce += 1;
         match runner_first.zip(first_completion(opportunity, fielders)) {
-            Some((runner, defense)) if defense < runner => self.first_out += 1,
-            Some(_) => self.first_safe += 1,
+            Some((runner, defense)) => {
+                self.timed_first_plays += 1;
+                self.defense_first_time_sum_sec += defense;
+                self.batter_first_time_sum_sec += runner;
+                if defense < runner {
+                    self.first_out += 1;
+                } else {
+                    self.first_safe += 1;
+                }
+            }
             None => self.first_unknown += 1,
         }
     }
@@ -307,7 +320,17 @@ impl Cohort {
 }
 
 #[derive(Default, Serialize)]
+struct GrounderOutcome {
+    plays: u64,
+    missing_inputs: u64,
+    arrival_gaps: ArrivalGaps,
+    scenarios: BTreeMap<&'static str, Scenario>,
+}
+
+#[derive(Default, Serialize)]
 pub struct InfieldOpportunityAudit {
+    hard_low_grounders_by_ev_vla_hla_and_result:
+        BTreeMap<String, BTreeMap<String, GrounderOutcome>>,
     outfield_pickup_grounder_singles: Cohort,
     hard_low_grounder_subset: Cohort,
 }
@@ -347,11 +370,17 @@ pub(crate) fn record(
     ACTIVE.with_borrow_mut(|active| {
         let Some(audit) = active else { return };
         let ball = &ctx.fielded_ball.ball;
-        if result != BattingResult::Single
-            || !diagnostics.fielder_position.is_outfielder()
-            || diagnostics.catch_type != CatchType::FinalPickup
-            || ball.trajectory() != TrajectoryType::Grounder
-        {
+        if ball.trajectory() != TrajectoryType::Grounder {
+            return;
+        }
+        let pickup_single = result == BattingResult::Single
+            && diagnostics.fielder_position.is_outfielder()
+            && diagnostics.catch_type == CatchType::FinalPickup;
+        let hard_low_comparison = matches!(result, BattingResult::Single | BattingResult::Out)
+            && ball.launch_speed.is_finite()
+            && ball.launch_speed >= 45.0
+            && (0.0..10.0).contains(&ball.launch_angle);
+        if !pickup_single && !hard_low_comparison {
             return;
         }
         let runner_first = ctx
@@ -359,13 +388,8 @@ pub(crate) fn record(
             .batter_runner_time_to(Base::First, true, batting_side)
             .ok()
             .filter(|t| t.is_finite() && *t > 0.0);
-        let opportunities = (|| {
-            let pickup = diagnostics.pickup?;
-            if !pickup.pickup_time_sec.is_finite()
-                || pickup.pickup_time_sec < 0.0
-                || !ball.total_time.is_finite()
-                || ball.total_time < 0.0
-            {
+        let inputs = (|| {
+            if !ball.total_time.is_finite() || ball.total_time < 0.0 {
                 return None;
             }
             let inputs = ctx
@@ -390,7 +414,7 @@ pub(crate) fn record(
             if inputs.is_empty() {
                 return None;
             }
-            Some(find_opportunities(ball, &inputs, pickup.pickup_time_sec))
+            Some(inputs)
         })();
         let ev = band(
             ball.launch_speed,
@@ -401,6 +425,38 @@ pub(crate) fn record(
             &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0],
         );
         let speed_direction = format!("EV:{ev}|HLA:{hla}");
+        if hard_low_comparison {
+            let vla = band(ball.launch_angle, &[0.0, 2.5, 5.0, 7.5, 10.0]);
+            let group = audit
+                .hard_low_grounders_by_ev_vla_hla_and_result
+                .entry(format!("EV:{ev}|VLA:{vla}|HLA:{hla}"))
+                .or_default()
+                .entry(result.as_ref().into())
+                .or_default();
+            group.plays += 1;
+            if let Some(inputs) = &inputs {
+                // Both outcomes use the projected path through the infield,
+                // without stopping at their different observed fielding times.
+                let scan = find_opportunities(ball, inputs, f64::INFINITY);
+                group.arrival_gaps.add(scan);
+                for (name, opportunity) in SCENARIOS.into_iter().zip(scan.opportunities) {
+                    let scenario = group.scenarios.entry(name).or_default();
+                    if let Some(opportunity) = opportunity {
+                        scenario.add(opportunity, ctx.fielders, runner_first);
+                    }
+                }
+            } else {
+                group.missing_inputs += 1;
+            }
+        }
+        if !pickup_single {
+            return;
+        }
+        let opportunities = inputs.as_ref().and_then(|inputs| {
+            let pickup = diagnostics.pickup?;
+            let t = pickup.pickup_time_sec;
+            (t.is_finite() && t >= 0.0).then(|| find_opportunities(ball, inputs, t))
+        });
         audit.outfield_pickup_grounder_singles.add(
             diagnostics,
             opportunities,
