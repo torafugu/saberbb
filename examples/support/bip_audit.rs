@@ -24,8 +24,8 @@ use std::collections::BTreeMap;
 
 const HARD_HIT_MPH: f64 = 95.0;
 const HARD_HIT_MS: f64 = HARD_HIT_MPH * 0.44704;
-const CONVERSION_EV_EDGES_MS: &[f64] = &[20.0, 30.0, 35.0, 40.0, HARD_HIT_MS, 45.0, 50.0, 55.0];
-const CONVERSION_HLA_EDGES_DEG: &[f64] = &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0];
+pub(super) const CONVERSION_EV_EDGES_MS: &[f64] = &[20.0, 30.0, 35.0, 40.0, HARD_HIT_MS, 45.0, 50.0, 55.0];
+pub(super) const CONVERSION_HLA_EDGES_DEG: &[f64] = &[-45.0, -30.0, -15.0, -5.0, 5.0, 15.0, 30.0, 45.0];
 const LENGTH_EDGES_M: &[f64] = &[0.02, 0.05, 0.10, 0.16];
 const THICKNESS_EDGES_M: &[f64] = &[0.005, 0.01, 0.02, 0.025, 0.04, 0.055, 0.07];
 
@@ -103,7 +103,7 @@ fn is_hit(r: BattingResult) -> bool {
         BattingResult::Single | BattingResult::Double | BattingResult::Triple
     )
 }
-fn is_bip(r: BattingResult) -> bool {
+pub(super) fn is_bip(r: BattingResult) -> bool {
     matches!(
         r,
         BattingResult::Single
@@ -114,7 +114,7 @@ fn is_bip(r: BattingResult) -> bool {
             | BattingResult::DoublePlay
     )
 }
-fn band(value: f64, edges: &[f64]) -> String {
+pub(super) fn band(value: f64, edges: &[f64]) -> String {
     if !value.is_finite() {
         return "unknown".into();
     }
