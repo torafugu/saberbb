@@ -1,9 +1,12 @@
 //! Launch parameters paired with official fair-ball results, regardless of fielding path.
 use super::bip_audit::{CONVERSION_EV_EDGES_MS, CONVERSION_HLA_EDGES_DEG, band, is_bip};
 use saberbb::domain::{
-    resolver::{batting_resolver::SwingContactType, fielding_physics::CatchType},
+    resolver::{
+        batting_resolver::{CONTACT_TIMING_POSITION_SCALE, SwingContactType, launch_speed_terms},
+        fielding_physics::CatchType,
+    },
     shared::{
-        game::{BattingResult, GameResult},
+        game::{BattingResult, GameResult, GameSchedule},
         game_stats::PlayerGameBatting,
     },
 };
@@ -67,7 +70,29 @@ impl ExitSpeedTotals {
 }
 
 #[derive(Default, Serialize)]
+struct ExitSpeedComparison {
+    observed: ExitSpeedTotals,
+    neutral_swing_power: ExitSpeedTotals,
+    zero_timing_depth: ExitSpeedTotals,
+    centered_contact: ExitSpeedTotals,
+    pitch_term_sum_ms: f64,
+    swing_term_sum_ms: f64,
+    thickness_retention_sum: f64,
+    length_retention_sum: f64,
+}
+
+#[derive(Default, Serialize)]
+struct ExitSpeedTermAudit {
+    selected: u64,
+    missing_inputs: u64,
+    baseline_mismatch: u64,
+    total: ExitSpeedComparison,
+    by_input_bands: BTreeMap<String, ExitSpeedComparison>,
+}
+
+#[derive(Default, Serialize)]
 pub(super) struct FairLaunchAudit {
+    solid_contact_exit_speed_terms: ExitSpeedTermAudit,
     swing_decisions_missing: u64,
     recorded_swings: u64,
     swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
@@ -85,6 +110,94 @@ pub(super) struct FairLaunchAudit {
 }
 
 impl FairLaunchAudit {
+    pub(super) fn observe_launch_speed_terms(
+        &mut self,
+        schedule: &GameSchedule,
+        game: &GameResult,
+        geometry_scale: f64,
+    ) {
+        let powers: BTreeMap<_, _> = schedule
+            .away_team
+            .players
+            .iter()
+            .chain(&schedule.home_team.players)
+            .filter_map(|p| Some((p.info.id, p.offense_skills.batter.as_ref()?.swing_power)))
+            .collect();
+        let pitches: BTreeMap<_, _> = game
+            .player_pitchings
+            .iter()
+            .map(|p| ((p.count_seq, p.pitcher_id), p.ball.speed))
+            .collect();
+        let audit = &mut self.solid_contact_exit_speed_terms;
+        for b in &game.player_battings {
+            let length = b.length_offset_m.abs();
+            if !is_bip(b.result)
+                || b.adjusted_contact_type != SwingContactType::SolidContact
+                || !(30.0..35.0).contains(&b.bat_speed)
+                || !(0.0..0.05).contains(&length)
+            {
+                continue;
+            }
+            audit.selected += 1;
+            let depth = if geometry_scale == CONTACT_TIMING_POSITION_SCALE {
+                b.timing_impact_x_m
+            } else {
+                b.adapted_timing_offset_sec
+                    .map(|timing| b.bat_speed * timing * CONTACT_TIMING_POSITION_SCALE)
+            };
+            let (Some(&pitch), Some(&power), Some(thickness), Some(depth)) = (
+                pitches.get(&(b.count_seq, b.pitcher_id)),
+                powers.get(&b.batter_id),
+                b.thickness_offset_m,
+                depth,
+            ) else {
+                audit.missing_inputs += 1;
+                continue;
+            };
+            if ![pitch, power, thickness, depth, b.ball.launch_speed]
+                .into_iter()
+                .all(f64::is_finite)
+                || pitch <= 0.0
+                || thickness < 0.0
+                || b.ball.launch_speed <= 0.0
+            {
+                audit.missing_inputs += 1;
+                continue;
+            }
+            let replay = |power, depth, thickness, length| {
+                launch_speed_terms(pitch, b.bat_speed, power, depth, thickness, length)
+            };
+            let terms = replay(power, depth, thickness, length);
+            let observed = terms.exit_speed_ms();
+            if (observed - b.ball.launch_speed).abs() > 1e-8 {
+                audit.baseline_mismatch += 1;
+                continue;
+            }
+            let neutral_power = replay(0.0, depth, thickness, length).exit_speed_ms();
+            let zero_depth = replay(power, 0.0, thickness, length).exit_speed_ms();
+            let centered = replay(power, depth, 0.0, 0.0).exit_speed_ms();
+
+            let pitch_band = band(pitch, &[35.0, 38.0, 41.0, 44.0]);
+            let power_band = band(power, &[-1.0, 0.0, 1.0, 2.0]);
+            let bat_band = band(b.bat_speed, &[30.0, 32.5, 35.0]);
+            let length_band = band(length, &[0.02, 0.05]);
+            let thickness_band = band(thickness, &[0.01, 0.02, 0.025]);
+            let cell = audit.by_input_bands.entry(format!(
+                "pitch_speed_ms:{pitch_band}|swing_power:{power_band}|bat_speed_ms:{bat_band}|abs_length_m:{length_band}|abs_thickness_m:{thickness_band}"
+            )).or_default();
+            for group in [&mut audit.total, cell] {
+                group.observed.observe(observed);
+                group.neutral_swing_power.observe(neutral_power);
+                group.zero_timing_depth.observe(zero_depth);
+                group.centered_contact.observe(centered);
+                group.pitch_term_sum_ms += terms.pitch_term_ms;
+                group.swing_term_sum_ms += terms.swing_term_ms;
+                group.thickness_retention_sum += terms.thickness_retention;
+                group.length_retention_sum += terms.length_retention;
+            }
+        }
+    }
+
     pub(super) fn observe(&mut self, game: &GameResult) {
         let direct_catches: BTreeSet<_> = game
             .player_fieldings
