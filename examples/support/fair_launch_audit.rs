@@ -3,8 +3,8 @@ use super::bip_audit::{CONVERSION_EV_EDGES_MS, CONVERSION_HLA_EDGES_DEG, band, i
 use saberbb::domain::{
     resolver::{
         batting_resolver::{
-            CONTACT_TIMING_POSITION_SCALE, LaunchSpeedTerms, SwingContactType,
-            calculate_dynamic_attack_angle, calculate_trajectory,
+            BAT_ANGLE_ATTACK_COUPLING, CONTACT_TIMING_POSITION_SCALE, LaunchSpeedTerms,
+            SwingContactType, calculate_dynamic_attack_angle, calculate_trajectory,
             calculate_vertical_contact_deflection, launch_speed_terms,
         },
         fielding_physics::CatchType,
@@ -359,6 +359,189 @@ impl ContactFlightAudit {
     }
 }
 
+struct VerticalLaunchInput {
+    base: f64,
+    attack: f64,
+    deflection: f64,
+}
+
+impl VerticalLaunchInput {
+    fn from_batting(b: &PlayerGameBatting, base: Option<f64>) -> Option<Self> {
+        let (base, bat, z) = (base?, b.actual_bat_angle_deg?, b.contact_offset_z_m?);
+        [base, bat, z, b.ball.launch_angle]
+            .into_iter()
+            .all(f64::is_finite)
+            .then(|| Self {
+                base,
+                attack: calculate_dynamic_attack_angle(base, bat),
+                deflection: calculate_vertical_contact_deflection(z),
+            })
+    }
+
+    fn reproduces(&self, launch_angle: f64) -> bool {
+        (self.attack + self.deflection - launch_angle).abs() <= 1e-8
+    }
+
+    fn launch_angle_with_coupling(&self, coupling: f64) -> f64 {
+        self.base
+            + (self.attack - self.base) * (coupling / BAT_ANGLE_ATTACK_COUPLING)
+            + self.deflection
+    }
+}
+
+#[derive(Default, Serialize)]
+struct AttackCouplingTrial {
+    launch_angle_sum_deg: f64,
+    launch_angle_bands: BTreeMap<String, u64>,
+    fast_low_balls: u64,
+    original_fast_low_destinations: BTreeMap<String, u64>,
+    newly_fast_low_origins: BTreeMap<String, u64>,
+    flight: HomeRunFlightTrial,
+    original_home_runs_retained: u64,
+    new_home_run_trajectories: u64,
+    original_home_run_replay_errors: u64,
+}
+
+#[derive(Default, Serialize)]
+struct AttackCouplingSweep {
+    selected: u64,
+    selected_home_runs: u64,
+    missing_angle_inputs: u64,
+    baseline_angle_mismatch: u64,
+    angles_reproduced: u64,
+    missing_flight_inputs: u64,
+    baseline_flight_errors: u64,
+    baseline_flight_mismatch: u64,
+    flights_reproduced: u64,
+    home_run_flights_reproduced: u64,
+    trials: BTreeMap<String, AttackCouplingTrial>,
+}
+
+impl AttackCouplingSweep {
+    fn observe(&mut self, b: &PlayerGameBatting, base: Option<f64>, stadium: &Stadium) {
+        self.selected += 1;
+        let live = &b.ball;
+        let original_home_run = b.result == BattingResult::HomeRun;
+        self.selected_home_runs += u64::from(original_home_run);
+        let Some(input) = VerticalLaunchInput::from_batting(b, base) else {
+            self.missing_angle_inputs += 1;
+            return;
+        };
+        if !input.reproduces(live.launch_angle) {
+            self.baseline_angle_mismatch += 1;
+            return;
+        }
+        self.angles_reproduced += 1;
+
+        let baseline = self.reproduce_flight(b, stadium);
+        let original_fast_low = is_fast_low(b);
+        let high_speed_in_play = is_bip(b.result)
+            && live.launch_speed.is_finite()
+            && live.launch_speed >= HIGH_EV_MIN_MS;
+        let edges = &[
+            -10.0, 0.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 45.0, 60.0,
+        ];
+        let original_band = band(live.launch_angle, edges);
+        for coupling in [BAT_ANGLE_ATTACK_COUPLING, 0.30, 0.25, 0.15] {
+            let trial = self.trials.entry(format!("{coupling:.2}")).or_default();
+            let unchanged = coupling == BAT_ANGLE_ATTACK_COUPLING;
+            let angle = if unchanged {
+                live.launch_angle
+            } else {
+                input.launch_angle_with_coupling(coupling)
+            };
+            let angle_band = band(angle, edges);
+            trial.launch_angle_sum_deg += angle;
+            *trial
+                .launch_angle_bands
+                .entry(angle_band.clone())
+                .or_default() += 1;
+            let fast_low = high_speed_in_play && TARGET_VLA.contains(&angle);
+            trial.fast_low_balls += u64::from(fast_low);
+            if original_fast_low {
+                *trial
+                    .original_fast_low_destinations
+                    .entry(angle_band)
+                    .or_default() += 1;
+            } else if fast_low {
+                *trial
+                    .newly_fast_low_origins
+                    .entry(original_band.clone())
+                    .or_default() += 1;
+            }
+
+            if let Some(baseline) = baseline {
+                let flight = if unchanged {
+                    Ok(baseline)
+                } else {
+                    calculate_trajectory(
+                        live.launch_speed,
+                        angle,
+                        b.final_hla_deg,
+                        live.spin_rate,
+                        live.spin_angle,
+                        stadium,
+                    )
+                };
+                match flight {
+                    Ok(ball) => {
+                        trial.flight.observe(&ball);
+                        if ball.outbound_result == OutboundResult::HomeRun {
+                            trial.original_home_runs_retained += u64::from(original_home_run);
+                            trial.new_home_run_trajectories += u64::from(!original_home_run);
+                        }
+                    }
+                    Err(_) => {
+                        trial.flight.replay_errors += 1;
+                        trial.original_home_run_replay_errors += u64::from(original_home_run);
+                    }
+                }
+            }
+        }
+    }
+
+    fn reproduce_flight(&mut self, b: &PlayerGameBatting, stadium: &Stadium) -> Option<BattedBall> {
+        let live = &b.ball;
+        if b.hla_model_version != Some(2)
+            || ![
+                b.final_hla_deg,
+                live.launch_speed,
+                live.spin_rate,
+                live.spin_angle,
+            ]
+            .into_iter()
+            .all(f64::is_finite)
+            || live.launch_speed <= 0.0
+            || live.spin_rate < 0.0
+        {
+            self.missing_flight_inputs += 1;
+            return None;
+        }
+        let Ok(ball) = calculate_trajectory(
+            live.launch_speed,
+            live.launch_angle,
+            b.final_hla_deg,
+            live.spin_rate,
+            live.spin_angle,
+            stadium,
+        ) else {
+            self.baseline_flight_errors += 1;
+            return None;
+        };
+        if live.outbound_result != ball.outbound_result
+            || (live.total_time - ball.total_time).abs() > 1e-9
+            || calculate_polar_distance(&live.final_position, &ball.final_position) > 1e-8
+            || live.first_bounce_time != ball.first_bounce_time
+        {
+            self.baseline_flight_mismatch += 1;
+            return None;
+        }
+        self.flights_reproduced += 1;
+        self.home_run_flights_reproduced += u64::from(b.result == BattingResult::HomeRun);
+        Some(ball)
+    }
+}
+
 #[derive(Default, Serialize)]
 struct VerticalLaunchTerms {
     selected: u64,
@@ -377,25 +560,19 @@ struct VerticalLaunchTerms {
 impl VerticalLaunchTerms {
     fn observe(&mut self, b: &PlayerGameBatting, base_attack: Option<f64>) {
         self.selected += 1;
-        let (Some(base), Some(bat), Some(z)) =
-            (base_attack, b.actual_bat_angle_deg, b.contact_offset_z_m)
-        else {
+        let Some(input) = VerticalLaunchInput::from_batting(b, base_attack) else {
             self.missing_inputs += 1;
             return;
         };
-        if ![base, bat, z, b.ball.launch_angle]
-            .into_iter()
-            .all(f64::is_finite)
-        {
-            self.missing_inputs += 1;
-            return;
-        }
-        let attack = calculate_dynamic_attack_angle(base, bat);
-        let deflection = calculate_vertical_contact_deflection(z);
-        if (attack + deflection - b.ball.launch_angle).abs() > 1e-8 {
+        if !input.reproduces(b.ball.launch_angle) {
             self.baseline_mismatch += 1;
             return;
         }
+        let VerticalLaunchInput {
+            base,
+            attack,
+            deflection,
+        } = input;
         self.reproduced += 1;
         self.base_attack_angle_sum_deg += base;
         self.bat_angle_adjustment_sum_deg += attack - base;
@@ -424,6 +601,7 @@ pub(super) struct FairLaunchAudit {
     home_run_flight_sweep: HomeRunFlightSweep,
     contact_flight_audit: ContactFlightAudit,
     vertical_launch_terms: BTreeMap<&'static str, VerticalLaunchTerms>,
+    attack_angle_coupling_sweep: AttackCouplingSweep,
     swing_decisions_missing: u64,
     recorded_swings: u64,
     swing_outcomes_by_adjusted_contact_type: BTreeMap<String, SwingOutcomes>,
@@ -468,6 +646,9 @@ impl FairLaunchAudit {
                 continue;
             }
             let skills = batter_skills.get(&b.batter_id);
+            let base_attack = skills.map(|batter| batter.attack_angle);
+            self.attack_angle_coupling_sweep
+                .observe(b, base_attack, &schedule.stadium);
             let angle_cohort = if home_run {
                 Some("home_runs")
             } else if is_fast_low(b) {
@@ -483,7 +664,7 @@ impl FairLaunchAudit {
                 self.vertical_launch_terms
                     .entry(cohort)
                     .or_default()
-                    .observe(b, skills.map(|batter| batter.attack_angle));
+                    .observe(b, base_attack);
             }
             self.home_run_flight_sweep.selected += u64::from(home_run);
             let length = b.length_offset_m.abs();
@@ -735,6 +916,36 @@ impl FairLaunchAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attack_coupling_sweep_tracks_balls_leaving_and_entering_the_low_angle_band() {
+        use saberbb::domain::shared::game_stats::PlayerGameBattingMetrics;
+
+        let stadium = Stadium::default();
+        let mut game = GameResult::new(1, chrono::NaiveDate::MIN, &[], &[]);
+        let mut sweep = AttackCouplingSweep::default();
+        for (pitch_seq, base, launch_angle) in [(1, 4.5, 8.0), (2, 7.5, 11.0)] {
+            let ball = calculate_trajectory(46.0, launch_angle, 0.0, 1800.0, 0.0, &stadium)
+                .expect("valid batted-ball trajectory");
+            let metrics = PlayerGameBattingMetrics {
+                hla_model_version: Some(2),
+                actual_bat_angle_deg: Some(40.0),
+                contact_offset_z_m: Some(0.0),
+                ..Default::default()
+            };
+            game.add_player_batting(pitch_seq, 1, 2, metrics, ball, None, BattingResult::Single);
+            sweep.observe(game.player_battings.last().unwrap(), Some(base), &stadium);
+        }
+
+        assert_eq!(sweep.angles_reproduced, 2);
+        assert_eq!(sweep.flights_reproduced, 2);
+        assert_eq!(sweep.trials["0.35"].fast_low_balls, 1);
+        let reduced = &sweep.trials["0.15"];
+        assert_eq!(reduced.fast_low_balls, 1);
+        assert_eq!(reduced.original_fast_low_destinations["[5,7)"], 1);
+        assert_eq!(reduced.newly_fast_low_origins["[10,15)"], 1);
+        assert_eq!(reduced.flight.replay_errors, 0);
+    }
 
     #[test]
     fn vertical_launch_terms_preserve_signed_deflection_and_reject_mismatches() {
