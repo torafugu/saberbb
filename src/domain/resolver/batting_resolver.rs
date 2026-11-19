@@ -271,18 +271,17 @@ pub(crate) fn calculate_bat_angle(location: &BallLocation) -> f64 {
     base_angle.clamp(10.0, 60.0)
 }
 
+pub const BAT_ANGLE_ATTACK_COUPLING: f64 = 0.35;
+
 /// Automatically calculate the effective Attack Angle linked to bat_angle_deg (head drop amount for pitch location)
 pub fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64) -> f64 {
     // Baseline bat_angle_deg (e.g. 30° as the standard tilt)
     const BASE_BAT_ANGLE_DEG: f64 = 30.0;
 
-    // Attack angle rises approx. 3.5° for every 10° deeper bat_angle
-    const COUPLING_FACTOR: f64 = 0.35;
-
     let angle_delta = bat_angle_deg - BASE_BAT_ANGLE_DEG;
 
     // Determine the dynamic attack angle
-    attack_angle_deg + (angle_delta * COUPLING_FACTOR)
+    attack_angle_deg + (angle_delta * BAT_ANGLE_ATTACK_COUPLING)
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
