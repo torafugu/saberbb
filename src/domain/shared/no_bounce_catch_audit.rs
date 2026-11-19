@@ -67,9 +67,9 @@ impl NoBounceCatchAudit {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Replay {
+pub(super) struct Replay {
     changed_attempt: bool,
-    direct_out: Option<Position>,
+    pub(super) direct_out: Option<Position>,
 }
 
 impl Cohort {
@@ -91,7 +91,7 @@ impl Cohort {
     }
 }
 
-fn replay(
+pub(super) fn replay(
     rng: &mut dyn RandomProvider,
     fielders: &[ActiveFielder],
     ball: &BattedBall,

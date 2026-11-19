@@ -1409,12 +1409,18 @@ impl GameState {
             &field_play_result,
             &runner_advance_result,
         );
-        let record_no_bounce = || {
+        let record_single_fielding = || {
             super::no_bounce_catch_audit::record(
                 &fielders,
                 &batted_ball,
                 &field_play_result,
                 runner_advance_result.batting_result,
+            );
+            super::low_line_drive_fielding_audit::record(
+                &ctx,
+                &field_play_result,
+                batting_side,
+                &runner_advance_result,
             );
         };
         super::infield_opportunity_audit::record(
@@ -1448,7 +1454,7 @@ impl GameState {
             self.inning_state.add_out();
 
             if self.inning_state.inning_progress() == InningProgress::Over {
-                record_no_bounce();
+                record_single_fielding();
                 self.commit_count_result(
                     pitcher_id,
                     batter_id,
@@ -1482,7 +1488,7 @@ impl GameState {
             }
         };
 
-        record_no_bounce();
+        record_single_fielding();
         self.commit_count_result(
             pitcher_id,
             batter_id,
