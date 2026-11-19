@@ -906,7 +906,9 @@ impl BipAudit {
                 "batter_first_with_lag_sec":first,"batter_second_no_lag_sec":second,"batter_third_no_lag_sec":third,
                 "batter_second_plan_with_lag_sec":second_plan,"batter_third_plan_with_lag_sec":third_plan,
                 "candidate_count":candidates.len(),"probe_risk_ok_candidate_count":candidates.iter().filter(|c|c.diagnostics.air_probe.is_some_and(|p|p.risk_ok_samples>0)).count()});
-            if b.ball.outbound_result == OutboundResult::GroundRuleDouble {
+            if b.ball.outbound_result == OutboundResult::GroundRuleDouble
+                && b.result == BattingResult::Double
+            {
                 self.coverage("automatic_ground_rule_doubles");
             } else if f.is_none() {
                 self.coverage("missing_primary_fielding_record");
@@ -1162,6 +1164,22 @@ mod tests {
         assert_eq!(unknown["n"], 1);
         assert_eq!(unknown["doubles"], 1);
         assert_eq!(unknown["out_on_play_rate"], 0.0);
+
+        // A caught trajectory still needs its fielding record and is not an awarded double.
+        game.add_player_batting(
+            4,
+            10,
+            7,
+            PlayerGameBattingMetrics::default(),
+            ball,
+            Some(Position::CF),
+            BattingResult::Out,
+        );
+        let mut audit = BipAudit::default();
+        audit.observe(&schedule, &game);
+        let coverage = &audit.json()["coverage"];
+        assert_eq!(coverage["automatic_ground_rule_doubles"], 1);
+        assert_eq!(coverage["missing_primary_fielding_record"], 3);
     }
 
     #[test]

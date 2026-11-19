@@ -6,7 +6,7 @@ use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Gamma};
 
 pub trait RandomProvider: std::fmt::Debug {
-    /// Copy the current stream position for a diagnostic replay, if supported.
+    /// Copy the current stream position for a speculative play or diagnostic replay, if supported.
     fn fork(&self) -> Option<Box<dyn RandomProvider>> {
         None
     }

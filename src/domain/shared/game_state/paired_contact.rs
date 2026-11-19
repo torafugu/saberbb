@@ -1,6 +1,7 @@
 use super::{
     GameError, GameResult, GameState, Inning, VERTICAL_CONTACT_WINDOW_MM, launch_swing,
-    vertical_contact_window_ev_shift_mm, with_vertical_contact_window_trial,
+    vertical_contact_window_ev_shift_mm, with_ground_rule_double_catch_trial,
+    with_vertical_contact_window_trial,
 };
 use crate::domain::{
     random_provider::RandomProvider,
@@ -32,7 +33,7 @@ thread_local! {
     static PLAYS: RefCell<Option<Vec<PairedContactPlay>>> = const { RefCell::new(None) };
 }
 
-/// Run synchronous +4 mm window games and replay selected plays at the EV-dependent shift.
+/// Replay the contact shifts under the historical automatic ground-rule double award.
 pub fn with_paired_contact_fielding<T>(run: impl FnOnce() -> T) -> (T, Vec<PairedContactPlay>) {
     struct Restore(Option<Vec<PairedContactPlay>>);
     impl Drop for Restore {
@@ -41,7 +42,8 @@ pub fn with_paired_contact_fielding<T>(run: impl FnOnce() -> T) -> (T, Vec<Paire
         }
     }
     let _restore = Restore(PLAYS.replace(Some(Vec::new())));
-    let result = with_vertical_contact_window_trial(4, run);
+    let result =
+        with_ground_rule_double_catch_trial(false, || with_vertical_contact_window_trial(4, run));
     let plays = PLAYS.take().expect("paired contact audit is active");
     (result, plays)
 }
@@ -319,7 +321,9 @@ mod tests {
                 )
                 .unwrap()
             };
-            let flat = with_vertical_contact_window_trial(4, run);
+            let flat = with_ground_rule_double_catch_trial(false, || {
+                with_vertical_contact_window_trial(4, run)
+            });
             let (audited, pairs) = with_paired_contact_fielding(run);
             assert_eq!(
                 serde_json::to_value(&audited).unwrap(),
