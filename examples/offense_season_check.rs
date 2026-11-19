@@ -7,7 +7,9 @@ use saberbb::{
     domain::{
         game_service::simulate_game,
         random_provider::RealRng,
-        resolver::batting_resolver::{CONTACT_TIMING_POSITION_SCALE, with_contact_geometry_scale},
+        resolver::batting_resolver::{
+            CONTACT_TIMING_POSITION_SCALE, SwingContactType, with_contact_geometry_scale,
+        },
         resolver::fielding_physics::{
             CatchType, with_direct_catch_margin_scale, with_pre_fence_pickup_trial,
         },
@@ -17,6 +19,7 @@ use saberbb::{
             game_state::{
                 DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, Ruling,
                 with_line_drive_lift_trial, with_right_field_first_trial,
+                with_vertical_contact_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             no_bounce_catch_audit::NoBounceCatchAudit,
@@ -84,6 +87,12 @@ struct Args {
     /// Replay simulated swings at -4, -2, 0, +2, and +4 mm vertical contact offsets.
     #[arg(long)]
     vertical_contact_sweep: bool,
+    /// Simulate full games at 0 and +4 mm relative to current vertical contact positions.
+    #[arg(long, conflicts_with_all = [
+        "vertical_contact_sweep", "line_drive_lift_comparison", "timing_geometry_sweep",
+        "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison"
+    ])]
+    vertical_contact_comparison: bool,
     /// Replay frozen contacts with individual HLA components removed; no game changes.
     #[arg(long)]
     contact_direction_diagnostics: bool,
@@ -137,6 +146,24 @@ struct Counts {
     non_strikeout_outs: u64,
 }
 impl Counts {
+    fn merge(&mut self, other: Self) {
+        self.games += other.games;
+        self.pitches += other.pitches;
+        self.pa += other.pa;
+        self.ab += other.ab;
+        self.single += other.single;
+        self.double += other.double;
+        self.triple += other.triple;
+        self.hr += other.hr;
+        self.strikeouts += other.strikeouts;
+        self.walks += other.walks;
+        self.hit_by_pitch += other.hit_by_pitch;
+        self.runs += other.runs;
+        self.runs_allowed += other.runs_allowed;
+        self.pitching_outs += other.pitching_outs;
+        self.non_strikeout_outs += other.non_strikeout_outs;
+    }
+
     fn batting(&mut self, result: BattingResult) {
         use BattingResult::*;
         self.pitches += 1;
@@ -192,6 +219,109 @@ impl Counts {
         };
         v
     }
+}
+
+#[derive(Default, Serialize)]
+struct FastBallOutcomes {
+    plays: u64,
+    single: u64,
+    double: u64,
+    triple: u64,
+    home_run: u64,
+    out: u64,
+    fielders_choice: u64,
+    double_play: u64,
+}
+
+impl FastBallOutcomes {
+    fn observe(&mut self, result: BattingResult) {
+        let count = match result {
+            BattingResult::Single => &mut self.single,
+            BattingResult::Double => &mut self.double,
+            BattingResult::Triple => &mut self.triple,
+            BattingResult::HomeRun => &mut self.home_run,
+            BattingResult::Out => &mut self.out,
+            BattingResult::FieldersChoice => &mut self.fielders_choice,
+            BattingResult::DoublePlay => &mut self.double_play,
+            _ => return,
+        };
+        *count += 1;
+        self.plays += 1;
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.plays += other.plays;
+        self.single += other.single;
+        self.double += other.double;
+        self.triple += other.triple;
+        self.home_run += other.home_run;
+        self.out += other.out;
+        self.fielders_choice += other.fielders_choice;
+        self.double_play += other.double_play;
+    }
+}
+
+#[derive(Default)]
+struct VerticalContactOutcomes {
+    swings: u64,
+    whiffs: u64,
+    low: FastBallOutcomes,
+    next: FastBallOutcomes,
+}
+
+impl VerticalContactOutcomes {
+    fn observe_ball(&mut self, speed: f64, angle: f64, result: BattingResult) {
+        if !speed.is_finite() || speed < fair_launch_audit::HIGH_EV_MIN_MS {
+            return;
+        }
+        if fair_launch_audit::TARGET_VLA.contains(&angle) {
+            self.low.observe(result);
+        } else if (10.0..15.0).contains(&angle) {
+            self.next.observe(result);
+        }
+    }
+
+    fn observe_game(&mut self, game: &GameResult) {
+        for batting in &game.player_battings {
+            if batting.swing_decision.is_some_and(|decision| decision.swung) {
+                self.swings += 1;
+                self.whiffs += u64::from(
+                    batting.adjusted_contact_type == SwingContactType::SwungAndMiss,
+                );
+            }
+            self.observe_ball(
+                batting.ball.launch_speed,
+                batting.ball.launch_angle,
+                batting.result,
+            );
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.swings += other.swings;
+        self.whiffs += other.whiffs;
+        self.low.merge(other.low);
+        self.next.merge(other.next);
+    }
+
+    fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "swings": self.swings,
+            "whiffs": self.whiffs,
+            "whiffs_per_swing": (self.swings > 0)
+                .then(|| self.whiffs as f64 / self.swings as f64),
+            "fast_fair_by_launch_angle_deg": {
+                "[7,10)": self.low,
+                "[10,15)": self.next,
+            },
+        })
+    }
+}
+
+#[derive(Default)]
+struct VerticalContactSummary {
+    total: Counts,
+    outcomes: VerticalContactOutcomes,
 }
 #[derive(Default, Serialize)]
 struct FieldingCounts {
@@ -447,7 +577,37 @@ fn run(args: Args) -> Result<()> {
             "Fixed simulated swings replayed at signed world-vertical contact offsets in mm. Positive shifts lift the vertical deflection. All shifts use the same baseline-matched swing pool. Recovered swings share one deterministic set of face-angle draws. Fair and home-run counts are trajectory outcomes; official baseline counts use recorded game outcomes."
         );
     }
-    if args.pre_fence_pickup_comparison {
+    if args.vertical_contact_comparison {
+        let mut trials = Vec::new();
+        for offset_mm in [0, 4] {
+            eprintln!("Full-game vertical contact comparison: +{offset_mm} mm");
+            let mut summary = VerticalContactSummary::default();
+            let reports = with_vertical_contact_trial(offset_mm, || {
+                simulate_reports_inner(
+                    &args,
+                    &games,
+                    CONTACT_TIMING_POSITION_SCALE,
+                    false,
+                    None,
+                    Some(&mut summary),
+                )
+            })
+            .with_context(|| format!("vertical contact trial +{offset_mm} mm"))?;
+            trials.push(serde_json::json!({
+                "additional_vertical_contact_offset_mm": offset_mm,
+                "total": summary.total.json(),
+                "vertical_contact_outcomes": summary.outcomes.json(),
+                "reports": reports,
+            }));
+        }
+        output["vertical_contact_trials"] = serde_json::json!(trials);
+        output["definitions"]["vertical_contact_trials"] = serde_json::json!(
+            "Full games with an additional world-vertical contact offset on every swing, on top of the selected intent's normal offset. Trials share the schedule, rosters and starting RNG seed per game. Changed plays can change subsequent decisions and RNG draws. Trial totals pool all seeds before calculating rates."
+        );
+        output["definitions"]["fast_fair_by_launch_angle_deg"] = serde_json::json!(
+            "Recorded fair batting outcomes with exit speed at least 45 m/s. Launch-angle intervals include the lower bound and exclude the upper bound. Each batted ball counts once, including a double play."
+        );
+    } else if args.pre_fence_pickup_comparison {
         eprintln!("Pre-fence pickup comparison: baseline");
         let baseline = simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)?;
         eprintln!("Pre-fence pickup comparison: enabled");
@@ -538,8 +698,20 @@ fn simulate_reports(
     right_field_trial: bool,
     lift_offset_mm: Option<u16>,
 ) -> Result<Vec<serde_json::Value>> {
+    simulate_reports_inner(args, games, scale, right_field_trial, lift_offset_mm, None)
+}
+
+fn simulate_reports_inner(
+    args: &Args,
+    games: &[GameSchedule],
+    scale: f64,
+    right_field_trial: bool,
+    lift_offset_mm: Option<u16>,
+    mut trial_summary: Option<&mut VerticalContactSummary>,
+) -> Result<Vec<serde_json::Value>> {
     let mut reports = Vec::new();
     for seed in &args.seeds {
+        let mut vertical_outcomes = trial_summary.is_some().then(VerticalContactOutcomes::default);
         let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
         let mut vertical_contact = args
             .vertical_contact_sweep
@@ -672,6 +844,9 @@ fn simulate_reports(
                     .count();
             }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
+            if let Some(outcomes) = vertical_outcomes.as_mut() {
+                outcomes.observe_game(&result);
+            }
             if let Some(sweep) = vertical_contact.as_mut() {
                 sweep.observe_game(game, &result, game_seed, scale);
             }
@@ -767,6 +942,11 @@ fn simulate_reports(
         if right_field_trial {
             report["right_field_first_outs"] = serde_json::json!(right_field_first_outs);
         }
+        if let (Some(summary), Some(outcomes)) = (trial_summary.as_deref_mut(), vertical_outcomes) {
+            report["vertical_contact_outcomes"] = outcomes.json();
+            summary.total.merge(total);
+            summary.outcomes.merge(outcomes);
+        }
         reports.push(report);
     }
     Ok(reports)
@@ -774,6 +954,47 @@ fn simulate_reports(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vertical_contact_comparison_separates_replay_and_counts_official_results() {
+        let args = ["check", "--season", "2026", "--vertical-contact-comparison"];
+        assert!(Args::try_parse_from(args).unwrap().vertical_contact_comparison);
+        assert!(
+            Args::try_parse_from(args.into_iter().chain(["--vertical-contact-sweep"])).is_err()
+        );
+        assert!(
+            Args::try_parse_from(args.into_iter().chain(["--line-drive-lift-comparison"])).is_err()
+        );
+
+        use BattingResult::*;
+        let mut first = VerticalContactOutcomes::default();
+        for (speed, angle, result) in [
+            (45.0, 7.0, Single),
+            (44.9, 8.0, Single),
+            (46.0, 9.0, Foul),
+            (45.0, 10.0, Double),
+            (46.0, 14.9, DoublePlay),
+            (46.0, 15.0, Triple),
+            (f64::INFINITY, 12.0, Out),
+        ] {
+            first.observe_ball(speed, angle, result);
+        }
+        let mut second = VerticalContactOutcomes::default();
+        second.observe_ball(46.0, 8.0, Out);
+        second.observe_ball(46.0, 12.0, FieldersChoice);
+        first.merge(second);
+        let report = first.json();
+        let low = &report["fast_fair_by_launch_angle_deg"]["[7,10)"];
+        let next = &report["fast_fair_by_launch_angle_deg"]["[10,15)"];
+        assert_eq!((low["plays"].as_u64(), next["plays"].as_u64()), (Some(2), Some(3)));
+        assert_eq!(low["single"], 1);
+        assert_eq!(low["out"], 1);
+        assert_eq!(next["double"], 1);
+        assert_eq!(next["double_play"], 1);
+        assert_eq!(next["fielders_choice"], 1);
+        assert!(report["whiffs_per_swing"].is_null());
+    }
+
     #[test]
     fn lift_offsets_keep_default_and_accept_full_schedule_shortlist() {
         let comparison = ["check", "--season", "2026", "--line-drive-lift-comparison"];
