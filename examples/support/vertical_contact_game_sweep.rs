@@ -15,6 +15,7 @@ use saberbb::domain::{
         ball::{BattedBall, OutboundResult, PitchedBall},
         game::{BattingResult, GameResult, GameSchedule},
         game_stats::PlayerGameBatting,
+        low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
         player::BatterInfo,
         stadium::Stadium,
     },
@@ -225,9 +226,7 @@ impl PairedCohorts {
         batting_result: BattingResult,
     ) {
         let low = |ball: &BattedBall| {
-            fair_trajectory(ball)
-                && (40.0..47.5).contains(&ball.launch_speed)
-                && (10.0..15.0).contains(&ball.launch_angle)
+            fair_trajectory(ball) && LowLineDriveFieldingAudit::matches(ball)
         };
         let hr = |ball: &BattedBall| {
             ball.outbound_result == OutboundResult::HomeRun
