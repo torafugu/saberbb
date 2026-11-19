@@ -22,6 +22,7 @@ use saberbb::{
                 with_vertical_contact_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
+            low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
             no_bounce_catch_audit::NoBounceCatchAudit,
             outfield_advance_audit::OutfieldAdvanceAudit,
             team::Team,
@@ -93,6 +94,9 @@ struct Args {
         "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison"
     ])]
     vertical_contact_comparison: bool,
+    /// Diagnose catch and first-base out opportunities on 40–47.5 m/s, 10–15 degree singles.
+    #[arg(long, requires = "vertical_contact_comparison")]
+    vertical_contact_fielding_diagnostics: bool,
     /// Replay frozen contacts with individual HLA components removed; no game changes.
     #[arg(long)]
     contact_direction_diagnostics: bool,
@@ -322,6 +326,7 @@ impl VerticalContactOutcomes {
 struct VerticalContactSummary {
     total: Counts,
     outcomes: VerticalContactOutcomes,
+    low_line_drive_fielding: LowLineDriveFieldingAudit,
 }
 #[derive(Default, Serialize)]
 struct FieldingCounts {
@@ -593,12 +598,17 @@ fn run(args: Args) -> Result<()> {
                 )
             })
             .with_context(|| format!("vertical contact trial +{offset_mm} mm"))?;
-            trials.push(serde_json::json!({
+            let mut trial = serde_json::json!({
                 "additional_vertical_contact_offset_mm": offset_mm,
                 "total": summary.total.json(),
                 "vertical_contact_outcomes": summary.outcomes.json(),
                 "reports": reports,
-            }));
+            });
+            if args.vertical_contact_fielding_diagnostics {
+                trial["low_line_drive_fielding"] =
+                    serde_json::to_value(summary.low_line_drive_fielding)?;
+            }
+            trials.push(trial);
         }
         output["vertical_contact_trials"] = serde_json::json!(trials);
         output["definitions"]["vertical_contact_trials"] = serde_json::json!(
@@ -607,6 +617,11 @@ fn run(args: Args) -> Result<()> {
         output["definitions"]["fast_fair_by_launch_angle_deg"] = serde_json::json!(
             "Recorded fair batting outcomes with exit speed at least 45 m/s. Launch-angle intervals include the lower bound and exclude the upper bound. Each batted ball counts once, including a double play."
         );
+        if args.vertical_contact_fielding_diagnostics {
+            output["definitions"]["low_line_drive_fielding"] = serde_json::json!(
+                "Official singles with exit speed [40,47.5) m/s and vertical launch angle [10,15) degrees. Direct catches replay eligible live candidates with 100%, 50%, or 0% of the current required catch margin. First-base scenarios use the recorded fielding point and ready time, the modeled batter time, and the faster of a direct throw with cover and an infield carry. For a throw, the receiver starts either at first or from the live position at ball control. The combined zero-margin catch or late-cover first-base count counts each single once. These are fixed-play opportunities."
+            );
+        }
     } else if args.pre_fence_pickup_comparison {
         eprintln!("Pre-fence pickup comparison: baseline");
         let baseline = simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)?;
@@ -743,6 +758,10 @@ fn simulate_reports_inner(
         let mut no_bounce = args
             .no_bounce_catch_diagnostics
             .then(NoBounceCatchAudit::default);
+        let mut low_line_drive_fielding = args
+            .vertical_contact_fielding_diagnostics
+            .then(LowLineDriveFieldingAudit::default);
+        let mut official_low_line_drive_singles = 0;
         let mut fielding = args
             .no_bounce_margin_comparison
             .then(FieldingCounts::default);
@@ -765,6 +784,10 @@ fn simulate_reports_inner(
                 )
             };
             let mut run_with_diagnostics = || {
+                let mut run = || match low_line_drive_fielding.as_mut() {
+                    Some(audit) => audit.observe_game(game_seed, run),
+                    None => run(),
+                };
                 let mut run = || match no_bounce.as_mut() {
                     Some(audit) => audit.observe_game(game_seed, run),
                     None => run(),
@@ -803,6 +826,16 @@ fn simulate_reports_inner(
                     game.id
                 )
             })?;
+            if low_line_drive_fielding.is_some() {
+                official_low_line_drive_singles += result
+                    .player_battings
+                    .iter()
+                    .filter(|b| {
+                        b.result == BattingResult::Single
+                            && LowLineDriveFieldingAudit::matches(&b.ball)
+                    })
+                    .count() as u64;
+            }
             if let Some(direction) = direction.as_mut() {
                 direction.observe(game, &result)?;
             }
@@ -946,6 +979,14 @@ fn simulate_reports_inner(
             report["vertical_contact_outcomes"] = outcomes.json();
             summary.total.merge(total);
             summary.outcomes.merge(outcomes);
+            if let Some(audit) = low_line_drive_fielding {
+                ensure!(
+                    audit.singles() == official_low_line_drive_singles,
+                    "low line-drive fielding audit count does not match official singles for seed {seed}"
+                );
+                report["low_line_drive_fielding"] = serde_json::to_value(&audit)?;
+                summary.low_line_drive_fielding.merge(audit);
+            }
         }
         reports.push(report);
     }
@@ -959,6 +1000,13 @@ mod tests {
     fn vertical_contact_comparison_separates_replay_and_counts_official_results() {
         let args = ["check", "--season", "2026", "--vertical-contact-comparison"];
         assert!(Args::try_parse_from(args).unwrap().vertical_contact_comparison);
+        let fielding_flag = "--vertical-contact-fielding-diagnostics";
+        assert!(
+            Args::try_parse_from(args.into_iter().chain([fielding_flag]))
+                .unwrap()
+                .vertical_contact_fielding_diagnostics
+        );
+        assert!(Args::try_parse_from(["check", "--season", "2026", fielding_flag]).is_err());
         assert!(
             Args::try_parse_from(args.into_iter().chain(["--vertical-contact-sweep"])).is_err()
         );

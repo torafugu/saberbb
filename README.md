@@ -693,6 +693,23 @@ cargo run --release --example offense_season_check -- --season 2026 --games 36 -
 python tools/diagnostics/vertical_contact_launch_compare.py vertical_contact_launch_2026.json > vertical_contact_launch_2026.csv
 ```
 
+To check how many of the singles at 40–47.5 m/s and 10–15° could become outs:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --vertical-contact-comparison --vertical-contact-fielding-diagnostics > vertical_contact_fielding_2026.json
+```
+
+Each trial and seed has a `low_line_drive_fielding` report for the half-open
+bands [40, 47.5) m/s and [10, 15) degrees. It counts direct catches under the
+current, half, and zero catch margins. The full airborne probe also counts
+plays where reach was possible only for fielders excluded by the live lane or
+distance filter. The first-base model uses the actual ball
+control position and time, and tests both a receiver already at first and cover
+that starts at ball control. A modeled infield carry can beat the throw. The
+combined count deduplicates singles where both a zero-margin catch and the
+late-cover first-base play could get an out. These are fixed-play estimates
+with game scoring held at the realized result.
+
 ### LineDrive intent lift in full games
 
 Normal games apply a +20 mm world-vertical contact offset when a swing has
