@@ -449,6 +449,63 @@ pub fn evaluate_swing_contact(
     )
 }
 
+struct SwingContactGeometry {
+    timing_impact_x_m: f64,
+    offset_x_m: f64,
+    offset_z_m: f64,
+    signed_length_offset_m: f64,
+    signed_thickness_offset_m: f64,
+}
+
+fn swing_contact_geometry(
+    batter: &BatterInfo,
+    offset: &PitchDisplacement,
+    error: &SwingExecutionError,
+    timing_position_scale: f64,
+) -> SwingContactGeometry {
+    assert!(timing_position_scale.is_finite() && timing_position_scale > 0.0);
+    // Scale displacement only. Keep timing_offset_sec unchanged for face-angle generation.
+    let timing_impact_x_m = batter.swing_speed * offset.timing_offset_sec * timing_position_scale;
+    let offset_x_m = offset.horizontal_offset_m + error.additional_x_m + timing_impact_x_m;
+    let offset_z_m = offset.vertical_offset_m + error.additional_z_m;
+    let (signed_length_offset_m, signed_thickness_offset_m) =
+        project_contact_offsets(offset_x_m, offset_z_m, error.actual_bat_angle_deg);
+    SwingContactGeometry {
+        timing_impact_x_m,
+        offset_x_m,
+        offset_z_m,
+        signed_length_offset_m,
+        signed_thickness_offset_m,
+    }
+}
+
+/// Exit speed for the realized swing before a diagnostic offset, without drawing RNG.
+pub(crate) fn pre_trial_exit_speed_ms(
+    batter: &BatterInfo,
+    pitch_speed_ms: f64,
+    offset: &PitchDisplacement,
+    error: &SwingExecutionError,
+) -> Option<f64> {
+    let geometry = swing_contact_geometry(batter, offset, error, CONTACT_GEOMETRY_SCALE.get());
+    let length = geometry.signed_length_offset_m.abs();
+    let thickness = geometry.signed_thickness_offset_m.abs();
+    if contact_geometry_is_miss(length, thickness) {
+        return None;
+    }
+    // The game keeps the reference depth scale for launch speed during geometry trials.
+    let depth = batter.swing_speed * offset.timing_offset_sec * CONTACT_TIMING_POSITION_SCALE;
+    let speed = launch_speed_terms(
+        pitch_speed_ms,
+        batter.swing_speed,
+        batter.swing_power,
+        depth,
+        thickness,
+        length,
+    )
+    .exit_speed_ms();
+    speed.is_finite().then_some(speed)
+}
+
 pub(crate) fn evaluate_swing_contact_with_timing_scale(
     rng: &mut dyn RandomProvider,
     batter: &BatterInfo,
@@ -456,16 +513,13 @@ pub(crate) fn evaluate_swing_contact_with_timing_scale(
     swing_execution_error: &SwingExecutionError,
     timing_position_scale: f64,
 ) -> SwingContactResult {
-    assert!(timing_position_scale.is_finite() && timing_position_scale > 0.0);
-    // Scale displacement only. Keep timing_offset_sec unchanged for face-angle generation.
-    let timing_impact_x_m = batter.swing_speed * offset.timing_offset_sec * timing_position_scale;
-    let offset_x_m =
-        offset.horizontal_offset_m + swing_execution_error.additional_x_m + timing_impact_x_m;
-    let offset_z_m = offset.vertical_offset_m + swing_execution_error.additional_z_m;
-
-    let (signed_length_offset_m, signed_thickness_offset_m) = project_contact_offsets(
-        offset_x_m, offset_z_m, swing_execution_error.actual_bat_angle_deg,
-    );
+    let SwingContactGeometry {
+        timing_impact_x_m,
+        offset_x_m,
+        offset_z_m,
+        signed_length_offset_m,
+        signed_thickness_offset_m,
+    } = swing_contact_geometry(batter, offset, swing_execution_error, timing_position_scale);
     let length_offset_m = signed_length_offset_m.abs();
     let thickness_offset_m = signed_thickness_offset_m.abs();
     let normalized_tip_offset = (length_offset_m / MAX_LENGTH_OFFSET_M).clamp(0.0, 1.0);
@@ -1688,6 +1742,17 @@ mod tests {
             evaluate_swing_contact(&mut FixedRng::new(0.5), &batter, &offset, &execution)
         };
         let baseline = contact();
+        assert_eq!(
+            pre_trial_exit_speed_ms(&batter, pitch.speed, &offset, &execution),
+            Some(calculate_launch_speed_with_power(
+                &baseline, pitch.speed, batter.swing_speed, batter.swing_power,
+            )),
+        );
+        let miss = PitchDisplacement {
+            horizontal_offset_m: 1.0,
+            ..offset
+        };
+        assert_eq!(pre_trial_exit_speed_ms(&batter, pitch.speed, &miss, &execution), None);
         with_contact_geometry_scale(1.0, || -> TestResult {
             let trial = contact();
             assert_eq!(trial.timing_position_scale, Some(1.0));
@@ -1700,6 +1765,10 @@ mod tests {
                 baseline.timing_impact_x_m,
             );
             assert_eq!(ball.launch_speed, expected);
+            assert_eq!(
+                pre_trial_exit_speed_ms(&batter, pitch.speed, &offset, &execution),
+                Some(ball.launch_speed),
+            );
             assert_ne!(
                 ball.launch_speed,
                 calculate_launch_speed_with_power(&trial, pitch.speed, batter.swing_speed, batter.swing_power)

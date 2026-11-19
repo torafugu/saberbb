@@ -743,6 +743,20 @@ compare how often a fair ball in that band became a double. HLA is relative to
 the stadium, with negative angles toward third base and positive angles toward
 first base.
 
+To compare the exit-speed-dependent window in full games alongside baseline
+and the +4 mm window, use the same holdout seeds as the fixed-swing replay:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --seeds 113,271,20261109 --vertical-contact-comparison --vertical-contact-window --vertical-contact-window-ev > vertical_contact_window_ev_games_2026.json
+```
+
+The third policy uses the pre-trial contact geometry to calculate exit speed
+without consuming random draws. Within [10, 30) mm, it applies +2 mm below
+47.5 m/s and +4 mm at or above it. A pre-trial geometric miss keeps +4 mm in
+the window. The three policies run fielding and baserunning. Compare official
+singles, doubles and home runs per PA, plus `mid_speed_20_to_25_deg` for the
+45–47.5 m/s band and `high_ev_home_runs_20_to_25_deg`.
+
 Add the fair-launch audit to compare official outcomes across all exit-speed
 and launch-angle bands. The CSV sums the backspin bands and seeds before
 dividing by each trial's plate appearances. Rows are ordered by the change in
