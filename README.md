@@ -712,6 +712,22 @@ policies as `baseline`, `uniform`, and `contact_z_window`. They add slugging
 outcomes at [40, 47.5) m/s and [10, 15) degrees, and official home runs at
 [20, 30) degrees. All three trials include fielding and baserunning.
 
+To repeat the comparison on three starting seeds independent of the default
+set while keeping the same 36 scheduled games per seed:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --seeds 113,271,20261109 --vertical-contact-comparison --vertical-contact-window > vertical_contact_window_holdout_2026.json
+```
+
+Compare `hr_per_pa` and `doubles_per_pa` for each seed and in the pooled
+trial totals. The `vertical_contact_outcomes.by_exit_speed_launch_angle_direction`
+table records all official fair outcomes for each joint band. Divide a band's
+`double` count by the corresponding trial or seed's `total.pa` to compare its
+contribution to the overall doubles rate. Divide by the band's `plays` to
+compare how often a fair ball in that band became a double. HLA is relative to
+the stadium, with negative angles toward third base and positive angles toward
+first base.
+
 Add the fair-launch audit to compare official outcomes across all exit-speed
 and launch-angle bands. The CSV sums the backspin bands and seeds before
 dividing by each trial's plate appearances. Rows are ordered by the change in
