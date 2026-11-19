@@ -15,13 +15,15 @@ use saberbb::{
         },
         seeded_diagnostic::derived_seed,
         shared::{
+            ball::{BattedBall, OutboundResult},
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
-                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, PairedContactPlay, Ruling,
-                VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS, VERTICAL_CONTACT_WINDOW_MM,
-                with_line_drive_lift_trial, with_paired_contact_fielding,
-                with_right_field_first_trial, with_vertical_contact_trial,
-                with_vertical_contact_window_ev_trial, with_vertical_contact_window_trial,
+                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, FenceAudit, LineDriveLiftStats,
+                PairedContactPlay, Ruling, VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS,
+                VERTICAL_CONTACT_WINDOW_MM, with_line_drive_lift_trial,
+                with_paired_contact_fielding, with_right_field_first_trial,
+                with_vertical_contact_trial, with_vertical_contact_window_ev_trial,
+                with_vertical_contact_window_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
@@ -437,6 +439,7 @@ struct PairedContactSummary {
     pairs: u64,
     /// Outer keys describe the +4 mm result and inner keys the EV-dependent result.
     transitions: BTreeMap<String, BTreeMap<String, u64>>,
+    fence_audit: PairedFenceSummary,
 }
 
 impl PairedContactSummary {
@@ -448,6 +451,7 @@ impl PairedContactSummary {
             pair.by_baseline_ev.result_label()
         );
         self.pairs += 1;
+        self.fence_audit.observe(pair);
         *self
             .transitions
             .entry(flat)
@@ -458,12 +462,96 @@ impl PairedContactSummary {
 
     fn merge(&mut self, seed: Self) {
         self.pairs += seed.pairs;
+        self.fence_audit.merge(seed.fence_audit);
         for (flat, outcomes) in seed.transitions {
             let row = self.transitions.entry(flat).or_default();
             for (by_ev, count) in outcomes {
                 *row.entry(by_ev).or_default() += count;
             }
         }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct PairedFenceSummary {
+    pairs_with_ground_rule_double: u64,
+    flat_ground_rule_doubles: FenceCatchCounts,
+    by_baseline_ev_ground_rule_doubles: FenceCatchCounts,
+    // Count opportunities on the flat branch of this transition.
+    flat_ground_rule_double_to_ev_direct_catch: FenceCatchCounts,
+}
+
+impl PairedFenceSummary {
+    fn observe(&mut self, pair: &PairedContactPlay) {
+        let Some(audit) = &pair.fence_audit else {
+            return;
+        };
+        self.pairs_with_ground_rule_double += 1;
+        let is_ground_rule_double =
+            |ball: BattedBall| ball.outbound_result == OutboundResult::GroundRuleDouble;
+        if let Some(flat) = &audit.flat
+            && pair.flat.ball.is_some_and(is_ground_rule_double)
+        {
+            self.flat_ground_rule_doubles.observe(flat);
+            if pair.by_baseline_ev.batting_result == Some(BattingResult::Out)
+                && pair
+                    .by_baseline_ev
+                    .fielding
+                    .and_then(|fielding| fielding.catch_diagnostics)
+                    .is_some_and(|catch| {
+                        catch.catch_type == CatchType::DirectFly && catch.error_type.is_none()
+                    })
+            {
+                self.flat_ground_rule_double_to_ev_direct_catch
+                    .observe(flat);
+            }
+        }
+        if let Some(by_ev) = &audit.by_baseline_ev
+            && pair.by_baseline_ev.ball.is_some_and(is_ground_rule_double)
+        {
+            self.by_baseline_ev_ground_rule_doubles.observe(by_ev);
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.pairs_with_ground_rule_double += other.pairs_with_ground_rule_double;
+        self.flat_ground_rule_doubles
+            .merge(other.flat_ground_rule_doubles);
+        self.by_baseline_ev_ground_rule_doubles
+            .merge(other.by_baseline_ev_ground_rule_doubles);
+        self.flat_ground_rule_double_to_ev_direct_catch
+            .merge(other.flat_ground_rule_double_to_ev_direct_catch);
+    }
+}
+
+#[derive(Default, Serialize)]
+struct FenceCatchCounts {
+    plays: u64,
+    integrated_path_reachable: u64,
+    integrated_path_within_risk_margin: u64,
+    integrated_path_within_risk_margin_and_eligible: u64,
+    clean_direct_catch_in_fielding_replay: u64,
+}
+
+impl FenceCatchCounts {
+    fn observe(&mut self, audit: &FenceAudit) {
+        self.plays += 1;
+        self.integrated_path_reachable += u64::from(audit.integrated_path_reachable);
+        self.integrated_path_within_risk_margin +=
+            u64::from(audit.integrated_path_within_risk_margin);
+        self.integrated_path_within_risk_margin_and_eligible +=
+            u64::from(audit.integrated_path_within_risk_margin_and_eligible);
+        self.clean_direct_catch_in_fielding_replay +=
+            u64::from(audit.clean_direct_catch_in_fielding_replay);
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.plays += other.plays;
+        self.integrated_path_reachable += other.integrated_path_reachable;
+        self.integrated_path_within_risk_margin += other.integrated_path_within_risk_margin;
+        self.integrated_path_within_risk_margin_and_eligible +=
+            other.integrated_path_within_risk_margin_and_eligible;
+        self.clean_direct_catch_in_fielding_replay += other.clean_direct_catch_in_fielding_replay;
     }
 }
 
@@ -756,6 +844,9 @@ fn run(args: Args) -> Result<()> {
         });
         output["definitions"]["vertical_contact_paired_fielding"] = serde_json::json!(
             "Live +4 mm window games supply the swings and initial play states. A pair differs by +4 versus +2 mm and has a fair trajectory at 45–47.5 m/s and 15–25 degrees in either branch. Ranges are half open. Each phase starts from the same RNG state for both branches. Both resolve through normal fielding and baserunning. Only the +4 mm result advances the game. Transition keys are launch band and official batting result. NoBattingResult indicates an interrupted play with no batting ruling."
+        );
+        output["definitions"]["paired_contact_fence_audit"] = serde_json::json!(
+            "For pairs with a ground-rule double in either branch, record each fair fence decision at the integration tick, before reflection or clearance. A positive height_above_fence_m means the ball cleared the fence. Each branch reports catch opportunities from the integrated pre-bounce path with the normal height, movement, risk and eligibility criteria, plus a normal fielding replay from the copied post-launch RNG state using fielding's estimated path. The transition cohort counts opportunities on the +4 mm ground-rule-double branch when the +2 mm branch officially caught the ball on the fly."
         );
     } else if args.vertical_contact_comparison {
         let mut trials = Vec::new();

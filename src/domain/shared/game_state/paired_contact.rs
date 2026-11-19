@@ -22,6 +22,10 @@ use crate::domain::{
 use serde::Serialize;
 use std::cell::RefCell;
 
+mod fence;
+pub use fence::FenceAudit;
+use fence::PairedFenceAudit;
+
 type Flight = Option<(BattedBall, PlayerGameBattingMetrics)>;
 
 thread_local! {
@@ -52,6 +56,8 @@ pub struct PairedContactPlay {
     pub baseline_ev_ms: f64,
     pub flat: Play,
     pub by_baseline_ev: Play,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fence_audit: Option<PairedFenceAudit>,
 }
 
 #[derive(Serialize)]
@@ -191,8 +197,10 @@ impl PairedSwing {
         pitcher_id: i64,
         batter_id: i64,
         batting_side: RL,
-        flight: Flight,
+        flights: [Flight; 2],
     ) -> Result<ResolvedAlternative, GameError> {
+        let [flat, alternative] = flights;
+        let fence_audit = PairedFenceAudit::compare(live, flat, alternative)?;
         let mut replay = GameState {
             record_contact_states: false,
             away_manager: live.away_manager.clone(),
@@ -223,14 +231,21 @@ impl PairedSwing {
             max_inning: live.max_inning,
             base_four_seam_speed: live.base_four_seam_speed,
         };
-        replay.commit_swing(pitcher_id, batter_id, batting_side, &self.contact, flight)?;
+        replay.commit_swing(
+            pitcher_id,
+            batter_id,
+            batting_side,
+            &self.contact,
+            alternative,
+        )?;
         Ok(ResolvedAlternative {
             outs_before: live.inning_state.out,
             occupied_bases: [Base::First, Base::Second, Base::Third]
                 .map(|base| live.inning_state.runners.has_runner_on(base)),
             baseline_contact_z_mm: self.baseline_contact_z_mm,
             baseline_ev_ms: self.baseline_ev_ms,
-            by_baseline_ev: Play::from_result(&replay.game_result, live.count_seq, flight),
+            by_baseline_ev: Play::from_result(&replay.game_result, live.count_seq, alternative),
+            fence_audit,
         })
     }
 }
@@ -241,6 +256,7 @@ pub(super) struct ResolvedAlternative {
     baseline_contact_z_mm: f64,
     baseline_ev_ms: f64,
     by_baseline_ev: Play,
+    fence_audit: Option<PairedFenceAudit>,
 }
 
 impl ResolvedAlternative {
@@ -257,6 +273,7 @@ impl ResolvedAlternative {
                     baseline_ev_ms: self.baseline_ev_ms,
                     flat: Play::from_result(&live.game_result, count_seq, flight),
                     by_baseline_ev: self.by_baseline_ev,
+                    fence_audit: self.fence_audit,
                 });
         });
     }
@@ -314,6 +331,13 @@ mod tests {
                         || is_target(pair.by_baseline_ev.ball.as_ref())
                 );
                 assert!(VERTICAL_CONTACT_WINDOW_MM.contains(&pair.baseline_contact_z_mm));
+                assert_eq!(
+                    pair.fence_audit.is_some(),
+                    [pair.flat.ball, pair.by_baseline_ev.ball]
+                        .iter()
+                        .flatten()
+                        .any(|ball| { ball.outbound_result == OutboundResult::GroundRuleDouble })
+                );
                 assert_eq!(
                     vertical_contact_window_ev_shift_mm(Some(pair.baseline_ev_ms)),
                     2

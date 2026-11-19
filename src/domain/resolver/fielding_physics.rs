@@ -353,12 +353,9 @@ fn probe_airborne_catches_with_stride(
     fielders: &[ActiveFielder],
     stride: u32,
 ) -> Vec<AirCatchProbeDiagnostics> {
-    let mut results = vec![AirCatchProbeDiagnostics {
-        step_sec: AIR_PROBE_STEP_SEC * f64::from(stride),
-        ..AirCatchProbeDiagnostics::default()
-    }; fielders.len()];
+    let step_sec = AIR_PROBE_STEP_SEC * f64::from(stride);
     if fielders.is_empty() || !ball.total_time.is_finite() || ball.total_time <= 0.0 {
-        return results;
+        return probe_airborne_samples(&[], fielders, step_sec);
     }
 
     let mut samples = Vec::new();
@@ -377,6 +374,44 @@ fn probe_airborne_catches_with_stride(
         sample_index += stride;
     }
 
+    probe_airborne_samples(&samples, fielders, step_sec)
+}
+
+/// Evaluate the live reach and risk equations on the integrated pre-bounce flight.
+pub(crate) fn probe_integrated_airborne_catches(
+    ball: &BattedBall,
+    flight: &[super::batting_resolver::GrounderFlightSample],
+    fielders: &[ActiveFielder],
+) -> Vec<AirCatchProbeDiagnostics> {
+    let end = direct_flight_end_time(ball);
+    let samples: Vec<_> = flight
+        .iter()
+        .take_while(|sample| !sample.after_bounce && is_before_air_event(sample.time_sec, end))
+        .filter(|sample| sample.time_sec + AIR_EVENT_EPS_SEC >= 0.10)
+        .map(|sample| {
+            (
+                sample.time_sec,
+                sample.position.x,
+                sample.position.y,
+                sample.height_m,
+            )
+        })
+        .collect();
+    probe_airborne_samples(&samples, fielders, AIR_PROBE_STEP_SEC)
+}
+
+fn probe_airborne_samples(
+    samples: &[(f64, f64, f64, f64)],
+    fielders: &[ActiveFielder],
+    step_sec: f64,
+) -> Vec<AirCatchProbeDiagnostics> {
+    let mut results = vec![
+        AirCatchProbeDiagnostics {
+            step_sec,
+            ..AirCatchProbeDiagnostics::default()
+        };
+        fielders.len()
+    ];
     for (fielder, result) in fielders.iter().zip(&mut results) {
         let rad = fielder.polar_position.angle.to_radians();
         let f_x = fielder.polar_position.distance * rad.sin();
@@ -384,9 +419,10 @@ fn probe_airborne_catches_with_stride(
         let speed = fielder.info.running_speed;
         let prep_time = fielder.info.prep_time;
         let required_margin = fielder.risk_tolerance.required_margin_sec();
-        for &(t, x, y, height) in &samples {
+        for &(t, x, y, height) in samples {
             result.air_samples += 1;
-            if !height.is_finite() || !fielder.info.reach_height.is_finite()
+            if !height.is_finite()
+                || !fielder.info.reach_height.is_finite()
                 || height > fielder.info.reach_height
             {
                 continue;

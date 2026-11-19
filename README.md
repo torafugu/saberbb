@@ -778,6 +778,19 @@ new doubles in the lower band. Each seed report includes the paired plays,
 with ball flight, fielding and runner events for both policies. Set
 `SABERBB_DB` as for the other diagnostics.
 
+Pairs with a ground-rule double in either branch include a `fence_audit`.
+Compare the first bounce in each branch's `ball` and the signed
+`height_above_fence_m` in each fair-fence event. Fence event heights are
+measured at the integrator's decision tick, before any reflection. An empty
+event list means the flight did not reach a fair fence above ground.
+
+In `total.fence_audit.flat_ground_rule_double_to_ev_direct_catch`, the
+opportunity counts refer to the +4 mm branch of the transition. The integrated
+path counts evaluate reach and risk before the first bounce or fence contact.
+The fielding replay uses the normal estimated path, candidate filters and
+error draws from the same post-launch RNG state. The diagnostic leaves the
+official game results intact.
+
 Add the fair-launch audit to compare official outcomes across all exit-speed
 and launch-angle bands. The CSV sums the backspin bands and seeds before
 dividing by each trial's plate appearances. Rows are ordered by the change in
