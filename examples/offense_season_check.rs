@@ -50,6 +50,10 @@ mod pickup_timing_audit;
 mod selected_intent_audit;
 #[path = "support/throw_origin_audit.rs"]
 mod throw_origin_audit;
+#[path = "support/vertical_contact_game_sweep.rs"]
+mod vertical_contact_game_sweep;
+#[path = "support/vertical_contact_replay.rs"]
+mod vertical_contact_replay;
 
 #[derive(Parser)]
 struct Args {
@@ -77,6 +81,9 @@ struct Args {
     /// Compare exit-speed and launch-angle frequencies over all fair batting outcomes.
     #[arg(long)]
     fair_launch_diagnostics: bool,
+    /// Replay simulated swings at -4, -2, 0, +2, and +4 mm vertical contact offsets.
+    #[arg(long)]
+    vertical_contact_sweep: bool,
     /// Replay frozen contacts with individual HLA components removed; no game changes.
     #[arg(long)]
     contact_direction_diagnostics: bool,
@@ -435,6 +442,11 @@ fn run(args: Args) -> Result<()> {
             "babip": "(1B + 2B + 3B) / (AB - K - HR); sacrifice flies have no separate result category"
         }
     });
+    if args.vertical_contact_sweep {
+        output["definitions"]["vertical_contact_sweep"] = serde_json::json!(
+            "Fixed simulated swings replayed at signed world-vertical contact offsets in mm. Positive shifts lift the vertical deflection. All shifts use the same baseline-matched swing pool. Recovered swings share one deterministic set of face-angle draws. Fair and home-run counts are trajectory outcomes; official baseline counts use recorded game outcomes."
+        );
+    }
     if args.pre_fence_pickup_comparison {
         eprintln!("Pre-fence pickup comparison: baseline");
         let baseline = simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)?;
@@ -529,6 +541,9 @@ fn simulate_reports(
     let mut reports = Vec::new();
     for seed in &args.seeds {
         let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
+        let mut vertical_contact = args
+            .vertical_contact_sweep
+            .then(vertical_contact_game_sweep::Sweep::default);
         let mut fair_launch = args
             .fair_launch_diagnostics
             .then(fair_launch_audit::FairLaunchAudit::default);
@@ -657,6 +672,9 @@ fn simulate_reports(
                     .count();
             }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
+            if let Some(sweep) = vertical_contact.as_mut() {
+                sweep.observe_game(game, &result, game_seed, scale);
+            }
             if let Some(audit) = fair_launch.as_mut() {
                 audit.observe_launch_speed_terms(game, &result, scale);
                 audit.observe(&result);
@@ -731,6 +749,9 @@ fn simulate_reports(
         }
         if let Some(outfield) = outfield {
             report["outfield_advance_diagnostics"] = serde_json::to_value(outfield)?;
+        }
+        if let Some(sweep) = vertical_contact {
+            report["vertical_contact_sweep"] = serde_json::to_value(sweep)?;
         }
         if let Some(audit) = fair_launch {
             ensure!(

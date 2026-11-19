@@ -1,14 +1,12 @@
 //! Frozen-contact vertical displacement, using the live bat-frame geometry and flight.
-use super::{Contact, required, verify_trajectory};
+use super::{Contact, required, verify_trajectory, vertical_contact_replay::Inputs};
 use anyhow::{Context, Result, ensure};
 use rusqlite::Statement;
 use saberbb::domain::{
     random_provider::RealRng,
     resolver::batting_resolver::{
-        SwingContactResult, calculate_collision_spin_from_offsets, calculate_dynamic_attack_angle,
-        calculate_launch_speed_with_power, calculate_trajectory,
-        calculate_vertical_contact_deflection, contact_geometry_is_miss, contact_normal_hla_deg,
-        project_contact_offsets, sample_face_angle_terms, wrap_hla_deg,
+        calculate_dynamic_attack_angle, calculate_vertical_contact_deflection,
+        contact_geometry_is_miss, project_contact_offsets, sample_face_angle_terms, wrap_hla_deg,
     },
     seeded_diagnostic::derived_seed,
     shared::{ball::BattedBall, player::RL, stadium::Stadium},
@@ -18,56 +16,6 @@ use std::collections::BTreeMap;
 
 const ALL_SWING_SHIFTS_MM: [i32; 4] = [0, 10, 15, 20];
 const SHIFTS_MM: [i32; 9] = [-10, -5, 0, 5, 10, 15, 20, 25, 30];
-
-struct Inputs {
-    x: f64,
-    z: f64,
-    tilt: f64,
-    depth: f64,
-    pitch_speed: f64,
-    pitch_spin: f64,
-    pitch_axis: f64,
-    bat_speed: f64,
-    power: f64,
-    handedness: f64,
-    face_deg: f64,
-    attack: f64,
-}
-
-impl Inputs {
-    fn flight(&self, z: f64, stadium: &Stadium) -> Result<Option<BattedBall>> {
-        let (length, thickness) = project_contact_offsets(self.x, z, self.tilt);
-        if contact_geometry_is_miss(length, thickness) {
-            return Ok(None);
-        }
-        let contact = SwingContactResult {
-            length_offset_m: length.abs(),
-            thickness_offset_m: thickness.abs(),
-            timing_impact_x_m: self.depth,
-            ..SwingContactResult::default()
-        };
-        let ev = calculate_launch_speed_with_power(
-            &contact,
-            self.pitch_speed,
-            self.bat_speed,
-            self.power,
-        );
-        let (spin, axis) = calculate_collision_spin_from_offsets(
-            length.abs(),
-            thickness.abs(),
-            self.bat_speed,
-            self.pitch_spin,
-            self.pitch_axis,
-        );
-        let vla = self.attack + calculate_vertical_contact_deflection(z);
-        let hla = wrap_hla_deg(
-            (self.face_deg + contact_normal_hla_deg(thickness, self.tilt)) * self.handedness,
-        );
-        calculate_trajectory(ev, vla, hla, spin, axis, stadium)
-            .map(Some)
-            .map_err(|_| anyhow::anyhow!("trajectory_failed"))
-    }
-}
 
 #[derive(Default, Serialize)]
 struct Scenario {
@@ -277,9 +225,7 @@ fn replay(
     let baseline = inputs
         .flight(z, stadium)?
         .context("baseline_outside_contact_limits")?;
-    let hla = wrap_hla_deg(
-        (inputs.face_deg + contact_normal_hla_deg(thickness, inputs.tilt)) * inputs.handedness,
-    );
+    let hla = inputs.launch_direction(thickness);
     ensure!(
         (baseline.launch_speed - c.ev).abs() < 1e-7,
         "baseline_exit_speed_mismatch"
