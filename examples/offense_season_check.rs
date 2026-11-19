@@ -581,6 +581,9 @@ fn run(args: Args) -> Result<()> {
         output["definitions"]["vertical_contact_sweep"] = serde_json::json!(
             "Fixed simulated swings replayed at signed world-vertical contact offsets in mm. Positive shifts lift the vertical deflection. All shifts use the same baseline-matched swing pool. Recovered swings share one deterministic set of face-angle draws. Fair and home-run counts are trajectory outcomes; official baseline counts use recorded game outcomes."
         );
+        output["definitions"]["paired_zero_to_plus_four_mm"] = serde_json::json!(
+            "Paired trajectories on the same comparable swings. Low line drives are fair at exit speed [40,47.5) m/s and angle [10,15) degrees. The home-run cohort requires a home-run trajectory and angle [20,30) degrees. Input cells group by baseline world-vertical contact displacement, actual bat angle and baseline exit speed. A geometric miss has no baseline exit speed."
+        );
     }
     if args.vertical_contact_comparison {
         let mut trials = Vec::new();

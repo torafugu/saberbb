@@ -26,6 +26,9 @@ use std::collections::BTreeMap;
 const SHIFTS_MM: [i32; 5] = [-4, -2, 0, 2, 4];
 const HIGH_EV_MS: f64 = 45.0;
 const TARGET_ANGLE: std::ops::Range<f64> = 7.0..10.0;
+const EXIT_SPEED_BANDS_MS: &[f64] = &[25.0, 35.0, 40.0, 45.0, 47.5, 50.0, 55.0];
+const FLIGHT_ANGLE_BANDS_DEG: &[f64] =
+    &[-10.0, 0.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 50.0];
 
 fn fair_trajectory(ball: &BattedBall) -> bool {
     match ball.outbound_result {
@@ -108,6 +111,154 @@ impl Scenario {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Transition {
+    Outside,
+    Entered,
+    Stayed,
+    Exited,
+}
+
+fn transition(baseline: bool, shifted: bool) -> Transition {
+    match (baseline, shifted) {
+        (false, false) => Transition::Outside,
+        (false, true) => Transition::Entered,
+        (true, true) => Transition::Stayed,
+        (true, false) => Transition::Exited,
+    }
+}
+
+#[derive(Default, Serialize)]
+struct TransitionCounts {
+    outside: u64,
+    entered: u64,
+    stayed: u64,
+    exited: u64,
+}
+
+impl TransitionCounts {
+    fn observe(&mut self, transition: Transition) {
+        let count = match transition {
+            Transition::Outside => &mut self.outside,
+            Transition::Entered => &mut self.entered,
+            Transition::Stayed => &mut self.stayed,
+            Transition::Exited => &mut self.exited,
+        };
+        *count += 1;
+    }
+}
+
+fn paired_flight_band(ball: Option<&BattedBall>) -> String {
+    let Some(ball) = ball else {
+        return "geometric_miss".into();
+    };
+    let outcome = if !fair_trajectory(ball) {
+        "foul"
+    } else {
+        match ball.outbound_result {
+            OutboundResult::HomeRun => "home_run",
+            OutboundResult::GroundRuleDouble => "ground_rule_double",
+            _ => "fair",
+        }
+    };
+    let ev = band(ball.launch_speed, EXIT_SPEED_BANDS_MS);
+    let vla = band(ball.launch_angle, FLIGHT_ANGLE_BANDS_DEG);
+    format!("{outcome}|EV_ms:{ev}|VLA_deg:{vla}")
+}
+
+#[derive(Default, Serialize)]
+struct Cohort {
+    counts: TransitionCounts,
+    entered_from: BTreeMap<String, u64>,
+    exited_to: BTreeMap<String, u64>,
+    entered_by_baseline_batting_result: BTreeMap<String, u64>,
+}
+
+impl Cohort {
+    fn observe(
+        &mut self,
+        transition: Transition,
+        baseline: Option<&BattedBall>,
+        shifted: Option<&BattedBall>,
+        batting_result: BattingResult,
+    ) {
+        self.counts.observe(transition);
+        match transition {
+            Transition::Entered => {
+                *self
+                    .entered_from
+                    .entry(paired_flight_band(baseline))
+                    .or_default() += 1;
+                *self
+                    .entered_by_baseline_batting_result
+                    .entry(batting_result.as_ref().into())
+                    .or_default() += 1;
+            }
+            Transition::Exited => {
+                *self.exited_to.entry(paired_flight_band(shifted)).or_default() += 1;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct InputCell {
+    swings: u64,
+    low_line_drive: TransitionCounts,
+    home_run_20_to_30_deg: TransitionCounts,
+}
+
+#[derive(Default, Serialize)]
+struct PairedCohorts {
+    low_line_drive: Cohort,
+    home_run_20_to_30_deg: Cohort,
+    by_baseline_inputs: BTreeMap<String, InputCell>,
+}
+
+impl PairedCohorts {
+    fn observe(
+        &mut self,
+        inputs: &Inputs,
+        baseline: Option<&BattedBall>,
+        shifted: Option<&BattedBall>,
+        batting_result: BattingResult,
+    ) {
+        let low = |ball: &BattedBall| {
+            fair_trajectory(ball)
+                && (40.0..47.5).contains(&ball.launch_speed)
+                && (10.0..15.0).contains(&ball.launch_angle)
+        };
+        let hr = |ball: &BattedBall| {
+            ball.outbound_result == OutboundResult::HomeRun
+                && (20.0..30.0).contains(&ball.launch_angle)
+        };
+        let low = transition(baseline.is_some_and(low), shifted.is_some_and(low));
+        let hr = transition(baseline.is_some_and(hr), shifted.is_some_and(hr));
+        self.low_line_drive
+            .observe(low, baseline, shifted, batting_result);
+        self.home_run_20_to_30_deg
+            .observe(hr, baseline, shifted, batting_result);
+
+        let z = band(
+            inputs.z * 1000.0,
+            &[-30.0, -20.0, -10.0, -5.0, 0.0, 5.0, 10.0, 20.0, 30.0],
+        );
+        let tilt = band(inputs.tilt, &[0.0, 10.0, 20.0, 30.0, 40.0, 50.0]);
+        let ev = baseline.map_or_else(
+            || "geometric_miss".into(),
+            |ball| band(ball.launch_speed, EXIT_SPEED_BANDS_MS),
+        );
+        let cell = self
+            .by_baseline_inputs
+            .entry(format!("contact_z_mm:{z}|bat_angle_deg:{tilt}|EV_ms:{ev}"))
+            .or_default();
+        cell.swings += 1;
+        cell.low_line_drive.observe(low);
+        cell.home_run_20_to_30_deg.observe(hr);
+    }
+}
+
 #[derive(Serialize)]
 pub(super) struct Sweep {
     source_swings: u64,
@@ -121,6 +272,7 @@ pub(super) struct Sweep {
     exclusions: BTreeMap<String, u64>,
     exclusions_by_shift_mm: BTreeMap<i32, u64>,
     by_shift_mm: BTreeMap<i32, Scenario>,
+    paired_zero_to_plus_four_mm: PairedCohorts,
 }
 
 impl Default for Sweep {
@@ -140,6 +292,7 @@ impl Default for Sweep {
                 .into_iter()
                 .map(|shift| (shift, Scenario::default()))
                 .collect(),
+            paired_zero_to_plus_four_mm: PairedCohorts::default(),
         }
     }
 }
@@ -227,6 +380,14 @@ impl Sweep {
             self.comparable_home_runs += u64::from(original_hr);
             self.comparable_official_fast_low_balls += u64::from(official_fast_low);
             for (shift, flight) in flights {
+                if shift == 4 {
+                    self.paired_zero_to_plus_four_mm.observe(
+                        &inputs,
+                        baseline,
+                        flight.as_ref(),
+                        batting.result,
+                    );
+                }
                 self.by_shift_mm.get_mut(&shift).unwrap().observe(
                     baseline,
                     flight.as_ref(),
@@ -359,6 +520,90 @@ fn reconstruct(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_cohorts_track_origins_destinations_and_shared_input_cells() {
+        let inputs = Inputs {
+            x: 0.0,
+            z: -0.007,
+            tilt: 24.0,
+            depth: 0.0,
+            pitch_speed: 40.0,
+            pitch_spin: 2200.0,
+            pitch_axis: 0.0,
+            bat_speed: 35.0,
+            power: 1.0,
+            handedness: 1.0,
+            face_deg: 0.0,
+            attack: 10.0,
+        };
+        let below_band = BattedBall {
+            launch_speed: 44.0,
+            launch_angle: 8.0,
+            ..BattedBall::default()
+        };
+        let low = BattedBall {
+            launch_angle: 10.0,
+            ..below_band
+        };
+        let high_low = BattedBall {
+            launch_angle: 14.0,
+            ..low
+        };
+        let above_band = BattedBall {
+            launch_angle: 15.0,
+            ..low
+        };
+        let warning_track = BattedBall {
+            launch_speed: 48.0,
+            launch_angle: 22.0,
+            ..low
+        };
+        let hr = BattedBall {
+            launch_angle: 25.0,
+            outbound_result: OutboundResult::HomeRun,
+            ..warning_track
+        };
+        let higher_hr = BattedBall {
+            launch_angle: 30.0,
+            ..hr
+        };
+        let mut paired = PairedCohorts::default();
+        for (before, after, result) in [
+            (Some(&below_band), &low, BattingResult::Single),
+            (None, &low, BattingResult::Strikeout),
+            (Some(&low), &low, BattingResult::Single),
+            (Some(&high_low), &above_band, BattingResult::Single),
+            (Some(&warning_track), &hr, BattingResult::Out),
+            (Some(&hr), &higher_hr, BattingResult::HomeRun),
+        ] {
+            paired.observe(&inputs, before, Some(after), result);
+        }
+
+        let low = paired.low_line_drive;
+        assert_eq!(
+            (low.counts.entered, low.counts.stayed, low.counts.exited),
+            (2, 1, 1)
+        );
+        assert_eq!(low.entered_from["geometric_miss"], 1);
+        assert_eq!(low.entered_from["fair|EV_ms:[40,45)|VLA_deg:[7,10)"], 1);
+        assert_eq!(low.entered_by_baseline_batting_result["Single"], 1);
+        assert_eq!(low.exited_to["fair|EV_ms:[40,45)|VLA_deg:[15,20)"], 1);
+        let hr = paired.home_run_20_to_30_deg;
+        assert_eq!((hr.counts.entered, hr.counts.exited), (1, 1));
+        assert_eq!(hr.entered_from["fair|EV_ms:[47.5,50)|VLA_deg:[20,25)"], 1);
+        assert_eq!(hr.exited_to["home_run|EV_ms:[47.5,50)|VLA_deg:[30,35)"], 1);
+
+        let cell = &paired.by_baseline_inputs
+            ["contact_z_mm:[-10,-5)|bat_angle_deg:[20,30)|EV_ms:[40,45)"];
+        assert_eq!(cell.swings, 3);
+        assert_eq!(cell.low_line_drive.entered, 1);
+        assert_eq!(cell.home_run_20_to_30_deg.entered, 0);
+        assert_eq!(
+            paired.by_baseline_inputs.values().map(|c| c.swings).sum::<u64>(),
+            6
+        );
+    }
 
     #[test]
     fn sweep_counts_angle_entries_and_distinguishes_why_balls_leave() {

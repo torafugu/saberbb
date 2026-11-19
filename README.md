@@ -662,6 +662,22 @@ swing. Their fair trajectories and home runs are estimates. The sweep holds
 the set of swings fixed and does not model a change in swing decisions or
 when a batter would select a power intent.
 
+To compare the 0 mm and +4 mm trajectories on the same simulated swings:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --vertical-contact-sweep > vertical_contact_paired_cohorts_2026.json
+```
+
+In each seed's `paired_zero_to_plus_four_mm` report, compare entries, exits,
+and retained swings for fair [40, 47.5) m/s, [10, 15) degree line drives and
+for [20, 30) degree home-run trajectories. `entered_from` and `exited_to`
+show the flight bands on the other side of each transition, including
+geometric misses. `by_baseline_inputs` gives both transition counts against
+the same swing count in each joint band of vertical contact displacement,
+actual bat angle, and baseline exit speed. The input displacement includes
+the existing swing intent offset. The reported trajectories do not rerun
+fielding or scoring.
+
 ### Vertical contact offsets in full games
 
 ```sh
