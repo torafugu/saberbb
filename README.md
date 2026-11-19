@@ -662,6 +662,26 @@ swing. Their fair trajectories and home runs are estimates. The sweep holds
 the set of swings fixed and does not model a change in swing decisions or
 when a batter would select a power intent.
 
+### Vertical contact offsets in full games
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --vertical-contact-comparison > vertical_contact_comparison_2026.json
+```
+
+The comparison reads `SABERBB_DB` and runs 36 scheduled games per seed
+under each of two conditions. The 0 mm trial uses current behavior. The
++4 mm trial adds 4 mm of world-vertical displacement to every swing,
+including swings with the existing LineDrive offset. Both trials run the
+normal game loop with the same schedule, rosters and starting seed per
+game. Once plays change, later game situations and RNG draws can diverge.
+The command saves no game results to the database.
+
+In `vertical_contact_trials`, compare each trial's pooled `total` and its
+seed-level `reports` for singles, home runs, and strikeouts per plate
+appearance, and BABIP. `vertical_contact_outcomes` reports whiffs per swing
+and the recorded batting results in the [7°, 10°) and [10°, 15°) bands
+for fair balls with exit speed at least 45 m/s.
+
 ### LineDrive intent lift in full games
 
 Normal games apply a +20 mm world-vertical contact offset when a swing has

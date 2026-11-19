@@ -20,8 +20,8 @@ use saberbb::domain::{
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-const HIGH_EV_MIN_MS: f64 = 45.0;
-const TARGET_VLA: std::ops::Range<f64> = 7.0..10.0;
+pub(super) const HIGH_EV_MIN_MS: f64 = 45.0;
+pub(super) const TARGET_VLA: std::ops::Range<f64> = 7.0..10.0;
 
 #[derive(Default, Serialize)]
 struct Outcomes {

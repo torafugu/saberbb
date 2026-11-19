@@ -78,6 +78,20 @@ pub struct LineDriveLiftStats {
 thread_local! {
     static LINE_DRIVE_LIFT: std::cell::Cell<Option<(f64, LineDriveLiftStats)>> =
         const { std::cell::Cell::new(None) };
+    static VERTICAL_CONTACT_TRIAL_OFFSET_M: std::cell::Cell<f64> =
+        const { std::cell::Cell::new(0.0) };
+}
+
+/// Add a world-vertical contact offset to every swing in a synchronous diagnostic run.
+pub fn with_vertical_contact_trial<T>(offset_mm: i16, run: impl FnOnce() -> T) -> T {
+    struct Restore(f64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            VERTICAL_CONTACT_TRIAL_OFFSET_M.set(self.0);
+        }
+    }
+    let _restore = Restore(VERTICAL_CONTACT_TRIAL_OFFSET_M.replace(f64::from(offset_mm) / 1000.0));
+    run()
 }
 
 /// Scope the experimental line-drive contact offset to one synchronous simulation.
@@ -1192,6 +1206,10 @@ impl GameState {
         if vertical_contact_offset_m != 0.0 {
             swing_error.additional_z_m += vertical_contact_offset_m;
         }
+        let trial_offset_m = VERTICAL_CONTACT_TRIAL_OFFSET_M.get();
+        if trial_offset_m != 0.0 {
+            swing_error.additional_z_m += trial_offset_m;
+        }
         evaluate_swing_contact(self.rng.as_mut(), batter, &displacement, &swing_error)
     }
 
@@ -1625,6 +1643,43 @@ impl InningState {
 mod tests {
     use super::*;
     use crate::domain::test_support::{active_runner as runner, game_state};
+
+    #[test]
+    fn vertical_contact_trial_shifts_the_first_swing_and_restores_seeded_games() {
+        use crate::domain::{
+            game_service::simulate_game, random_provider::RealRng, test_support::game_schedule,
+        };
+        let mut schedule = game_schedule();
+        schedule.max_inning = 1;
+        let run = || {
+            simulate_game(
+                schedule.clone(),
+                Box::new(RealRng::from_seed(7)),
+                BattingStrategySettings::player_driven(),
+                Some(10_000),
+                false,
+            )
+            .unwrap()
+        };
+        let ordinary = run();
+        let (control, lifted) = with_vertical_contact_trial(4, || {
+            (with_vertical_contact_trial(0, run), run())
+        });
+        let first_swing = |game: &GameResult| {
+            game.player_battings
+                .iter()
+                .find_map(|b| Some((b.count_seq, b.contact_offset_x_m?, b.contact_offset_z_m?)))
+                .expect("seeded game should contain a swing")
+        };
+        let (count, x, z) = first_swing(&control);
+        let (lifted_count, lifted_x, lifted_z) = first_swing(&lifted);
+        assert_eq!(count, lifted_count);
+        assert_eq!(x, lifted_x);
+        assert!((lifted_z - z - 0.004).abs() < 1e-12);
+        let ordinary = serde_json::to_value(ordinary).unwrap();
+        assert_eq!(ordinary, serde_json::to_value(control).unwrap());
+        assert_eq!(ordinary, serde_json::to_value(run()).unwrap());
+    }
 
     #[test]
     fn line_drive_lift_defaults_to_twenty_mm_and_restores_scope() {
