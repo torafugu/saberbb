@@ -682,6 +682,17 @@ appearance, and BABIP. `vertical_contact_outcomes` reports whiffs per swing
 and the recorded batting results in the [7°, 10°) and [10°, 15°) bands
 for fair balls with exit speed at least 45 m/s.
 
+Add the fair-launch audit to compare official outcomes across all exit-speed
+and launch-angle bands. The CSV sums the backspin bands and seeds before
+dividing by each trial's plate appearances. Rows are ordered by the change in
+singles per 100 PA. Sort by `delta_home_runs_per_100_pa` to see the bands where
+home runs increased most.
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --vertical-contact-comparison --fair-launch-diagnostics > vertical_contact_launch_2026.json
+python tools/diagnostics/vertical_contact_launch_compare.py vertical_contact_launch_2026.json > vertical_contact_launch_2026.csv
+```
+
 ### LineDrive intent lift in full games
 
 Normal games apply a +20 mm world-vertical contact offset when a swing has
