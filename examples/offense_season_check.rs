@@ -237,13 +237,15 @@ impl Counts {
                 serde_json::json!((self.ab > 0).then(|| total_bases as f64 / self.ab as f64));
             summary["extra_base_hits_per_pa"] =
                 serde_json::json!((self.pa > 0).then(|| extra_base_hits as f64 / self.pa as f64));
+            summary["doubles_per_pa"] =
+                serde_json::json!((self.pa > 0).then(|| self.double as f64 / self.pa as f64));
         }
         summary
     }
 }
 
 #[derive(Default, Serialize)]
-struct FastBallOutcomes {
+struct FairBallOutcomes {
     plays: u64,
     single: u64,
     double: u64,
@@ -254,7 +256,7 @@ struct FastBallOutcomes {
     double_play: u64,
 }
 
-impl FastBallOutcomes {
+impl FairBallOutcomes {
     fn observe(&mut self, result: BattingResult) {
         let count = match result {
             BattingResult::Single => &mut self.single,
@@ -286,10 +288,11 @@ impl FastBallOutcomes {
 struct VerticalContactOutcomes {
     swings: u64,
     whiffs: u64,
-    low: FastBallOutcomes,
-    next: FastBallOutcomes,
-    low_line_drive: FastBallOutcomes,
+    low: FairBallOutcomes,
+    next: FairBallOutcomes,
+    low_line_drive: FairBallOutcomes,
     home_runs_20_to_30_deg: u64,
+    by_launch_band: BTreeMap<String, FairBallOutcomes>,
 }
 
 impl VerticalContactOutcomes {
@@ -310,7 +313,32 @@ impl VerticalContactOutcomes {
         }
     }
 
-    fn observe_game(&mut self, game: &GameResult) {
+    fn observe_launch(
+        &mut self,
+        speed: f64,
+        angle: f64,
+        stadium_direction: Option<f64>,
+        result: BattingResult,
+    ) {
+        if !bip_audit::is_bip(result) && result != BattingResult::HomeRun {
+            return;
+        }
+        let ev = bip_audit::band(
+            if speed > 0.0 { speed } else { f64::NAN },
+            vertical_contact_game_sweep::EXIT_SPEED_BANDS_MS,
+        );
+        let vla = bip_audit::band(angle, vertical_contact_game_sweep::FLIGHT_ANGLE_BANDS_DEG);
+        let hla = bip_audit::band(
+            stadium_direction.unwrap_or(f64::NAN),
+            bip_audit::CONVERSION_HLA_EDGES_DEG,
+        );
+        self.by_launch_band
+            .entry(format!("EV_ms:{ev}|VLA_deg:{vla}|HLA_deg:{hla}"))
+            .or_default()
+            .observe(result);
+    }
+
+    fn observe_game(&mut self, game: &GameResult, include_launch_bands: bool) {
         for batting in &game.player_battings {
             if batting.swing_decision.is_some_and(|decision| decision.swung) {
                 self.swings += 1;
@@ -323,6 +351,14 @@ impl VerticalContactOutcomes {
                 batting.ball.launch_angle,
                 batting.result,
             );
+            if include_launch_bands {
+                self.observe_launch(
+                    batting.ball.launch_speed,
+                    batting.ball.launch_angle,
+                    (batting.hla_model_version == Some(2)).then_some(batting.final_hla_deg),
+                    batting.result,
+                );
+            }
         }
     }
 
@@ -333,6 +369,9 @@ impl VerticalContactOutcomes {
         self.next.merge(other.next);
         self.low_line_drive.merge(other.low_line_drive);
         self.home_runs_20_to_30_deg += other.home_runs_20_to_30_deg;
+        for (band, outcomes) in other.by_launch_band {
+            self.by_launch_band.entry(band).or_default().merge(outcomes);
+        }
     }
 
     fn json(&self, include_window_metrics: bool) -> serde_json::Value {
@@ -349,6 +388,7 @@ impl VerticalContactOutcomes {
         if include_window_metrics {
             report["low_line_drive"] = serde_json::json!(self.low_line_drive);
             report["home_runs_20_to_30_deg"] = serde_json::json!(self.home_runs_20_to_30_deg);
+            report["by_exit_speed_launch_angle_direction"] = serde_json::json!(self.by_launch_band);
         }
         report
     }
@@ -673,6 +713,9 @@ fn run(args: Args) -> Result<()> {
             output["definitions"]["low_line_drive"] = serde_json::json!(
                 "Official fair batting outcomes at exit speed [40,47.5) m/s and vertical launch angle [10,15) degrees."
             );
+            output["definitions"]["by_exit_speed_launch_angle_direction"] = serde_json::json!(
+                "Official fair batting outcomes by initial exit speed (EV), vertical launch angle (VLA) and stadium-relative horizontal launch angle (HLA). Negative HLA points toward third base, positive toward first base. Unavailable direction is counted as unknown. For doubles per 100 plate appearances, divide each cell's doubles by the corresponding trial or seed's total PA and multiply by 100. For the share of doubles among fair balls in a cell, use that cell's plays as the denominator."
+            );
         }
         output["definitions"]["fast_fair_by_launch_angle_deg"] = serde_json::json!(
             "Recorded fair batting outcomes with exit speed at least 45 m/s. Launch-angle intervals include the lower bound and exclude the upper bound. Each batted ball counts once, including a double play."
@@ -938,7 +981,7 @@ fn simulate_reports_inner(
             }
             accumulate(&mut total, &mut teams, &mut players, game, &result)?;
             if let Some(outcomes) = vertical_outcomes.as_mut() {
-                outcomes.observe_game(&result);
+                outcomes.observe_game(&result, args.vertical_contact_window);
             }
             if let Some(sweep) = vertical_contact.as_mut() {
                 sweep.observe_game(game, &result, game_seed, scale);
@@ -1036,6 +1079,16 @@ fn simulate_reports_inner(
             report["right_field_first_outs"] = serde_json::json!(right_field_first_outs);
         }
         if let (Some(summary), Some(outcomes)) = (trial_summary.as_deref_mut(), vertical_outcomes) {
+            if args.vertical_contact_window {
+                let (plays, doubles) = outcomes.by_launch_band.values().fold(
+                    (0, 0),
+                    |(plays, doubles), cell| (plays + cell.plays, doubles + cell.double),
+                );
+                ensure!(
+                    (plays, doubles) == (total.ab - total.strikeouts, total.double),
+                    "launch-band fair balls or doubles do not match official batting results for seed {seed}"
+                );
+            }
             report["vertical_contact_outcomes"] = outcomes.json(args.vertical_contact_window);
             summary.total.merge(total);
             summary.outcomes.merge(outcomes);
@@ -1116,6 +1169,30 @@ mod tests {
         assert_eq!(report["low_line_drive"]["single"], 1);
         assert_eq!(report["home_runs_20_to_30_deg"], 1);
         assert!(report["whiffs_per_swing"].is_null());
+    }
+
+    #[test]
+    fn vertical_contact_launch_bands_pool_doubles_and_keep_direction() {
+        use BattingResult::*;
+        let mut first = VerticalContactOutcomes::default();
+        first.observe_launch(45.0, 15.0, Some(-15.0), Double);
+        first.observe_launch(45.0, 15.0, Some(-15.0), Single);
+        first.observe_launch(45.0, 15.0, Some(-15.0), Foul);
+        first.observe_launch(45.0, 15.0, Some(15.0), Out);
+        let mut second = VerticalContactOutcomes::default();
+        second.observe_launch(46.0, 18.0, Some(-8.0), Double);
+        second.observe_launch(46.0, 18.0, None, Double);
+        first.merge(second);
+
+        let report = first.json(true);
+        let bands = &report["by_exit_speed_launch_angle_direction"];
+        let third_base = &bands["EV_ms:[45,47.5)|VLA_deg:[15,20)|HLA_deg:[-15,-5)"];
+        assert_eq!(third_base["plays"], 3);
+        assert_eq!(third_base["double"], 2);
+        assert_eq!(third_base["single"], 1);
+        assert_eq!(bands["EV_ms:[45,47.5)|VLA_deg:[15,20)|HLA_deg:[15,30)"]["out"], 1);
+        assert_eq!(bands["EV_ms:[45,47.5)|VLA_deg:[15,20)|HLA_deg:unknown"]["double"], 1);
+        assert!(first.json(false).get("by_exit_speed_launch_angle_direction").is_none());
     }
 
     #[test]
@@ -1204,5 +1281,6 @@ mod tests {
         let window_json = counts.vertical_contact_json(true);
         assert_eq!(window_json["slugging"], 7.0 / 6.0);
         assert_eq!(window_json["extra_base_hits_per_pa"], 2.0 / 7.0);
+        assert_eq!(window_json["doubles_per_pa"], 1.0 / 7.0);
     }
 }

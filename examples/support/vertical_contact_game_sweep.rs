@@ -27,8 +27,8 @@ use std::collections::BTreeMap;
 const SHIFTS_MM: [i32; 5] = [-4, -2, 0, 2, 4];
 const HIGH_EV_MS: f64 = 45.0;
 const TARGET_ANGLE: std::ops::Range<f64> = 7.0..10.0;
-const EXIT_SPEED_BANDS_MS: &[f64] = &[25.0, 35.0, 40.0, 45.0, 47.5, 50.0, 55.0];
-const FLIGHT_ANGLE_BANDS_DEG: &[f64] =
+pub(super) const EXIT_SPEED_BANDS_MS: &[f64] = &[25.0, 35.0, 40.0, 45.0, 47.5, 50.0, 55.0];
+pub(super) const FLIGHT_ANGLE_BANDS_DEG: &[f64] =
     &[-10.0, 0.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 50.0];
 
 fn fair_trajectory(ball: &BattedBall) -> bool {
