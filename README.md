@@ -791,6 +791,22 @@ The fielding replay uses the normal estimated path, candidate filters and
 error draws from the same post-launch RNG state. The diagnostic leaves the
 official game results intact.
 
+Compare the ground-rule-double catch rule off and on for each contact policy:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --seeds 113,271,20261109 --vertical-contact-comparison --vertical-contact-window --vertical-contact-window-ev --ground-rule-double-catch-comparison > ground_rule_double_catch_2026.json
+```
+
+The rule prioritizes a clean direct catch before the first bounce when the
+trajectory would otherwise clear the fence after a bounce. The replay uses
+the ordinary fielding resolver. An awarded double keeps the pre-replay
+random stream. Pair entries under `vertical_contact_trials` by `policy`
+and compare the two `ground_rule_double_catch_enabled` values. The
+`ground_rule_double` counts report awarded doubles and actual catches on
+qualifying trajectories. Compare `total.doubles_per_pa`, `babip`, `hr_per_pa`
+and `runs` to measure the full-game effect. Later plays can diverge when
+the rule changes an outcome.
+
 Add the fair-launch audit to compare official outcomes across all exit-speed
 and launch-angle bands. The CSV sums the backspin bands and seeds before
 dividing by each trial's plate appearances. Rows are ordered by the change in

@@ -20,10 +20,10 @@ use saberbb::{
             game_state::{
                 DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, FenceAudit, LineDriveLiftStats,
                 PairedContactPlay, Ruling, VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS,
-                VERTICAL_CONTACT_WINDOW_MM, with_line_drive_lift_trial,
-                with_paired_contact_fielding, with_right_field_first_trial,
-                with_vertical_contact_trial, with_vertical_contact_window_ev_trial,
-                with_vertical_contact_window_trial,
+                VERTICAL_CONTACT_WINDOW_MM, with_ground_rule_double_catch_trial,
+                with_line_drive_lift_trial, with_paired_contact_fielding,
+                with_right_field_first_trial, with_vertical_contact_trial,
+                with_vertical_contact_window_ev_trial, with_vertical_contact_window_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
@@ -98,6 +98,9 @@ struct Args {
         "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison"
     ])]
     vertical_contact_comparison: bool,
+    /// Run each contact policy with and without clean catches taking precedence over ground-rule doubles.
+    #[arg(long, requires = "vertical_contact_comparison")]
+    ground_rule_double_catch_comparison: bool,
     /// Add a +4 mm trial restricted to pre-trial vertical contact positions in [10, 30) mm.
     #[arg(long, requires = "vertical_contact_comparison")]
     vertical_contact_window: bool,
@@ -298,6 +301,19 @@ impl FairBallOutcomes {
     }
 }
 
+#[derive(Default, Serialize)]
+struct GroundRuleDoubleOutcomes {
+    awarded_doubles: u64,
+    caught_before_bounce: u64,
+}
+
+impl GroundRuleDoubleOutcomes {
+    fn merge(&mut self, other: Self) {
+        self.awarded_doubles += other.awarded_doubles;
+        self.caught_before_bounce += other.caught_before_bounce;
+    }
+}
+
 #[derive(Default)]
 struct VerticalContactOutcomes {
     swings: u64,
@@ -309,6 +325,7 @@ struct VerticalContactOutcomes {
     home_runs_20_to_30_deg: u64,
     high_ev_home_runs_20_to_25_deg: u64,
     by_launch_band: BTreeMap<String, FairBallOutcomes>,
+    ground_rule_double: GroundRuleDoubleOutcomes,
 }
 
 impl VerticalContactOutcomes {
@@ -369,6 +386,12 @@ impl VerticalContactOutcomes {
 
     fn observe_game(&mut self, game: &GameResult, include_launch_bands: bool) {
         for batting in &game.player_battings {
+            if batting.ball.outbound_result == OutboundResult::GroundRuleDouble {
+                self.ground_rule_double.awarded_doubles +=
+                    u64::from(batting.result == BattingResult::Double);
+                self.ground_rule_double.caught_before_bounce +=
+                    u64::from(batting.result == BattingResult::Out);
+            }
             if batting.swing_decision.is_some_and(|decision| decision.swung) {
                 self.swings += 1;
                 self.whiffs += u64::from(
@@ -400,6 +423,7 @@ impl VerticalContactOutcomes {
         self.mid_speed_20_to_25_deg.merge(other.mid_speed_20_to_25_deg);
         self.home_runs_20_to_30_deg += other.home_runs_20_to_30_deg;
         self.high_ev_home_runs_20_to_25_deg += other.high_ev_home_runs_20_to_25_deg;
+        self.ground_rule_double.merge(other.ground_rule_double);
         for (band, outcomes) in other.by_launch_band {
             self.by_launch_band.entry(band).or_default().merge(outcomes);
         }
@@ -857,19 +881,31 @@ fn run(args: Args) -> Result<()> {
         } else {
             &["baseline", "uniform"]
         };
-        for &policy in policies {
-            eprintln!("Full-game vertical contact comparison: {policy}");
+        let catch_modes: &[bool] = if args.ground_rule_double_catch_comparison {
+            &[false, true]
+        } else {
+            &[false]
+        };
+        let trials_to_run = policies
+            .iter()
+            .flat_map(|&policy| catch_modes.iter().map(move |&enabled| (policy, enabled)));
+        for (policy, catch_enabled) in trials_to_run {
+            eprintln!(
+                "Full-game vertical contact comparison: {policy}, ground-rule-double catches: {catch_enabled}"
+            );
             let mut summary = VerticalContactSummary::default();
             let run_trial = || {
-                simulate_reports_inner(
-                    &args,
-                    &games,
-                    CONTACT_TIMING_POSITION_SCALE,
-                    false,
-                    None,
-                    Some(&mut summary),
-                    None,
-                )
+                with_ground_rule_double_catch_trial(catch_enabled, || {
+                    simulate_reports_inner(
+                        &args,
+                        &games,
+                        CONTACT_TIMING_POSITION_SCALE,
+                        false,
+                        None,
+                        Some(&mut summary),
+                        None,
+                    )
+                })
             };
             let by_exit_speed = policy == "contact_z_window_by_baseline_ev";
             let windowed = policy == "contact_z_window" || by_exit_speed;
@@ -879,9 +915,13 @@ fn run(args: Args) -> Result<()> {
                 "contact_z_window" => with_vertical_contact_window_trial(offset_mm, run_trial),
                 _ => with_vertical_contact_trial(offset_mm, run_trial),
             }
-            .with_context(|| format!("vertical contact trial {policy}"))?;
+            .with_context(|| {
+                format!("vertical contact trial {policy}, ground-rule-double catches {catch_enabled}")
+            })?;
             let mut trial = serde_json::json!({
-                "total": summary.total.vertical_contact_json(args.vertical_contact_window),
+                "total": summary.total.vertical_contact_json(
+                    args.vertical_contact_window || args.ground_rule_double_catch_comparison
+                ),
                 "vertical_contact_outcomes": summary.outcomes.json(args.vertical_contact_window),
                 "reports": reports,
             });
@@ -896,7 +936,7 @@ fn run(args: Args) -> Result<()> {
             } else {
                 trial["additional_vertical_contact_offset_mm"] = serde_json::json!(offset_mm);
             }
-            if args.vertical_contact_window {
+            if args.vertical_contact_window || args.ground_rule_double_catch_comparison {
                 trial["policy"] = serde_json::json!(policy);
                 if windowed {
                     trial["pre_trial_contact_z_range_mm"] = serde_json::json!({
@@ -905,6 +945,10 @@ fn run(args: Args) -> Result<()> {
                     });
                 }
             }
+            if args.ground_rule_double_catch_comparison {
+                trial["ground_rule_double_catch_enabled"] = serde_json::json!(catch_enabled);
+                trial["ground_rule_double"] = serde_json::json!(summary.outcomes.ground_rule_double);
+            }
             if args.vertical_contact_fielding_diagnostics {
                 trial["low_line_drive_fielding"] =
                     serde_json::to_value(summary.low_line_drive_fielding)?;
@@ -912,6 +956,11 @@ fn run(args: Args) -> Result<()> {
             trials.push(trial);
         }
         output["vertical_contact_trials"] = serde_json::json!(trials);
+        if args.ground_rule_double_catch_comparison {
+            output["definitions"]["ground_rule_double_catch_comparison"] = serde_json::json!(
+                "Each contact policy runs the same schedule, rosters and initial game seeds with the catch rule off and on. The rule applies to trajectories that clear the fence after a bounce. A clean direct catch selected by the ordinary fielding resolver before the first bounce uses the normal fly-out resolution. Missed opportunities still award two bases and leave the random stream at its pre-probe state. Awarded doubles plus caught-before-bounce counts give the number of qualifying trajectories. Changed results can alter later plays and random draws."
+            );
+        }
         output["definitions"]["vertical_contact_trials"] = serde_json::json!(if args.vertical_contact_window_ev {
             "Full games under the baseline, +4 mm within the contact-Z window, and the exit-speed-dependent policy within the same window. The window uses the live pre-trial world-vertical contact coordinate after the normal swing intent offset. The exit speed comes from that same unshifted swing's contact geometry. Geometric misses in the window keep +4 mm. Trials share schedule, rosters and starting RNG seeds, and pool counts before calculating rates. Changed plays can alter later decisions and RNG draws."
         } else if args.vertical_contact_window {
@@ -1236,7 +1285,7 @@ fn simulate_reports_inner(
         }
         let mut leaders: Vec<_> = players.into_iter().collect();
         leaders.sort_by(|a, b| b.1.hr.cmp(&a.1.hr).then_with(|| a.0.cmp(&b.0)));
-        let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.vertical_contact_json(args.vertical_contact_window),
+        let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.vertical_contact_json(args.vertical_contact_window || args.ground_rule_double_catch_comparison),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
         if args.pre_fence_pickup_comparison {
@@ -1330,6 +1379,9 @@ fn simulate_reports_inner(
                 );
             }
             report["vertical_contact_outcomes"] = outcomes.json(args.vertical_contact_window);
+            if args.ground_rule_double_catch_comparison {
+                report["ground_rule_double"] = serde_json::json!(outcomes.ground_rule_double);
+            }
             summary.total.merge(total);
             summary.outcomes.merge(outcomes);
             if let Some(audit) = low_line_drive_fielding {
@@ -1348,6 +1400,25 @@ fn simulate_reports_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ground_rule_double_trial_requires_a_vertical_contact_comparison() {
+        let args = [
+            "check",
+            "--season",
+            "2026",
+            "--ground-rule-double-catch-comparison",
+        ];
+        assert!(Args::try_parse_from(args).is_err());
+        let comparison = Args::try_parse_from(args.into_iter().chain([
+            "--vertical-contact-comparison",
+            "--vertical-contact-window",
+            "--vertical-contact-window-ev",
+        ]))
+        .unwrap();
+        assert!(comparison.ground_rule_double_catch_comparison);
+        assert!(comparison.vertical_contact_window_ev);
+    }
 
     #[test]
     fn paired_fielding_runs_as_its_own_diagnostic() {
