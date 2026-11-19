@@ -11,7 +11,8 @@ use crate::domain::resolver::batting_resolver::{
     select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::{
-    CatchType, FieldingCatchDiagnostics, FielderRiskTolerance, RightFieldFirstBaseSnapshot,
+    CatchType, FieldPlayPlayResult, FielderRiskTolerance, FieldingCatchDiagnostics,
+    RightFieldFirstBaseSnapshot,
 };
 use crate::domain::resolver::fielding_resolver::{
     DefensePlayResult, PlayContext, PlayType, evaluate_base_stealing, evaluate_defense_play,
@@ -70,6 +71,22 @@ pub fn with_right_field_first_trial<T>(run: impl FnOnce() -> T) -> (T, u64) {
     let _restore = Restore(RIGHT_FIELD_FIRST_OUTS.replace(Some(0)));
     let result = run();
     (result, RIGHT_FIELD_FIRST_OUTS.get().unwrap())
+}
+
+thread_local! {
+    static GROUND_RULE_DOUBLE_CATCH_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Scope the trial to a synchronous run on this thread.
+pub fn with_ground_rule_double_catch_trial<T>(enabled: bool, run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            GROUND_RULE_DOUBLE_CATCH_TRIAL.set(self.0);
+        }
+    }
+    let _restore = Restore(GROUND_RULE_DOUBLE_CATCH_TRIAL.replace(enabled));
+    run()
 }
 
 #[derive(Clone, Copy, Default, Serialize)]
@@ -251,6 +268,9 @@ pub enum GameError {
 
     #[error("Paired contact fielding requires a forkable random provider")]
     PairedContactRng,
+
+    #[error("Ground-rule-double catch trial requires a forkable random provider")]
+    GroundRuleDoubleCatchRng,
 
     #[error("Invalid trajectory diagnostic environment")]
     InvalidTrajectoryEnvironment,
@@ -1388,13 +1408,71 @@ impl GameState {
                 return Ok(());
             }
             OutboundResult::GroundRuleDouble => {
-                self.resolve_ground_rule_double(pitcher_id, batter_id, metrics, &batted_ball);
+                if !self.try_ground_rule_double_catch(
+                    pitcher_id,
+                    batter_id,
+                    metrics,
+                    &batted_ball,
+                )? {
+                    self.resolve_ground_rule_double(pitcher_id, batter_id, metrics, &batted_ball);
+                }
                 return Ok(());
             }
             OutboundResult::InField => {}
         }
 
         self.resolve_ball_fielded(pitcher_id, batter_id, batting_side, metrics, batted_ball)
+    }
+
+    fn try_ground_rule_double_catch(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        metrics: PlayerGameBattingMetrics,
+        ball: &BattedBall,
+    ) -> Result<bool, GameError> {
+        let Some(first_bounce) = ball
+            .first_bounce_time
+            .filter(|_| GROUND_RULE_DOUBLE_CATCH_TRIAL.get())
+        else {
+            return Ok(false);
+        };
+        let fielders = self.current_fielders();
+        let mut fielding_rng = self.rng.fork().ok_or(GameError::GroundRuleDoubleCatchRng)?;
+        let play = process_fielding(fielding_rng.as_mut(), &fielders, ball)?;
+        let catch = play.diagnostics();
+        if catch.catch_type != CatchType::DirectFly
+            || catch.error_type.is_some()
+            || catch.catch_time_sec >= first_bounce
+        {
+            return Ok(false);
+        }
+
+        // Preserve the original random stream when the ball still earns two bases.
+        self.rng = fielding_rng;
+        self.record_fielding_candidates(&play);
+        let runners = self.inning_state.runners.clone();
+        let fielded_ball = play.result().ball();
+        let ctx = PlayContext {
+            runners: &runners,
+            fielders: &fielders,
+            try_catch_fielder: play.result().fielder,
+            fielded_ball: &fielded_ball,
+        };
+        self.resolve_fly_catch(pitcher_id, batter_id, metrics, &ctx, catch)?;
+        Ok(true)
+    }
+
+    fn record_fielding_candidates(&mut self, play: &FieldPlayPlayResult<'_>) {
+        let count_seq = self.count_seq;
+        self.game_result
+            .player_fielding_candidates
+            .extend(play.candidate_diagnostics.iter().map(|diagnostics| {
+                PlayerGameFieldingCandidate {
+                    count_seq,
+                    diagnostics: *diagnostics,
+                }
+            }));
     }
 
     fn resolve_ball_fielded(
@@ -1411,15 +1489,7 @@ impl GameState {
         let fielders = self.current_fielders();
         let field_play_result = process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
         // Save before any fly/foul/steal early return can advance count_seq.
-        let count_seq = self.count_seq;
-        self.game_result.player_fielding_candidates.extend(
-            field_play_result.candidate_diagnostics.iter().map(|diagnostics| {
-                PlayerGameFieldingCandidate {
-                    count_seq,
-                    diagnostics: *diagnostics,
-                }
-            }),
-        );
+        self.record_fielding_candidates(&field_play_result);
         let mut catch_diagnostics = field_play_result.diagnostics();
         let fielder = field_play_result.result().fielder;
         let fielded_ball = field_play_result.result().ball();
@@ -1774,6 +1844,119 @@ impl InningState {
 mod tests {
     use super::*;
     use crate::domain::test_support::{active_runner as runner, game_state};
+
+    fn resolve_batted_ball_for_trial(
+        enabled: bool,
+        ball: BattedBall,
+        rng: Box<dyn RandomProvider>,
+    ) -> GameState {
+        let mut game = game_state();
+        game.rng = rng;
+        game.advance_half_inning().unwrap();
+        game.inning_state.out = 2;
+        game.inning_state.runners.runner_3rd = Some(runner(30));
+        game.prepare_plate_appearance(runner(2));
+        let contact = SwingContactResult::default();
+        let metrics = PlayerGameBattingMetrics::from_contact(&contact);
+        with_ground_rule_double_catch_trial(enabled, || {
+            game.commit_swing(101, 2, RL::Right, &contact, Some((ball, metrics)))
+                .unwrap();
+        });
+        game
+    }
+
+    fn ground_rule_double_for_trial() -> BattedBall {
+        let mut ball = BattedBall::new(
+            46.0,
+            20.0,
+            120.0,
+            0.0,
+            4.0,
+            Some(PolarPosition::new(95.0, 0.0)),
+            Some(3.3),
+            None,
+            None,
+            OutboundResult::GroundRuleDouble,
+        );
+        ball.max_height = 12.0;
+        ball
+    }
+
+    #[test]
+    fn ground_rule_double_trial_prioritizes_a_clean_catch_on_the_third_out() {
+        use crate::domain::random_provider::FixedRng;
+
+        let ball = ground_rule_double_for_trial();
+        let off = resolve_batted_ball_for_trial(false, ball, Box::new(FixedRng::new(0.5)));
+        assert_eq!(
+            off.game_result.player_battings[0].result,
+            BattingResult::Double
+        );
+        assert_eq!(off.away_total_point, 1);
+        assert!(off.inning_state.runners.has_runner_on(Base::Second));
+
+        let on = resolve_batted_ball_for_trial(true, ball, Box::new(FixedRng::new(0.5)));
+        assert_eq!(on.game_result.player_battings[0].result, BattingResult::Out);
+        assert_eq!(
+            on.game_result.player_battings[0].ball.outbound_result,
+            OutboundResult::GroundRuleDouble
+        );
+        assert_eq!(on.inning_state.out, 3);
+        assert_eq!(on.away_total_point, 0);
+        assert!(!on.inning_state.runners.has_runner_on(Base::Second));
+        let fielding = &on.game_result.player_fieldings[0];
+        let catch = fielding.catch_diagnostics.unwrap();
+        assert_eq!(catch.catch_type, CatchType::DirectFly);
+        assert!(catch.error_type.is_none());
+        assert!(catch.catch_time_sec < ball.first_bounce_time.unwrap());
+        assert!(
+            on.game_result
+                .player_fielding_candidates
+                .iter()
+                .any(|row| row.diagnostics.selected)
+        );
+        assert!(on.game_result.player_runnings.is_empty());
+    }
+
+    #[test]
+    fn ground_rule_double_trial_preserves_awards_and_rng_without_a_clean_catch() {
+        use crate::domain::random_provider::{FixedRng, RealRng};
+
+        let ball = ground_rule_double_for_trial();
+        let error = resolve_batted_ball_for_trial(true, ball, Box::new(FixedRng::new(0.0)));
+        assert_eq!(
+            error.game_result.player_battings[0].result,
+            BattingResult::Double
+        );
+        assert!(error.game_result.player_fieldings.is_empty());
+
+        let mut early_bounce = ball;
+        early_bounce.first_bounce_time = Some(0.05);
+        let mut off =
+            resolve_batted_ball_for_trial(false, early_bounce, Box::new(RealRng::from_seed(113)));
+        let mut on =
+            resolve_batted_ball_for_trial(true, early_bounce, Box::new(RealRng::from_seed(113)));
+        assert_eq!(
+            on.game_result.player_battings[0].result,
+            BattingResult::Double
+        );
+        assert_eq!(
+            serde_json::to_value(&off.game_result).unwrap(),
+            serde_json::to_value(&on.game_result).unwrap()
+        );
+        assert_eq!(off.rng.random(), on.rng.random());
+
+        let mut home_run = ball;
+        home_run.first_bounce_time = None;
+        home_run.first_bounce_position = None;
+        home_run.outbound_result = OutboundResult::HomeRun;
+        let home_run = resolve_batted_ball_for_trial(true, home_run, Box::new(FixedRng::new(0.5)));
+        assert_eq!(
+            home_run.game_result.player_battings[0].result,
+            BattingResult::HomeRun
+        );
+        assert_eq!(home_run.away_total_point, 2);
+    }
 
     #[test]
     fn vertical_contact_trial_shifts_the_first_swing_and_restores_seeded_games() {
