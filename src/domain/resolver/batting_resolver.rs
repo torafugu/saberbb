@@ -984,6 +984,7 @@ pub fn calculate_trajectory_with_environment(
         environment,
         GROUND_FRICTION,
         None::<fn(GrounderFlightSample)>,
+        None,
     )
 }
 
@@ -1016,7 +1017,41 @@ pub(crate) fn replay_grounder_flight(
         TrajectoryEnvironment::for_stadium(stadium),
         GROUND_FRICTION * friction_scale,
         Some(observe),
+        None,
     )
+}
+
+#[derive(Serialize)]
+pub(crate) struct FairFenceEvent {
+    pub time_sec: f64,
+    pub position: PolarPosition,
+    pub ball_height_m: f64,
+    pub fence_height_m: f64,
+    pub height_above_fence_m: f64,
+    pub bounce_count: u32,
+}
+
+/// Replay the live launch with current flight settings and collect fair fence decisions.
+pub(crate) fn replay_fence_flight(
+    ball: &BattedBall,
+    hla_deg: f64,
+    stadium: &Stadium,
+    observe: impl FnMut(GrounderFlightSample),
+) -> Result<Vec<FairFenceEvent>, GameError> {
+    let mut events = Vec::new();
+    integrate_trajectory(
+        ball.launch_speed,
+        ball.launch_angle,
+        hla_deg,
+        ball.spin_rate,
+        ball.spin_angle,
+        stadium,
+        TrajectoryEnvironment::for_stadium(stadium),
+        GROUND_FRICTION,
+        Some(observe),
+        Some(&mut events),
+    )?;
+    Ok(events)
 }
 
 fn integrate_trajectory(
@@ -1029,6 +1064,7 @@ fn integrate_trajectory(
     environment: TrajectoryEnvironment,
     ground_friction: f64,
     mut observe: Option<impl FnMut(GrounderFlightSample)>,
+    mut fair_fence_events: Option<&mut Vec<FairFenceEvent>>,
 ) -> Result<BattedBall, GameError> {
     if ![
         environment.impact_height_m,
@@ -1185,6 +1221,18 @@ fn integrate_trajectory(
                 }
                 result_type = OutboundResult::Foul;
                 break;
+            }
+            if pos_z > 0.0 {
+                if let Some(events) = &mut fair_fence_events {
+                    events.push(FairFenceEvent {
+                        time_sec: current_time,
+                        position: PolarPosition::new(fence_distance, current_spray_angle_deg),
+                        ball_height_m: pos_z,
+                        fence_height_m: stadium.fence_height,
+                        height_above_fence_m: pos_z - stadium.fence_height,
+                        bounce_count,
+                    });
+                }
             }
             if pos_z > stadium.fence_height {
                 result_type = if bounce_count == 0 {

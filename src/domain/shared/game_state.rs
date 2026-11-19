@@ -44,7 +44,7 @@ use tracing::info;
 
 mod paired_contact;
 use paired_contact::PairedSwing;
-pub use paired_contact::{PairedContactPlay, with_paired_contact_fielding};
+pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};
 
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
@@ -1344,7 +1344,7 @@ impl GameState {
                     pitcher_id,
                     batter_id,
                     batter.batting_side,
-                    alternative_flight,
+                    [flight, alternative_flight],
                 )
             })
             .transpose()?;
