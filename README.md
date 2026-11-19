@@ -757,6 +757,27 @@ the window. The three policies run fielding and baserunning. Compare official
 singles, doubles and home runs per PA, plus `mid_speed_20_to_25_deg` for the
 45–47.5 m/s band and `high_ev_home_runs_20_to_25_deg`.
 
+Replay the two contact-window policies on the same swing and the same initial
+fielding and baserunning state:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --seeds 113,271,20261109 --vertical-contact-paired-fielding > vertical_contact_paired_fielding_2026.json
+```
+
+The +4 mm window games supply the pitches, swings and initial play states.
+The audit branches only where the exit-speed-dependent policy uses +2 mm
+and includes the pair if either resulting fair flight has exit speed
+[45, 47.5) m/s and launch angle [15, 25) degrees. Both branches use the normal
+fielding and baserunning paths. Only the +4 mm result advances the live game.
+The paired results estimate the change for these fixed situations.
+
+In `vertical_contact_paired_fielding.total.transitions`, check the
+`20_to_25_deg:Double` row for plays that move into `15_to_20_deg:Double`,
+become other results, or stay in the same band. Check the other rows for
+new doubles in the lower band. Each seed report includes the paired plays,
+with ball flight, fielding and runner events for both policies. Set
+`SABERBB_DB` as for the other diagnostics.
+
 Add the fair-launch audit to compare official outcomes across all exit-speed
 and launch-angle bands. The CSV sums the backspin bands and seeds before
 dividing by each trial's plate appearances. Rows are ordered by the change in

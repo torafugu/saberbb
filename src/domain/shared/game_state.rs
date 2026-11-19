@@ -42,6 +42,10 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
+mod paired_contact;
+use paired_contact::PairedSwing;
+pub use paired_contact::{PairedContactPlay, with_paired_contact_fielding};
+
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
 pub const MAX_STRIKE: u8 = 3;
@@ -244,6 +248,9 @@ pub enum GameError {
 
     #[error("Too long process time of calculate_trajectory")]
     TimeOut,
+
+    #[error("Paired contact fielding requires a forkable random provider")]
+    PairedContactRng,
 
     #[error("Invalid trajectory diagnostic environment")]
     InvalidTrajectoryEnvironment,
@@ -1026,7 +1033,6 @@ impl GameState {
         let active_batter = self.active_batter_for_count()?;
         let batter_id = active_batter.id;
         let batter = active_batter.batter.clone();
-        let batting_side = active_batter.batter.batting_side;
         let batter_runner = active_batter.runner();
 
         let batting_selection=if self.batting_strategy_settings.decision_source==crate::domain::strategy::batting_strategy::BattingDecisionSource::PlayerAndManager {
@@ -1141,13 +1147,13 @@ impl GameState {
             self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
         } else {
             let intent = batting_intent_decision.selected_intent;
-            let swing_contact = self.evaluate_swing_contact(
+            let (swing_contact, paired_swing) = self.evaluate_swing_contact(
                 &batter,
                 &pitched_ball,
                 &pitch_displacement,
                 &batting_factor,
                 line_drive_lift_offset(intent),
-            );
+            )?;
             record_lift_swing(intent, swing_contact.adjusted_contact_type);
 
             if self.record_contact_states {
@@ -1169,25 +1175,14 @@ impl GameState {
                 self.game_result.player_contact_states.push(contact_state);
             }
 
-            if swing_contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
-                super::timing_scale_audit::record(
-                    &batter,
-                    pitched_ball,
-                    &swing_contact,
-                    &self.stadium,
-                    None,
-                );
-                self.resolve_swing_miss(pitcher_id, batter_id, &swing_contact);
-            } else {
-                self.resolve_contact(
-                    pitcher_id,
-                    batter_id,
-                    &batter,
-                    batting_side,
-                    pitched_ball,
-                    &swing_contact,
-                )?;
-            };
+            self.resolve_swing(
+                pitcher_id,
+                batter_id,
+                &batter,
+                pitched_ball,
+                &swing_contact,
+                paired_swing,
+            )?;
         };
 
         if let Some(record) = self.game_result.player_battings.iter_mut()
@@ -1249,7 +1244,7 @@ impl GameState {
         pitch_displacement: &PitchDisplacement,
         batting_factor: &BattingFactor,
         vertical_contact_offset_m: f64,
-    ) -> SwingContactResult {
+    ) -> Result<(SwingContactResult, Option<PairedSwing>), GameError> {
         let displacement = adapt_to_pitch(pitch_displacement, batter.bat_control, batting_factor);
 
         let mut swing_error = calculate_swing_execution_error(
@@ -1266,10 +1261,20 @@ impl GameState {
         let trial_offset_m = vertical_contact_trial_offset_m(baseline_z_m, || {
             pre_trial_exit_speed_ms(batter, pitched_ball.speed, &displacement, &swing_error)
         });
+        let paired_swing = PairedSwing::prepare(
+            self.rng.as_ref(),
+            batter,
+            pitched_ball,
+            &displacement,
+            swing_error,
+            baseline_z_m,
+        )?;
         if trial_offset_m != 0.0 {
             swing_error.additional_z_m += trial_offset_m;
         }
-        evaluate_swing_contact(self.rng.as_mut(), batter, &displacement, &swing_error)
+        let contact =
+            evaluate_swing_contact(self.rng.as_mut(), batter, &displacement, &swing_error);
+        Ok((contact, paired_swing))
     }
 
     fn resolve_swing_miss(
@@ -1299,30 +1304,77 @@ impl GameState {
         self.add_count(0);
     }
 
-    fn resolve_contact(
+    fn resolve_swing(
         &mut self,
         pitcher_id: i64,
         batter_id: i64,
         batter: &BatterInfo,
-        batting_side: RL,
         pitched_ball: PitchedBall,
         swing_contact: &SwingContactResult,
+        paired_swing: Option<PairedSwing>,
     ) -> Result<(), GameError> {
-        let (batted_ball, metrics) = calculate_batted_ball_with_metrics(
+        let alternative_flight = paired_swing
+            .as_ref()
+            .map(|pair| pair.launch(self.rng.as_ref(), batter, pitched_ball, &self.stadium))
+            .transpose()?
+            .flatten();
+        let flight = launch_swing(
             self.rng.as_mut(),
             batter,
             pitched_ball,
             swing_contact,
             &self.stadium,
         )?;
-
         super::timing_scale_audit::record(
             batter,
             pitched_ball,
             swing_contact,
             &self.stadium,
-            Some((&batted_ball, &metrics)),
+            flight.as_ref().map(|(ball, metrics)| (ball, metrics)),
         );
+
+        let pair = paired_swing
+            .filter(|_| {
+                paired_contact::is_target(flight.as_ref().map(|(ball, _)| ball))
+                    || paired_contact::is_target(alternative_flight.as_ref().map(|(ball, _)| ball))
+            })
+            .map(|pair| {
+                pair.resolve_alternative(
+                    self,
+                    pitcher_id,
+                    batter_id,
+                    batter.batting_side,
+                    alternative_flight,
+                )
+            })
+            .transpose()?;
+
+        let count_seq = self.count_seq;
+        self.commit_swing(
+            pitcher_id,
+            batter_id,
+            batter.batting_side,
+            swing_contact,
+            flight,
+        )?;
+        if let Some(pair) = pair {
+            pair.record(self, count_seq, flight);
+        }
+        Ok(())
+    }
+
+    fn commit_swing(
+        &mut self,
+        pitcher_id: i64,
+        batter_id: i64,
+        batting_side: RL,
+        swing_contact: &SwingContactResult,
+        flight: Option<(BattedBall, PlayerGameBattingMetrics)>,
+    ) -> Result<(), GameError> {
+        let Some((batted_ball, metrics)) = flight else {
+            self.resolve_swing_miss(pitcher_id, batter_id, swing_contact);
+            return Ok(());
+        };
 
         info!("Batted Ball: {:#?}", batted_ball);
 
@@ -1636,13 +1688,27 @@ impl GameState {
     }
 }
 
+fn launch_swing(
+    rng: &mut dyn RandomProvider,
+    batter: &BatterInfo,
+    pitched_ball: PitchedBall,
+    contact: &SwingContactResult,
+    stadium: &Stadium,
+) -> Result<Option<(BattedBall, PlayerGameBattingMetrics)>, GameError> {
+    if contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
+        Ok(None)
+    } else {
+        calculate_batted_ball_with_metrics(rng, batter, pitched_ball, contact, stadium).map(Some)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InningProgress {
     Ongoing,
     Over,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InningState {
     pub runners: RunnersOnBase,
     pub ball: u8,
