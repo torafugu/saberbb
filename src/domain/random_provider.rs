@@ -1,10 +1,16 @@
 use crate::domain::shared::prob::ItemWeighted;
 use crate::domain::shared::prob::{GammaParam, NormalParam};
 use crate::error::AppError;
-use rand::{RngExt, SeedableRng, rngs::StdRng};
+use chacha20::ChaCha12Rng;
+use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Gamma};
 
 pub trait RandomProvider: std::fmt::Debug {
+    /// Copy the current stream position for a diagnostic replay, if supported.
+    fn fork(&self) -> Option<Box<dyn RandomProvider>> {
+        None
+    }
+
     fn random(&mut self) -> f64;
     fn random_bool(&mut self, probability: f64) -> bool;
     fn gen_range(&mut self, low: usize, high: usize) -> usize;
@@ -30,7 +36,8 @@ pub trait RandomProvider: std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub struct RealRng(pub StdRng);
+// Keep the ChaCha12 stream used by rand 0.10's StdRng and expose its cursor for replay.
+pub struct RealRng(ChaCha12Rng);
 
 impl RealRng {
     pub fn new() -> Self {
@@ -38,11 +45,18 @@ impl RealRng {
     }
 
     pub fn from_seed(seed: u64) -> Self {
-        Self(StdRng::seed_from_u64(seed))
+        Self(ChaCha12Rng::seed_from_u64(seed))
     }
 }
 
 impl RandomProvider for RealRng {
+    fn fork(&self) -> Option<Box<dyn RandomProvider>> {
+        let mut copy = ChaCha12Rng::from_seed(self.0.get_seed());
+        copy.set_stream(self.0.get_stream());
+        copy.set_word_pos(self.0.get_word_pos());
+        Some(Box::new(Self(copy)))
+    }
+
     fn random(&mut self) -> f64 {
         self.0.random()
     }
@@ -157,6 +171,10 @@ impl FixedRng {
 }
 
 impl RandomProvider for FixedRng {
+    fn fork(&self) -> Option<Box<dyn RandomProvider>> {
+        Some(Box::new(Self::new(self.value)))
+    }
+
     fn random(&mut self) -> f64 {
         self.value
     }
@@ -301,6 +319,21 @@ mod tests {
         assert_eq!(rng1.random(), rng2.random());
         assert_eq!(rng1.random(), rng2.random());
         assert_eq!(rng1.random(), rng2.random());
+    }
+
+    #[test]
+    fn real_rng_keeps_the_previous_seeded_stream_and_forks_at_its_cursor() {
+        let mut rng = RealRng::from_seed(17);
+        let mut previous = rand::rngs::StdRng::seed_from_u64(17);
+        for _ in 0..150 {
+            let mut fork = rng.fork().unwrap();
+            let expected = previous.random::<f64>();
+            assert_eq!(fork.random(), expected);
+            assert_eq!(rng.random(), expected);
+            let expected = previous.random_range(1..=40);
+            assert_eq!(fork.gen_range(1, 40), expected);
+            assert_eq!(rng.gen_range(1, 40), expected);
+        }
     }
 
     #[test]

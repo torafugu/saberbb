@@ -17,11 +17,11 @@ use saberbb::{
         shared::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
-                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, Ruling,
+                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, PairedContactPlay, Ruling,
                 VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS, VERTICAL_CONTACT_WINDOW_MM,
-                with_line_drive_lift_trial, with_right_field_first_trial,
-                with_vertical_contact_trial, with_vertical_contact_window_ev_trial,
-                with_vertical_contact_window_trial,
+                with_line_drive_lift_trial, with_paired_contact_fielding,
+                with_right_field_first_trial, with_vertical_contact_trial,
+                with_vertical_contact_window_ev_trial, with_vertical_contact_window_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
@@ -102,6 +102,14 @@ struct Args {
     /// Compare baseline, +4 mm in the contact window, and the exit-speed-dependent window.
     #[arg(long, requires = "vertical_contact_window")]
     vertical_contact_window_ev: bool,
+    /// Replay two window policies on the same swing with live fielding and baserunning.
+    #[arg(long, conflicts_with_all = [
+        "vertical_contact_comparison", "vertical_contact_sweep", "line_drive_lift_comparison",
+        "timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison",
+        "pre_fence_pickup_comparison", "timing_scale_diagnostics", "infield_opportunity_diagnostics",
+        "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    vertical_contact_paired_fielding: bool,
     /// Diagnose catch and first-base out opportunities on 40–47.5 m/s, 10–15 degree singles.
     #[arg(long, requires = "vertical_contact_comparison")]
     vertical_contact_fielding_diagnostics: bool,
@@ -425,6 +433,48 @@ struct VerticalContactSummary {
     low_line_drive_fielding: LowLineDriveFieldingAudit,
 }
 #[derive(Default, Serialize)]
+struct PairedContactSummary {
+    pairs: u64,
+    /// Outer keys describe the +4 mm result and inner keys the EV-dependent result.
+    transitions: BTreeMap<String, BTreeMap<String, u64>>,
+}
+
+impl PairedContactSummary {
+    fn observe(&mut self, pair: &PairedContactPlay) {
+        let flat = format!("{}:{}", pair.flat.launch_band(), pair.flat.result_label());
+        let by_ev = format!(
+            "{}:{}",
+            pair.by_baseline_ev.launch_band(),
+            pair.by_baseline_ev.result_label()
+        );
+        self.pairs += 1;
+        *self
+            .transitions
+            .entry(flat)
+            .or_default()
+            .entry(by_ev)
+            .or_default() += 1;
+    }
+
+    fn merge(&mut self, seed: Self) {
+        self.pairs += seed.pairs;
+        for (flat, outcomes) in seed.transitions {
+            let row = self.transitions.entry(flat).or_default();
+            for (by_ev, count) in outcomes {
+                *row.entry(by_ev).or_default() += count;
+            }
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ScheduledPairedContactPlay {
+    game_id: u32,
+    #[serde(flatten)]
+    play: PairedContactPlay,
+}
+
+#[derive(Default, Serialize)]
 struct FieldingCounts {
     fielded_balls: u64,
     direct_catches: u64,
@@ -684,7 +734,30 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.vertical_contact_comparison {
+    if args.vertical_contact_paired_fielding {
+        let mut summary = PairedContactSummary::default();
+        let reports = simulate_reports_inner(
+            &args,
+            &games,
+            CONTACT_TIMING_POSITION_SCALE,
+            false,
+            None,
+            None,
+            Some(&mut summary),
+        )?;
+        output["vertical_contact_paired_fielding"] = serde_json::json!({
+            "flat_offset_mm": 4,
+            "baseline_contact_z_window_mm": VERTICAL_CONTACT_WINDOW_MM,
+            "baseline_ev_split_ms": VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS,
+            "target_exit_speed_ms": 45.0..47.5,
+            "target_launch_angle_deg": 15.0..25.0,
+            "total": summary,
+            "reports": reports,
+        });
+        output["definitions"]["vertical_contact_paired_fielding"] = serde_json::json!(
+            "Live +4 mm window games supply the swings and initial play states. A pair differs by +4 versus +2 mm and has a fair trajectory at 45–47.5 m/s and 15–25 degrees in either branch. Ranges are half open. Each phase starts from the same RNG state for both branches. Both resolve through normal fielding and baserunning. Only the +4 mm result advances the game. Transition keys are launch band and official batting result. NoBattingResult indicates an interrupted play with no batting ruling."
+        );
+    } else if args.vertical_contact_comparison {
         let mut trials = Vec::new();
         let policies: &[&str] = if args.vertical_contact_window_ev {
             &["baseline", "contact_z_window", "contact_z_window_by_baseline_ev"]
@@ -704,6 +777,7 @@ fn run(args: Args) -> Result<()> {
                     false,
                     None,
                     Some(&mut summary),
+                    None,
                 )
             };
             let by_exit_speed = policy == "contact_z_window_by_baseline_ev";
@@ -864,7 +938,15 @@ fn simulate_reports(
     right_field_trial: bool,
     lift_offset_mm: Option<u16>,
 ) -> Result<Vec<serde_json::Value>> {
-    simulate_reports_inner(args, games, scale, right_field_trial, lift_offset_mm, None)
+    simulate_reports_inner(
+        args,
+        games,
+        scale,
+        right_field_trial,
+        lift_offset_mm,
+        None,
+        None,
+    )
 }
 
 fn simulate_reports_inner(
@@ -874,10 +956,15 @@ fn simulate_reports_inner(
     right_field_trial: bool,
     lift_offset_mm: Option<u16>,
     mut trial_summary: Option<&mut VerticalContactSummary>,
+    mut paired_summary: Option<&mut PairedContactSummary>,
 ) -> Result<Vec<serde_json::Value>> {
     let mut reports = Vec::new();
     for seed in &args.seeds {
-        let mut vertical_outcomes = trial_summary.is_some().then(VerticalContactOutcomes::default);
+        let mut vertical_outcomes = trial_summary
+            .is_some()
+            .then(VerticalContactOutcomes::default);
+        let mut paired = paired_summary.is_some().then(PairedContactSummary::default);
+        let mut paired_plays = Vec::new();
         let mut bip = args.bip_diagnostics.then(bip_audit::BipAudit::default);
         let mut vertical_contact = args
             .vertical_contact_sweep
@@ -957,7 +1044,14 @@ fn simulate_reports_inner(
                     run()
                 }
             };
-            let result = if right_field_trial {
+            let result = if let Some(summary) = paired.as_mut() {
+                let (result, plays) = with_paired_contact_fielding(run_with_diagnostics);
+                for play in plays {
+                    summary.observe(&play);
+                    paired_plays.push(ScheduledPairedContactPlay { game_id: game.id, play });
+                }
+                result
+            } else if right_field_trial {
                 let (result, outs) = with_right_field_first_trial(run_with_diagnostics);
                 right_field_first_outs += outs;
                 result
@@ -1109,6 +1203,13 @@ fn simulate_reports_inner(
         if let Some(outfield) = outfield {
             report["outfield_advance_diagnostics"] = serde_json::to_value(outfield)?;
         }
+        if let (Some(total), Some(summary)) = (paired_summary.as_deref_mut(), paired) {
+            report["paired_contact_fielding"] = serde_json::json!({
+                "summary": summary,
+                "plays": paired_plays,
+            });
+            total.merge(summary);
+        }
         if let Some(sweep) = vertical_contact {
             report["vertical_contact_sweep"] = serde_json::to_value(sweep)?;
         }
@@ -1156,6 +1257,15 @@ fn simulate_reports_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_fielding_runs_as_its_own_diagnostic() {
+        let args = ["check", "--season", "2026", "--vertical-contact-paired-fielding"];
+        assert!(Args::try_parse_from(args).unwrap().vertical_contact_paired_fielding);
+        assert!(
+            Args::try_parse_from(args.into_iter().chain(["--vertical-contact-comparison"])).is_err()
+        );
+    }
 
     #[test]
     fn vertical_contact_comparison_separates_replay_and_counts_official_results() {
