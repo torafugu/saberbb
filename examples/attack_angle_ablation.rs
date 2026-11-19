@@ -14,6 +14,8 @@ use saberbb::repositories::db::FromRow;
 use serde::Serialize;
 use std::{collections::BTreeMap, path::PathBuf};
 
+#[path = "support/vertical_contact_replay.rs"]
+mod vertical_contact_replay;
 #[path = "support/vertical_contact_sweep.rs"]
 mod vertical_contact_sweep;
 
