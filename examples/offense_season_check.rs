@@ -656,6 +656,9 @@ fn run(args: Args) -> Result<()> {
         output["definitions"]["paired_zero_to_plus_four_mm"] = serde_json::json!(
             "Paired trajectories on the same comparable swings. Low line drives are fair at exit speed [40,47.5) m/s and angle [10,15) degrees. The home-run cohort requires a home-run trajectory and angle [20,30) degrees. Input cells group by baseline world-vertical contact displacement, actual bat angle and baseline exit speed. A geometric miss has no baseline exit speed."
         );
+        output["definitions"]["window_exit_speed_comparison"] = serde_json::json!(
+            "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
+        );
     }
     if args.vertical_contact_comparison {
         let mut trials = Vec::new();

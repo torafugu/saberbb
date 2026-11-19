@@ -678,6 +678,21 @@ actual bat angle, and baseline exit speed. The input displacement includes
 the existing swing intent offset. The reported trajectories do not rerun
 fielding or scoring.
 
+To compare the original contact window with a smaller correction on swings
+below 47.5 m/s of baseline exit speed:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --seeds 113,271,20261109 --vertical-contact-sweep > vertical_contact_window_ev_replay_2026.json
+```
+
+Read `window_exit_speed_comparison` for the baseline, the [10, 30) mm window
+with +4 mm, and the same window with +2 mm below 47.5 m/s and +4 mm at or
+above 47.5 m/s. A baseline geometric miss has no exit speed, so the last
+policy keeps +4 mm for misses in the window. The three policies use the same
+comparable swings. Compare the fair trajectories at [45, 47.5) m/s and
+[20, 25) degrees, the home-run trajectories, and the low line drives. These
+are flight counts and do not determine official doubles.
+
 ### Vertical contact offsets in full games
 
 ```sh

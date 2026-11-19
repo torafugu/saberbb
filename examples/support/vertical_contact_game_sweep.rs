@@ -14,6 +14,7 @@ use saberbb::domain::{
     shared::{
         ball::{BattedBall, OutboundResult, PitchedBall},
         game::{BattingResult, GameResult, GameSchedule},
+        game_state::VERTICAL_CONTACT_WINDOW_MM,
         game_stats::PlayerGameBatting,
         low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
         player::BatterInfo,
@@ -26,6 +27,7 @@ use std::collections::BTreeMap;
 
 const SHIFTS_MM: [i32; 5] = [-4, -2, 0, 2, 4];
 const HIGH_EV_MS: f64 = 45.0;
+const WINDOW_EXIT_SPEED_SPLIT_MS: f64 = 47.5;
 const TARGET_ANGLE: std::ops::Range<f64> = 7.0..10.0;
 pub(super) const EXIT_SPEED_BANDS_MS: &[f64] = &[25.0, 35.0, 40.0, 45.0, 47.5, 50.0, 55.0];
 pub(super) const FLIGHT_ANGLE_BANDS_DEG: &[f64] =
@@ -258,6 +260,84 @@ impl PairedCohorts {
     }
 }
 
+#[derive(Default, Serialize)]
+struct WindowPolicyOutcome {
+    swings_by_shift_mm: BTreeMap<i32, u64>,
+    geometric_misses: u64,
+    lost_contacts: u64,
+    recovered_contacts: u64,
+    fair_trajectories: u64,
+    low_line_drives: u64,
+    fair_ev_45_to_47_5_vla_20_to_25: u64,
+    home_run_trajectories: u64,
+    original_home_runs_retained: u64,
+    new_home_run_trajectories: u64,
+    home_runs_20_to_30_deg: u64,
+    home_runs_ev_ge_47_5_vla_20_to_25: u64,
+}
+
+impl WindowPolicyOutcome {
+    fn observe(&mut self, shift_mm: i32, baseline: Option<&BattedBall>, trial: Option<&BattedBall>) {
+        *self.swings_by_shift_mm.entry(shift_mm).or_default() += 1;
+        let Some(ball) = trial else {
+            self.geometric_misses += 1;
+            self.lost_contacts += u64::from(baseline.is_some());
+            return;
+        };
+        self.recovered_contacts += u64::from(baseline.is_none());
+        if !fair_trajectory(ball) {
+            return;
+        }
+        self.fair_trajectories += 1;
+        self.low_line_drives += u64::from(LowLineDriveFieldingAudit::matches(ball));
+        let in_20_to_25 = (20.0..25.0).contains(&ball.launch_angle);
+        self.fair_ev_45_to_47_5_vla_20_to_25 += u64::from(
+            in_20_to_25 && (HIGH_EV_MS..WINDOW_EXIT_SPEED_SPLIT_MS).contains(&ball.launch_speed),
+        );
+        if ball.outbound_result == OutboundResult::HomeRun {
+            self.home_run_trajectories += 1;
+            let original_hr =
+                baseline.is_some_and(|ball| ball.outbound_result == OutboundResult::HomeRun);
+            self.original_home_runs_retained += u64::from(original_hr);
+            self.new_home_run_trajectories += u64::from(!original_hr);
+            self.home_runs_20_to_30_deg += u64::from((20.0..30.0).contains(&ball.launch_angle));
+            self.home_runs_ev_ge_47_5_vla_20_to_25 +=
+                u64::from(in_20_to_25 && ball.launch_speed >= WINDOW_EXIT_SPEED_SPLIT_MS);
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct WindowExitSpeedComparison {
+    baseline: WindowPolicyOutcome,
+    contact_z_window_plus_four: WindowPolicyOutcome,
+    contact_z_window_by_baseline_ev: WindowPolicyOutcome,
+    baseline_misses_in_window: u64,
+}
+
+impl WindowExitSpeedComparison {
+    fn observe(
+        &mut self,
+        baseline_z_m: f64,
+        baseline: Option<&BattedBall>,
+        plus_two: Option<&BattedBall>,
+        plus_four: Option<&BattedBall>,
+    ) {
+        self.baseline.observe(0, baseline, baseline);
+        let in_window = VERTICAL_CONTACT_WINDOW_MM.contains(&(baseline_z_m * 1000.0));
+        let windowed = if in_window { (4, plus_four) } else { (0, baseline) };
+        self.contact_z_window_plus_four
+            .observe(windowed.0, baseline, windowed.1);
+        self.baseline_misses_in_window += u64::from(in_window && baseline.is_none());
+
+        let soften = in_window
+            && baseline.is_some_and(|ball| ball.launch_speed < WINDOW_EXIT_SPEED_SPLIT_MS);
+        let (shift, trial) = if soften { (2, plus_two) } else { windowed };
+        self.contact_z_window_by_baseline_ev
+            .observe(shift, baseline, trial);
+    }
+}
+
 #[derive(Serialize)]
 pub(super) struct Sweep {
     source_swings: u64,
@@ -272,6 +352,7 @@ pub(super) struct Sweep {
     exclusions_by_shift_mm: BTreeMap<i32, u64>,
     by_shift_mm: BTreeMap<i32, Scenario>,
     paired_zero_to_plus_four_mm: PairedCohorts,
+    window_exit_speed_comparison: WindowExitSpeedComparison,
 }
 
 impl Default for Sweep {
@@ -292,6 +373,7 @@ impl Default for Sweep {
                 .map(|shift| (shift, Scenario::default()))
                 .collect(),
             paired_zero_to_plus_four_mm: PairedCohorts::default(),
+            window_exit_speed_comparison: WindowExitSpeedComparison::default(),
         }
     }
 }
@@ -378,6 +460,20 @@ impl Sweep {
             self.comparable_misses += u64::from(missed);
             self.comparable_home_runs += u64::from(original_hr);
             self.comparable_official_fast_low_balls += u64::from(official_fast_low);
+            let flight_at = |offset_mm| {
+                flights
+                    .iter()
+                    .find(|(shift, _)| *shift == offset_mm)
+                    .unwrap()
+                    .1
+                    .as_ref()
+            };
+            self.window_exit_speed_comparison.observe(
+                inputs.z,
+                baseline,
+                flight_at(2),
+                flight_at(4),
+            );
             for (shift, flight) in flights {
                 if shift == 4 {
                     self.paired_zero_to_plus_four_mm.observe(
@@ -519,6 +615,57 @@ fn reconstruct(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_replay_selects_by_baseline_speed_and_preserves_missing_speed_policy() {
+        let middle = BattedBall {
+            launch_speed: 47.49,
+            launch_angle: 20.0,
+            ..BattedBall::default()
+        };
+        let fast = BattedBall {
+            launch_speed: 47.5,
+            ..middle
+        };
+        let low = BattedBall {
+            launch_speed: 44.0,
+            launch_angle: 14.0,
+            ..middle
+        };
+        let home_run = BattedBall {
+            outbound_result: OutboundResult::HomeRun,
+            ..fast
+        };
+        let mut comparison = WindowExitSpeedComparison::default();
+        for (z, baseline, plus_two) in [
+            (0.010, Some(&middle), Some(&low)),
+            (0.02999, Some(&fast), Some(&low)),
+            (0.030, Some(&middle), Some(&low)),
+            (0.00999, Some(&middle), Some(&low)),
+            (0.020, None, None),
+            (0.015, Some(&middle), None),
+        ] {
+            comparison.observe(z, baseline, plus_two, Some(&home_run));
+        }
+
+        let baseline = comparison.baseline;
+        let uniform = comparison.contact_z_window_plus_four;
+        let selected = comparison.contact_z_window_by_baseline_ev;
+        assert_eq!(baseline.swings_by_shift_mm, BTreeMap::from([(0, 6)]));
+        assert_eq!(uniform.swings_by_shift_mm, BTreeMap::from([(0, 2), (4, 4)]));
+        assert_eq!(
+            selected.swings_by_shift_mm,
+            BTreeMap::from([(0, 2), (2, 2), (4, 2)])
+        );
+        assert_eq!(comparison.baseline_misses_in_window, 1);
+        assert_eq!(selected.recovered_contacts, 1);
+        assert_eq!(selected.lost_contacts, 1);
+        assert_eq!(selected.low_line_drives, 1);
+        assert_eq!(selected.fair_ev_45_to_47_5_vla_20_to_25, 2);
+        assert_eq!(uniform.home_runs_ev_ge_47_5_vla_20_to_25, 4);
+        assert_eq!(selected.home_runs_ev_ge_47_5_vla_20_to_25, 2);
+        assert_eq!(selected.new_home_run_trajectories, 2);
+    }
 
     #[test]
     fn paired_cohorts_track_origins_destinations_and_shared_input_cells() {
