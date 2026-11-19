@@ -75,23 +75,58 @@ pub struct LineDriveLiftStats {
     pub line_drive_whiffs: u64,
 }
 
+pub const VERTICAL_CONTACT_WINDOW_MM: std::ops::Range<f64> = 10.0..30.0;
+
+#[derive(Clone, Copy)]
+enum VerticalContactTrial {
+    Uniform(f64),
+    Windowed(f64),
+}
+
 thread_local! {
     static LINE_DRIVE_LIFT: std::cell::Cell<Option<(f64, LineDriveLiftStats)>> =
         const { std::cell::Cell::new(None) };
-    static VERTICAL_CONTACT_TRIAL_OFFSET_M: std::cell::Cell<f64> =
-        const { std::cell::Cell::new(0.0) };
+    static VERTICAL_CONTACT_TRIAL: std::cell::Cell<VerticalContactTrial> =
+        const { std::cell::Cell::new(VerticalContactTrial::Uniform(0.0)) };
 }
 
 /// Add a world-vertical contact offset to every swing in a synchronous diagnostic run.
 pub fn with_vertical_contact_trial<T>(offset_mm: i16, run: impl FnOnce() -> T) -> T {
-    struct Restore(f64);
+    with_vertical_contact_trial_scope(
+        VerticalContactTrial::Uniform(f64::from(offset_mm) / 1000.0),
+        run,
+    )
+}
+
+/// Add a world-vertical offset only when the pre-trial contact is in [10, 30) mm.
+pub fn with_vertical_contact_window_trial<T>(offset_mm: i16, run: impl FnOnce() -> T) -> T {
+    with_vertical_contact_trial_scope(
+        VerticalContactTrial::Windowed(f64::from(offset_mm) / 1000.0),
+        run,
+    )
+}
+
+fn with_vertical_contact_trial_scope<T>(trial: VerticalContactTrial, run: impl FnOnce() -> T) -> T {
+    struct Restore(VerticalContactTrial);
     impl Drop for Restore {
         fn drop(&mut self) {
-            VERTICAL_CONTACT_TRIAL_OFFSET_M.set(self.0);
+            VERTICAL_CONTACT_TRIAL.set(self.0);
         }
     }
-    let _restore = Restore(VERTICAL_CONTACT_TRIAL_OFFSET_M.replace(f64::from(offset_mm) / 1000.0));
+    let _restore = Restore(VERTICAL_CONTACT_TRIAL.replace(trial));
     run()
+}
+
+fn vertical_contact_trial_offset_m(baseline_z_m: f64) -> f64 {
+    match VERTICAL_CONTACT_TRIAL.get() {
+        VerticalContactTrial::Uniform(offset) => offset,
+        VerticalContactTrial::Windowed(offset)
+            if VERTICAL_CONTACT_WINDOW_MM.contains(&(baseline_z_m * 1000.0)) =>
+        {
+            offset
+        }
+        VerticalContactTrial::Windowed(_) => 0.0,
+    }
 }
 
 /// Scope the experimental line-drive contact offset to one synchronous simulation.
@@ -1206,7 +1241,9 @@ impl GameState {
         if vertical_contact_offset_m != 0.0 {
             swing_error.additional_z_m += vertical_contact_offset_m;
         }
-        let trial_offset_m = VERTICAL_CONTACT_TRIAL_OFFSET_M.get();
+        // Use the same Z coordinate the baseline resolver records, including the intent offset.
+        let baseline_z_m = displacement.vertical_offset_m + swing_error.additional_z_m;
+        let trial_offset_m = vertical_contact_trial_offset_m(baseline_z_m);
         if trial_offset_m != 0.0 {
             swing_error.additional_z_m += trial_offset_m;
         }
@@ -1685,6 +1722,22 @@ mod tests {
         let ordinary = serde_json::to_value(ordinary).unwrap();
         assert_eq!(ordinary, serde_json::to_value(control).unwrap());
         assert_eq!(ordinary, serde_json::to_value(run()).unwrap());
+    }
+
+    #[test]
+    fn vertical_contact_window_is_half_open_and_scoped() {
+        with_vertical_contact_trial(4, || {
+            with_vertical_contact_window_trial(4, || {
+                for outside in [0.00999, 0.030, 0.031, f64::NAN] {
+                    assert_eq!(vertical_contact_trial_offset_m(outside), 0.0);
+                }
+                for inside in [0.010, 0.020, 0.02999] {
+                    assert_eq!(vertical_contact_trial_offset_m(inside), 0.004);
+                }
+            });
+            assert_eq!(vertical_contact_trial_offset_m(0.030), 0.004);
+        });
+        assert_eq!(vertical_contact_trial_offset_m(0.020), 0.0);
     }
 
     #[test]

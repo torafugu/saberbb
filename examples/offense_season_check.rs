@@ -18,8 +18,9 @@ use saberbb::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
                 DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, Ruling,
+                VERTICAL_CONTACT_WINDOW_MM,
                 with_line_drive_lift_trial, with_right_field_first_trial,
-                with_vertical_contact_trial,
+                with_vertical_contact_trial, with_vertical_contact_window_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
@@ -94,6 +95,9 @@ struct Args {
         "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison"
     ])]
     vertical_contact_comparison: bool,
+    /// Add a +4 mm trial restricted to pre-trial vertical contact positions in [10, 30) mm.
+    #[arg(long, requires = "vertical_contact_comparison")]
+    vertical_contact_window: bool,
     /// Diagnose catch and first-base out opportunities on 40–47.5 m/s, 10–15 degree singles.
     #[arg(long, requires = "vertical_contact_comparison")]
     vertical_contact_fielding_diagnostics: bool,
@@ -223,6 +227,19 @@ impl Counts {
         };
         v
     }
+
+    fn vertical_contact_json(&self, include_window_metrics: bool) -> serde_json::Value {
+        let mut summary = self.json();
+        if include_window_metrics {
+            let total_bases = self.single + 2 * self.double + 3 * self.triple + 4 * self.hr;
+            let extra_base_hits = self.double + self.triple + self.hr;
+            summary["slugging"] =
+                serde_json::json!((self.ab > 0).then(|| total_bases as f64 / self.ab as f64));
+            summary["extra_base_hits_per_pa"] =
+                serde_json::json!((self.pa > 0).then(|| extra_base_hits as f64 / self.pa as f64));
+        }
+        summary
+    }
 }
 
 #[derive(Default, Serialize)]
@@ -271,10 +288,18 @@ struct VerticalContactOutcomes {
     whiffs: u64,
     low: FastBallOutcomes,
     next: FastBallOutcomes,
+    low_line_drive: FastBallOutcomes,
+    home_runs_20_to_30_deg: u64,
 }
 
 impl VerticalContactOutcomes {
     fn observe_ball(&mut self, speed: f64, angle: f64, result: BattingResult) {
+        if LowLineDriveFieldingAudit::matches_launch(speed, angle) {
+            self.low_line_drive.observe(result);
+        }
+        if result == BattingResult::HomeRun && (20.0..30.0).contains(&angle) {
+            self.home_runs_20_to_30_deg += 1;
+        }
         if !speed.is_finite() || speed < fair_launch_audit::HIGH_EV_MIN_MS {
             return;
         }
@@ -306,10 +331,12 @@ impl VerticalContactOutcomes {
         self.whiffs += other.whiffs;
         self.low.merge(other.low);
         self.next.merge(other.next);
+        self.low_line_drive.merge(other.low_line_drive);
+        self.home_runs_20_to_30_deg += other.home_runs_20_to_30_deg;
     }
 
-    fn json(&self) -> serde_json::Value {
-        serde_json::json!({
+    fn json(&self, include_window_metrics: bool) -> serde_json::Value {
+        let mut report = serde_json::json!({
             "swings": self.swings,
             "whiffs": self.whiffs,
             "whiffs_per_swing": (self.swings > 0)
@@ -318,7 +345,12 @@ impl VerticalContactOutcomes {
                 "[7,10)": self.low,
                 "[10,15)": self.next,
             },
-        })
+        });
+        if include_window_metrics {
+            report["low_line_drive"] = serde_json::json!(self.low_line_drive);
+            report["home_runs_20_to_30_deg"] = serde_json::json!(self.home_runs_20_to_30_deg);
+        }
+        report
     }
 }
 
@@ -587,10 +619,13 @@ fn run(args: Args) -> Result<()> {
     }
     if args.vertical_contact_comparison {
         let mut trials = Vec::new();
-        for offset_mm in [0, 4] {
-            eprintln!("Full-game vertical contact comparison: +{offset_mm} mm");
+        let policies = [("baseline", 0), ("uniform", 4)]
+            .into_iter()
+            .chain(args.vertical_contact_window.then_some(("contact_z_window", 4)));
+        for (policy, offset_mm) in policies {
+            eprintln!("Full-game vertical contact comparison: {policy}, +{offset_mm} mm");
             let mut summary = VerticalContactSummary::default();
-            let reports = with_vertical_contact_trial(offset_mm, || {
+            let run_trial = || {
                 simulate_reports_inner(
                     &args,
                     &games,
@@ -599,14 +634,29 @@ fn run(args: Args) -> Result<()> {
                     None,
                     Some(&mut summary),
                 )
-            })
-            .with_context(|| format!("vertical contact trial +{offset_mm} mm"))?;
+            };
+            let windowed = policy == "contact_z_window";
+            let reports = if windowed {
+                with_vertical_contact_window_trial(offset_mm, run_trial)
+            } else {
+                with_vertical_contact_trial(offset_mm, run_trial)
+            }
+            .with_context(|| format!("vertical contact trial {policy}, +{offset_mm} mm"))?;
             let mut trial = serde_json::json!({
                 "additional_vertical_contact_offset_mm": offset_mm,
-                "total": summary.total.json(),
-                "vertical_contact_outcomes": summary.outcomes.json(),
+                "total": summary.total.vertical_contact_json(args.vertical_contact_window),
+                "vertical_contact_outcomes": summary.outcomes.json(args.vertical_contact_window),
                 "reports": reports,
             });
+            if args.vertical_contact_window {
+                trial["policy"] = serde_json::json!(policy);
+                if windowed {
+                    trial["pre_trial_contact_z_range_mm"] = serde_json::json!({
+                        "min_inclusive": VERTICAL_CONTACT_WINDOW_MM.start,
+                        "max_exclusive": VERTICAL_CONTACT_WINDOW_MM.end,
+                    });
+                }
+            }
             if args.vertical_contact_fielding_diagnostics {
                 trial["low_line_drive_fielding"] =
                     serde_json::to_value(summary.low_line_drive_fielding)?;
@@ -614,9 +664,16 @@ fn run(args: Args) -> Result<()> {
             trials.push(trial);
         }
         output["vertical_contact_trials"] = serde_json::json!(trials);
-        output["definitions"]["vertical_contact_trials"] = serde_json::json!(
+        output["definitions"]["vertical_contact_trials"] = serde_json::json!(if args.vertical_contact_window {
+            "Full games under the baseline, uniform +4 mm, and [10,30) mm contact-Z window +4 mm policies. The window uses the live pre-trial world-vertical contact coordinate after the normal swing intent offset. Trials share schedule, rosters and starting RNG seeds, and pool counts before calculating rates. Changed plays can alter later decisions and RNG draws."
+        } else {
             "Full games with an additional world-vertical contact offset on every swing, on top of the selected intent's normal offset. Trials share the schedule, rosters and starting RNG seed per game. Changed plays can change subsequent decisions and RNG draws. Trial totals pool all seeds before calculating rates."
-        );
+        });
+        if args.vertical_contact_window {
+            output["definitions"]["low_line_drive"] = serde_json::json!(
+                "Official fair batting outcomes at exit speed [40,47.5) m/s and vertical launch angle [10,15) degrees."
+            );
+        }
         output["definitions"]["fast_fair_by_launch_angle_deg"] = serde_json::json!(
             "Recorded fair batting outcomes with exit speed at least 45 m/s. Launch-angle intervals include the lower bound and exclude the upper bound. Each batted ball counts once, including a double play."
         );
@@ -903,7 +960,7 @@ fn simulate_reports_inner(
         }
         let mut leaders: Vec<_> = players.into_iter().collect();
         leaders.sort_by(|a, b| b.1.hr.cmp(&a.1.hr).then_with(|| a.0.cmp(&b.0)));
-        let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.json(),
+        let mut report = serde_json::json!({"seed":seed.to_string(),"total":total.vertical_contact_json(args.vertical_contact_window),
             "teams":teams.into_iter().map(|(id,t)|(id.to_string(),t.json())).collect::<BTreeMap<_,_>>(),
             "hr_leaders":leaders.iter().take(10).map(|(id,s)|serde_json::json!({"batter_id":id,"stats":s.json()})).collect::<Vec<_>>()});
         if args.pre_fence_pickup_comparison {
@@ -979,7 +1036,7 @@ fn simulate_reports_inner(
             report["right_field_first_outs"] = serde_json::json!(right_field_first_outs);
         }
         if let (Some(summary), Some(outcomes)) = (trial_summary.as_deref_mut(), vertical_outcomes) {
-            report["vertical_contact_outcomes"] = outcomes.json();
+            report["vertical_contact_outcomes"] = outcomes.json(args.vertical_contact_window);
             summary.total.merge(total);
             summary.outcomes.merge(outcomes);
             if let Some(audit) = low_line_drive_fielding {
@@ -1004,12 +1061,19 @@ mod tests {
         let args = ["check", "--season", "2026", "--vertical-contact-comparison"];
         assert!(Args::try_parse_from(args).unwrap().vertical_contact_comparison);
         let fielding_flag = "--vertical-contact-fielding-diagnostics";
+        let window_flag = "--vertical-contact-window";
         assert!(
             Args::try_parse_from(args.into_iter().chain([fielding_flag]))
                 .unwrap()
                 .vertical_contact_fielding_diagnostics
         );
         assert!(Args::try_parse_from(["check", "--season", "2026", fielding_flag]).is_err());
+        assert!(
+            Args::try_parse_from(args.into_iter().chain([window_flag]))
+                .unwrap()
+                .vertical_contact_window
+        );
+        assert!(Args::try_parse_from(["check", "--season", "2026", window_flag]).is_err());
         assert!(
             Args::try_parse_from(args.into_iter().chain(["--vertical-contact-sweep"])).is_err()
         );
@@ -1027,6 +1091,10 @@ mod tests {
             (46.0, 14.9, DoublePlay),
             (46.0, 15.0, Triple),
             (f64::INFINITY, 12.0, Out),
+            (40.0, 10.0, Single),
+            (47.5, 10.0, Out),
+            (49.0, 20.0, HomeRun),
+            (46.0, 30.0, HomeRun),
         ] {
             first.observe_ball(speed, angle, result);
         }
@@ -1034,15 +1102,19 @@ mod tests {
         second.observe_ball(46.0, 8.0, Out);
         second.observe_ball(46.0, 12.0, FieldersChoice);
         first.merge(second);
-        let report = first.json();
+        assert!(first.json(false).get("low_line_drive").is_none());
+        let report = first.json(true);
         let low = &report["fast_fair_by_launch_angle_deg"]["[7,10)"];
         let next = &report["fast_fair_by_launch_angle_deg"]["[10,15)"];
-        assert_eq!((low["plays"].as_u64(), next["plays"].as_u64()), (Some(2), Some(3)));
+        assert_eq!((low["plays"].as_u64(), next["plays"].as_u64()), (Some(2), Some(4)));
         assert_eq!(low["single"], 1);
         assert_eq!(low["out"], 1);
         assert_eq!(next["double"], 1);
         assert_eq!(next["double_play"], 1);
         assert_eq!(next["fielders_choice"], 1);
+        assert_eq!(report["low_line_drive"]["plays"], 4);
+        assert_eq!(report["low_line_drive"]["single"], 1);
+        assert_eq!(report["home_runs_20_to_30_deg"], 1);
         assert!(report["whiffs_per_swing"].is_null());
     }
 
@@ -1128,5 +1200,9 @@ mod tests {
         assert_eq!(json["babip"], 0.5);
         assert_eq!(json["strikeouts_per_pa"], 1.0 / 7.0);
         assert_eq!(json["singles_per_pa"], 1.0 / 7.0);
+        assert!(counts.vertical_contact_json(false).get("slugging").is_none());
+        let window_json = counts.vertical_contact_json(true);
+        assert_eq!(window_json["slugging"], 7.0 / 6.0);
+        assert_eq!(window_json["extra_base_hits_per_pa"], 2.0 / 7.0);
     }
 }

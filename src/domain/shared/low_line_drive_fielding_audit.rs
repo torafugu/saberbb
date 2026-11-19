@@ -35,7 +35,11 @@ thread_local! {
 
 impl LowLineDriveFieldingAudit {
     pub fn matches(ball: &BattedBall) -> bool {
-        EXIT_SPEED_MS.contains(&ball.launch_speed) && LAUNCH_ANGLE_DEG.contains(&ball.launch_angle)
+        Self::matches_launch(ball.launch_speed, ball.launch_angle)
+    }
+
+    pub fn matches_launch(exit_speed_ms: f64, launch_angle_deg: f64) -> bool {
+        EXIT_SPEED_MS.contains(&exit_speed_ms) && LAUNCH_ANGLE_DEG.contains(&launch_angle_deg)
     }
 
     pub fn singles(&self) -> u64 {

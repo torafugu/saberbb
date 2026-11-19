@@ -698,6 +698,20 @@ appearance, and BABIP. `vertical_contact_outcomes` reports whiffs per swing
 and the recorded batting results in the [7°, 10°) and [10°, 15°) bands
 for fair balls with exit speed at least 45 m/s.
 
+Add the contact-Z window policy as a third full-game trial:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --vertical-contact-comparison --vertical-contact-window > vertical_contact_window_2026.json
+```
+
+The third trial applies +4 mm only for pre-trial world-vertical contact
+positions in [10, 30) mm. The pre-trial position includes the normal swing
+intent offset and is evaluated before the added 4 mm. Reports identify the
+policies as `baseline`, `uniform`, and `contact_z_window`. They add slugging
+(total bases per at-bat), extra-base hits per plate appearance, official fair
+outcomes at [40, 47.5) m/s and [10, 15) degrees, and official home runs at
+[20, 30) degrees. All three trials include fielding and baserunning.
+
 Add the fair-launch audit to compare official outcomes across all exit-speed
 and launch-angle bands. The CSV sums the backspin bands and seeds before
 dividing by each trial's plate appearances. Rows are ordered by the change in
