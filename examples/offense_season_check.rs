@@ -18,12 +18,13 @@ use saberbb::{
             ball::{BattedBall, OutboundResult},
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
-                DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, FenceAudit, LineDriveLiftStats,
-                PairedContactPlay, Ruling, VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS,
-                VERTICAL_CONTACT_WINDOW_MM, with_ground_rule_double_catch_trial,
-                with_line_drive_lift_trial, with_paired_contact_fielding,
-                with_right_field_first_trial, with_vertical_contact_trial,
-                with_vertical_contact_window_ev_trial, with_vertical_contact_window_trial,
+                DEFAULT_GROUND_RULE_DOUBLE_CATCH_ENABLED, DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM,
+                FenceAudit, LineDriveLiftStats, PairedContactPlay, Ruling,
+                VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS, VERTICAL_CONTACT_WINDOW_MM,
+                with_ground_rule_double_catch_trial, with_line_drive_lift_trial,
+                with_paired_contact_fielding, with_right_field_first_trial,
+                with_vertical_contact_trial, with_vertical_contact_window_ev_trial,
+                with_vertical_contact_window_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
@@ -826,6 +827,7 @@ fn run(args: Args) -> Result<()> {
             "lift": "unchanged legacy transverse-spin model"
         },
         "default_direct_catch_margin_percent": 50,
+        "default_ground_rule_double_catch_enabled": DEFAULT_GROUND_RULE_DOUBLE_CATCH_ENABLED,
         "default_line_drive_lift_offset_mm": DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM,
         "inputs_sha256": input_hash, "season": args.season, "games_per_seed": games.len(),
         "definitions": {
@@ -859,6 +861,7 @@ fn run(args: Args) -> Result<()> {
         )?;
         output["vertical_contact_paired_fielding"] = serde_json::json!({
             "flat_offset_mm": 4,
+            "ground_rule_double_catch_enabled": false,
             "baseline_contact_z_window_mm": VERTICAL_CONTACT_WINDOW_MM,
             "baseline_ev_split_ms": VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS,
             "target_exit_speed_ms": 45.0..47.5,
@@ -867,7 +870,7 @@ fn run(args: Args) -> Result<()> {
             "reports": reports,
         });
         output["definitions"]["vertical_contact_paired_fielding"] = serde_json::json!(
-            "Live +4 mm window games supply the swings and initial play states. A pair differs by +4 versus +2 mm and has a fair trajectory at 45–47.5 m/s and 15–25 degrees in either branch. Ranges are half open. Each phase starts from the same RNG state for both branches. Both resolve through normal fielding and baserunning. Only the +4 mm result advances the game. Transition keys are launch band and official batting result. NoBattingResult indicates an interrupted play with no batting ruling."
+            "Live +4 mm window games supply the swings and initial play states. A pair differs by +4 versus +2 mm and has a fair trajectory at 45–47.5 m/s and 15–25 degrees in either branch. Ranges are half open. Each phase starts from the same RNG state for both branches. Both resolve through normal fielding and baserunning with the historical automatic ground-rule double award. Only the +4 mm result advances the game. Transition keys are launch band and official batting result. NoBattingResult indicates an interrupted play with no batting ruling."
         );
         output["definitions"]["paired_contact_fence_audit"] = serde_json::json!(
             "For pairs with a ground-rule double in either branch, record each fair fence decision at the integration tick, before reflection or clearance. A positive height_above_fence_m means the ball cleared the fence. Each branch reports catch opportunities from the integrated pre-bounce path with the normal height, movement, risk and eligibility criteria, plus a normal fielding replay from the copied post-launch RNG state using fielding's estimated path. The transition cohort counts opportunities on the +4 mm ground-rule-double branch when the +2 mm branch officially caught the ball on the fly."
@@ -884,7 +887,7 @@ fn run(args: Args) -> Result<()> {
         let catch_modes: &[bool] = if args.ground_rule_double_catch_comparison {
             &[false, true]
         } else {
-            &[false]
+            &[DEFAULT_GROUND_RULE_DOUBLE_CATCH_ENABLED]
         };
         let trials_to_run = policies
             .iter()
@@ -945,10 +948,8 @@ fn run(args: Args) -> Result<()> {
                     });
                 }
             }
-            if args.ground_rule_double_catch_comparison {
-                trial["ground_rule_double_catch_enabled"] = serde_json::json!(catch_enabled);
-                trial["ground_rule_double"] = serde_json::json!(summary.outcomes.ground_rule_double);
-            }
+            trial["ground_rule_double_catch_enabled"] = serde_json::json!(catch_enabled);
+            trial["ground_rule_double"] = serde_json::json!(summary.outcomes.ground_rule_double);
             if args.vertical_contact_fielding_diagnostics {
                 trial["low_line_drive_fielding"] =
                     serde_json::to_value(summary.low_line_drive_fielding)?;
@@ -1379,9 +1380,7 @@ fn simulate_reports_inner(
                 );
             }
             report["vertical_contact_outcomes"] = outcomes.json(args.vertical_contact_window);
-            if args.ground_rule_double_catch_comparison {
-                report["ground_rule_double"] = serde_json::json!(outcomes.ground_rule_double);
-            }
+            report["ground_rule_double"] = serde_json::json!(outcomes.ground_rule_double);
             summary.total.merge(total);
             summary.outcomes.merge(outcomes);
             if let Some(audit) = low_line_drive_fielding {

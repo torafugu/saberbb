@@ -765,6 +765,7 @@ cargo run --release --example offense_season_check -- --season 2026 --games 36 -
 ```
 
 The +4 mm window games supply the pitches, swings and initial play states.
+This counterfactual uses the historical automatic ground-rule double award.
 The audit branches only where the exit-speed-dependent policy uses +2 mm
 and includes the pair if either resulting fair flight has exit speed
 [45, 47.5) m/s and launch angle [15, 25) degrees. Both branches use the normal
@@ -790,6 +791,18 @@ path counts evaluate reach and risk before the first bounce or fence contact.
 The fielding replay uses the normal estimated path, candidate filters and
 error draws from the same post-launch RNG state. The diagnostic leaves the
 official game results intact.
+
+A clean direct catch takes precedence in standard games when the projected
+trajectory would clear the fence after a bounce. Compare the three contact
+policies with this rule on using a separate set of starting seeds:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --seeds 503,1009,20261120 --vertical-contact-comparison --vertical-contact-window --vertical-contact-window-ev > vertical_contact_ev_holdout_catch_2026.json
+```
+
+Compare doubles and home runs per PA for the pooled trials and each seed.
+Each trial reports the catch rule setting and the number of trajectories
+that ended in an awarded double or a catch before the bounce.
 
 Compare the ground-rule-double catch rule off and on for each contact policy:
 
