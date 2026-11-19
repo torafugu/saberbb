@@ -18,9 +18,10 @@ use saberbb::{
             game::{BattingResult, GameResult, GameSchedule},
             game_state::{
                 DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, LineDriveLiftStats, Ruling,
-                VERTICAL_CONTACT_WINDOW_MM,
+                VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS, VERTICAL_CONTACT_WINDOW_MM,
                 with_line_drive_lift_trial, with_right_field_first_trial,
-                with_vertical_contact_trial, with_vertical_contact_window_trial,
+                with_vertical_contact_trial, with_vertical_contact_window_ev_trial,
+                with_vertical_contact_window_trial,
             },
             infield_opportunity_audit::InfieldOpportunityAudit,
             low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
@@ -98,6 +99,9 @@ struct Args {
     /// Add a +4 mm trial restricted to pre-trial vertical contact positions in [10, 30) mm.
     #[arg(long, requires = "vertical_contact_comparison")]
     vertical_contact_window: bool,
+    /// Compare baseline, +4 mm in the contact window, and the exit-speed-dependent window.
+    #[arg(long, requires = "vertical_contact_window")]
+    vertical_contact_window_ev: bool,
     /// Diagnose catch and first-base out opportunities on 40–47.5 m/s, 10–15 degree singles.
     #[arg(long, requires = "vertical_contact_comparison")]
     vertical_contact_fielding_diagnostics: bool,
@@ -291,7 +295,9 @@ struct VerticalContactOutcomes {
     low: FairBallOutcomes,
     next: FairBallOutcomes,
     low_line_drive: FairBallOutcomes,
+    mid_speed_20_to_25_deg: FairBallOutcomes,
     home_runs_20_to_30_deg: u64,
+    high_ev_home_runs_20_to_25_deg: u64,
     by_launch_band: BTreeMap<String, FairBallOutcomes>,
 }
 
@@ -302,6 +308,19 @@ impl VerticalContactOutcomes {
         }
         if result == BattingResult::HomeRun && (20.0..30.0).contains(&angle) {
             self.home_runs_20_to_30_deg += 1;
+        }
+        if (20.0..25.0).contains(&angle) {
+            if (fair_launch_audit::HIGH_EV_MIN_MS..VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS)
+                .contains(&speed)
+            {
+                self.mid_speed_20_to_25_deg.observe(result);
+            }
+            if result == BattingResult::HomeRun
+                && speed.is_finite()
+                && speed >= VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS
+            {
+                self.high_ev_home_runs_20_to_25_deg += 1;
+            }
         }
         if !speed.is_finite() || speed < fair_launch_audit::HIGH_EV_MIN_MS {
             return;
@@ -368,7 +387,9 @@ impl VerticalContactOutcomes {
         self.low.merge(other.low);
         self.next.merge(other.next);
         self.low_line_drive.merge(other.low_line_drive);
+        self.mid_speed_20_to_25_deg.merge(other.mid_speed_20_to_25_deg);
         self.home_runs_20_to_30_deg += other.home_runs_20_to_30_deg;
+        self.high_ev_home_runs_20_to_25_deg += other.high_ev_home_runs_20_to_25_deg;
         for (band, outcomes) in other.by_launch_band {
             self.by_launch_band.entry(band).or_default().merge(outcomes);
         }
@@ -388,6 +409,9 @@ impl VerticalContactOutcomes {
         if include_window_metrics {
             report["low_line_drive"] = serde_json::json!(self.low_line_drive);
             report["home_runs_20_to_30_deg"] = serde_json::json!(self.home_runs_20_to_30_deg);
+            report["mid_speed_20_to_25_deg"] = serde_json::json!(self.mid_speed_20_to_25_deg);
+            report["high_ev_home_runs_20_to_25_deg"] =
+                serde_json::json!(self.high_ev_home_runs_20_to_25_deg);
             report["by_exit_speed_launch_angle_direction"] = serde_json::json!(self.by_launch_band);
         }
         report
@@ -662,11 +686,15 @@ fn run(args: Args) -> Result<()> {
     }
     if args.vertical_contact_comparison {
         let mut trials = Vec::new();
-        let policies = [("baseline", 0), ("uniform", 4)]
-            .into_iter()
-            .chain(args.vertical_contact_window.then_some(("contact_z_window", 4)));
-        for (policy, offset_mm) in policies {
-            eprintln!("Full-game vertical contact comparison: {policy}, +{offset_mm} mm");
+        let policies: &[&str] = if args.vertical_contact_window_ev {
+            &["baseline", "contact_z_window", "contact_z_window_by_baseline_ev"]
+        } else if args.vertical_contact_window {
+            &["baseline", "uniform", "contact_z_window"]
+        } else {
+            &["baseline", "uniform"]
+        };
+        for &policy in policies {
+            eprintln!("Full-game vertical contact comparison: {policy}");
             let mut summary = VerticalContactSummary::default();
             let run_trial = || {
                 simulate_reports_inner(
@@ -678,19 +706,31 @@ fn run(args: Args) -> Result<()> {
                     Some(&mut summary),
                 )
             };
-            let windowed = policy == "contact_z_window";
-            let reports = if windowed {
-                with_vertical_contact_window_trial(offset_mm, run_trial)
-            } else {
-                with_vertical_contact_trial(offset_mm, run_trial)
+            let by_exit_speed = policy == "contact_z_window_by_baseline_ev";
+            let windowed = policy == "contact_z_window" || by_exit_speed;
+            let offset_mm = if policy == "baseline" { 0 } else { 4 };
+            let reports = match policy {
+                "contact_z_window_by_baseline_ev" => with_vertical_contact_window_ev_trial(run_trial),
+                "contact_z_window" => with_vertical_contact_window_trial(offset_mm, run_trial),
+                _ => with_vertical_contact_trial(offset_mm, run_trial),
             }
-            .with_context(|| format!("vertical contact trial {policy}, +{offset_mm} mm"))?;
+            .with_context(|| format!("vertical contact trial {policy}"))?;
             let mut trial = serde_json::json!({
-                "additional_vertical_contact_offset_mm": offset_mm,
                 "total": summary.total.vertical_contact_json(args.vertical_contact_window),
                 "vertical_contact_outcomes": summary.outcomes.json(args.vertical_contact_window),
                 "reports": reports,
             });
+            if by_exit_speed {
+                trial["pre_trial_exit_speed_split_ms"] =
+                    serde_json::json!(VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS);
+                trial["additional_vertical_contact_offsets_mm"] = serde_json::json!({
+                    "below_split": 2,
+                    "at_or_above_split": 4,
+                    "no_pre_trial_exit_speed": 4,
+                });
+            } else {
+                trial["additional_vertical_contact_offset_mm"] = serde_json::json!(offset_mm);
+            }
             if args.vertical_contact_window {
                 trial["policy"] = serde_json::json!(policy);
                 if windowed {
@@ -707,7 +747,9 @@ fn run(args: Args) -> Result<()> {
             trials.push(trial);
         }
         output["vertical_contact_trials"] = serde_json::json!(trials);
-        output["definitions"]["vertical_contact_trials"] = serde_json::json!(if args.vertical_contact_window {
+        output["definitions"]["vertical_contact_trials"] = serde_json::json!(if args.vertical_contact_window_ev {
+            "Full games under the baseline, +4 mm within the contact-Z window, and the exit-speed-dependent policy within the same window. The window uses the live pre-trial world-vertical contact coordinate after the normal swing intent offset. The exit speed comes from that same unshifted swing's contact geometry. Geometric misses in the window keep +4 mm. Trials share schedule, rosters and starting RNG seeds, and pool counts before calculating rates. Changed plays can alter later decisions and RNG draws."
+        } else if args.vertical_contact_window {
             "Full games under the baseline, uniform +4 mm, and [10,30) mm contact-Z window +4 mm policies. The window uses the live pre-trial world-vertical contact coordinate after the normal swing intent offset. Trials share schedule, rosters and starting RNG seeds, and pool counts before calculating rates. Changed plays can alter later decisions and RNG draws."
         } else {
             "Full games with an additional world-vertical contact offset on every swing, on top of the selected intent's normal offset. Trials share the schedule, rosters and starting RNG seed per game. Changed plays can change subsequent decisions and RNG draws. Trial totals pool all seeds before calculating rates."
@@ -715,6 +757,9 @@ fn run(args: Args) -> Result<()> {
         if args.vertical_contact_window {
             output["definitions"]["low_line_drive"] = serde_json::json!(
                 "Official fair batting outcomes at exit speed [40,47.5) m/s and vertical launch angle [10,15) degrees."
+            );
+            output["definitions"]["mid_speed_20_to_25_deg"] = serde_json::json!(
+                "Official fair batting outcomes at exit speed [45,47.5) m/s and vertical launch angle [20,25) degrees, measured after the policy is applied. high_ev_home_runs_20_to_25_deg counts official home runs at exit speed at least 47.5 m/s in the same angle band."
             );
             output["definitions"]["by_exit_speed_launch_angle_direction"] = serde_json::json!(
                 "Official fair batting outcomes by initial exit speed (EV), vertical launch angle (VLA) and stadium-relative horizontal launch angle (HLA). Negative HLA points toward third base, positive toward first base. Unavailable direction is counted as unknown. For doubles per 100 plate appearances, divide each cell's doubles by the corresponding trial or seed's total PA and multiply by 100. For the share of doubles among fair balls in a cell, use that cell's plays as the denominator."
@@ -1118,6 +1163,7 @@ mod tests {
         assert!(Args::try_parse_from(args).unwrap().vertical_contact_comparison);
         let fielding_flag = "--vertical-contact-fielding-diagnostics";
         let window_flag = "--vertical-contact-window";
+        let window_ev_flag = "--vertical-contact-window-ev";
         assert!(
             Args::try_parse_from(args.into_iter().chain([fielding_flag]))
                 .unwrap()
@@ -1130,6 +1176,12 @@ mod tests {
                 .vertical_contact_window
         );
         assert!(Args::try_parse_from(["check", "--season", "2026", window_flag]).is_err());
+        assert!(
+            Args::try_parse_from(args.into_iter().chain([window_flag, window_ev_flag]))
+                .unwrap()
+                .vertical_contact_window_ev
+        );
+        assert!(Args::try_parse_from(args.into_iter().chain([window_ev_flag])).is_err());
         assert!(
             Args::try_parse_from(args.into_iter().chain(["--vertical-contact-sweep"])).is_err()
         );
@@ -1151,6 +1203,9 @@ mod tests {
             (47.5, 10.0, Out),
             (49.0, 20.0, HomeRun),
             (46.0, 30.0, HomeRun),
+            (45.0, 20.0, Double),
+            (47.5, 20.0, Double),
+            (45.0, 25.0, Double),
         ] {
             first.observe_ball(speed, angle, result);
         }
@@ -1171,6 +1226,8 @@ mod tests {
         assert_eq!(report["low_line_drive"]["plays"], 4);
         assert_eq!(report["low_line_drive"]["single"], 1);
         assert_eq!(report["home_runs_20_to_30_deg"], 1);
+        assert_eq!(report["mid_speed_20_to_25_deg"]["double"], 1);
+        assert_eq!(report["high_ev_home_runs_20_to_25_deg"], 1);
         assert!(report["whiffs_per_swing"].is_null());
     }
 

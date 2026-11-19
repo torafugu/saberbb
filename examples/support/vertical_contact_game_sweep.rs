@@ -14,7 +14,10 @@ use saberbb::domain::{
     shared::{
         ball::{BattedBall, OutboundResult, PitchedBall},
         game::{BattingResult, GameResult, GameSchedule},
-        game_state::VERTICAL_CONTACT_WINDOW_MM,
+        game_state::{
+            VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS, VERTICAL_CONTACT_WINDOW_MM,
+            vertical_contact_window_ev_shift_mm,
+        },
         game_stats::PlayerGameBatting,
         low_line_drive_fielding_audit::LowLineDriveFieldingAudit,
         player::BatterInfo,
@@ -27,7 +30,6 @@ use std::collections::BTreeMap;
 
 const SHIFTS_MM: [i32; 5] = [-4, -2, 0, 2, 4];
 const HIGH_EV_MS: f64 = 45.0;
-const WINDOW_EXIT_SPEED_SPLIT_MS: f64 = 47.5;
 const TARGET_ANGLE: std::ops::Range<f64> = 7.0..10.0;
 pub(super) const EXIT_SPEED_BANDS_MS: &[f64] = &[25.0, 35.0, 40.0, 45.0, 47.5, 50.0, 55.0];
 pub(super) const FLIGHT_ANGLE_BANDS_DEG: &[f64] =
@@ -292,7 +294,8 @@ impl WindowPolicyOutcome {
         self.low_line_drives += u64::from(LowLineDriveFieldingAudit::matches(ball));
         let in_20_to_25 = (20.0..25.0).contains(&ball.launch_angle);
         self.fair_ev_45_to_47_5_vla_20_to_25 += u64::from(
-            in_20_to_25 && (HIGH_EV_MS..WINDOW_EXIT_SPEED_SPLIT_MS).contains(&ball.launch_speed),
+            in_20_to_25
+                && (HIGH_EV_MS..VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS).contains(&ball.launch_speed),
         );
         if ball.outbound_result == OutboundResult::HomeRun {
             self.home_run_trajectories += 1;
@@ -302,7 +305,7 @@ impl WindowPolicyOutcome {
             self.new_home_run_trajectories += u64::from(!original_hr);
             self.home_runs_20_to_30_deg += u64::from((20.0..30.0).contains(&ball.launch_angle));
             self.home_runs_ev_ge_47_5_vla_20_to_25 +=
-                u64::from(in_20_to_25 && ball.launch_speed >= WINDOW_EXIT_SPEED_SPLIT_MS);
+                u64::from(in_20_to_25 && ball.launch_speed >= VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS);
         }
     }
 }
@@ -330,9 +333,13 @@ impl WindowExitSpeedComparison {
             .observe(windowed.0, baseline, windowed.1);
         self.baseline_misses_in_window += u64::from(in_window && baseline.is_none());
 
-        let soften = in_window
-            && baseline.is_some_and(|ball| ball.launch_speed < WINDOW_EXIT_SPEED_SPLIT_MS);
-        let (shift, trial) = if soften { (2, plus_two) } else { windowed };
+        let (shift, trial) = if in_window
+            && vertical_contact_window_ev_shift_mm(baseline.map(|ball| ball.launch_speed)) == 2
+        {
+            (2, plus_two)
+        } else {
+            windowed
+        };
         self.contact_z_window_by_baseline_ev
             .observe(shift, baseline, trial);
     }

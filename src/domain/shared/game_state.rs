@@ -7,7 +7,8 @@ use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_resolver::{
     BattingFactor, CountStatus, SwingContactResult, SwingContactType, adapt_to_pitch,
     calculate_batted_ball_with_metrics, calculate_batting_factor, calculate_swing_execution_error,
-    calculate_swing_decision, evaluate_swing_contact, select_swing_execution,
+    calculate_swing_decision, evaluate_swing_contact, pre_trial_exit_speed_ms,
+    select_swing_execution,
 };
 use crate::domain::resolver::fielding_physics::{
     CatchType, FieldingCatchDiagnostics, FielderRiskTolerance, RightFieldFirstBaseSnapshot,
@@ -76,11 +77,13 @@ pub struct LineDriveLiftStats {
 }
 
 pub const VERTICAL_CONTACT_WINDOW_MM: std::ops::Range<f64> = 10.0..30.0;
+pub const VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS: f64 = 47.5;
 
 #[derive(Clone, Copy)]
 enum VerticalContactTrial {
     Uniform(f64),
     Windowed(f64),
+    WindowedByExitSpeed,
 }
 
 thread_local! {
@@ -106,6 +109,20 @@ pub fn with_vertical_contact_window_trial<T>(offset_mm: i16, run: impl FnOnce() 
     )
 }
 
+/// Use the exit-speed-dependent policy only within the diagnostic contact window.
+pub fn with_vertical_contact_window_ev_trial<T>(run: impl FnOnce() -> T) -> T {
+    with_vertical_contact_trial_scope(VerticalContactTrial::WindowedByExitSpeed, run)
+}
+
+/// Choose the shift for a swing already inside the diagnostic contact window.
+pub fn vertical_contact_window_ev_shift_mm(baseline_exit_speed_ms: Option<f64>) -> i32 {
+    if baseline_exit_speed_ms.is_some_and(|speed| speed < VERTICAL_CONTACT_WINDOW_EV_SPLIT_MS) {
+        2
+    } else {
+        4
+    }
+}
+
 fn with_vertical_contact_trial_scope<T>(trial: VerticalContactTrial, run: impl FnOnce() -> T) -> T {
     struct Restore(VerticalContactTrial);
     impl Drop for Restore {
@@ -117,15 +134,18 @@ fn with_vertical_contact_trial_scope<T>(trial: VerticalContactTrial, run: impl F
     run()
 }
 
-fn vertical_contact_trial_offset_m(baseline_z_m: f64) -> f64 {
+fn vertical_contact_trial_offset_m(
+    baseline_z_m: f64,
+    baseline_exit_speed_ms: impl FnOnce() -> Option<f64>,
+) -> f64 {
+    let in_window = || VERTICAL_CONTACT_WINDOW_MM.contains(&(baseline_z_m * 1000.0));
     match VERTICAL_CONTACT_TRIAL.get() {
         VerticalContactTrial::Uniform(offset) => offset,
-        VerticalContactTrial::Windowed(offset)
-            if VERTICAL_CONTACT_WINDOW_MM.contains(&(baseline_z_m * 1000.0)) =>
-        {
-            offset
+        VerticalContactTrial::Windowed(offset) if in_window() => offset,
+        VerticalContactTrial::WindowedByExitSpeed if in_window() => {
+            f64::from(vertical_contact_window_ev_shift_mm(baseline_exit_speed_ms())) / 1000.0
         }
-        VerticalContactTrial::Windowed(_) => 0.0,
+        _ => 0.0,
     }
 }
 
@@ -1243,7 +1263,9 @@ impl GameState {
         }
         // Use the same Z coordinate the baseline resolver records, including the intent offset.
         let baseline_z_m = displacement.vertical_offset_m + swing_error.additional_z_m;
-        let trial_offset_m = vertical_contact_trial_offset_m(baseline_z_m);
+        let trial_offset_m = vertical_contact_trial_offset_m(baseline_z_m, || {
+            pre_trial_exit_speed_ms(batter, pitched_ball.speed, &displacement, &swing_error)
+        });
         if trial_offset_m != 0.0 {
             swing_error.additional_z_m += trial_offset_m;
         }
@@ -1726,18 +1748,25 @@ mod tests {
 
     #[test]
     fn vertical_contact_window_is_half_open_and_scoped() {
+        let unused_speed = || panic!("unexpected pre-trial exit-speed calculation");
         with_vertical_contact_trial(4, || {
             with_vertical_contact_window_trial(4, || {
                 for outside in [0.00999, 0.030, 0.031, f64::NAN] {
-                    assert_eq!(vertical_contact_trial_offset_m(outside), 0.0);
+                    assert_eq!(vertical_contact_trial_offset_m(outside, unused_speed), 0.0);
                 }
                 for inside in [0.010, 0.020, 0.02999] {
-                    assert_eq!(vertical_contact_trial_offset_m(inside), 0.004);
+                    assert_eq!(vertical_contact_trial_offset_m(inside, unused_speed), 0.004);
                 }
             });
-            assert_eq!(vertical_contact_trial_offset_m(0.030), 0.004);
+            with_vertical_contact_window_ev_trial(|| {
+                assert_eq!(vertical_contact_trial_offset_m(0.030, unused_speed), 0.0);
+                assert_eq!(vertical_contact_trial_offset_m(0.010, || Some(47.49)), 0.002);
+                assert_eq!(vertical_contact_trial_offset_m(0.020, || Some(47.5)), 0.004);
+                assert_eq!(vertical_contact_trial_offset_m(0.020, || None), 0.004);
+            });
+            assert_eq!(vertical_contact_trial_offset_m(0.030, unused_speed), 0.004);
         });
-        assert_eq!(vertical_contact_trial_offset_m(0.020), 0.0);
+        assert_eq!(vertical_contact_trial_offset_m(0.020, unused_speed), 0.0);
     }
 
     #[test]
