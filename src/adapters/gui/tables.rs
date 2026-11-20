@@ -10,7 +10,14 @@ pub(super) fn compare_cells(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 #[component]
-pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: bool, #[props(default = true)] searchable: bool, #[props(default = true)] paginated: bool, #[props(default)] initial_sort: Option<(usize,bool)>) -> Element {
+pub(super) fn DataTable(
+    data: TableData,
+    #[props(default = true)] interactive: bool,
+    #[props(default = true)] searchable: bool,
+    #[props(default = true)] paginated: bool,
+    #[props(default)] initial_sort: Option<(usize, bool)>,
+    #[props(default)] empty_message: Option<&'static str>,
+) -> Element {
     let mut search = use_signal(String::new);
     let mut sort = use_signal(|| initial_sort);
     let mut page = use_signal(|| 0usize);
@@ -38,7 +45,11 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
                         oninput: move |e| { search.set(e.value()); page.set(0); } }
                 }
             }
-            if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理画面で作成・進行できます。")} } }
+            if rows.is_empty() {
+                p { class: "empty",
+                    {tr(empty_message.unwrap_or("表示できるデータがありません。管理画面で作成・進行できます。"))}
+                }
+            }
             div { class: "table-scroll",
                 table { class:match data.title.as_str() {"順位表"=>"standings-table","打撃成績"=>"batting-table","投手成績"=>"pitching-table",_=>""},
                     thead { tr {

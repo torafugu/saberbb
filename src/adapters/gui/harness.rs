@@ -109,7 +109,36 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     }
     h.click("language-en-US").await?;
     anyhow::ensure!(h.html().contains(">ERA</button>") && h.html().contains(">WHIP</button>"), "pitching English labels missing");
+    anyhow::ensure!(h.html().contains("Qualified pitchers only"), "pitching checkbox English label missing");
     h.click("language-ja-JP").await?;
+    let qualification_tabs = [
+        ("nav-2", 2, "qualified-batting-filter"),
+        ("nav-3", 3, "qualified-pitching-filter"),
+    ];
+    let career_scope = "集計範囲：保存済み全試合（通算）";
+    let regular_scope = catalog.latest_completed_regular_season.map_or_else(
+        || "完了試合なし".to_owned(),
+        |year| format!("集計範囲：{year}年 レギュラーシーズン"),
+    );
+    for (tab, kind, id) in qualification_tabs {
+        h.click(tab).await?;
+        anyhow::ensure!(h.html().contains(career_scope), "{id} must start unchecked");
+        h.input(id, "change", "true").await?;
+        let expected = viewing::statistics_with_filter(kind, 0, 0, &catalog, true)?;
+        let html = h.html();
+        anyhow::ensure!(html.contains(&regular_scope), "{id} did not show its regular-season scope");
+        anyhow::ensure!(
+            html.contains(&format!("<span>{} 件</span>", expected.rows.len())),
+            "{id} did not update the table row count",
+        );
+    }
+    for (tab, _, id) in qualification_tabs {
+        h.click(tab).await?;
+        anyhow::ensure!(h.html().contains(&regular_scope), "{id} did not retain its state");
+        h.input(id, "change", "false").await?;
+        anyhow::ensure!(h.html().contains(career_scope), "{id} did not restore the career scope");
+    }
+    h.click("nav-3").await?;
     h.input("team-filter","change",&team.to_string()).await?;
     h.click("nav-1").await?;
     anyhow::ensure!(!h.html().contains("id=\"team-filter\"") && !h.html().contains("id=\"table-search\""),"standings must omit team selection and search");

@@ -12,3 +12,6 @@
 .batting-table th, .batting-table td, .pitching-table th, .pitching-table td { padding: 9px 8px; }
 .batting-table th:nth-child(2), .batting-table td:nth-child(2),
 .pitching-table th:nth-child(2), .pitching-table td:nth-child(2) { text-align: left; }
+
+.filters .qualification-filter{display:flex;align-items:center;white-space:nowrap;padding:9px 0;cursor:pointer}
+.qualification-filter input{margin:0;cursor:pointer}
