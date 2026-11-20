@@ -43,11 +43,13 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
+mod intent_aim_audit;
+pub use intent_aim_audit::{IntentAimOffsets, IntentAimSwing, with_intent_aim_audit};
 mod paired_contact;
 use paired_contact::PairedSwing;
 pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};
 mod swing_speed_audit;
-pub use swing_speed_audit::{SwingSpeedPlay, with_swing_speed_audit};
+pub use swing_speed_audit::{SwingReplay, SwingReplay as SwingSpeedPlay, with_swing_speed_audit};
 
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
@@ -113,7 +115,7 @@ enum VerticalContactPolicy {
 }
 
 thread_local! {
-    static LINE_DRIVE_LIFT: std::cell::Cell<Option<(f64, LineDriveLiftStats)>> =
+    static LINE_DRIVE_LIFT: std::cell::Cell<Option<(IntentAimOffsets, LineDriveLiftStats)>> =
         const { std::cell::Cell::new(None) };
     static VERTICAL_CONTACT_POLICY: std::cell::Cell<VerticalContactPolicy> =
         const { std::cell::Cell::new(VerticalContactPolicy::WindowedByExitSpeed) };
@@ -180,24 +182,36 @@ pub fn with_line_drive_lift_trial<T>(
     offset_mm: u16,
     run: impl FnOnce() -> T,
 ) -> (T, LineDriveLiftStats) {
-    struct Restore(Option<(f64, LineDriveLiftStats)>);
+    with_intent_aim_trial(
+        IntentAimOffsets {
+            line_drive_mm: i32::from(offset_mm),
+            ..IntentAimOffsets::default()
+        },
+        run,
+    )
+}
+
+/// Override the world-vertical contact offset for each selected intent on this thread.
+pub fn with_intent_aim_trial<T>(
+    offsets: IntentAimOffsets,
+    run: impl FnOnce() -> T,
+) -> (T, LineDriveLiftStats) {
+    struct Restore(Option<(IntentAimOffsets, LineDriveLiftStats)>);
     impl Drop for Restore {
         fn drop(&mut self) {
             LINE_DRIVE_LIFT.set(self.0);
         }
     }
-    let offset_m = f64::from(offset_mm) / 1000.0;
-    let _restore = Restore(LINE_DRIVE_LIFT.replace(Some((offset_m, LineDriveLiftStats::default()))));
+    let _restore = Restore(LINE_DRIVE_LIFT.replace(Some((offsets, LineDriveLiftStats::default()))));
     let result = run();
     (result, LINE_DRIVE_LIFT.get().unwrap().1)
 }
 
-fn line_drive_lift_offset(intent: BattedBallIntent) -> f64 {
-    match (intent, LINE_DRIVE_LIFT.get()) {
-        (BattedBallIntent::LineDrive, Some((offset, _))) => offset,
-        (BattedBallIntent::LineDrive, None) => f64::from(DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM) / 1000.0,
-        (BattedBallIntent::ContactFirst, _) => 0.0,
-    }
+fn intent_aim_offset_m(intent: BattedBallIntent) -> f64 {
+    LINE_DRIVE_LIFT
+        .get()
+        .map_or_else(IntentAimOffsets::default, |(offsets, _)| offsets)
+        .offset_m(intent)
 }
 
 fn record_lift_swing(intent: BattedBallIntent, contact_type: SwingContactType) {
@@ -1319,7 +1333,7 @@ impl GameState {
                 &pitched_ball,
                 &pitch_displacement,
                 &batting_factor,
-                line_drive_lift_offset(intent),
+                intent,
             )?;
             record_lift_swing(intent, swing_contact.adjusted_contact_type);
 
@@ -1410,7 +1424,7 @@ impl GameState {
         pitched_ball: &PitchedBall,
         pitch_displacement: &PitchDisplacement,
         batting_factor: &BattingFactor,
-        vertical_contact_offset_m: f64,
+        intent: BattedBallIntent,
     ) -> Result<(SwingContactResult, Option<PairedSwing>), GameError> {
         let displacement = adapt_to_pitch(pitch_displacement, batter.bat_control, batting_factor);
 
@@ -1420,6 +1434,8 @@ impl GameState {
             &pitched_ball.actual_location,
         );
 
+        self.record_intent_aim_trials(intent, batter, *pitched_ball, &displacement, &swing_error)?;
+        let vertical_contact_offset_m = intent_aim_offset_m(intent);
         if vertical_contact_offset_m != 0.0 {
             swing_error.additional_z_m += vertical_contact_offset_m;
         }
@@ -2216,26 +2232,26 @@ mod tests {
     #[test]
     fn line_drive_lift_defaults_to_twenty_mm_and_restores_scope() {
         use BattedBallIntent::{ContactFirst, LineDrive};
-        assert_eq!(line_drive_lift_offset(LineDrive), 0.020);
-        assert_eq!(line_drive_lift_offset(ContactFirst), 0.0);
+        assert_eq!(intent_aim_offset_m(LineDrive), 0.020);
+        assert_eq!(intent_aim_offset_m(ContactFirst), 0.0);
         let (_, stats) = with_line_drive_lift_trial(15, || {
-            assert_eq!(line_drive_lift_offset(LineDrive), 0.015);
-            assert_eq!(line_drive_lift_offset(ContactFirst), 0.0);
+            assert_eq!(intent_aim_offset_m(LineDrive), 0.015);
+            assert_eq!(intent_aim_offset_m(ContactFirst), 0.0);
             record_lift_swing(LineDrive, SwingContactType::SwungAndMiss);
             record_lift_swing(ContactFirst, SwingContactType::SolidContact);
             let (_, control) = with_line_drive_lift_trial(0, || {
-                assert_eq!(line_drive_lift_offset(LineDrive), 0.0);
+                assert_eq!(intent_aim_offset_m(LineDrive), 0.0);
                 record_lift_swing(LineDrive, SwingContactType::SolidContact);
             });
             assert_eq!(
                 (control.swings, control.line_drive_swings, control.whiffs),
                 (1, 1, 0)
             );
-            assert_eq!(line_drive_lift_offset(LineDrive), 0.015);
+            assert_eq!(intent_aim_offset_m(LineDrive), 0.015);
         });
         assert_eq!((stats.swings, stats.whiffs), (2, 1));
         assert_eq!((stats.line_drive_swings, stats.line_drive_whiffs), (1, 1));
-        assert_eq!(line_drive_lift_offset(LineDrive), 0.020);
+        assert_eq!(intent_aim_offset_m(LineDrive), 0.020);
     }
 
     fn assert_no_runners(inning_state: &InningState) {

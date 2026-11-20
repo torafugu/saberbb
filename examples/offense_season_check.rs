@@ -51,6 +51,8 @@ mod bip_audit;
 mod contact_direction_audit;
 #[path = "support/fair_launch_audit.rs"]
 mod fair_launch_audit;
+#[path = "support/intent_aim_comparison.rs"]
+mod intent_aim_comparison;
 #[path = "support/moving_collision_audit.rs"]
 mod moving_collision_audit;
 #[path = "support/pickup_timing_audit.rs"]
@@ -86,6 +88,22 @@ struct Args {
     /// Comma-separated vertical offsets in mm; defaults to 0,10,15,20.
     #[arg(long, value_delimiter = ',', requires = "line_drive_lift_comparison")]
     line_drive_lift_offsets: Vec<u16>,
+    /// Compare intent-specific vertical aims using paired swings and full games.
+    #[arg(long, conflicts_with_all = [
+        "swing_speed_batter_id", "line_drive_lift_comparison", "vertical_contact_sweep",
+        "vertical_contact_comparison", "vertical_contact_paired_fielding", "timing_geometry_sweep",
+        "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison",
+        "bip_diagnostics", "fair_launch_diagnostics", "contact_direction_diagnostics",
+        "moving_collision_diagnostics", "selected_intent_diagnostics", "timing_scale_diagnostics",
+        "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    intent_aim_comparison: bool,
+    /// Alternate absolute ContactFirst aim in mm. Defaults to +8 mm.
+    #[arg(long, requires = "intent_aim_comparison", allow_negative_numbers = true)]
+    contact_first_aim_mm: Option<i16>,
+    /// Alternate absolute LineDrive aim in mm. Defaults to +32 mm.
+    #[arg(long, requires = "intent_aim_comparison", allow_negative_numbers = true)]
+    line_drive_aim_mm: Option<i16>,
     /// Historical drag control; applies to gameplay and shadow flights on this thread.
     #[arg(long)]
     legacy_flight_drag: bool,
@@ -875,7 +893,9 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.vertical_contact_paired_fielding {
+    if args.intent_aim_comparison {
+        output["intent_aim_comparison"] = intent_aim_comparison::run(&args, &games)?;
+    } else if args.vertical_contact_paired_fielding {
         let mut summary = PairedContactSummary::default();
         let reports = simulate_reports_inner(
             &args,
