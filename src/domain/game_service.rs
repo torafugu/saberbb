@@ -2,6 +2,7 @@ use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
+use crate::domain::strategy::pitcher_evaluation::PitcherAttributeWeights;
 use crate::domain::strategy::pitching_usage::PitchingStaff;
 use std::collections::BTreeMap;
 use crate::domain::strategy::batting_strategy::BattingStrategySettings;
@@ -81,8 +82,9 @@ fn simulate_game_with_pitching(
     loads: &BTreeMap<i64, f64>,
     record_contact_states: bool,
 ) -> Result<GameResult> {
-    let away = PitchingStaff::new(&schedule.away_team, loads);
-    let home = PitchingStaff::new(&schedule.home_team, loads);
+    let weights = PitcherAttributeWeights::default();
+    let away = PitchingStaff::new(&schedule.away_team, loads, schedule.base_four_seam_speed, weights);
+    let home = PitchingStaff::new(&schedule.home_team, loads, schedule.base_four_seam_speed, weights);
     let state = GameState::with_starters(rng, schedule, away.starter(), home.starter())?;
     play_game(
         state,
@@ -359,7 +361,12 @@ mod tests {
             schedule.away_team.players[index].defense_skills.pitcher.as_mut().unwrap().stamina = stamina;
         }
         let loads = BTreeMap::from([(1, 250.0), (21, 240.0), (31, 99.5)]);
-        let staff = PitchingStaff::new(&schedule.away_team, &loads);
+        let staff = PitchingStaff::new(
+            &schedule.away_team,
+            &loads,
+            schedule.base_four_seam_speed,
+            PitcherAttributeWeights::default(),
+        );
         assert_eq!(staff.starter(), Some(31));
 
         let game = simulate_game_with_pitching(
@@ -389,6 +396,47 @@ mod tests {
             use crate::domain::shared::game::BattingResult;
             let prior = game.player_battings.iter().find(|play| play.count_seq == relief.1 - 1).unwrap();
             assert!(!matches!(prior.result, BattingResult::Take | BattingResult::StrikeSwung | BattingResult::Foul | BattingResult::WildPitch));
+        }
+    }
+
+    #[test]
+    fn attribute_rating_changes_rotation_membership_and_reliever_choice() {
+        let mut staff_team = Team::min(1, "Test");
+        for (id, stamina, control) in [
+            (1, 2.0, -2.0),
+            (11, 1.5, 0.0),
+            (21, 1.0, 0.0),
+            (31, 0.5, 0.0),
+            (41, 0.25, 0.0),
+            (51, 0.0, 2.0),
+            (61, -1.0, 3.0),
+        ] {
+            let mut p = player(id);
+            let pitcher = p.defense_skills.pitcher.as_mut().unwrap();
+            pitcher.stamina = stamina;
+            pitcher.control = control;
+            staff_team.players.push(p);
+        }
+        let loads = BTreeMap::from([
+            (1, 5.0), (11, 20.0), (21, 20.0), (31, 20.0), (41, 20.0), (61, 10.0),
+        ]);
+        let command_first = PitcherAttributeWeights {
+            stuff: 0.0,
+            command: 1.0,
+            arsenal: 0.0,
+        };
+        for weights in [command_first, PitcherAttributeWeights::default()] {
+            let staff = PitchingStaff::new(&staff_team, &loads, 40.833, weights);
+            assert_eq!(staff.starter(), Some(51));
+            assert!(staff.reliever(51, &BTreeMap::from([(51, 99)])).is_none());
+            assert_eq!(
+                staff.reliever(51, &BTreeMap::from([(51, 100)])).map(|p| p.info.id),
+                Some(61),
+            );
+            assert_eq!(
+                staff.reliever(51, &BTreeMap::from([(51, 100), (61, 15)])).map(|p| p.info.id),
+                Some(1),
+            );
         }
     }
 
