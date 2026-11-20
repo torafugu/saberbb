@@ -10,7 +10,7 @@ use crate::domain::{
     resolver::{
         batting_resolver::{GrounderFlightSample, replay_grounder_flight},
         fielding_physics::{
-            CatchType, FielderCandidateDiagnostics, FieldingCatchDiagnostics,
+            CatchType, FielderCandidateDiagnostics, FieldPlayPlayResult, FieldingCatchDiagnostics,
             estimate_ball_state_at_time, pickup_handling,
         },
         fielding_resolver::PlayContext,
@@ -213,6 +213,118 @@ fn find_opportunities<'a>(
         }
     }
     scan
+}
+
+type InfieldCandidate<'a> = (&'a ActiveFielder, &'a FielderCandidateDiagnostics);
+
+fn infield_candidates<'a>(
+    ball: &BattedBall,
+    fielders: &'a [ActiveFielder],
+    candidates: &'a [FielderCandidateDiagnostics],
+) -> Option<Vec<InfieldCandidate<'a>>> {
+    if !ball.total_time.is_finite() || ball.total_time < 0.0 {
+        return None;
+    }
+    let inputs = fielders
+        .iter()
+        .filter(|f| f.position.is_infielder())
+        .map(|fielder| {
+            if !fielder.info.running_speed.is_finite()
+                || fielder.info.running_speed <= 0.0
+                || !fielder.info.prep_time.is_finite()
+                || fielder.info.prep_time < 0.0
+                || !fielder.info.reach_height.is_finite()
+            {
+                return None;
+            }
+            let candidate = candidates.iter().find(|c| {
+                c.fielder_position == fielder.position && c.fielder_id == fielder.id
+            })?;
+            Some((fielder, candidate))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!inputs.is_empty()).then_some(inputs)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InfieldReach {
+    LiveGridAndFilters,
+    LiveGridWithoutFilters,
+    FineGridWithoutFilters,
+    AirRiskMargin,
+    ArrivalTooLate,
+    NoSampleWithinReachHeight,
+    MissingInputs,
+}
+
+impl InfieldReach {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LiveGridAndFilters => "live_grid_and_filters",
+            Self::LiveGridWithoutFilters => "live_grid_without_filters_only",
+            Self::FineGridWithoutFilters => "fine_grid_without_filters_only",
+            Self::AirRiskMargin => "air_risk_margin",
+            Self::ArrivalTooLate => "arrival_too_late",
+            Self::NoSampleWithinReachHeight => "no_sample_within_reach_height",
+            Self::MissingInputs => "missing_inputs",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct IntentAimInfield {
+    pub selected_fielder: Position,
+    pub selected_inside_50m: bool,
+    pub selected_error: bool,
+    pub projected_bounce_outside_50m: Option<bool>,
+    pub infield_reach: InfieldReach,
+}
+
+pub(crate) fn intent_aim_infield(
+    ball: &BattedBall,
+    fielders: &[ActiveFielder],
+    play: &FieldPlayPlayResult<'_>,
+) -> Option<IntentAimInfield> {
+    if ball.outbound_result != OutboundResult::InField
+        || ball.is_foul()
+        || !ball.launch_speed.is_finite()
+        || ball.launch_speed < 45.0
+        || !(5.0..15.0).contains(&ball.launch_angle)
+    {
+        return None;
+    }
+    let selected = play.result();
+    let outfielder_touch = if selected.fielder.position.is_outfielder() {
+        selected.pickup.map(|pickup| pickup.pickup_time_sec).or_else(|| {
+            selected.error_type.is_none().then_some(selected.catch_time_sec)
+        })
+    } else {
+        None
+    };
+    let scan_until = outfielder_touch
+        .filter(|time| time.is_finite() && *time >= 0.0)
+        .unwrap_or(f64::INFINITY);
+    let infield_reach = infield_candidates(ball, fielders, &play.candidate_diagnostics)
+        .map_or(InfieldReach::MissingInputs, |inputs| {
+            let scan = find_opportunities(ball, &inputs, scan_until);
+            match (scan.opportunities, scan.best_any) {
+                ([Some(_), _, _], _) => InfieldReach::LiveGridAndFilters,
+                ([_, Some(_), _], _) => InfieldReach::LiveGridWithoutFilters,
+                ([_, _, Some(_)], _) => InfieldReach::FineGridWithoutFilters,
+                (_, Some(gap)) if gap.delay_sec <= 0.0 => InfieldReach::AirRiskMargin,
+                (_, Some(_)) => InfieldReach::ArrivalTooLate,
+                _ => InfieldReach::NoSampleWithinReachHeight,
+            }
+        });
+    Some(IntentAimInfield {
+        selected_fielder: selected.fielder.position,
+        selected_inside_50m: selected.catch_distance_m < INFIELD_DISTANCE,
+        selected_error: selected.error_type.is_some(),
+        projected_bounce_outside_50m: ball.first_bounce_position
+            .filter(|point| point.distance.is_finite())
+            .map(|point| point.distance >= INFIELD_DISTANCE),
+        infield_reach,
+    })
 }
 
 #[derive(Default, Serialize)]
@@ -926,34 +1038,7 @@ pub(crate) fn record(
             .batter_runner_time_to(Base::First, true, batting_side)
             .ok()
             .filter(|t| t.is_finite() && *t > 0.0);
-        let inputs = (|| {
-            if !ball.total_time.is_finite() || ball.total_time < 0.0 {
-                return None;
-            }
-            let inputs = ctx
-                .fielders
-                .iter()
-                .filter(|f| f.position.is_infielder())
-                .map(|fielder| {
-                    if !fielder.info.running_speed.is_finite()
-                        || fielder.info.running_speed <= 0.0
-                        || !fielder.info.prep_time.is_finite()
-                        || fielder.info.prep_time < 0.0
-                        || !fielder.info.reach_height.is_finite()
-                    {
-                        return None;
-                    }
-                    let candidate = candidates.iter().find(|c| {
-                        c.fielder_position == fielder.position && c.fielder_id == fielder.id
-                    })?;
-                    Some((fielder, candidate))
-                })
-                .collect::<Option<Vec<_>>>()?;
-            if inputs.is_empty() {
-                return None;
-            }
-            Some(inputs)
-        })();
+        let inputs = infield_candidates(ball, ctx.fielders, candidates);
         if hard_low_comparison && result == BattingResult::Single {
             let sweep = &mut audit.hard_low_single_ground_friction_sweep;
             match (

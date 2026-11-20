@@ -1,11 +1,18 @@
-use super::{DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, GameError, GameState, SwingReplay};
+use super::{ActiveFielder, DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, GameError, GameState, SwingReplay};
 use crate::domain::{
-    resolver::{batting_resolver::SwingExecutionError, pitching_resolver::PitchDisplacement},
-    shared::{ball::PitchedBall, player::BatterInfo},
+    resolver::{
+        batting_resolver::SwingExecutionError, fielding_physics::FieldPlayPlayResult,
+        pitching_resolver::PitchDisplacement,
+    },
+    shared::{
+        ball::{BattedBall, PitchedBall},
+        infield_opportunity_audit::{IntentAimInfield, intent_aim_infield},
+        player::BatterInfo,
+    },
     strategy::batting_strategy::BattedBallIntent,
 };
 use serde::Serialize;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct IntentAimOffsets {
@@ -35,7 +42,13 @@ impl IntentAimOffsets {
 pub struct IntentAimSwing {
     pub count_seq: u16,
     pub intent: BattedBallIntent,
-    pub plays: Vec<SwingReplay>,
+    pub plays: Vec<IntentAimPlay>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct IntentAimPlay {
+    pub batting: SwingReplay,
+    pub infield: Option<IntentAimInfield>,
 }
 
 struct Audit {
@@ -45,6 +58,44 @@ struct Audit {
 
 thread_local! {
     static AUDIT: RefCell<Option<Audit>> = const { RefCell::new(None) };
+    static INFIELD_CAPTURE: Cell<InfieldCapture> = const { Cell::new(InfieldCapture::Inactive) };
+}
+
+#[derive(Clone, Copy)]
+enum InfieldCapture {
+    Inactive,
+    Pending,
+    Observed(IntentAimInfield),
+}
+
+fn capture_infield(
+    run: impl FnOnce() -> Result<SwingReplay, GameError>,
+) -> Result<IntentAimPlay, GameError> {
+    struct Restore(InfieldCapture);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            INFIELD_CAPTURE.set(self.0);
+        }
+    }
+    let _restore = Restore(INFIELD_CAPTURE.replace(InfieldCapture::Pending));
+    let batting = run()?;
+    let infield = match INFIELD_CAPTURE.get() {
+        InfieldCapture::Observed(observation) => Some(observation),
+        _ => None,
+    };
+    Ok(IntentAimPlay { batting, infield })
+}
+
+pub(super) fn record_infield(
+    ball: &BattedBall,
+    fielders: &[ActiveFielder],
+    play: &FieldPlayPlayResult<'_>,
+) {
+    if matches!(INFIELD_CAPTURE.get(), InfieldCapture::Pending)
+        && let Some(observation) = intent_aim_infield(ball, fielders, play)
+    {
+        INFIELD_CAPTURE.set(InfieldCapture::Observed(observation));
+    }
 }
 
 /// Replay every live swing at the supplied absolute aim offsets in order.
@@ -97,8 +148,9 @@ impl GameState {
                 if aim != 0.0 {
                     error.additional_z_m += aim;
                 }
-                let play =
-                    self.replay_swing_variant(active.id, batter, pitch, displacement, error)?;
+                let play = capture_infield(|| {
+                    self.replay_swing_variant(active.id, batter, pitch, displacement, error)
+                })?;
                 unique.push((aim, play));
                 plays.push(play);
             }
