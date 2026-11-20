@@ -46,6 +46,8 @@ use tracing::info;
 mod paired_contact;
 use paired_contact::PairedSwing;
 pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};
+mod swing_speed_audit;
+pub use swing_speed_audit::{SwingSpeedPlay, with_swing_speed_audit};
 
 pub const MAX_OUT: u8 = 3;
 pub const MAX_BALL: u8 = 4;
@@ -1423,6 +1425,7 @@ impl GameState {
         }
         // Use the same Z coordinate the baseline resolver records, including the intent offset.
         let baseline_z_m = displacement.vertical_offset_m + swing_error.additional_z_m;
+        self.record_swing_speed_trials(batter, *pitched_ball, &displacement, &swing_error)?;
         let contact_policy_offset_m = vertical_contact_policy_offset_m(baseline_z_m, || {
             pre_trial_exit_speed_ms(batter, pitched_ball.speed, &displacement, &swing_error)
         });

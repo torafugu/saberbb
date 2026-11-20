@@ -203,6 +203,37 @@ impl PairedSwing {
     ) -> Result<ResolvedAlternative, GameError> {
         let [flat, alternative] = flights;
         let fence_audit = PairedFenceAudit::compare(live, flat, alternative)?;
+        let by_baseline_ev = live.replay_swing(
+            pitcher_id,
+            batter_id,
+            batting_side,
+            &self.contact,
+            alternative,
+            fork_rng(live.rng.as_ref())?,
+        )?;
+        Ok(ResolvedAlternative {
+            outs_before: live.inning_state.out,
+            occupied_bases: [Base::First, Base::Second, Base::Third]
+                .map(|base| live.inning_state.runners.has_runner_on(base)),
+            baseline_contact_z_mm: self.baseline_contact_z_mm,
+            baseline_ev_ms: self.baseline_ev_ms,
+            by_baseline_ev,
+            fence_audit,
+        })
+    }
+}
+
+impl GameState {
+    pub(super) fn replay_swing(
+        &self,
+        pitcher_id: i64,
+        batter_id: i64,
+        batting_side: RL,
+        contact: &SwingContactResult,
+        flight: Flight,
+        rng: Box<dyn RandomProvider>,
+    ) -> Result<Play, GameError> {
+        let live = self;
         let mut replay = GameState {
             record_contact_states: false,
             track_position_player_workload: false,
@@ -210,7 +241,7 @@ impl PairedSwing {
             home_manager: live.home_manager.clone(),
             batter_characters: live.batter_characters.clone(),
             batting_strategy_settings: live.batting_strategy_settings.clone(),
-            rng: fork_rng(live.rng.as_ref())?,
+            rng,
             inning_seq: live.inning_seq,
             inning_tb: live.inning_tb,
             count_seq: live.count_seq,
@@ -234,22 +265,12 @@ impl PairedSwing {
             max_inning: live.max_inning,
             base_four_seam_speed: live.base_four_seam_speed,
         };
-        replay.commit_swing(
-            pitcher_id,
-            batter_id,
-            batting_side,
-            &self.contact,
-            alternative,
-        )?;
-        Ok(ResolvedAlternative {
-            outs_before: live.inning_state.out,
-            occupied_bases: [Base::First, Base::Second, Base::Third]
-                .map(|base| live.inning_state.runners.has_runner_on(base)),
-            baseline_contact_z_mm: self.baseline_contact_z_mm,
-            baseline_ev_ms: self.baseline_ev_ms,
-            by_baseline_ev: Play::from_result(&replay.game_result, live.count_seq, alternative),
-            fence_audit,
-        })
+        replay.commit_swing(pitcher_id, batter_id, batting_side, contact, flight)?;
+        Ok(Play::from_result(
+            &replay.game_result,
+            live.count_seq,
+            flight,
+        ))
     }
 }
 

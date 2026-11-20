@@ -523,6 +523,20 @@ plate appearances. The report includes raw and cached totals, batter attributes,
 contact rates per swing, exit speed and launch angle distributions, and home-run
 rates by stadium. It also flags home runs with unexpected saved trajectories.
 
+To test how much one batter's swing speed contributes, replay swings from
+new seeded games using the same pitch, count, runners, and fielders at each
+candidate speed:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --swing-speed-batter-id 150 --swing-speed-ms 33.72,34.5,35.5 > swing_speed_comparison.json
+```
+
+This samples the player's team's first 36 scheduled games for each seed.
+Alternatives replay one swing at a time, while the current swing speed drives
+the continuing game. Compare home runs and other hits per swing or fair
+contact. The report also shows the current roster's speeds and a reproducible
+sample of the configured player generator. It opens `SABERBB_DB` read-only.
+
 For extra-base hit diagnostics on ordinary saved games:
 
 ```sh
