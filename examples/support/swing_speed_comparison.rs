@@ -2,6 +2,7 @@ use super::{Args, BattingResult, GameSchedule, derived_seed, simulate_game};
 use anyhow::{Context, Result, ensure};
 use rusqlite::Connection;
 use saberbb::domain::{
+    player_factory::compress_generated_swing_speed,
     random_provider::{RandomProvider, RealRng},
     shared::{
         ball::OutboundResult,
@@ -191,7 +192,12 @@ fn generation(conn: &Connection, baseline: f64, speeds: &[f64]) -> Result<Value>
         })
     })?;
     let mut rng = RealRng::from_seed(0);
-    let generated: Vec<_> = (0..200_000).map(|_| rng.normal(params)).collect();
+    let raw_samples: Vec<_> = (0..200_000).map(|_| rng.normal(params)).collect();
+    let generated = raw_samples
+        .iter()
+        .copied()
+        .map(compress_generated_swing_speed)
+        .collect();
     let mut roster = conn.prepare("SELECT b.swing_speed FROM batter_info b JOIN player_info p ON p.id=b.player_id WHERE p.team_id IS NOT NULL")?;
     let roster = roster
         .query_map([], |r| r.get(0))?
@@ -200,6 +206,7 @@ fn generation(conn: &Connection, baseline: f64, speeds: &[f64]) -> Result<Value>
         "configured_normal_param": params,
         "generated_sample_seed": 0,
         "generated_sample": distribution(generated, baseline, speeds)?,
+        "uncompressed_generator_samples": distribution(raw_samples, baseline, speeds)?,
         "rostered_batters": distribution(roster, baseline, speeds)?,
     }))
 }
