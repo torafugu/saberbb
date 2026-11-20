@@ -98,15 +98,34 @@ impl FromRow for PitchingStats {
                 first_name,
                 last_name,
             )),
-            games: row.get("games").map_err(|e| AppError::Database(e))?,
-            innings: row.get("innings").map_err(|e| AppError::Database(e))?,
-            wins: row.get("wins").map_err(|e| AppError::Database(e))?,
-            losses: row.get("losses").map_err(|e| AppError::Database(e))?,
-            saves: row.get("saves").map_err(|e| AppError::Database(e))?,
-            holds: row.get("holds").map_err(|e| AppError::Database(e))?,
-            era: row.get("era").map_err(|e| AppError::Database(e))?,
-            so: row.get("so").map_err(|e| AppError::Database(e))?,
-            bb: row.get("bb").map_err(|e| AppError::Database(e))?,
+            games: row.get("games")?,
+            outs: row.get("outs")?,
+            wins: row.get("wins")?,
+            losses: row.get("losses")?,
+            saves: row.get("saves")?,
+            holds: row.get("holds")?,
+            so: row.get("so")?,
+            bb: row.get("bb")?,
+            starts: row.get("starts")?,
+            complete_games: row.get("complete_games")?,
+            shutouts: row.get("shutouts")?,
+            quality_starts: if row.get::<_, u32>("uncertain_starts")? == 0 {
+                Some(row.get("quality_starts")?)
+            } else {
+                None
+            },
+            relief_wins: row.get("relief_wins")?,
+            hits: row.get("hits")?,
+            home_runs: row.get("home_runs")?,
+            hbp: row.get("hbp")?,
+            wild_pitches: row.get("wild_pitches")?,
+            runs: row.get("runs")?,
+            earned_runs: if row.get::<_, u32>("unclassified_runs")? == 0 {
+                Some(row.get("earned_runs")?)
+            } else {
+                None
+            },
+            at_bats: row.get("at_bats")?,
         };
 
         pitching_stats.validate()?;

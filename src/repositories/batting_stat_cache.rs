@@ -1,4 +1,5 @@
-//! Reconstruct the base state from the saved play log when refreshing batting statistics.
+//! Replay the saved play log for batting and pitching statistics.
+use super::pitching_stat_cache::GamePitching;
 use crate::domain::shared::{ball::BallLocation, game::PitchResult, player::RL};
 use anyhow::Result;
 use rusqlite::{Connection, params};
@@ -38,6 +39,8 @@ pub(super) fn fill(conn: &Connection, game: Option<u32>) -> Result<()> {
         .prepare(
             "SELECT DISTINCT game_id FROM player_game_entry
              UNION SELECT DISTINCT game_id FROM player_game_batting
+             UNION SELECT DISTINCT game_id FROM player_game_pitching
+             UNION SELECT DISTINCT game_id FROM player_game_pitching_decision
              UNION SELECT DISTINCT game_id FROM player_game_running
              UNION SELECT DISTINCT game_id FROM player_game_fielding",
         )?
@@ -51,6 +54,7 @@ pub(super) fn fill(conn: &Connection, game: Option<u32>) -> Result<()> {
 
 fn fill_game(conn: &Connection, game: u32) -> Result<()> {
     let mut lines = BTreeMap::<i64, Line>::new();
+    let mut pitching = GamePitching::default();
     let mut entries =
         conn.prepare_cached("SELECT DISTINCT player_id FROM player_game_entry WHERE game_id=?1")?;
     for player in entries.query_map([game], |row| row.get(0))? {
@@ -82,11 +86,12 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
 
     let mut plays = conn.prepare_cached(
         "WITH counts AS MATERIALIZED (
-            SELECT seq,inning_seq,inning_tb,point FROM count WHERE game_id=?1
+            SELECT seq,inning_seq,inning_tb,point,out FROM count WHERE game_id=?1
          ), pitch AS (
             SELECT seq FROM counts
             UNION SELECT count_seq FROM player_game_batting WHERE game_id=?1
             UNION SELECT count_seq FROM player_game_running WHERE game_id=?1
+            UNION SELECT count_seq FROM player_game_pitching WHERE game_id=?1
          ), running AS (
             SELECT *,
                 ROW_NUMBER() OVER(PARTITION BY count_seq ORDER BY seq DESC) AS last
@@ -95,11 +100,14 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
          SELECT c.inning_seq,c.inning_tb,COALESCE(c.point,0),b.batter_id,b.result,
                 r.event,r.runner_1st_id,r.runner_2nd_id,r.runner_3rd_id,r.target_runner_id,r.ruling,
                 s.target_runner_id,s.ruling,s.runner_1st_id,s.runner_2nd_id,s.runner_3rd_id,
-                first.target_runner_id,first.ruling,p.actual_location_x,p.actual_location_y
+                first.target_runner_id,first.ruling,p.actual_location_x,p.actual_location_y,
+                COALESCE(p.pitcher_id,b.pitcher_id),c.out,
+                EXISTS(SELECT 1 FROM player_game_fielding f WHERE f.game_id=?1 AND f.count_seq=k.seq
+                       AND f.error_type IS NOT NULL AND f.error_type NOT IN ('','None'))
          FROM pitch k
          LEFT JOIN counts c ON c.seq=k.seq
          LEFT JOIN player_game_batting b ON b.game_id=?1 AND b.count_seq=k.seq
-         LEFT JOIN player_game_pitching p ON p.game_id=?1 AND p.count_seq=k.seq AND b.result='Walk'
+         LEFT JOIN player_game_pitching p ON p.game_id=?1 AND p.count_seq=k.seq
          LEFT JOIN running r ON r.count_seq=k.seq AND r.last=1
          LEFT JOIN running s ON s.count_seq=k.seq AND s.event='BaseSteal'
          LEFT JOIN running first ON first.count_seq=k.seq AND first.event='GrounderPlay' AND r.event='DoublePlay'
@@ -115,8 +123,16 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
         );
         if current_half != half {
             bases = [None; 3];
+            pitching.start_half();
             half = current_half;
         }
+        let pitcher = pitching.record_pitch(
+            row.get(20)?,
+            half.0,
+            half.1.as_deref(),
+            row.get(21)?,
+            row.get(22)?,
+        );
         let points: u32 = row.get(2)?;
         let batter: Option<i64> = row.get(3)?;
         let result: Option<String> = row.get(4)?;
@@ -142,10 +158,11 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
         let event = event.as_deref().unwrap_or_default();
         let before = bases;
         let sacrifice_fly = result == "Out" && event == "TagUp" && points > 0;
-        let wild_ball_four = matches!(
-            (row.get::<_, Option<f64>>(18)?, row.get::<_, Option<f64>>(19)?),
-            (Some(x), Some(y)) if matches!((BallLocation { x, y }).call(RL::Right), PitchResult::WildPitch)
-        );
+        let wild_ball_four = result == "Walk"
+            && matches!(
+                (row.get::<_, Option<f64>>(18)?, row.get::<_, Option<f64>>(19)?),
+                (Some(x), Some(y)) if matches!((BallLocation { x, y }).call(RL::Right), PitchResult::WildPitch)
+            );
         let mut scorers = Vec::new();
         match (result, event) {
             ("HomeRun", _) => {
@@ -202,7 +219,7 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
             }
             _ => {}
         }
-        for scorer in scorers.into_iter().take(points as usize) {
+        for &scorer in scorers.iter().take(points as usize) {
             lines.entry(scorer).or_default().runs += 1;
         }
 
@@ -215,6 +232,23 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
                         result,
                         "Strikeout" | "Out" | "FieldersChoice" | "DoublePlay"
                     ));
+            if let Some(pitcher) = pitcher {
+                let replaced_runner =
+                    if result == "FieldersChoice" && ruling.as_deref() == Some("Out") {
+                        target
+                    } else {
+                        None
+                    };
+                pitching.record_batter(
+                    pitcher,
+                    batter,
+                    result,
+                    at_bat,
+                    hit,
+                    wild_ball_four,
+                    replaced_runner,
+                );
+            }
             line.ab += u32::from(at_bat);
             line.pa +=
                 u32::from(at_bat || sacrifice_fly || matches!(result, "Walk" | "HitByPitch"));
@@ -237,6 +271,11 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
             {
                 line.rbi += points;
             }
+        }
+        if points > 0
+            && let Some(pitcher) = pitcher
+        {
+            pitching.record_runs(pitcher, points, &scorers);
         }
     }
 
@@ -268,5 +307,5 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
             s.errors,
         ])?;
     }
-    Ok(())
+    pitching.save(conn, game)
 }

@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS stat_cache_state (
     id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, ready INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO stat_cache_state VALUES(1,5,0);
+INSERT OR IGNORE INTO stat_cache_state VALUES(1,6,0);
 CREATE TABLE IF NOT EXISTS game_batting_stat_cache (
     game_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
     ab INTEGER NOT NULL, single INTEGER NOT NULL, double INTEGER NOT NULL,
@@ -17,9 +17,13 @@ CREATE TABLE IF NOT EXISTS game_batting_stat_cache (
 CREATE INDEX IF NOT EXISTS batting_stat_cache_player ON game_batting_stat_cache(player_id);
 CREATE TABLE IF NOT EXISTS game_pitching_stat_cache (
     game_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
-    games INTEGER NOT NULL, innings INTEGER NOT NULL, runs INTEGER NOT NULL,
+    games INTEGER NOT NULL, outs INTEGER NOT NULL, runs INTEGER NOT NULL,
     wins INTEGER NOT NULL, losses INTEGER NOT NULL, saves INTEGER NOT NULL, holds INTEGER NOT NULL,
     so INTEGER NOT NULL, bb INTEGER NOT NULL,
+    starts INTEGER NOT NULL, complete_games INTEGER NOT NULL, shutouts INTEGER NOT NULL,
+    quality_starts INTEGER NOT NULL, uncertain_starts INTEGER NOT NULL, relief_wins INTEGER NOT NULL,
+    hits INTEGER NOT NULL, home_runs INTEGER NOT NULL, hbp INTEGER NOT NULL, wild_pitches INTEGER NOT NULL,
+    earned_runs INTEGER NOT NULL, unclassified_runs INTEGER NOT NULL, at_bats INTEGER NOT NULL,
     PRIMARY KEY(game_id,player_id)
 );
 CREATE INDEX IF NOT EXISTS pitching_stat_cache_player ON game_pitching_stat_cache(player_id);
@@ -34,7 +38,11 @@ CREATE TABLE IF NOT EXISTS batting_stat_totals (
     errors INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS pitching_stat_totals (
-    player_id INTEGER PRIMARY KEY, games INTEGER NOT NULL, innings INTEGER NOT NULL, runs INTEGER NOT NULL,
+    player_id INTEGER PRIMARY KEY, games INTEGER NOT NULL, outs INTEGER NOT NULL, runs INTEGER NOT NULL,
     wins INTEGER NOT NULL, losses INTEGER NOT NULL, saves INTEGER NOT NULL, holds INTEGER NOT NULL,
-    so INTEGER NOT NULL, bb INTEGER NOT NULL
+    so INTEGER NOT NULL, bb INTEGER NOT NULL,
+    starts INTEGER NOT NULL, complete_games INTEGER NOT NULL, shutouts INTEGER NOT NULL,
+    quality_starts INTEGER NOT NULL, uncertain_starts INTEGER NOT NULL, relief_wins INTEGER NOT NULL,
+    hits INTEGER NOT NULL, home_runs INTEGER NOT NULL, hbp INTEGER NOT NULL, wild_pitches INTEGER NOT NULL,
+    earned_runs INTEGER NOT NULL, unclassified_runs INTEGER NOT NULL, at_bats INTEGER NOT NULL
 );

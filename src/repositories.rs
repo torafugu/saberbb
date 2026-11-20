@@ -11,5 +11,6 @@ pub mod manager_repository;
 
 pub mod stat_cache;
 mod batting_stat_cache;
+mod pitching_stat_cache;
 
 pub mod team_stat_cache;
