@@ -8,7 +8,7 @@ use crate::domain::{
         ball::{BattedBall, OutboundResult},
         game::BattingResult,
         game_stats::PlayerGameBattingMetrics,
-        player::{Position, RL},
+        player::{BatterInfo, Position, RL},
         stadium::Base,
     },
 };
@@ -30,6 +30,16 @@ pub struct ContactFirstEvSwing {
     pub plays: Vec<ContactFirstEvPlay>,
 }
 
+pub struct ContactFirstLaunch {
+    pub count_seq: u16,
+    pub exit_speed_ms: f64,
+    pub launch_angle_deg: f64,
+    pub pitch_speed_ms: f64,
+    pub bat_speed_ms: f64,
+    pub swing_power: f64,
+    pub contact: SwingContactResult,
+}
+
 struct Audit {
     reductions_ms: Vec<f64>,
     swings: Vec<ContactFirstEvSwing>,
@@ -37,6 +47,53 @@ struct Audit {
 
 thread_local! {
     static AUDIT: RefCell<Option<Audit>> = const { RefCell::new(None) };
+    static LAUNCHES: RefCell<Option<Vec<ContactFirstLaunch>>> = const { RefCell::new(None) };
+}
+
+/// Collect inputs to the live exit-speed formula for every fair ContactFirst launch.
+pub fn with_contact_first_launch_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<ContactFirstLaunch>) {
+    struct Restore(Option<Vec<ContactFirstLaunch>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LAUNCHES.replace(self.0.take());
+        }
+    }
+    let _restore = Restore(LAUNCHES.replace(Some(Vec::new())));
+    let result = run();
+    (
+        result,
+        LAUNCHES
+            .take()
+            .expect("ContactFirst launch audit is active"),
+    )
+}
+
+fn is_fair_launch(ball: &BattedBall) -> bool {
+    ball.outbound_result != OutboundResult::Foul && !ball.is_foul()
+}
+
+pub(super) fn record_launch(
+    count_seq: u16,
+    pitch_speed_ms: f64,
+    batter: &BatterInfo,
+    contact: &SwingContactResult,
+    ball: &BattedBall,
+) {
+    LAUNCHES.with_borrow_mut(|slot| {
+        if let Some(launches) = slot
+            && is_fair_launch(ball)
+        {
+            launches.push(ContactFirstLaunch {
+                count_seq,
+                exit_speed_ms: ball.launch_speed,
+                launch_angle_deg: ball.launch_angle,
+                pitch_speed_ms,
+                bat_speed_ms: batter.swing_speed,
+                swing_power: batter.swing_power,
+                contact: contact.clone(),
+            });
+        }
+    });
 }
 
 /// Observe baseline ContactFirst fair flights at or above 45 m/s in a seeded game.
@@ -77,10 +134,7 @@ impl GameState {
             let Some((baseline, metrics)) = flight else {
                 return Ok(());
             };
-            if baseline.launch_speed < 45.0
-                || baseline.outbound_result == OutboundResult::Foul
-                || baseline.is_foul()
-            {
+            if baseline.launch_speed < 45.0 || !is_fair_launch(&baseline) {
                 return Ok(());
             }
             let mut plays = Vec::with_capacity(audit.reductions_ms.len() + 1);
