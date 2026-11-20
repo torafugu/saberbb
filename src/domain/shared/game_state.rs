@@ -43,6 +43,10 @@ use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
+mod contact_first_ev_audit;
+pub use contact_first_ev_audit::{
+    ContactFirstEvPlay, ContactFirstEvSwing, with_contact_first_ev_audit,
+};
 mod intent_aim_audit;
 pub use intent_aim_audit::{IntentAimOffsets, IntentAimPlay, IntentAimSwing, with_intent_aim_audit};
 mod paired_contact;
@@ -1363,6 +1367,7 @@ impl GameState {
                 pitched_ball,
                 &swing_contact,
                 paired_swing,
+                intent,
             )?;
         };
 
@@ -1496,6 +1501,7 @@ impl GameState {
         pitched_ball: PitchedBall,
         swing_contact: &SwingContactResult,
         paired_swing: Option<PairedSwing>,
+        intent: BattedBallIntent,
     ) -> Result<(), GameError> {
         let alternative_flight = paired_swing
             .as_ref()
@@ -1516,6 +1522,9 @@ impl GameState {
             &self.stadium,
             flight.as_ref().map(|(ball, metrics)| (ball, metrics)),
         );
+        if intent == BattedBallIntent::ContactFirst {
+            self.record_contact_first_ev_trials(pitcher_id, batter_id, batter.batting_side, swing_contact, flight)?;
+        }
 
         let pair = paired_swing
             .filter(|_| {

@@ -1005,6 +1005,28 @@ home runs per PA by setting and seed. These games share the schedule,
 rosters and starting seeds. Later plays can diverge as results change.
 The tool reads the source database and runs new games in memory.
 
+### ContactFirst exit-speed comparison
+
+Set `SABERBB_DB` to the same roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --contact-first-ev-comparison > contact_first_ev_2026.json
+```
+
+The comparison takes fair ContactFirst launches at or above 45 m/s from
+the baseline games. Each replay keeps the launch angles, spin, ballpark,
+fielders, runners and post-launch random state. It reintegrates the
+flight at 2, 4 or 6 m/s below the original speed and resolves the play
+through normal fielding and baserunning. Use `--exit-speed-reductions-ms`
+to pass a different comma-separated list. Each reduction uses the same
+baseline contacts, even when the reduced speed falls below 45 m/s.
+
+Under `contact_first_ev_comparison.pooled`, read the totals and original
+launch-angle bands for each reduction. Check `OutfieldSingle` in
+`baseline_to_trial`, batter outs at first, projected first bounces and
+extra-base hits. The baseline supplies all later pitches and situations.
+The rates are paired-play rates for these hard contacts.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,
