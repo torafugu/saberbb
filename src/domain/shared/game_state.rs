@@ -44,7 +44,7 @@ use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
 mod intent_aim_audit;
-pub use intent_aim_audit::{IntentAimOffsets, IntentAimSwing, with_intent_aim_audit};
+pub use intent_aim_audit::{IntentAimOffsets, IntentAimPlay, IntentAimSwing, with_intent_aim_audit};
 mod paired_contact;
 use paired_contact::PairedSwing;
 pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};
@@ -1668,6 +1668,7 @@ impl GameState {
 
         let fielders = self.current_fielders();
         let field_play_result = process_fielding(self.rng.as_mut(), &fielders, &batted_ball)?;
+        intent_aim_audit::record_infield(&batted_ball, &fielders, &field_play_result);
         // Save before any fly/foul/steal early return can advance count_seq.
         self.record_fielding_candidates(&field_play_result);
         let mut catch_diagnostics = field_play_result.diagnostics();

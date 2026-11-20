@@ -6,7 +6,7 @@ use saberbb::domain::{
         ball::OutboundResult,
         game::{BattingResult, GameResult},
         game_state::{
-            IntentAimOffsets, IntentAimSwing, SwingReplay, with_intent_aim_audit,
+            IntentAimOffsets, IntentAimPlay, IntentAimSwing, SwingReplay, with_intent_aim_audit,
             with_intent_aim_trial,
         },
     },
@@ -14,6 +14,10 @@ use saberbb::domain::{
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+#[path = "intent_aim_infield.rs"]
+mod intent_aim_infield;
+use intent_aim_infield::InfieldCounts;
 
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
@@ -91,10 +95,13 @@ struct SwingCounts {
     singles: u64,
     home_runs: u64,
     no_batting_result: u64,
+    infield: InfieldCounts,
 }
 
 impl SwingCounts {
-    fn observe(&mut self, baseline: SwingReplay, play: SwingReplay) {
+    fn observe(&mut self, baseline: IntentAimPlay, play: IntentAimPlay) {
+        self.infield.observe(baseline, play);
+        let (baseline, play) = (baseline.batting, play.batting);
         let source = swing_band(baseline);
         let band = swing_band(play);
         self.swings += 1;
@@ -139,6 +146,7 @@ impl SwingCounts {
             "home_runs": self.home_runs, "home_runs_per_swing": rate(self.home_runs),
             "hard_low_singles": self.hard_low_singles, "hard_low_singles_per_swing": rate(self.hard_low_singles),
             "no_batting_result": self.no_batting_result,
+            "hard_5_to_15_deg_infield": self.infield.report(),
         })
     }
 }
@@ -151,7 +159,7 @@ struct PairedCounts {
 }
 
 impl PairedCounts {
-    fn observe(&mut self, intent: BattedBallIntent, baseline: SwingReplay, play: SwingReplay) {
+    fn observe(&mut self, intent: BattedBallIntent, baseline: IntentAimPlay, play: IntentAimPlay) {
         self.all.observe(baseline, play);
         match intent {
             BattedBallIntent::ContactFirst => &mut self.contact_first,
@@ -192,8 +200,8 @@ fn observe_paired(
         let baseline = swing.plays[0];
         let recorded = live.remove(&swing.count_seq);
         ensure!(
-            baseline.outcome == recorded.map(|b| b.result)
-                && recorded.is_none_or(|b| match baseline.flight {
+            baseline.batting.outcome == recorded.map(|b| b.result)
+                && recorded.is_none_or(|b| match baseline.batting.flight {
                     None => b.ball.launch_speed == 0.0,
                     Some((_, ev, angle)) =>
                         b.ball.launch_speed == ev && b.ball.launch_angle == angle,
@@ -288,6 +296,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         "definitions": {
             "paired_swings":"Every live baseline swing is replayed from the same pitch, selected intent, count, fielding and baserunning state, and pre-contact RNG position. Only the selected intent's world-vertical aim changes. The existing EV-dependent contact window is recomputed. The live baseline determines later swings.",
             "bands":"Every swing has one band. Hard fair bands use non-foul flights at EV >=45 m/s and half-open angle ranges. Other fair includes downwards hard flights and slower fair flights. Rulings such as singles and home runs are counted separately. An interrupted fair play can lack a batting ruling.",
+            "hard_5_to_15_deg_infield":"Fair InField flights at EV >=45 m/s and VLA [5,15) degrees. Fielding location uses the selected glove/pickup point and the engine's 50 m radius. Reach scans end at the estimated first 50 m crossing or known outfielder touch, whichever comes first. The scan uses live lane/distance filters, air risk and sampling, then relaxed filters and 10 ms sampling. These are clean opportunities. The first bounce is projected, including on air catches. Fielding selections before an interrupted baserunning play are included with NoBattingResult. Transitions include swings in the target population on either side.",
             "full_games":"All aim settings use the same schedule, source rosters and initial game seeds. Each arm advances its own games, so decisions and later situations may diverge. Singles and home runs are measured per PA.",
         },
         "paired_swings":{
@@ -333,24 +342,28 @@ mod tests {
 
     #[test]
     fn paired_ground_ball_single_can_move_to_a_foul_or_a_high_angle_home_run() {
-        let single = SwingReplay {
+        let replay = |batting| IntentAimPlay {
+            batting,
+            infield: None,
+        };
+        let single = replay(SwingReplay {
             outcome: Some(BattingResult::Single),
             flight: Some((OutboundResult::InField, 45.0, 0.0)),
-        };
+        });
         let mut counts = SwingCounts::default();
         counts.observe(
             single,
-            SwingReplay {
+            replay(SwingReplay {
                 outcome: Some(BattingResult::Foul),
                 flight: Some((OutboundResult::Foul, 48.0, 31.0)),
-            },
+            }),
         );
         counts.observe(
             single,
-            SwingReplay {
+            replay(SwingReplay {
                 outcome: Some(BattingResult::HomeRun),
                 flight: Some((OutboundResult::HomeRun, 45.0, 30.0)),
-            },
+            }),
         );
         assert_eq!(counts.swings, 2);
         assert_eq!(counts.bands["foul"], 1);

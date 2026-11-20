@@ -986,6 +986,20 @@ new aim. Counts and rates for whiffs, fouls, and fair launch bands use all
 swings. `baseline_hard_low_single_destinations` shows the alternate launch
 band and official batting result for each original hard low-angle single.
 
+Read `hard_5_to_15_deg_infield` under each paired-swing intent to compare
+the four 2.5° angle bands for fair in-park balls at EV of at least 45 m/s.
+The report counts the actual selected fielder and handling location
+relative to the 50 m infield radius. A separate scan uses the fielding
+trajectory estimate up to its first 50 m crossing or known outfielder
+touch, whichever comes first. It reports reach
+under the live candidate filters and sampling grid, then with relaxed
+filters and a 10 ms grid. The scan assumes clean handling and applies
+the live air-risk margin. Look at `outfield_singles_by_infield_reach` to
+see how many outfield singles had a reachable point. First-bounce
+positions are projected, even when an earlier catch ended the play.
+The paired transition tables include swings that enter or leave the
+target bands and record their batting ruling and fielding location.
+
 `intent_aim_comparison.full_games` reports BA, BABIP, singles per PA and
 home runs per PA by setting and seed. These games share the schedule,
 rosters and starting seeds. Later plays can diverge as results change.
