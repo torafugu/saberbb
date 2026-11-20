@@ -66,8 +66,7 @@ impl SqlStatRepository {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
             "SELECT s.player_id,pi.first_name AS pitcher_first_name,pi.last_name AS pitcher_last_name,
-             s.games AS games,s.innings AS innings,s.wins AS wins,s.losses AS losses,s.saves AS saves,s.holds AS holds,
-             COALESCE(ROUND(CAST(s.runs AS REAL)*9.0/NULLIF(s.innings,0),2),0.0) AS era,s.so AS so,s.bb AS bb
+             s.*
              FROM pitching_stat_totals s JOIN player_info pi ON pi.id=s.player_id
              WHERE ?1 IS NULL OR pi.team_id=?1 ORDER BY s.player_id",params![team])
     }
@@ -562,14 +561,15 @@ mod tests {
         assert_eq!(stats[0].batter.info.first_name.as_str(), "Shohei");
         assert_eq!(stats[0].batter.info.last_name.as_str(), "Ohtani");
         assert_eq!(stats[0].games, 2);
-        assert_eq!(stats[0].innings, 2);
+        assert_eq!(stats[0].outs, 2);
         assert_eq!(stats[0].wins, 0);
         assert_eq!(stats[0].losses, 0);
         assert_eq!(stats[0].saves, 0);
         assert_eq!(stats[0].holds, 0);
-        assert_eq!(stats[0].era, 0.0);
+        assert_eq!(stats[0].earned_runs, Some(0));
         assert_eq!(stats[0].so, 1);
-        assert_eq!(stats[0].bb, 2);
+        assert_eq!(stats[0].bb, 1);
+        assert_eq!(stats[0].hbp, 1);
         std::fs::remove_file(path).ok();
     }
 
@@ -622,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn load_pitching_stats_calculates_era_from_runs_and_innings() {
+    fn load_pitching_stats_reports_runs_and_outs() {
         let (repo, path) = setup_repo();
         seed_player_info(&repo, 10, "Shohei", "Ohtani");
         seed_player_info(&repo, 20, "Mike", "Trout");
@@ -636,8 +636,9 @@ mod tests {
         let stats = repo.load_pitching_stats().unwrap();
 
         assert_eq!(stats.len(), 1);
-        assert_eq!(stats[0].innings, 2);
-        assert_eq!(stats[0].era, 4.5);
+        assert_eq!(stats[0].outs, 2);
+        assert_eq!(stats[0].runs, 1);
+        assert_eq!(stats[0].earned_runs, Some(1));
         std::fs::remove_file(path).ok();
     }
 
@@ -659,7 +660,8 @@ mod tests {
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].batter.info.id, 10);
         assert_eq!(stats[0].so, 1);
-        assert_eq!(stats[0].era, 9.0);
+        assert_eq!(stats[0].runs, 1);
+        assert_eq!(stats[0].outs, 1);
         std::fs::remove_file(path).ok();
     }
     #[test]

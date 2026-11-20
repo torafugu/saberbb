@@ -1,5 +1,5 @@
 //! Derived, per-game additive statistics. Rates are calculated after summing counts.
-use super::batting_stat_cache;
+use super::{batting_stat_cache, pitching_stat_cache};
 use crate::repositories::db::DbClient;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
@@ -9,8 +9,18 @@ use std::sync::Mutex;
 // Serialize cold backfills across repositories so switching tabs cannot start
 // another writer that times out while the first backfill is still running.
 static CACHE_BUILD: Mutex<()> = Mutex::new(());
+const CACHE_VERSION: u32 = 6;
 
 pub fn ensure_schema(conn:&Connection)->Result<()> {
+    // Version 5 counted each touched half-inning as a full inning. Replace only derived tables.
+    let legacy_pitching: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('pitching_stat_totals') WHERE name='innings')",
+        [],
+        |row| row.get(0),
+    )?;
+    if legacy_pitching {
+        conn.execute_batch("DROP TABLE IF EXISTS game_pitching_stat_cache; DROP TABLE pitching_stat_totals;")?;
+    }
     conn.execute_batch(include_str!("../../migrations/upgrades/add_stat_cache.sql"))?;
     for table in ["game_batting_stat_cache", "batting_stat_totals"] {
         let mut schema = conn.prepare(&format!("PRAGMA table_info({table})"))?;
@@ -27,50 +37,21 @@ pub fn ensure_schema(conn:&Connection)->Result<()> {
     super::team_stat_cache::ensure_schema(conn)?;
     Ok(())
 }
-// Separate keyed SQL avoids an OR predicate that would force a full log scan per game.
-fn scope(sql:&str,keyed:bool)->String {
-    let mut sql=sql.to_owned();
-    for column in ["b.game_id","game_id","player_id"] {
-        let predicate=format!("?1 IS NULL OR {column}=?1");
-        sql=sql.replace(&predicate,&if keyed{format!("{column}=?1")}else{"?1 IS NULL".into()});
-    }
-    sql
-}
-fn fill(conn:&Connection,game:Option<u32>)->Result<()> {
-    batting_stat_cache::fill(conn, game)?;
-    conn.execute(&scope("WITH p AS (SELECT * FROM player_game_pitching WHERE ?1 IS NULL OR game_id=?1),
-         b AS (SELECT * FROM player_game_batting WHERE ?1 IS NULL OR game_id=?1),
-         d AS (SELECT * FROM player_game_pitching_decision WHERE ?1 IS NULL OR game_id=?1),
-         ids AS (SELECT game_id,pitcher_id FROM p UNION SELECT game_id,pitcher_id FROM b UNION SELECT game_id,pitcher_id FROM d),
-         pitch AS (
-             SELECT p.game_id,p.pitcher_id,1 AS games,
-                 COUNT(DISTINCT CASE WHEN c.inning_seq IS NOT NULL AND c.inning_tb IS NOT NULL
-                     THEN p.game_id||'-'||c.inning_seq||'-'||c.inning_tb ELSE p.game_id||'-'||p.count_seq END) AS innings,
-                 COALESCE(SUM(c.point),0) AS runs
-             FROM p LEFT JOIN count c ON c.game_id=p.game_id AND c.seq=p.count_seq GROUP BY p.game_id,p.pitcher_id
-         ), result AS (SELECT game_id,pitcher_id,SUM(result='Strikeout') AS so,SUM(result IN ('Walk','HitByPitch')) AS bb FROM b GROUP BY game_id,pitcher_id),
-         decision AS (SELECT game_id,pitcher_id,SUM(decision='Win') AS wins,SUM(decision='Loss') AS losses,
-             SUM(decision='Save') AS saves,SUM(decision='Hold') AS holds FROM d GROUP BY game_id,pitcher_id)
-         INSERT INTO game_pitching_stat_cache
-         SELECT ids.game_id,ids.pitcher_id,COALESCE(pitch.games,0),COALESCE(pitch.innings,0),COALESCE(pitch.runs,0),
-             COALESCE(decision.wins,0),COALESCE(decision.losses,0),COALESCE(decision.saves,0),COALESCE(decision.holds,0),
-             COALESCE(result.so,0),COALESCE(result.bb,0)
-         FROM ids LEFT JOIN pitch USING(game_id,pitcher_id) LEFT JOIN result USING(game_id,pitcher_id)
-         LEFT JOIN decision USING(game_id,pitcher_id)",game.is_some()),[game])?;
-    Ok(())
-}
-
 fn refresh_totals(conn:&Connection,player:Option<i64>)->Result<()> {
-    conn.execute(&scope("DELETE FROM batting_stat_totals WHERE ?1 IS NULL OR player_id=?1",player.is_some()),[player])?;
-    let columns = batting_stat_cache::COUNTS;
-    let sums = columns.split(',').map(|name| format!("SUM({name})")).collect::<Vec<_>>().join(",");
-    conn.execute(&scope(&format!(
-        "INSERT INTO batting_stat_totals(player_id,{columns})
-         SELECT player_id,{sums} FROM game_batting_stat_cache
-         WHERE ?1 IS NULL OR player_id=?1 GROUP BY player_id"
-    ),player.is_some()),[player])?;
-    conn.execute(&scope("DELETE FROM pitching_stat_totals WHERE ?1 IS NULL OR player_id=?1",player.is_some()),[player])?;
-    conn.execute(&scope("INSERT INTO pitching_stat_totals SELECT player_id,SUM(games),SUM(innings),SUM(runs),SUM(wins),SUM(losses),SUM(saves),SUM(holds),SUM(so),SUM(bb) FROM game_pitching_stat_cache WHERE ?1 IS NULL OR player_id=?1 GROUP BY player_id",player.is_some()),[player])?;
+    for (kind, columns) in [
+        ("batting", batting_stat_cache::COUNTS),
+        ("pitching", pitching_stat_cache::COUNTS),
+    ] {
+        let totals = format!("{kind}_stat_totals");
+        let sums = columns.split(',').map(|name| format!("SUM({name})")).collect::<Vec<_>>().join(",");
+        let filter = if player.is_some() { "player_id=?1" } else { "?1 IS NULL" };
+        conn.execute(&format!("DELETE FROM {totals} WHERE {filter}"), [player])?;
+        conn.execute(&format!(
+            "INSERT INTO {totals}(player_id,{columns})
+             SELECT player_id,{sums} FROM game_{kind}_stat_cache
+             WHERE {filter} GROUP BY player_id"
+        ), [player])?;
+    }
     Ok(())
 }
 fn affected_players(conn:&Connection,game:u32)->Result<Vec<i64>> {
@@ -83,7 +64,7 @@ pub fn refresh_game(conn:&Connection,game:u32)->Result<()> {
     let mut affected=affected_players(conn,game)?;
     conn.execute("DELETE FROM game_batting_stat_cache WHERE game_id=?1",[game])?;
     conn.execute("DELETE FROM game_pitching_stat_cache WHERE game_id=?1",[game])?;
-    fill(conn,Some(game))?;
+    batting_stat_cache::fill(conn,Some(game))?;
     affected.extend(affected_players(conn,game)?);affected.sort_unstable();affected.dedup();
     for player in affected {refresh_totals(conn,Some(player))?;}
     super::team_stat_cache::refresh_game(conn,game)?;
@@ -91,10 +72,10 @@ pub fn refresh_game(conn:&Connection,game:u32)->Result<()> {
 }
 fn rebuild_in_transaction(conn:&Connection)->Result<()> {
     conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;")?;
-    fill(conn,None)?;
+    batting_stat_cache::fill(conn,None)?;
     refresh_totals(conn,None)?;
     super::team_stat_cache::rebuild(conn)?;
-    conn.execute("UPDATE stat_cache_state SET version=5,ready=1 WHERE id=1",[])?;Ok(())
+    conn.execute("UPDATE stat_cache_state SET version=?1,ready=1 WHERE id=1",[CACHE_VERSION])?;Ok(())
 }
 fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
     let exists: bool = conn.query_row(
@@ -102,7 +83,7 @@ fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
         [], |row| row.get(0),
     )?;
     if !exists { return Ok(false); }
-    Ok(conn.query_row("SELECT version=5 AND ready=1 FROM stat_cache_state WHERE id=1", [], |row| row.get(0))
+    Ok(conn.query_row("SELECT version=?1 AND ready=1 FROM stat_cache_state WHERE id=1", [CACHE_VERSION], |row| row.get(0))
         .optional()?.unwrap_or(false))
 }
 
@@ -134,7 +115,10 @@ pub fn rebuild(db: &DbClient) -> Result<()> {
 }
 pub fn clear(conn:&Connection)->Result<()> {
     super::team_stat_cache::clear(conn)?;
-    ensure_schema(conn)?;conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;UPDATE stat_cache_state SET version=5,ready=1 WHERE id=1;")?;Ok(())
+    ensure_schema(conn)?;
+    conn.execute_batch("DELETE FROM game_batting_stat_cache;DELETE FROM game_pitching_stat_cache;DELETE FROM batting_stat_totals;DELETE FROM pitching_stat_totals;")?;
+    conn.execute("UPDATE stat_cache_state SET version=?1,ready=1 WHERE id=1", [CACHE_VERSION])?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -166,7 +150,7 @@ mod tests {
     fn refresh_is_idempotent_and_replaces_contributions_in_totals() {
         let conn=fixture();refresh_game(&conn,1).unwrap();refresh_game(&conn,2).unwrap();refresh_game(&conn,1).unwrap();
         let ab:i64=conn.query_row("SELECT ab FROM batting_stat_totals WHERE player_id=1",[],|r|r.get(0)).unwrap();assert_eq!(ab,3);
-        let p:(i64,i64,i64)=conn.query_row("SELECT games,innings,runs FROM pitching_stat_totals WHERE player_id=10",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();assert_eq!(p,(2,2,3));
+        let p:(i64,i64,i64)=conn.query_row("SELECT games,outs,runs FROM pitching_stat_totals WHERE player_id=10",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();assert_eq!(p,(2,2,3));
         conn.execute("UPDATE player_game_batting SET result='HomeRun' WHERE game_id=1 AND count_seq=1",[]).unwrap();refresh_game(&conn,1).unwrap();
         let hits:(i64,i64)=conn.query_row("SELECT single,homerun FROM batting_stat_totals WHERE player_id=1",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();assert_eq!(hits,(0,1));
         conn.execute_batch("DELETE FROM player_game_batting WHERE game_id=2;DELETE FROM player_game_pitching WHERE game_id=2;").unwrap();refresh_game(&conn,2).unwrap();
@@ -253,6 +237,59 @@ mod tests {
                 |row| Ok((row.get::<_, u32>(0)?, row.get::<_, u32>(1)?, row.get::<_, u32>(2)?))).unwrap(),
             (3, 3, 2),
         );
+    }
+
+    #[test]
+    fn version_five_pitching_cache_rebuilds_outs_and_runner_responsibility() {
+        let conn = fixture();
+        conn.execute_batch(
+            "DROP TABLE game_pitching_stat_cache;
+             DROP TABLE pitching_stat_totals;
+             CREATE TABLE game_pitching_stat_cache(game_id INTEGER,player_id INTEGER,innings INTEGER);
+             CREATE TABLE pitching_stat_totals(player_id INTEGER PRIMARY KEY,innings INTEGER);
+             INSERT INTO pitching_stat_totals VALUES(10,99);
+             UPDATE stat_cache_state SET version=5,ready=1;
+             DELETE FROM count WHERE game_id=1;
+             DELETE FROM player_game_batting WHERE game_id=1;
+             DELETE FROM player_game_pitching WHERE game_id=1;
+             WITH RECURSIVE inning(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM inning WHERE n<6)
+             INSERT INTO count VALUES
+                (1,7,7,'Top',0,1),(1,8,7,'Top',0,1),(1,9,7,'Top',2,1),
+                (1,10,7,'Top',0,1),(1,11,7,'Top',0,1),(1,12,7,'Top',0,2),
+                (1,13,1,'Bottom',0,3)
+             UNION ALL SELECT 1,n,n,'Top',0,3 FROM inning;
+             INSERT INTO player_game_pitching(game_id,count_seq,pitcher_id)
+                SELECT game_id,seq,CASE WHEN seq<9 THEN 10 WHEN seq<13 THEN 20 ELSE 30 END
+                FROM count WHERE game_id=1;
+             UPDATE player_game_pitching SET actual_location_x=4 WHERE game_id=1 AND count_seq=11;
+             INSERT INTO player_game_batting VALUES
+                (1,8,11,10,'Walk'),(1,9,12,20,'HomeRun'),(1,10,13,20,'HitByPitch'),
+                (1,11,14,20,'Walk'),(1,12,15,20,'Strikeout');
+             DELETE FROM player_game_pitching_decision WHERE game_id=1;
+             INSERT INTO player_game_pitching_decision VALUES(1,20,'Win');",
+        ).unwrap();
+        assert!(!is_ready(&conn).unwrap());
+        ensure_schema(&conn).unwrap();
+        rebuild_in_transaction(&conn).unwrap();
+
+        let counts = |player, columns| {
+            conn.query_row(
+                &format!("SELECT {columns} FROM game_pitching_stat_cache WHERE game_id=1 AND player_id=?1"),
+                [player],
+                |row| (0..row.as_ref().column_count()).map(|i| row.get::<_, u32>(i)).collect::<rusqlite::Result<Vec<_>>>(),
+            ).unwrap()
+        };
+        assert_eq!(counts(10, "starts,outs,complete_games,quality_starts,bb,runs,earned_runs"), [1, 19, 0, 1, 1, 1, 1]);
+        assert_eq!(counts(20, "starts,outs,relief_wins,hits,home_runs,so,bb,hbp,wild_pitches,runs"), [0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(counts(30, "starts,complete_games,shutouts"), [1, 1, 1]);
+        assert!(is_ready(&conn).unwrap());
+
+        conn.execute("INSERT INTO player_game_fielding VALUES(1,7,'Fumble','CF')", []).unwrap();
+        // Classify each pitcher's run as uncertain, including the inherited runner.
+        // The starter still has a QS because his maximum possible earned runs is one.
+        refresh_game(&conn, 1).unwrap();
+        assert_eq!(counts(10, "earned_runs,unclassified_runs,quality_starts"), [0, 1, 1]);
+        assert_eq!(counts(20, "earned_runs,unclassified_runs"), [0, 1]);
     }
 
     #[test]

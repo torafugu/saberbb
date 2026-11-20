@@ -40,7 +40,7 @@ pub(super) fn DataTable(data: TableData, #[props(default = true)] interactive: b
             }
             if rows.is_empty() { p { class: "empty", {tr("表示できるデータがありません。管理画面で作成・進行できます。")} } }
             div { class: "table-scroll",
-                table { class:match data.title.as_str() {"順位表"=>"standings-table","打撃成績"=>"batting-table",_=>""},
+                table { class:match data.title.as_str() {"順位表"=>"standings-table","打撃成績"=>"batting-table","投手成績"=>"pitching-table",_=>""},
                     thead { tr {
                         for (i, column) in data.columns.iter().enumerate() {
                             th { aria_sort: if sort().is_some_and(|(c,_)|c==i) { if sort().unwrap().1 { "descending" } else { "ascending" } } else { "none" },

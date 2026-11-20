@@ -1,7 +1,7 @@
 //! Read-only projections. No simulation, writes, or contact-state diagnostics here.
 use crate::{app_context, repositories::{game_repository::{GameDetailReader, GamePlayerReader, GameScheduleReader, ProcessedGameReader},
     schedule_repository::ScheduleRepository, statistics_repository::StatRepository, db::SqlDb}};
-use crate::domain::shared::{game::{GameDetail, GameHeader, TeamGameScheduleView}, game_cursor::{GameCursor, ScoreBoard}, player::Player};
+use crate::domain::shared::{stats::PitchingStats, game::{GameDetail, GameHeader, TeamGameScheduleView}, game_cursor::{GameCursor, ScoreBoard}, player::Player};
 use anyhow::Result;
 use chrono::NaiveDate;
 use std::collections::HashMap;
@@ -59,7 +59,12 @@ pub fn manager(team: u16) -> Result<Option<crate::domain::shared::batting_person
 /// Statistics retain the existing repository's all-saved-games aggregation scope.
 pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result<TableData> {
     let repo = &app_context().statistics_repository;
-    let includes_player = |id: i64| catalog.player_teams.get(&id).is_some_and(|id| catalog.includes_team(*id, league, team));
+    let player_team_name = |id: i64| {
+        let team_id = *catalog.player_teams.get(&id)?;
+        catalog.includes_team(team_id, league, team).then(|| {
+            catalog.teams.iter().find(|t| t.id == team_id).map_or("—", |t| t.name.as_str())
+        })
+    };
     match kind {
         1 => {
             let standings = repo.load_standings()?;
@@ -69,22 +74,16 @@ pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result
         2 => {
             let stats = if team == 0 { repo.load_batting_stats()? } else { repo.load_team_batting_stats(team)? };
             let rows = stats.into_iter()
-                .filter_map(|s| {
-                    let team_id = *catalog.player_teams.get(&s.batter.info.id)?;
-                    if !catalog.includes_team(team_id, league, team) {
-                        return None;
-                    }
-                    let team_name = catalog.teams.iter().find(|t| t.id == team_id)
-                        .map(|t| t.name.as_str()).unwrap_or("—");
-                    Some(batting_row(&s, team_name))
-                }).collect();
+                .filter_map(|s| player_team_name(s.batter.info.id).map(|team| batting_row(&s, team)))
+                .collect();
             Ok(TableData::new("打撃成績", BATTING_COLUMNS, rows))
         }
         _ => {
             let stats = if team == 0 { repo.load_pitching_stats()? } else { repo.load_team_pitching_stats(team)? };
-            let rows = stats.into_iter().filter(|s| includes_player(s.batter.info.id)).map(|s|
-                vec![s.batter.info.full_name(),s.games.to_string(),s.innings.to_string(),s.wins.to_string(),s.losses.to_string(),s.saves.to_string(),s.holds.to_string(),format!("{:.2}",s.era),s.so.to_string(),s.bb.to_string()]).collect();
-            Ok(TableData::new("投手成績", &["選手","登板","回","勝","敗","S","H","ERA","SO","BB"], rows))
+            let rows = stats.into_iter()
+                .filter_map(|s| player_team_name(s.batter.info.id).map(|team| pitching_row(&s, team)))
+                .collect();
+            Ok(TableData::new("投手成績", PITCHING_COLUMNS, rows))
         }
     }
 }
@@ -112,6 +111,58 @@ fn batting_row(s: &crate::domain::shared::stats::BattingStats, team: &str) -> Ve
         "0".into(), s.sf.to_string(), s.sb.to_string(), s.cs.to_string(), s.gidp.to_string(),
         display(obp), display(slg), display(obp.zip(slg).map(|(obp, slg)| obp + slg)),
         display(ratio(s.risp_hits, s.risp_ab)), s.errors.to_string(),
+    ]
+}
+
+const PITCHING_COLUMNS: &[&str] = &[
+    "選手名", "チーム", "防御率", "登板", "先発", "完投", "完封", "ＱＳ",
+    "勝利", "敗戦", "ホールド", "ＨＰ", "セーブ", "勝率", "投球回", "被安打",
+    "被本塁打", "奪三振", "奪三振率", "与四球", "与死球", "暴投", "ボーク",
+    "失点", "自責点", "被打率", "Ｋ／ＢＢ", "ＱＳ率", "ＷＨＩＰ",
+];
+
+fn pitching_row(s: &PitchingStats, team: &str) -> Vec<String> {
+    let ratio = |n: u32, d: u32, scale: f64| (d > 0).then(|| f64::from(n) * scale / f64::from(d));
+    let number = |n: Option<u32>| n.map(|v| v.to_string()).unwrap_or_else(|| "—".into());
+    let rate = |value: Option<f64>, digits| {
+        value.map(|v| format!("{v:.digits$}")).unwrap_or_else(|| "—".into())
+    };
+    let fraction = |value: Option<f64>| value.map(decimal_rate).unwrap_or_else(|| "—".into());
+    let innings = match (s.outs / 3, s.outs % 3) {
+        (full, 0) => full.to_string(),
+        (full, partial) => format!("{full}.{partial}"),
+    };
+    vec![
+        s.batter.info.full_name(),
+        team.into(),
+        rate(s.earned_runs.and_then(|n| ratio(n, s.outs, 27.0)), 2),
+        s.games.to_string(),
+        s.starts.to_string(),
+        s.complete_games.to_string(),
+        s.shutouts.to_string(),
+        number(s.quality_starts),
+        s.wins.to_string(),
+        s.losses.to_string(),
+        s.holds.to_string(),
+        (s.holds + s.relief_wins).to_string(),
+        s.saves.to_string(),
+        fraction(ratio(s.wins, s.wins + s.losses, 1.0)),
+        innings,
+        s.hits.to_string(),
+        s.home_runs.to_string(),
+        s.so.to_string(),
+        rate(ratio(s.so, s.outs, 27.0), 2),
+        s.bb.to_string(),
+        s.hbp.to_string(),
+        s.wild_pitches.to_string(),
+        // The simulator has no balk outcome.
+        "0".into(),
+        s.runs.to_string(),
+        number(s.earned_runs),
+        fraction(ratio(s.hits, s.at_bats, 1.0)),
+        rate(ratio(s.so, s.bb, 1.0), 2),
+        rate(s.quality_starts.and_then(|n| ratio(n, s.starts, 100.0)), 1),
+        rate(ratio(s.hits + s.bb, s.outs, 3.0), 2),
     ]
 }
 
@@ -215,6 +266,33 @@ mod tests {
         assert_eq!(decimal_rate(0.0),".000");assert_eq!(decimal_rate(0.125),".125");
         assert_eq!(decimal_rate(2.0/3.0),".667");assert_eq!(decimal_rate(1.0),"1.000");
     }
+    #[test]
+    fn pitching_row_displays_requested_columns_and_computes_rates_from_outs() {
+        use crate::domain::shared::player::PlayerInfo;
+        let mut stats = PitchingStats {
+            batter: Player::from_player_info(PlayerInfo::new_min(1, "First".into(), "Last".into())),
+            games: 5, outs: 20, wins: 2, losses: 1, saves: 1, holds: 2, so: 8, bb: 2,
+            starts: 2, complete_games: 0, shutouts: 0, quality_starts: Some(1), relief_wins: 1,
+            hits: 5, home_runs: 1, hbp: 1, wild_pitches: 1, runs: 4, earned_runs: Some(3),
+            at_bats: 26,
+        };
+        let row = pitching_row(&stats, "Team A");
+        assert_eq!(PITCHING_COLUMNS.len(), row.len());
+        assert_eq!(&PITCHING_COLUMNS[..3], &["選手名", "チーム", "防御率"]);
+        assert_eq!(&row[1..], &[
+            "Team A", "4.05", "5", "2", "0", "0", "1", "2", "1", "2", "3", "1", ".667",
+            "6.2", "5", "1", "8", "10.80", "2", "1", "1", "0", "4", "3", ".192", "4.00", "50.0", "1.05",
+        ]);
+        stats.earned_runs = None;
+        stats.quality_starts = None;
+        stats.bb = 0;
+        let row = pitching_row(&stats, "Team A");
+        for index in [2, 7, 24, 26, 27] {
+            assert_eq!(row[index], "—");
+        }
+        assert_eq!(row[28], "0.75");
+    }
+
     #[test]
     fn standings_keep_rank_and_gap_when_filtering_a_team() {
         use crate::domain::shared::{stats::Standing,team::Team};

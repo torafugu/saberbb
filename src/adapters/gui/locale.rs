@@ -67,6 +67,11 @@ pub fn translate(source:&str,language:Language)->String {
         "塁打"=>"TB", "打点"=>"RBI", "三振"=>"SO", "四球"=>"BB", "死球"=>"HBP", "犠打"=>"SH", "犠飛"=>"SF",
         "盗塁死"=>"CS", "併殺打"=>"GIDP", "出塁率"=>"OBP", "長打率"=>"SLG", "ＯＰＳ"=>"OPS", "得点圏打率"=>"AVG w/ RISP",
         "防御率は失点と記録アウト数による参考値です（自責点は未記録）。"=>"ERA is a reference value based on runs allowed and recorded outs; earned runs are not recorded.",
+        "先発"=>"GS", "完投"=>"CG", "完封"=>"SHO", "ＱＳ"=>"QS", "勝利"=>"W", "敗戦"=>"L",
+        "ホールド"=>"HLD", "ＨＰ"=>"HP", "セーブ"=>"SV", "投球回"=>"IP", "被安打"=>"H", "被本塁打"=>"HR",
+        "奪三振"=>"SO", "奪三振率"=>"K/9", "与四球"=>"BB", "与死球"=>"HBP", "暴投"=>"WP", "ボーク"=>"BK",
+        "自責点"=>"ER", "被打率"=>"BAA", "Ｋ／ＢＢ"=>"K/BB", "ＱＳ率"=>"QS%", "ＷＨＩＰ"=>"WHIP",
+        "失策の影響で確定できない自責点と関連指標は「—」で表示します。ボークはシミュレーション上発生しません。"=>"Earned runs and related statistics are shown as — when a fielding error prevents classification. The simulator does not model balks.",
         _=>source,
     };
     translated.into()

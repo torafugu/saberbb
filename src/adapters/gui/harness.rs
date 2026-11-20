@@ -96,7 +96,13 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     anyhow::ensure!(h.html().contains("Remaining") && h.html().contains("Runs allowed") && h.html().contains("All seasons"),"standings English labels missing");
     h.save(output,"standings-english")?;
     h.click("language-ja-JP").await?;
-    h.click("nav-3").await?;anyhow::ensure!(h.html().contains("ERA"),"pitching statistics failed");
+    h.click("nav-3").await?;
+    for (index, label) in [(0, "選手名"), (1, "チーム"), (2, "防御率"), (14, "投球回"), (28, "ＷＨＩＰ")] {
+        anyhow::ensure!(h.html().contains(&format!("id=\"sort-{index}\">{label}</button>")), "missing pitching column: {label}");
+    }
+    h.click("language-en-US").await?;
+    anyhow::ensure!(h.html().contains(">ERA</button>") && h.html().contains(">WHIP</button>"), "pitching English labels missing");
+    h.click("language-ja-JP").await?;
     h.input("team-filter","change",&team.to_string()).await?;
     h.click("nav-1").await?;
     anyhow::ensure!(!h.html().contains("id=\"team-filter\"") && !h.html().contains("id=\"table-search\""),"standings must omit team selection and search");
@@ -192,7 +198,7 @@ pub async fn snapshot_management(output: &Path) -> anyhow::Result<()> {
     h.click("nav-2").await?;
     anyhow::ensure!(h.html().contains("打点") && !h.html().contains("読み込みできませんでした"),"batting stats not available after GUI processing");
     h.click("nav-3").await?;
-    anyhow::ensure!(h.html().contains("ERA") && !h.html().contains("読み込みできませんでした"),"pitching stats not available after GUI processing");
+    anyhow::ensure!(h.html().contains(">防御率</button>") && !h.html().contains("読み込みできませんでした"),"pitching stats not available after GUI processing");
     println!("GUI management checks passed: validation, languages, error recovery, manager-only and player generation, scheduling, processing, diagnostics, duplicate suppression, navigation survival, automatic refresh and statistics.");
     Ok(())
 }
