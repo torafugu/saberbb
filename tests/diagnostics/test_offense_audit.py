@@ -117,6 +117,82 @@ class OffenseAuditTest(unittest.TestCase):
                 offense_audit.audit(path)
             self.assertFalse(path.exists())
 
+    def test_league_batting_compares_qualified_leaders_with_all_regular_season_batters(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'test.db'
+            with sqlite3.connect(path) as conn:
+                conn.executescript('''
+                    CREATE TABLE game(id INTEGER PRIMARY KEY, season INTEGER, game_type TEXT,
+                        actual_date TEXT, away_team_id INTEGER, home_team_id INTEGER);
+                    INSERT INTO game VALUES
+                        (1,2026,'Regular','2026-04-01',1,2),
+                        (2,2026,'Regular','2026-04-02',1,3),
+                        (3,2026,'Regular','1900-01-01',1,2),
+                        (4,2027,'Playoff','2027-04-01',1,2),
+                        (5,2027,'Regular',NULL,1,2);
+                    CREATE TABLE player_info(id PRIMARY KEY,team_id,first_name,last_name);
+                    INSERT INTO player_info VALUES (10,1,'A','A'),(20,2,'B','B'),(30,1,'C','C'),(40,3,'D','D');
+                    CREATE TABLE player_game_batting(game_id,count_seq,batter_id,result,
+                        launch_speed,launch_angle,outbound_result,first_bounce_time,fence_impact_time);
+                    INSERT INTO player_game_batting VALUES
+                        (1,1,10,'Single',32,9.9,'InField',1,NULL),
+                        (1,2,10,'Strikeout',0,0,'InField',NULL,NULL),
+                        (1,3,10,'Out',41,25,'InField',NULL,3),
+                        (1,4,10,'Walk',0,0,'InField',NULL,NULL),
+                        (2,1,10,'HomeRun',50,25,'HomeRun',NULL,NULL),
+                        (2,2,10,'Double',43,20,'InField',4,3),
+                        (1,5,20,'Strikeout',0,0,'InField',NULL,NULL),
+                        (1,6,20,'Single',0,0,'InField',NULL,NULL),
+                        (1,7,20,'Out',25,50,'InField',NULL,NULL),
+                        (2,3,40,'Walk',0,0,'InField',NULL,NULL),
+                        (2,4,40,'Walk',0,0,'InField',NULL,NULL),
+                        (2,5,40,'Walk',0,0,'InField',NULL,NULL),
+                        (2,6,10,'Foul',45,25,'Foul',NULL,NULL),
+                        (3,1,10,'HomeRun',50,25,'HomeRun',NULL,NULL),
+                        (4,1,10,'HomeRun',50,25,'HomeRun',NULL,NULL),
+                        (5,1,10,'HomeRun',50,25,'HomeRun',NULL,NULL);
+                    CREATE TABLE count(game_id,seq,point);
+                    INSERT INTO count VALUES (1,3,1),(1,7,1);
+                    CREATE TABLE player_game_running(game_id,count_seq,seq,event);
+                    INSERT INTO player_game_running VALUES (1,3,1,'TagUp'),(1,7,1,'TagUp'),(1,7,2,'FlyPlay');
+                    CREATE TABLE player_game_fielding(game_id,count_seq,seq,time_to_field);
+                    INSERT INTO player_game_fielding VALUES (1,3,1,2),(2,2,2,1),(2,2,1,5);
+                ''')
+                conn.executemany('INSERT INTO player_game_batting VALUES (2,?,30,\'Single\',25,10,\'InField\',1,NULL)',
+                                 ((seq,) for seq in range(7, 12)))
+            before = path.read_bytes()
+            env = dict(os.environ, SABERBB_DB=str(path))
+            proc = subprocess.run([sys.executable, offense_audit.__file__, '--league-batting', '--top', '2'],
+                                  env=env, text=True, capture_output=True, check=True)
+            report = json.loads(proc.stdout)
+            self.assertEqual(report['scope'], dict(season=2026, completed_regular_games=2,
+                                                   games_with_terminal_batting_logs=2))
+            self.assertEqual(report['qualified_batters'], 3)
+            self.assertEqual(report['qualified_without_at_bats'], 1)
+            self.assertEqual(report['qualified_batting_avg_counts'], {'at_least_500': 1, '400_to_under_500': 0})
+            self.assertEqual(report['max_home_runs'], 1)
+            first, second = report['top_qualified']
+            self.assertEqual((first['player']['id'], first['minimum_pa'], first['pa'], first['ab']), (10, 6, 6, 4))
+            self.assertEqual((second['player']['id'], second['minimum_pa']), (20, 3))
+            self.assertEqual((first['ba'], first['strikeouts_per_ab'], first['babip']), (0.75, 0.25, 2/3))
+            self.assertEqual(first['sacrifice_flies'], 1)
+            self.assertEqual(second['sacrifice_flies'], 0)
+            self.assertEqual(first['bip_by_launch_angle']['Grounder']['hits'], 1)
+            self.assertEqual(first['bip_by_launch_angle']['Liner']['hits'], 1)
+            self.assertEqual(first['bip_by_launch_angle']['Fly']['balls'], 1)
+            self.assertEqual(second['bip_by_launch_angle']['PopUp']['hit_rate'], 0)
+            self.assertEqual(second['bip_by_launch_angle']['Unknown']['hits'], 1)
+            self.assertEqual(report['league']['pa'], 17)
+            self.assertEqual(report['league']['babip'], 0.8)
+            self.assertEqual(report['top_qualified_pool']['babip'], 0.6)
+            power = report['league_power']
+            self.assertEqual((power['fair_contacts'], power['home_runs'], power['trajectory_home_runs'],
+                              power['airborne_wall_impacts']), (3, 1, 1, 1))
+            self.assertEqual(power['home_runs_per_window_contact'], 1/3)
+            self.assertEqual(sum(cell['fair_contacts'] for cell in report['league_ev_vla']),
+                             power['measured_fair_contacts'])
+            self.assertEqual(path.read_bytes(), before)
+
     def test_targeted_comparison_uses_display_line_but_checks_raw_plays(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'test.db'
