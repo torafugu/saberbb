@@ -28,7 +28,7 @@ fn reductions(args: &Args) -> Result<&[f64]> {
     Ok(values)
 }
 
-fn angle_band(angle: f64) -> &'static str {
+pub(super) fn angle_band(angle: f64) -> &'static str {
     const EDGES: [f64; 8] = [0.0, 5.0, 7.5, 10.0, 12.5, 15.0, 20.0, 30.0];
     const LABELS: [&str; 9] = [
         "below_0",

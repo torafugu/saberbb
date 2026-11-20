@@ -1027,6 +1027,29 @@ launch-angle bands for each reduction. Check `OutfieldSingle` in
 extra-base hits. The baseline supplies all later pitches and situations.
 The rates are paired-play rates for these hard contacts.
 
+### ContactFirst exit-speed terms
+
+Set `SABERBB_DB` to the same roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --contact-first-ev-terms > contact_first_ev_terms_2026.json
+```
+
+`contact_first_ev_terms.pooled` reports all fair ContactFirst launches
+and the original high-EV subset in each launch-angle band. The
+`target_5_to_10_deg` summary covers the two bands together. The ordered
+terms add to the recorded EV, starting with pitch speed and the
+32.5 m/s reference bat at neutral power and timing depth. The report then
+adds the effects of actual bat speed, swing power, timing depth and the
+thickness and length factors in that order.
+
+Read `one_at_a_time` for changes to mean EV and crossings of the 45 m/s
+threshold. Removing timing depth changes the bat transfer coefficient.
+Removing timing from geometry changes the contact offsets on the bat.
+Geometric misses and missing inputs are shown separately. These
+sensitivities use the original contacts and angles as the comparison
+population and measure EV before flight or fielding.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,

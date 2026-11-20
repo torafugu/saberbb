@@ -45,7 +45,8 @@ use tracing::info;
 
 mod contact_first_ev_audit;
 pub use contact_first_ev_audit::{
-    ContactFirstEvPlay, ContactFirstEvSwing, with_contact_first_ev_audit,
+    ContactFirstEvPlay, ContactFirstEvSwing, ContactFirstLaunch, with_contact_first_ev_audit,
+    with_contact_first_launch_audit,
 };
 mod intent_aim_audit;
 pub use intent_aim_audit::{IntentAimOffsets, IntentAimPlay, IntentAimSwing, with_intent_aim_audit};
@@ -1523,6 +1524,9 @@ impl GameState {
             flight.as_ref().map(|(ball, metrics)| (ball, metrics)),
         );
         if intent == BattedBallIntent::ContactFirst {
+            if let Some((ball, _)) = flight {
+                contact_first_ev_audit::record_launch(self.count_seq, pitched_ball.speed, batter, swing_contact, &ball);
+            }
             self.record_contact_first_ev_trials(pitcher_id, batter_id, batter.batting_side, swing_contact, flight)?;
         }
 
