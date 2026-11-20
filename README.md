@@ -534,8 +534,11 @@ cargo run --release --example offense_season_check -- --season 2026 --games 36 -
 This samples the player's team's first 36 scheduled games for each seed.
 Alternatives replay one swing at a time, while the current swing speed drives
 the continuing game. Compare home runs and other hits per swing or fair
-contact. The report also shows the current roster's speeds and a reproducible
-sample of the configured player generator. It opens `SABERBB_DB` read-only.
+contact. The report also shows the current roster's speeds and paired samples
+from the configured generator before and after upper-tail compression.
+New batters retain their sampled swing speed up to 35.0 m/s. Above that
+point, the generator smoothly compresses samples toward 35.5 m/s. Stored
+player speeds are used as-is in games. The report opens `SABERBB_DB` read-only.
 
 For extra-base hit diagnostics on ordinary saved games:
 

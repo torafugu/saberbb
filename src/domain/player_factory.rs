@@ -171,7 +171,8 @@ impl<R: PlayerRepository> PlayerFactory<R> {
             choose_item_weighted(self.rng.as_mut(), &self.batter_info_probs.zone_aptitude)?.clone();
         let hot_zone_scale = self.rng.normal(self.batter_info_probs.hot_zone_scale);
         let batting_eye = self.rng.normal(self.batter_info_probs.batting_eye);
-        let swing_speed = self.rng.normal(self.batter_info_probs.swing_speed);
+        let swing_speed =
+            compress_generated_swing_speed(self.rng.normal(self.batter_info_probs.swing_speed));
         let swing_power = self.rng.normal(self.batter_info_probs.swing_power);
         let attack_angle = self.rng.normal(self.batter_info_probs.attack_angle);
         let bat_control = self.rng.normal(self.batter_info_probs.bat_control);
@@ -354,6 +355,19 @@ impl<R: PlayerRepository> PlayerFactory<R> {
     }
 }
 
+/// Compress the upper tail of new batter samples in m/s.
+/// The curve joins the original scale at 35.0 with a slope of one and
+/// approaches 35.5 as the raw sample increases.
+pub fn compress_generated_swing_speed(sample: f64) -> f64 {
+    const START_MS: f64 = 35.0;
+    const WIDTH_MS: f64 = 0.5;
+    if sample > START_MS {
+        START_MS + WIDTH_MS * ((sample - START_MS) / WIDTH_MS).tanh()
+    } else {
+        sample
+    }
+}
+
 // Clamp finite normal samples at generation only; do not repair persisted skills.
 fn bounded_spin_efficiency(sample: f64) -> Result<f64, AppError> {
     if !sample.is_finite() {
@@ -362,6 +376,33 @@ fn bounded_spin_efficiency(sample: f64) -> Result<f64, AppError> {
         )));
     }
     Ok(sample.clamp(0.0, 1.0))
+}
+
+#[cfg(test)]
+mod swing_speed_tests {
+    use super::compress_generated_swing_speed;
+
+    #[test]
+    fn keeps_samples_at_or_below_the_compression_threshold() {
+        for sample in [30.0, 34.5, 34.999, 35.0] {
+            assert_eq!(compress_generated_swing_speed(sample), sample);
+        }
+        let step = 0.001;
+        let right_slope = (compress_generated_swing_speed(35.0 + step) - 35.0) / step;
+        assert!((right_slope - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn compresses_high_samples_while_preserving_order() {
+        let mut previous = 35.0;
+        for sample in [35.1, 35.5, 36.0, 36.55, 38.5] {
+            let compressed = compress_generated_swing_speed(sample);
+            assert!(compressed > previous);
+            assert!(compressed < sample);
+            assert!(compressed < 35.5);
+            previous = compressed;
+        }
+    }
 }
 
 #[cfg(test)]
