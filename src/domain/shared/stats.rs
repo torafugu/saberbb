@@ -1,5 +1,6 @@
 use super::player::Player;
 use super::team::Team;
+use std::collections::BTreeMap;
 use validator::Validate;
 
 #[derive(Debug, Validate)]
@@ -69,4 +70,16 @@ pub struct PitchingStats {
     pub runs: u32,
     pub earned_runs: Option<u32>,
     pub at_bats: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SeasonPitchingLine {
+    pub outs: u32,
+    pub runs: u32,
+}
+
+#[derive(Debug, Default)]
+pub struct SeasonPitchingStats {
+    pub pitchers: BTreeMap<i64, SeasonPitchingLine>,
+    pub season_total: SeasonPitchingLine,
 }

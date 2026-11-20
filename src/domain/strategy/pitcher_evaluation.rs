@@ -1,4 +1,4 @@
-//! An attribute-based prior, independent of opponents, fatigue and game results.
+//! Attribute-based priors and season run prevention for pitcher selection.
 use super::pitching_strategy::{Margin, PitchCall, TargetZone};
 use crate::domain::{
     random_provider::FixedRng,
@@ -9,12 +9,27 @@ use crate::domain::{
         ball::{MAGNUS_COEFF, PitchedBall},
         player::{PitchType, PitcherInfo},
         stadium::MOUND_DISTANCE,
+        stats::SeasonPitchingStats,
     },
     util::{GRAVITY, sigmoid},
 };
 
 const REFERENCE_EXTENSION_M: f64 = 1.8;
 const REFERENCE_SPIN_RPM: f64 = 2300.0;
+const PRIOR_OUTS: f64 = 90.0;
+const OPENING_RUNS_PER_OUT: f64 = 4.5 / 27.0;
+
+pub(super) fn rotation_score(prior: f64, player_id: i64, season: &SeasonPitchingStats) -> f64 {
+    let Some(line) = season.pitchers.get(&player_id) else {
+        return prior;
+    };
+    let baseline = (f64::from(season.season_total.runs) + PRIOR_OUTS * OPENING_RUNS_PER_OUT)
+        / (f64::from(season.season_total.outs) + PRIOR_OUTS);
+    let outs = f64::from(line.outs);
+    // Average run prevention scores 0.5. Work in counts so runs charged
+    // before recording an out can still lower a pitcher's rating.
+    (PRIOR_OUTS * prior + outs - f64::from(line.runs) / (2.0 * baseline)) / (PRIOR_OUTS + outs)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PitcherAttributeRating {

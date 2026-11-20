@@ -2,6 +2,7 @@ use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
+use crate::domain::shared::stats::SeasonPitchingStats;
 use crate::domain::strategy::pitcher_evaluation::PitcherAttributeWeights;
 use crate::domain::strategy::pitching_usage::PitchingStaff;
 use std::collections::BTreeMap;
@@ -38,10 +39,12 @@ impl<R: GameRoundRepository> GameService<R> {
             info!("new game started");
 
             let loads = self.repo.load_pitcher_workload(&game_schedule)?;
+            let season_stats = self.repo.load_pitcher_season_stats(&game_schedule)?;
             let result = simulate_game_with_pitching(
                 &game_schedule,
                 Box::new(RealRng::new()),
                 &loads,
+                &season_stats,
                 record_contact_states,
             )?;
             if let Err(e) = self.repo.update_game_result(&result) {
@@ -80,11 +83,15 @@ fn simulate_game_with_pitching(
     schedule: &GameSchedule,
     rng: Box<dyn RandomProvider>,
     loads: &BTreeMap<i64, f64>,
+    season_stats: &SeasonPitchingStats,
     record_contact_states: bool,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
-    let away = PitchingStaff::new(&schedule.away_team, loads, schedule.base_four_seam_speed, weights);
-    let home = PitchingStaff::new(&schedule.home_team, loads, schedule.base_four_seam_speed, weights);
+    let staff = |team| {
+        PitchingStaff::new(team, loads, schedule.base_four_seam_speed, weights, season_stats)
+    };
+    let away = staff(&schedule.away_team);
+    let home = staff(&schedule.home_team);
     let state = GameState::with_starters(rng, schedule, away.starter(), home.starter())?;
     play_game(
         state,
@@ -153,6 +160,7 @@ mod tests {
         PitchType, PitcherInfo, PitcherStyle, Player, PlayerInfo, Position, RL, RunningSkills,
     };
     use crate::domain::shared::stadium::Stadium;
+    use crate::domain::shared::stats::SeasonPitchingLine;
     use crate::domain::shared::team::Team;
     use crate::error::AppError;
     use crate::repositories::game_repository::{
@@ -361,11 +369,13 @@ mod tests {
             schedule.away_team.players[index].defense_skills.pitcher.as_mut().unwrap().stamina = stamina;
         }
         let loads = BTreeMap::from([(1, 250.0), (21, 240.0), (31, 99.5)]);
+        let season_stats = SeasonPitchingStats::default();
         let staff = PitchingStaff::new(
             &schedule.away_team,
             &loads,
             schedule.base_four_seam_speed,
             PitcherAttributeWeights::default(),
+            &season_stats,
         );
         assert_eq!(staff.starter(), Some(31));
 
@@ -373,6 +383,7 @@ mod tests {
             &schedule,
             Box::new(RealRng::from_seed(9)),
             &loads,
+            &season_stats,
             false,
         )
         .unwrap();
@@ -425,8 +436,9 @@ mod tests {
             command: 1.0,
             arsenal: 0.0,
         };
+        let season_stats = SeasonPitchingStats::default();
         for weights in [command_first, PitcherAttributeWeights::default()] {
-            let staff = PitchingStaff::new(&staff_team, &loads, 40.833, weights);
+            let staff = PitchingStaff::new(&staff_team, &loads, 40.833, weights, &season_stats);
             assert_eq!(staff.starter(), Some(51));
             assert!(staff.reliever(51, &BTreeMap::from([(51, 99)])).is_none());
             assert_eq!(
@@ -438,6 +450,71 @@ mod tests {
                 Some(1),
             );
         }
+    }
+
+    #[test]
+    fn season_pitching_results_replace_a_struggling_starter_after_several_outings() {
+        let mut schedule = schedule(1);
+        schedule.away_team.players.extend([player(21), player(31)]);
+        for (index, stamina) in [(0, 0.5), (10, 0.5), (11, -0.5)] {
+            schedule.away_team.players[index]
+                .defense_skills
+                .pitcher
+                .as_mut()
+                .unwrap()
+                .stamina = stamina;
+        }
+        let loads = BTreeMap::from([(21, 10.0)]);
+        let starter = |season: &SeasonPitchingStats| {
+            PitchingStaff::new(
+                &schedule.away_team,
+                &loads,
+                schedule.base_four_seam_speed,
+                PitcherAttributeWeights::default(),
+                season,
+            )
+            .starter()
+        };
+        let mut season = SeasonPitchingStats::default();
+        assert_eq!(starter(&season), Some(1));
+
+        season.season_total = SeasonPitchingLine {
+            outs: 1350,
+            runs: 300,
+        };
+        season
+            .pitchers
+            .insert(1, SeasonPitchingLine { outs: 15, runs: 6 });
+        assert_eq!(starter(&season), Some(1));
+
+        // Nearly identical workloads, with rates of 11.25 and 2.48 runs per nine.
+        season.pitchers.insert(
+            1,
+            SeasonPitchingLine {
+                outs: 120,
+                runs: 50,
+            },
+        );
+        season.pitchers.insert(
+            21,
+            SeasonPitchingLine {
+                outs: 120,
+                runs: 11,
+            },
+        );
+        assert_eq!(starter(&season), Some(31));
+
+        let result = simulate_game_with_pitching(
+            &schedule,
+            Box::new(RealRng::from_seed(9)),
+            &loads,
+            &season,
+            false,
+        )
+        .unwrap();
+        assert!(result.player_entries.iter().any(|entry| {
+            entry.position == Position::P && entry.start_count_seq == 1 && entry.player_id == 31
+        }));
     }
 
     fn schedule(id: u32) -> GameSchedule {
