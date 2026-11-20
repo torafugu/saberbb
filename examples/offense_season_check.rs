@@ -141,6 +141,17 @@ struct Args {
     games: Option<usize>,
     #[arg(long, value_delimiter = ',', default_value = "7,42,20261108")]
     seeds: Vec<u64>,
+    /// Replay the same swings with ContactFirst at 100%, 97%, and 94% of player bat speed.
+    #[arg(long, conflicts_with_all = [
+        "contact_first_ev_terms", "contact_first_ev_comparison", "intent_aim_comparison", "swing_speed_batter_id",
+        "line_drive_lift_comparison", "vertical_contact_sweep", "vertical_contact_comparison",
+        "vertical_contact_paired_fielding", "timing_geometry_sweep", "right_field_first_comparison",
+        "no_bounce_margin_comparison", "pre_fence_pickup_comparison", "bip_diagnostics",
+        "fair_launch_diagnostics", "contact_direction_diagnostics", "moving_collision_diagnostics",
+        "selected_intent_diagnostics", "timing_scale_diagnostics", "infield_opportunity_diagnostics",
+        "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    contact_first_swing_speed_comparison: bool,
     #[arg(long, default_value_t = 5000)]
     max_pitches: u32,
     /// Include BIP quality, fielding/running timing groups and bounded example plays.
@@ -922,7 +933,10 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.contact_first_ev_terms {
+    if args.contact_first_swing_speed_comparison {
+        output["contact_first_swing_speed_comparison"] =
+            intent_aim_comparison::run_speed(&args, &games)?;
+    } else if args.contact_first_ev_terms {
         output["contact_first_ev_terms"] = contact_first_ev_terms::run(&args, &games)?;
     } else if args.contact_first_ev_comparison {
         output["contact_first_ev_comparison"] = contact_first_ev_comparison::run(&args, &games)?;
