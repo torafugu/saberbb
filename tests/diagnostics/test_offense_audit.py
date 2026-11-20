@@ -117,6 +117,45 @@ class OffenseAuditTest(unittest.TestCase):
                 offense_audit.audit(path)
             self.assertFalse(path.exists())
 
+    def test_targeted_comparison_uses_display_line_but_checks_raw_plays(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'test.db'
+            self.fixture(path)
+            with sqlite3.connect(path) as conn:
+                conn.executescript('''
+                    ALTER TABLE game ADD stadium_id DEFAULT 3;
+                    ALTER TABLE player_game_batting ADD outbound_result DEFAULT 'InField';
+                    UPDATE player_game_batting SET outbound_result='HomeRun' WHERE result='HomeRun';
+                    INSERT INTO player_game_batting VALUES
+                        (1,6,8,'Single',36,15,'SolidContact',0,0,4,0,70,'InField'),
+                        (1,7,9,'HomeRun',51,35,'SolidContact',0,0,NULL,5,120,'HomeRun');
+                    CREATE TABLE stadium(id PRIMARY KEY,name);
+                    INSERT INTO stadium VALUES (3,'Park');
+                    CREATE TABLE player_info(id PRIMARY KEY,team_id,first_name,last_name);
+                    INSERT INTO player_info VALUES (7,1,'A','A'),(8,1,'B','B'),(9,2,'C','C');
+                    ALTER TABLE batting_stat_totals ADD pa;
+                    ALTER TABLE batting_stat_totals ADD single DEFAULT 0;
+                    ALTER TABLE batting_stat_totals ADD double DEFAULT 0;
+                    ALTER TABLE batting_stat_totals ADD triple DEFAULT 0;
+                    UPDATE batting_stat_totals SET pa=525,homerun=118 WHERE player_id=7;
+                ''')
+            before = path.read_bytes()
+            report = offense_audit.audit(path, batter_line=(525, 118))
+            selected = report['selected']
+            self.assertEqual(selected['player']['id'], 7)
+            self.assertEqual(selected['cached']['hr'], 118)
+            self.assertEqual(selected['raw']['hr'], 2)
+            self.assertFalse(selected['hr_matches_cache'])
+            self.assertEqual([row['player']['id'] for row in report['teammates']], [8])
+            self.assertEqual(selected['batting']['contact_per_swing'], 0.75)
+            self.assertEqual(selected['batting']['ev_ms']['p95'], 47)
+            self.assertEqual(selected['batting']['by_stadium'][0]['hr'], 2)
+            self.assertEqual(report['teammate_pool']['hr'], 0)
+            scoped = offense_audit.audit(path, 2026, batter_id=7)
+            self.assertEqual(scoped['selected']['raw']['hr'], 1)
+            self.assertEqual(path.read_bytes(), before)
+            json.dumps(report, allow_nan=False)
+
     def test_cli_requires_database_environment(self):
         env = dict(os.environ)
         env.pop('SABERBB_DB', None)
