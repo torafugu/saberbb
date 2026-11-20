@@ -511,6 +511,18 @@ caches. Normal game results still use `calculate_batted_ball_with_metrics`; the
 Intent execution/contact/collision response path is diagnostic shadow data and
 does not yet replace that live result calculation.
 
+To investigate a specific outlier, select the displayed PA and HR or supply
+`--batter-id ID`. Omit `--season` when matching the career batting screen.
+
+```sh
+python3 tools/diagnostics/offense_audit.py --batter-line 525 118 --top 5 > batter_outlier.json
+```
+
+This compares the selected batter with their current teammates with the most
+plate appearances. The report includes raw and cached totals, batter attributes,
+contact rates per swing, exit speed and launch angle distributions, and home-run
+rates by stadium. It also flags home runs with unexpected saved trajectories.
+
 For extra-base hit diagnostics on ordinary saved games:
 
 ```sh

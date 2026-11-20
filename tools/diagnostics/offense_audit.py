@@ -15,7 +15,7 @@ AB_SQL = ','.join("'" + value + "'" for value in AB_RESULTS)
 PA_SQL = ','.join("'" + value + "'" for value in PA_RESULTS)
 
 
-def audit(path, season=None, limit=10, extra_base=False):
+def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batter_line=None):
     """Never create, rebuild, or modify the supplied database or its caches."""
     uri = Path(path).expanduser().resolve().as_uri() + '?mode=ro'
     with sqlite3.connect(uri, uri=True, timeout=30) as conn:
@@ -37,6 +37,8 @@ def audit(path, season=None, limit=10, extra_base=False):
         for player in players:
             player['ba'] = player['hits'] / player['ab'] if player['ab'] else None
             player['hr_per_pa'] = player['hr'] / player['pa'] if player['pa'] else None
+        if batter_id is not None or batter_line is not None:
+            return compare_batters(conn, season, limit, players, batter_id, batter_line)
         report = dict(scope=dict(season=season, all_seasons=season is None),
                       definitions=dict(pitches='All saved batting pitch records; not PA or AB',
                                        pa='Terminal batting results, including BB/HBP',
@@ -131,6 +133,174 @@ EV_EDGES = (20, 30, 35, 40, 45, 50)
 VLA_EDGES = (-10, 0, 10, 20, 30, 40, 50)
 FAIR_RESULTS = ('Single', 'Double', 'Triple', 'HomeRun', 'Out', 'FieldersChoice', 'DoublePlay')
 FAIR_SQL = ','.join(f"'{result}'" for result in FAIR_RESULTS)
+
+
+def compare_batters(conn, season, limit, players, batter_id, batter_line):
+    """Compare the selected batter with active hitters on their current roster."""
+    raw = {player['batter_id']: player for player in players}
+    cache_table = 'batting_stat_totals' if season is None else 'game_batting_stat_cache'
+    cache_columns = {row['name'] for row in conn.execute(f'PRAGMA table_info({cache_table})')}
+    cached = {}
+    if {'pa', 'ab', 'homerun', 'single', 'double', 'triple'} <= cache_columns:
+        cache_source = 'batting_stat_totals c' if season is None else (
+            'game_batting_stat_cache c JOIN game g ON g.id=c.game_id WHERE g.season=?'
+        )
+        cached = {row['player_id']: dict(row) for row in conn.execute(f'''
+            SELECT c.player_id,SUM(c.pa) AS pa,SUM(c.ab) AS ab,SUM(c.homerun) AS hr,
+                   SUM(c.single+c.double+c.triple+c.homerun) AS hits
+            FROM {cache_source} GROUP BY c.player_id
+        ''', () if season is None else (season,))}
+        for line in cached.values():
+            line['ba'] = line['hits'] / line['ab'] if line['ab'] else None
+            line['hr_per_pa'] = line['hr'] / line['pa'] if line['pa'] else None
+    if batter_line is not None:
+        source = cached or raw
+        matches = [key for key, row in source.items() if (row['pa'], row['hr']) == tuple(batter_line)]
+        if len(matches) != 1:
+            pa, hr = batter_line
+            if matches:
+                raise ValueError(f'{pa} PA / {hr} HR matches batter IDs {matches}; use --batter-id')
+            raise ValueError(f'no batter matches {pa} PA / {hr} HR in the selected scope; use --batter-id')
+        batter_id = matches[0]
+    if batter_id not in raw:
+        raise ValueError(f'no batting logs for batter ID {batter_id} in the selected scope')
+
+    info = conn.execute('SELECT team_id FROM player_info WHERE id=?', (batter_id,)).fetchone()
+    if info is None:
+        raise ValueError(f'no roster information for batter ID {batter_id}')
+    roster = {row['id']: dict(row) for row in conn.execute('''
+        SELECT id,team_id,first_name,last_name FROM player_info WHERE team_id IS ?
+    ''', (info['team_id'],))}
+    peers = sorted(
+        (pid for pid in roster if pid != batter_id and raw.get(pid, {}).get('pa', 0) > 0),
+        key=lambda pid: (-raw[pid]['pa'], pid),
+    )[:limit]
+    ids = [batter_id, *peers]
+    placeholders = ','.join('?' for _ in ids)
+    skills = {row['player_id']: dict(row) for row in conn.execute(
+        f'SELECT * FROM batter_info WHERE player_id IN ({placeholders})', ids
+    )}
+    columns = {row['name'] for row in conn.execute('PRAGMA table_info(player_game_batting)')}
+    swung = 'b.decision_swung' if 'decision_swung' in columns else 'NULL'
+    by_player = defaultdict(list)
+    for row in conn.execute(f'''
+        SELECT b.batter_id,g.stadium_id,s.name AS stadium_name,b.result,b.outbound_result,
+               b.adjusted_contact_type,b.launch_speed,b.launch_angle,b.final_hla_deg,
+               b.first_bounce_time,{swung} AS swung
+        FROM player_game_batting b JOIN game g ON g.id=b.game_id
+        LEFT JOIN stadium s ON s.id=g.stadium_id
+        WHERE (? IS NULL OR g.season=?) AND b.batter_id IN ({placeholders})
+    ''', (season, season, *ids)):
+        by_player[row['batter_id']].append(row)
+
+    def profile(pid):
+        line = cached.get(pid)
+        raw_line = raw[pid]
+        return dict(player=roster[pid], skills=skills.get(pid), raw=raw_line, cached=line,
+                    hr_matches_cache=(raw_line['hr'] == line['hr']) if line is not None else None,
+                    batting=batting_profile(by_player[pid]))
+
+    return dict(
+        scope=dict(season=season, all_seasons=season is None, team_id=info['team_id']),
+        definitions=dict(
+            teammates='Other hitters on the current roster, ordered by raw PA in this scope.',
+            raw_pa='Terminal batting results including BB/HBP. Raw AB/BA may differ from cache because the cache identifies sacrifice flies.',
+            swings='Saved swing decision when available. Older logs infer swings from contact type or positive exit speed.',
+            contact='A saved swing with positive exit speed, including fouls.',
+            fair_contact='A positive-EV contact with a terminal fair batting result and non-foul trajectory.',
+            stadium='Uses exposures (raw PA and fair contacts), not just home-run totals.',
+            percentiles='Nearest-rank percentiles over contacts. Exit speeds are m/s; angles are degrees.',
+        ),
+        selected=profile(batter_id), teammates=[profile(pid) for pid in peers],
+        teammate_pool=batting_profile(row for pid in peers for row in by_player[pid]),
+    )
+
+
+def batting_profile(records):
+    counts = Counter()
+    contact_types = defaultdict(Counter)
+    parks = defaultdict(Counter)
+    power_bins = defaultdict(Counter)
+    ev, angle, hr_ev, hr_angle = [], [], [], []
+    for row in records:
+        result = row['result']
+        park = parks[row['stadium_id'], row['stadium_name']]
+        park['pa'] += result in PA_RESULTS
+        park['hr'] += result == 'HomeRun'
+        kind = row['adjusted_contact_type']
+        decision = row['swung']
+        measured = row['launch_speed'] > 0
+        counts['pitches'] += 1
+        counts['pa'] += result in PA_RESULTS
+        counts['hr'] += result == 'HomeRun'
+        counts['strikeouts'] += result == 'Strikeout'
+        if result == 'HomeRun':
+            counts['hr_with_prior_bounce'] += row['first_bounce_time'] is not None
+            counts['hr_with_foul_launch_angle'] += abs(row['final_hla_deg']) >= 45
+            counts['hr_with_other_trajectory_result'] += row['outbound_result'] != 'HomeRun'
+        if decision is None:
+            if measured or kind in {'SolidContact', 'WeakContact', 'MarginalContact', 'SwungAndMiss'}:
+                decision = True
+            elif kind == 'Take':
+                decision = False
+            if decision is not None:
+                counts['inferred_swing_decisions'] += 1
+        if decision is None:
+            counts['unknown_swing_decisions'] += 1
+        if not decision:
+            continue
+        counts['swings'] += 1
+        if not measured:
+            continue
+        counts['contacts'] += 1
+        contact_types[kind]['contacts'] += 1
+        ev.append(row['launch_speed'])
+        angle.append(row['launch_angle'])
+        if result not in FAIR_RESULTS or row['outbound_result'] == 'Foul':
+            continue
+        counts['fair_contacts'] += 1
+        counts['non_hr_hits'] += result in ('Single', 'Double', 'Triple')
+        park['fair_contacts'] += 1
+        cell = power_bins[bisect_right(EV_EDGES, row['launch_speed']), bisect_right(VLA_EDGES, row['launch_angle'])]
+        cell['fair_contacts'] += 1
+        if result == 'HomeRun':
+            contact_types[kind]['hr'] += 1
+            cell['hr'] += 1
+            hr_ev.append(row['launch_speed'])
+            hr_angle.append(row['launch_angle'])
+
+    def distribution(values):
+        if not values:
+            return None
+        values.sort()
+        n = len(values)
+        return dict(n=n, mean=sum(values) / n, p50=values[(50*n - 1)//100],
+                    p90=values[(90*n - 1)//100], p95=values[(95*n - 1)//100], max=values[-1])
+
+    def rate(num, denom):
+        return num / denom if denom else None
+
+    return dict(
+        **{key: counts[key] for key in ('pitches','pa','swings','contacts','fair_contacts','hr','strikeouts',
+                                       'inferred_swing_decisions','unknown_swing_decisions','hr_with_prior_bounce',
+                                       'hr_with_foul_launch_angle','hr_with_other_trajectory_result')},
+        contact_per_swing=rate(counts['contacts'], counts['swings']),
+        solid_contact_per_swing=rate(contact_types.get('SolidContact', {}).get('contacts', 0), counts['swings']),
+        hr_per_pa=rate(counts['hr'], counts['pa']),
+        hr_per_fair_contact=rate(len(hr_ev), counts['fair_contacts']),
+        strikeout_per_pa=rate(counts['strikeouts'], counts['pa']),
+        non_hr_hit_per_non_hr_fair_contact=rate(counts['non_hr_hits'], counts['fair_contacts'] - len(hr_ev)),
+        ev_ms=distribution(ev), launch_angle_deg=distribution(angle),
+        home_run_ev_ms=distribution(hr_ev), home_run_launch_angle_deg=distribution(hr_angle),
+        contact_types={kind: dict(contacts=c['contacts'], hr=c['hr']) for kind, c in sorted(contact_types.items())},
+        by_stadium=[dict(stadium_id=sid, stadium_name=name, pa=c['pa'], hr=c['hr'],
+                         fair_contacts=c['fair_contacts'], hr_per_pa=rate(c['hr'], c['pa']),
+                         hr_per_fair_contact=rate(c['hr'], c['fair_contacts']))
+                    for (sid, name), c in sorted(parks.items(), key=lambda item: (-item[1]['pa'], str(item[0][0])))],
+        fair_ev_angle=[dict(ev_ms=bands(EV_EDGES, e), angle_deg=bands(VLA_EDGES, a),
+                            fair_contacts=c['fair_contacts'], hr=c['hr'])
+                       for (e, a), c in sorted(power_bins.items())],
+    )
 
 
 def bands(edges, index):
@@ -236,11 +406,18 @@ def main():
     parser.add_argument('--season', type=int, help='Omit to audit all seasons, matching the career batting display')
     parser.add_argument('--extra-base', action='store_true', help='Include saved fair-contact and extra-base conversion diagnostics')
     parser.add_argument('--top', type=int, default=10)
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument('--batter-id', type=int, help='Compare this batter with the --top current teammates by PA')
+    target.add_argument('--batter-line', type=int, nargs=2, metavar=('PA', 'HR'),
+                        help='Select the batter by displayed PA and HR, then compare with teammates')
     options = parser.parse_args()
     if options.top < 1:
         parser.error('--top must be positive')
+    if options.extra_base and (options.batter_id is not None or options.batter_line is not None):
+        parser.error('--extra-base is only available in the league audit')
     try:
-        report = audit(db_from_env(), options.season, options.top, options.extra_base)
+        report = audit(db_from_env(), options.season, options.top, options.extra_base,
+                       batter_id=options.batter_id, batter_line=options.batter_line)
     except (ValueError, sqlite3.Error) as exc:
         parser.exit(1, f'offense audit failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
