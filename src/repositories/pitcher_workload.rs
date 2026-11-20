@@ -1,0 +1,146 @@
+//! Game appearances are the persistent workload history. Rest is applied when reading it.
+use crate::domain::shared::pitcher_fatigue::PitcherFatigue;
+use chrono::NaiveDate;
+use rusqlite::{Connection, Result, params};
+use std::collections::BTreeMap;
+
+pub(super) fn record_game(conn: &Connection, game: u32) -> Result<()> {
+    conn.execute_batch(include_str!(
+        "../../migrations/ddl/game_pitcher_workload_table.sql"
+    ))?;
+    let mut appearances = conn.prepare_cached(
+        "SELECT p.pitcher_id,COUNT(*),COALESCE(s.stamina,0.0)
+         FROM player_game_pitching p LEFT JOIN pitcher_info s ON s.player_id=p.pitcher_id
+         WHERE p.game_id=?1 GROUP BY p.pitcher_id",
+    )?;
+    let appearances = appearances.query_map([game], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, u32>(1)?,
+            row.get::<_, f64>(2)?,
+        ))
+    })?;
+    conn.execute("DELETE FROM game_pitcher_workload WHERE game_id=?1", [game])?;
+    let mut insert = conn.prepare_cached(
+        "INSERT INTO game_pitcher_workload(game_id,player_id,pitches,reference_pitches)
+         VALUES (?1,?2,?3,?4)",
+    )?;
+    for appearance in appearances {
+        let (player, pitches, stamina) = appearance?;
+        insert.execute(params![
+            game,
+            player,
+            pitches,
+            PitcherFatigue::reference_pitches(stamina)
+        ])?;
+    }
+    Ok(())
+}
+
+pub(super) fn load_game(conn: &Connection, game: u32) -> Result<BTreeMap<i64, PitcherFatigue>> {
+    let mut fatigue = BTreeMap::new();
+    if !table_exists(conn)? {
+        return Ok(fatigue);
+    }
+
+    // Loads are additive, so the remaining fraction of each past appearance
+    // gives the same answer as decaying the running total between appearances.
+    let mut query = conn.prepare_cached(
+        "SELECT w.player_id,w.pitches,w.reference_pitches,g.actual_date,p.pitches,earlier.actual_date
+         FROM game_pitcher_workload w JOIN game g ON g.id=w.game_id
+         LEFT JOIN game_pitcher_workload p ON p.player_id=w.player_id
+         LEFT JOIN game earlier ON earlier.id=p.game_id
+          AND (earlier.actual_date,COALESCE(earlier.seq,0),earlier.id)
+            < (g.actual_date,COALESCE(g.seq,0),g.id)
+         WHERE w.game_id=?1
+         ORDER BY w.player_id,earlier.actual_date,COALESCE(earlier.seq,0),earlier.id",
+    )?;
+    let mut rows = query.query([game])?;
+    while let Some(row) = rows.next()? {
+        let (player, pitches, reference_pitches) = (row.get(0)?, row.get(1)?, row.get(2)?);
+        let state = fatigue.entry(player).or_insert(PitcherFatigue {
+            entering_load: 0.0,
+            pitches,
+            reference_pitches,
+        });
+        if let Some(previous_date) = row.get::<_, Option<NaiveDate>>(5)? {
+            let current_date: NaiveDate = row.get(3)?;
+            let earlier_pitches = row.get(4)?;
+            state.entering_load += PitcherFatigue::recovered_load(
+                earlier_pitches,
+                (current_date - previous_date).num_days(),
+            );
+        }
+    }
+    Ok(fatigue)
+}
+
+pub fn clear(conn: &Connection) -> Result<()> {
+    if table_exists(conn)? {
+        conn.execute("DELETE FROM game_pitcher_workload", [])?;
+    }
+    Ok(())
+}
+
+fn table_exists(conn: &Connection) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='game_pitcher_workload')",
+        [],
+        |row| row.get(0),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workload_uses_committed_pitches_and_game_dates() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE game(id INTEGER PRIMARY KEY, seq INTEGER, actual_date TEXT);
+             CREATE TABLE player_game_pitching(game_id INTEGER, pitcher_id INTEGER);
+             CREATE TABLE pitcher_info(player_id INTEGER PRIMARY KEY, stamina REAL);
+             INSERT INTO pitcher_info VALUES (7,0.0),(8,1.0);
+             INSERT INTO game VALUES
+                (1,1,'2026-04-01'),(2,1,'2026-04-02'),(3,2,'2026-04-02'),
+                (4,1,'2026-04-04'),(5,1,'2026-03-31');
+             WITH RECURSIVE pitches(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM pitches WHERE n<100)
+             INSERT INTO player_game_pitching
+               SELECT 1,7 FROM pitches
+               UNION ALL SELECT 2,7 FROM pitches WHERE n<=30
+               UNION ALL SELECT 3,7 FROM pitches WHERE n<=10
+               UNION ALL SELECT 4,7 FROM pitches WHERE n<=20
+               UNION ALL SELECT 2,8 FROM pitches WHERE n<=5
+               UNION ALL SELECT 5,7 FROM pitches;",
+        )
+        .unwrap();
+
+        // Older games have no workload records until the feature is enabled.
+        assert!(load_game(&conn, 5).unwrap().is_empty());
+        for game in 1..=4 {
+            record_game(&conn, game).unwrap();
+        }
+        record_game(&conn, 2).unwrap();
+        assert!(load_game(&conn, 5).unwrap().is_empty());
+        let first = load_game(&conn, 1).unwrap();
+        assert_eq!(first[&7].entering_load, 0.0);
+        assert_eq!(first[&7].leaving_ratio(), 1.0);
+        let next_day = load_game(&conn, 2).unwrap();
+        assert_eq!(next_day[&7].entering_load, 50.0);
+        assert_eq!(next_day[&7].leaving_ratio(), 0.8);
+        assert_eq!(next_day[&8].entering_load, 0.0);
+        assert_eq!(next_day[&8].reference_pitches, 115.0);
+        assert_eq!(load_game(&conn, 3).unwrap()[&7].entering_load, 80.0);
+        assert_eq!(load_game(&conn, 4).unwrap()[&7].entering_load, 22.5);
+
+        let tx = conn.transaction().unwrap();
+        tx.execute("DELETE FROM player_game_pitching WHERE game_id=2", [])
+            .unwrap();
+        record_game(&tx, 2).unwrap();
+        tx.rollback().unwrap();
+        assert_eq!(load_game(&conn, 4).unwrap()[&7].entering_load, 22.5);
+        clear(&conn).unwrap();
+        assert!(load_game(&conn, 4).unwrap().is_empty());
+    }
+}

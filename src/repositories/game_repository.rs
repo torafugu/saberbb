@@ -178,6 +178,7 @@ impl GameResultWriter for SqlGameRepository {
                 insert_player_game_running(&self.db_client, tx, game.id, player_game_running)?;
             }
 
+            super::pitcher_workload::record_game(tx, game.id)?;
             refresh_player_game_pitching_decisions(&self.db_client, tx, game.id)?;
             crate::repositories::stat_cache::refresh_game(tx,game.id).map_err(AppError::Internal)?;
 
@@ -271,7 +272,7 @@ impl GameScheduleReader for SqlGameRepository {
                             LEFT JOIN
                                 league l ON t_away.league_id = l.id
                             WHERE g.actual_date IS NULL
-                            ORDER BY round_seq, seq DESC";
+                            ORDER BY g.planned_date, g.seq, g.id";
         let mut game_schedules = self
             .db_client
             .query_rows::<GameSchedule>(query, params![])?;
@@ -358,6 +359,8 @@ impl GameDetailReader for SqlGameRepository {
         game.player_home_runs = self.load_player_game_home_run_views(game.id)?;
         game.player_battings = self.load_player_game_batting_views(game.id)?;
         game.player_runnings = self.load_player_game_running_views(game.id)?;
+        let conn = self.db_client.get_conn()?;
+        game.pitcher_fatigue = super::pitcher_workload::load_game(&conn, game.id)?;
 
         Ok(game)
     }
@@ -1568,7 +1571,7 @@ mod tests {
     }
 
     #[test]
-    fn load_game_schedules_to_process_skips_completed_games() {
+    fn load_game_schedules_to_process_skips_completed_games_and_sorts_by_date() {
         let (repo, path) = setup_repo();
         seed_game_season(&repo, 2026, 1);
         seed_teams(&repo);
@@ -1576,11 +1579,17 @@ mod tests {
         seed_player_skills(&repo);
         seed_game(&repo, 1, 2026, 1, 1, Some("2026-04-01"));
         seed_game(&repo, 2, 2026, 1, 2, None);
+        seed_game(&repo, 3, 2026, 1, 3, None);
+        seed_game(&repo, 4, 2026, 1, 2, None);
+        conn(&repo).execute_batch(
+            "UPDATE game SET planned_date='2026-04-02' WHERE id IN (2,4);
+             UPDATE game SET planned_date='2026-04-03' WHERE id=3;"
+        ).unwrap();
 
         let schedules = repo.load_game_schedules_to_process().unwrap();
 
-        assert_eq!(schedules.len(), 1);
-        assert_eq!(schedules[0].id, 2);
+        let ids: Vec<_> = schedules.iter().map(|game| game.id).collect();
+        assert_eq!(ids, [2, 4, 3]);
         std::fs::remove_file(path).ok();
     }
 

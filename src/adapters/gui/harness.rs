@@ -58,7 +58,14 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     anyhow::ensure!(h.html().contains("投球 1 /"),"previous pitch did not return");
     h.save(output,"replay")?;
     h.click("game-tab-2").await?;anyhow::ensure!(h.html().contains(">PA<"),"game batting table missing");
-    h.click("game-tab-3").await?;anyhow::ensure!(h.html().contains("WHIP"),"game pitching table missing");
+    h.click("game-tab-3").await?;
+    let pitching = h.html();
+    for label in ["WHIP", "登板前疲労", "登板後疲労"] {
+        anyhow::ensure!(
+            pitching.contains(&format!(">{label}</th>")),
+            "missing game pitching column: {label}"
+        );
+    }
     h.click("nav-2").await?;
     h.save(output,"batting")?;anyhow::ensure!(h.html().contains("打点"),"batting statistics failed; inspect batting.html");
     for label in ["選手名","チーム","打席","犠飛","盗塁死","ＯＰＳ","得点圏打率","失策"] {

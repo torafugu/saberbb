@@ -38,6 +38,7 @@ pub fn translate(source:&str,language:Language)->String {
         "打撃能力"=>"Batting abilities", "走塁能力"=>"Running abilities", "守備・投球能力"=>"Defense & pitching", "パラメータ"=>"Parameter", "値"=>"Value",
         "月"=>"Month", "日程を読み込み中…"=>"Loading schedule…", "この月の日程はありません。"=>"No games scheduled for this month.", "結果を見る"=>"View result", "未実施"=>"Scheduled",
         "試合"=>"G", "勝"=>"W", "敗"=>"L", "分"=>"T", "勝率"=>"PCT", "ゲーム差"=>"GB", "登板"=>"G", "回"=>"IP", "打順"=>"Order", "位置"=>"Pos", "球数"=>"Pitches",
+        "登板前疲労"=>"Fatigue before", "登板後疲労"=>"Fatigue after",
         "管理"=>"Management",
         "閲覧も管理もこの画面から"=>"Browse and manage here",
         "管理処理を実行中… 進捗を見る"=>"Management task running… View progress",

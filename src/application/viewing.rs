@@ -229,8 +229,37 @@ pub fn game_batting(cursor: &GameCursor, team: u16, title: &str) -> TableData {
         cursor.current_batting_stats_for_team(team).into_iter().map(|s| vec![s.batting_order.to_string(),s.position.to_string(),s.player.full_name(),s.plate_appearances.to_string(),s.at_bats.to_string(),s.hits.to_string(),s.doubles.to_string(),s.triples.to_string(),s.home_runs.to_string()]).collect())
 }
 pub fn game_pitching(cursor: &GameCursor, team: u16, title: &str) -> TableData {
-    TableData::new(title, &["選手","球数","AB","H","R","回","SO","BB","ERA","WHIP"],
-        cursor.current_pitching_stats_for_team(team).into_iter().map(|s| vec![s.player.full_name(),s.pitch_count.to_string(),s.at_bats.to_string(),s.hits.to_string(),s.runs.to_string(),s.innings.to_string(),s.strikeouts.to_string(),s.walks.to_string(),format!("{:.2}",s.era),format!("{:.2}",s.whip)]).collect())
+    let rows = cursor
+        .current_pitching_stats_for_team(team)
+        .into_iter()
+        .map(|s| {
+            let fatigue = cursor.pitcher_fatigue(s.player.id);
+            let display = |ratio: Option<f64>| {
+                ratio.map_or_else(|| "—".into(), |value| format!("{:.0}%", 100.0 * value))
+            };
+            vec![
+                s.player.full_name(),
+                s.pitch_count.to_string(),
+                display(fatigue.map(|f| f.entering_ratio())),
+                display(fatigue.map(|f| f.leaving_ratio())),
+                s.at_bats.to_string(),
+                s.hits.to_string(),
+                s.runs.to_string(),
+                s.innings.to_string(),
+                s.strikeouts.to_string(),
+                s.walks.to_string(),
+                format!("{:.2}", s.era),
+                format!("{:.2}", s.whip),
+            ]
+        })
+        .collect();
+    TableData::new(
+        title,
+        &[
+            "選手", "球数", "登板前疲労", "登板後疲労", "AB", "H", "R", "回", "SO", "BB", "ERA", "WHIP",
+        ],
+        rows,
+    )
 }
 
 #[cfg(test)]
@@ -249,7 +278,7 @@ mod tests {
         let count = |seq| Count {seq,point:0,ball:0,strike:0,out:3};
         let game = GameDetail {id:1,actual_date:NaiveDate::from_ymd_opt(2026,4,1).unwrap(),away_team:Team::min(1,"A"),home_team:Team::min(2,"B"),game_type:GameType::Regular,
             innings:vec![Inning {seq:1,tb:TB::Top,counts:vec![count(1),count(2)]},Inning {seq:1,tb:TB::Bottom,counts:vec![count(3)]},Inning {seq:2,tb:TB::Top,counts:vec![count(9)]}],
-            away_points:0,home_points:0,player_entries:vec![],player_pitchings:vec![],player_pitching_decisions:vec![],player_home_runs:vec![],player_battings:vec![],player_runnings:vec![]};
+            away_points:0,home_points:0,player_entries:vec![],player_pitchings:vec![],pitcher_fatigue:Default::default(),player_pitching_decisions:vec![],player_home_runs:vec![],player_battings:vec![],player_runnings:vec![]};
         let cursor=final_game_cursor(game);
         assert_eq!((cursor.inning_seq,cursor.inning_tb,cursor.count_seq),(2,TB::Top,9));
     }

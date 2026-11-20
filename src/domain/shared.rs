@@ -30,3 +30,4 @@ pub mod infield_opportunity_audit;
 pub mod low_line_drive_fielding_audit;
 pub mod no_bounce_catch_audit;
 pub mod outfield_advance_audit;
+pub mod pitcher_fatigue;
