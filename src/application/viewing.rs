@@ -128,10 +128,6 @@ fn pitching_row(s: &PitchingStats, team: &str) -> Vec<String> {
         value.map(|v| format!("{v:.digits$}")).unwrap_or_else(|| "—".into())
     };
     let fraction = |value: Option<f64>| value.map(decimal_rate).unwrap_or_else(|| "—".into());
-    let innings = match (s.outs / 3, s.outs % 3) {
-        (full, 0) => full.to_string(),
-        (full, partial) => format!("{full}.{partial}"),
-    };
     vec![
         s.batter.info.full_name(),
         team.into(),
@@ -147,7 +143,7 @@ fn pitching_row(s: &PitchingStats, team: &str) -> Vec<String> {
         (s.holds + s.relief_wins).to_string(),
         s.saves.to_string(),
         fraction(ratio(s.wins, s.wins + s.losses, 1.0)),
-        innings,
+        format_innings(s.outs),
         s.hits.to_string(),
         s.home_runs.to_string(),
         s.so.to_string(),
@@ -164,6 +160,13 @@ fn pitching_row(s: &PitchingStats, team: &str) -> Vec<String> {
         rate(s.quality_starts.and_then(|n| ratio(n, s.starts, 100.0)), 1),
         rate(ratio(s.hits + s.bb, s.outs, 3.0), 2),
     ]
+}
+
+fn format_innings(outs: u32) -> String {
+    match (outs / 3, outs % 3) {
+        (full, 0) => full.to_string(),
+        (full, partial) => format!("{full}.{partial}"),
+    }
 }
 
 /// Zero selects career totals; scheduled seasons are selectable before their first game.
@@ -237,6 +240,14 @@ pub fn game_pitching(cursor: &GameCursor, team: u16, title: &str) -> TableData {
             let display = |ratio: Option<f64>| {
                 ratio.map_or_else(|| "—".into(), |value| format!("{:.0}%", 100.0 * value))
             };
+            let recorded_runs = cursor.recorded_pitcher_runs(s.player.id);
+            let era = if s.outs == 0 {
+                None
+            } else if let Some(recorded) = recorded_runs {
+                recorded.earned_runs.map(|earned| 27.0 * f32::from(earned) / f32::from(s.outs))
+            } else {
+                Some(s.era)
+            };
             vec![
                 s.player.full_name(),
                 s.pitch_count.to_string(),
@@ -244,12 +255,12 @@ pub fn game_pitching(cursor: &GameCursor, team: u16, title: &str) -> TableData {
                 display(fatigue.map(|f| f.leaving_ratio())),
                 s.at_bats.to_string(),
                 s.hits.to_string(),
-                s.runs.to_string(),
-                s.innings.to_string(),
+                recorded_runs.map_or(s.runs, |r| r.runs).to_string(),
+                format_innings(u32::from(s.outs)),
                 s.strikeouts.to_string(),
                 s.walks.to_string(),
-                format!("{:.2}", s.era),
-                format!("{:.2}", s.whip),
+                era.map_or_else(|| "—".into(), |value| format!("{value:.2}")),
+                if s.outs == 0 { "—".into() } else { format!("{:.2}", s.whip) },
             ]
         })
         .collect();
@@ -278,7 +289,7 @@ mod tests {
         let count = |seq| Count {seq,point:0,ball:0,strike:0,out:3};
         let game = GameDetail {id:1,actual_date:NaiveDate::from_ymd_opt(2026,4,1).unwrap(),away_team:Team::min(1,"A"),home_team:Team::min(2,"B"),game_type:GameType::Regular,
             innings:vec![Inning {seq:1,tb:TB::Top,counts:vec![count(1),count(2)]},Inning {seq:1,tb:TB::Bottom,counts:vec![count(3)]},Inning {seq:2,tb:TB::Top,counts:vec![count(9)]}],
-            away_points:0,home_points:0,player_entries:vec![],player_pitchings:vec![],pitcher_fatigue:Default::default(),player_pitching_decisions:vec![],player_home_runs:vec![],player_battings:vec![],player_runnings:vec![]};
+            away_points:0,home_points:0,player_entries:vec![],player_pitchings:vec![],pitcher_fatigue:Default::default(),pitcher_runs:Default::default(),player_pitching_decisions:vec![],player_home_runs:vec![],player_battings:vec![],player_runnings:vec![]};
         let cursor=final_game_cursor(game);
         assert_eq!((cursor.inning_seq,cursor.inning_tb,cursor.count_seq),(2,TB::Top,9));
     }

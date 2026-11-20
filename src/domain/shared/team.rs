@@ -43,6 +43,14 @@ impl Team {
     }
 
     pub fn lineup(&mut self, rng: &mut dyn RandomProvider) -> Result<Lineup, GameError> {
+        self.lineup_with_starter(rng, None)
+    }
+
+    pub(crate) fn lineup_with_starter(
+        &self,
+        rng: &mut dyn RandomProvider,
+        starter: Option<i64>,
+    ) -> Result<Lineup, GameError> {
         let mut players = Vec::new();
 
         let mut position_map = self.init_position_hashmap();
@@ -66,8 +74,11 @@ impl Team {
             }
 
             // TODO: Consider player ability to select the lineup
-            let index = rng.gen_range(0, vec.len() - 1);
-            let random_player = vec[index];
+            let random_player = match starter.filter(|_| position == Position::P) {
+                Some(id) => vec.iter().find(|player| player.info.id == id).copied()
+                    .ok_or_else(|| GameError::Lineup(format!("Starting pitcher {id} is not on the roster")))?,
+                None => vec[rng.gen_range(0, vec.len() - 1)],
+            };
             selected_player_ids.push(random_player.info.id);
 
             // TODO: Move to team pameter. (It should be set in FieldingStrategy, originally.)
@@ -236,6 +247,21 @@ impl Lineup {
             .iter()
             .find_map(ActivePlayer::active_pitcher)
             .ok_or_else(|| GameError::Lineup("Lineup must have pitcher.".to_string()))
+    }
+
+    pub(crate) fn replace_pitcher(&mut self, player: &Player) -> Result<i64, GameError> {
+        let slot = self.players.iter_mut()
+            .find(|entry| entry.fielding_position == Some(Position::P))
+            .ok_or_else(|| GameError::Lineup("Lineup must have pitcher.".to_string()))?;
+        let outgoing = slot.id;
+        *slot = ActivePlayer {
+            id: player.info.id,
+            runner: player.runner(),
+            fielder: Some(player.fielder()?),
+            pitcher: Some(player.pitcher()?),
+            ..slot.clone()
+        };
+        Ok(outgoing)
     }
 
     pub fn catcher(&self) -> Result<ActiveCatcher, GameError> {

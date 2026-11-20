@@ -498,11 +498,20 @@ impl GameState {
     const REGULATION_INNING: u8 = 9;
 
     pub fn new(
+        rng: Box<dyn RandomProvider>,
+        game_schedule: GameSchedule,
+    ) -> Result<Self, GameError> {
+        Self::with_starters(rng, &game_schedule, None, None)
+    }
+
+    pub(crate) fn with_starters(
         mut rng: Box<dyn RandomProvider>,
-        mut game_schedule: GameSchedule,
-    ) -> Result<GameState, GameError> {
-        let away_lineup = game_schedule.away_team.lineup(rng.as_mut())?;
-        let home_lineup = game_schedule.home_team.lineup(rng.as_mut())?;
+        game_schedule: &GameSchedule,
+        away_starter: Option<i64>,
+        home_starter: Option<i64>,
+    ) -> Result<Self, GameError> {
+        let away_lineup = game_schedule.away_team.lineup_with_starter(rng.as_mut(), away_starter)?;
+        let home_lineup = game_schedule.home_team.lineup_with_starter(rng.as_mut(), home_starter)?;
 
         Ok(GameState {
             record_contact_states: false,
@@ -525,7 +534,7 @@ impl GameState {
             ),
             away_lineup: away_lineup,
             home_lineup: home_lineup,
-            stadium: game_schedule.stadium,
+            stadium: game_schedule.stadium.clone(),
             max_inning: game_schedule.max_inning,
             base_four_seam_speed: game_schedule.base_four_seam_speed,
         })
@@ -612,6 +621,23 @@ impl GameState {
         } else {
             self.away_lineup.pitcher()
         }
+    }
+
+    pub(crate) fn change_pitcher(
+        &mut self,
+        replacement: &super::player::Player,
+    ) -> Result<(), GameError> {
+        let lineup = if self.inning_tb == TB::Top {
+            &mut self.home_lineup
+        } else {
+            &mut self.away_lineup
+        };
+        let outgoing = lineup.replace_pitcher(replacement)?;
+        self.game_result
+            .record_pitcher_change(outgoing, replacement.info.id, self.count_seq);
+        self.inning_state.active_pitcher = Some(lineup.pitcher()?);
+        self.inning_state.previous_pitch_call = None;
+        Ok(())
     }
 
     pub fn current_catcher(&self) -> Result<ActiveCatcher, GameError> {

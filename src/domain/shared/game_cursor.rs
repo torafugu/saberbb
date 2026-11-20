@@ -6,7 +6,7 @@ use super::game_stats::{
 };
 use super::player::{Player, PlayerInfo, Position};
 use super::team::Team;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
@@ -58,7 +58,7 @@ pub struct PitcherGameStatView {
     pub at_bats: u16,
     pub hits: u16,
     pub runs: u16,
-    pub innings: u16,
+    pub outs: u16,
     pub strikeouts: u16,
     pub walks: u16,
     pub era: f32,
@@ -110,6 +110,10 @@ impl GameCursor {
 
     pub fn pitcher_fatigue(&self, player_id: i64) -> Option<&PitcherFatigue> {
         self.game.pitcher_fatigue.get(&player_id)
+    }
+
+    pub fn recorded_pitcher_runs(&self, player_id: i64) -> Option<super::game::GamePitcherRuns> {
+        self.game.pitcher_runs.get(&player_id).copied()
     }
 
     pub fn game_type(&self) -> String {
@@ -704,7 +708,7 @@ impl GameCursor {
             team_id: u16,
             player: PlayerInfo,
             first_count_seq: u16,
-            inning_keys: HashSet<(u8, TB)>,
+            outs: u16,
             pitch_count: u16,
             at_bats: u16,
             hits: u16,
@@ -713,23 +717,15 @@ impl GameCursor {
             runs_allowed: u16,
         }
 
-        let inning_by_count = self
-            .game
-            .innings
-            .iter()
-            .flat_map(|inning| {
-                inning
-                    .counts
-                    .iter()
-                    .map(|count| (count.seq, (inning.seq, inning.tb)))
-            })
-            .collect::<HashMap<_, _>>();
-        let points_by_count = self
-            .game
-            .innings
-            .iter()
-            .flat_map(|inning| inning.counts.iter().map(|count| (count.seq, count.point)))
-            .collect::<HashMap<_, _>>();
+        let mut pitch_results = HashMap::new();
+        for inning in &self.game.innings {
+            let mut previous_outs = 0;
+            for count in &inning.counts {
+                let outs = count.out.min(3);
+                pitch_results.insert(count.seq, (outs.saturating_sub(previous_outs), count.point));
+                previous_outs = outs;
+            }
+        }
         let pitcher_entries = self
             .game
             .player_entries
@@ -750,7 +746,7 @@ impl GameCursor {
                     team_id,
                     player: entry.player.clone(),
                     first_count_seq: entry.start_count_seq,
-                    inning_keys: HashSet::new(),
+                    outs: 0,
                     pitch_count: 0,
                     at_bats: 0,
                     hits: 0,
@@ -770,11 +766,11 @@ impl GameCursor {
                 continue;
             };
 
-            if let Some(inning_key) = inning_by_count.get(&pitching.count_seq) {
-                stat.inning_keys.insert(*inning_key);
-            }
             stat.pitch_count += 1;
-            stat.runs_allowed += u16::from(*points_by_count.get(&pitching.count_seq).unwrap_or(&0));
+            if let Some(&(outs, points)) = pitch_results.get(&pitching.count_seq) {
+                stat.outs += u16::from(outs);
+                stat.runs_allowed += u16::from(points);
+            }
         }
 
         for batting in self
@@ -802,7 +798,7 @@ impl GameCursor {
                     stat.at_bats += 1;
                     stat.strikeouts += 1;
                 }
-                BattingResult::Walk | BattingResult::HitByPitch => stat.walks += 1,
+                BattingResult::Walk => stat.walks += 1,
                 _ => {}
             }
         }
@@ -810,16 +806,15 @@ impl GameCursor {
         let mut rows = stats
             .into_values()
             .map(|stat| {
-                let innings = stat.inning_keys.len() as u16;
-                let era = if innings == 0 {
+                let era = if stat.outs == 0 {
                     0.0
                 } else {
-                    f32::from(stat.runs_allowed) * 9.0 / f32::from(innings)
+                    27.0 * f32::from(stat.runs_allowed) / f32::from(stat.outs)
                 };
-                let whip = if innings == 0 {
+                let whip = if stat.outs == 0 {
                     0.0
                 } else {
-                    f32::from(stat.walks + stat.hits) / f32::from(innings)
+                    3.0 * f32::from(stat.walks + stat.hits) / f32::from(stat.outs)
                 };
 
                 (
@@ -831,7 +826,7 @@ impl GameCursor {
                         at_bats: stat.at_bats,
                         hits: stat.hits,
                         runs: stat.runs_allowed,
-                        innings,
+                        outs: stat.outs,
                         strikeouts: stat.strikeouts,
                         walks: stat.walks,
                         era,
@@ -882,6 +877,7 @@ mod tests {
             player_entries: Vec::new(),
             player_pitchings: Vec::new(),
             pitcher_fatigue: Default::default(),
+            pitcher_runs: Default::default(),
             player_pitching_decisions: Vec::new(),
             player_home_runs: Vec::new(),
             player_battings: Vec::new(),
@@ -1179,7 +1175,7 @@ mod tests {
         let mut game = game_detail(vec![Inning {
             seq: 1,
             tb: TB::Top,
-            counts: vec![count(1, 0), count(2, 1), count(3, 0)],
+            counts: vec![Count { out: 1, ..count(1, 0) }, Count { out: 1, ..count(2, 1) }, Count { out: 1, ..count(3, 0) }],
         }]);
         game.player_entries = vec![pitching_entry(2, 1, 20)];
         game.player_pitchings = vec![
@@ -1204,11 +1200,11 @@ mod tests {
         assert_eq!(stats[0].at_bats, 2);
         assert_eq!(stats[0].hits, 1);
         assert_eq!(stats[0].runs, 1);
-        assert_eq!(stats[0].innings, 1);
+        assert_eq!(stats[0].outs, 1);
         assert_eq!(stats[0].strikeouts, 1);
         assert_eq!(stats[0].walks, 0);
-        assert_eq!(stats[0].era, 9.0);
-        assert_eq!(stats[0].whip, 1.0);
+        assert_eq!(stats[0].era, 27.0);
+        assert_eq!(stats[0].whip, 3.0);
 
         cursor.count_seq = 3;
         let stats = cursor.current_pitching_stats_for_team(2);
@@ -1217,12 +1213,15 @@ mod tests {
         assert_eq!(stats[0].at_bats, 2);
         assert_eq!(stats[0].hits, 1);
         assert_eq!(stats[0].walks, 1);
-        assert_eq!(stats[0].whip, 2.0);
+        assert_eq!(stats[0].whip, 6.0);
     }
 
     #[test]
     fn current_pitching_stats_for_team_sorts_pitchers_by_appearance() {
-        let mut game = game_detail(vec![inning(1, TB::Bottom, &[1, 2])]);
+        let mut half = inning(1, TB::Bottom, &[1, 2]);
+        half.counts[0].out = 1;
+        half.counts[1].out = 3;
+        let mut game = game_detail(vec![half]);
         game.player_entries = vec![pitching_entry(1, 2, 21), pitching_entry(1, 1, 20)];
         game.player_pitchings = vec![pitching_view(1, 20), pitching_view(2, 21)];
         let mut cursor = GameCursor::new(game);
@@ -1233,5 +1232,6 @@ mod tests {
         assert_eq!(stats.len(), 2);
         assert_eq!(stats[0].player.id, 20);
         assert_eq!(stats[1].player.id, 21);
+        assert_eq!((stats[0].outs, stats[1].outs), (1, 2));
     }
 }

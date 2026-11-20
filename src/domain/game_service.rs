@@ -1,7 +1,9 @@
 use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
-use crate::domain::shared::game::{GameResult,GameSchedule};
+use crate::domain::shared::game::{GameResult, GameSchedule, TB};
+use crate::domain::strategy::pitching_usage::PitchingStaff;
+use std::collections::BTreeMap;
 use crate::domain::strategy::batting_strategy::BattingStrategySettings;
 use crate::repositories::game_repository::GameRoundRepository;
 use crate::t;
@@ -34,7 +36,13 @@ impl<R: GameRoundRepository> GameService<R> {
         for game_schedule in game_schedules {
             info!("new game started");
 
-            let result = simulate_game(game_schedule,Box::new(RealRng::new()),BattingStrategySettings::player_driven(),None,record_contact_states)?;
+            let loads = self.repo.load_pitcher_workload(&game_schedule)?;
+            let result = simulate_game_with_pitching(
+                &game_schedule,
+                Box::new(RealRng::new()),
+                &loads,
+                record_contact_states,
+            )?;
             if let Err(e) = self.repo.update_game_result(&result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
@@ -50,25 +58,87 @@ impl<R: GameRoundRepository> GameService<R> {
     }
 }
 
-/// Shared game loop; ordinary play and explicit-seed diagnostics use identical physics.
-pub fn simulate_game(schedule:GameSchedule,rng:Box<dyn RandomProvider>,settings:BattingStrategySettings,pitch_budget:Option<u32>,record_contact_states:bool) -> Result<GameResult> {
-    let mut state=GameState::new(rng,schedule)?;
-    state.record_contact_states=record_contact_states;
-    state.batting_strategy_settings=settings;let mut pitches=0;
-    while let GameProgress::Ongoing=state.progress() {
-        info!("new inning started");state.advance_half_inning()?;
-        while let InningProgress::Ongoing=state.inning_state.inning_progress() {
-            if let Some(limit)=pitch_budget {
-                anyhow::ensure!(pitches<limit,"declared pitch budget exceeded; run must not silently drop this game");
-                anyhow::ensure!(state.away_total_point<=240&&state.home_total_point<=240,"diagnostic score limit reached");
+/// Play a single independent game for seeded diagnostics.
+pub fn simulate_game(
+    schedule: GameSchedule,
+    rng: Box<dyn RandomProvider>,
+    settings: BattingStrategySettings,
+    pitch_budget: Option<u32>,
+    record_contact_states: bool,
+) -> Result<GameResult> {
+    play_game(
+        GameState::new(rng, schedule)?,
+        settings,
+        pitch_budget,
+        record_contact_states,
+        None,
+    )
+}
+
+fn simulate_game_with_pitching(
+    schedule: &GameSchedule,
+    rng: Box<dyn RandomProvider>,
+    loads: &BTreeMap<i64, f64>,
+    record_contact_states: bool,
+) -> Result<GameResult> {
+    let away = PitchingStaff::new(&schedule.away_team, loads);
+    let home = PitchingStaff::new(&schedule.home_team, loads);
+    let state = GameState::with_starters(rng, schedule, away.starter(), home.starter())?;
+    play_game(
+        state,
+        BattingStrategySettings::player_driven(),
+        None,
+        record_contact_states,
+        Some([away, home]),
+    )
+}
+
+fn play_game(
+    mut state: GameState,
+    settings: BattingStrategySettings,
+    pitch_budget: Option<u32>,
+    record_contact_states: bool,
+    staffs: Option<[PitchingStaff<'_>; 2]>,
+) -> Result<GameResult> {
+    state.record_contact_states = record_contact_states;
+    state.batting_strategy_settings = settings;
+    let mut pitch_counts = BTreeMap::new();
+    let mut pitches = 0;
+    while let GameProgress::Ongoing = state.progress() {
+        info!("new inning started");
+        state.advance_half_inning()?;
+        while let InningProgress::Ongoing = state.inning_state.inning_progress() {
+            if let Some(limit) = pitch_budget {
+                anyhow::ensure!(pitches < limit, "declared pitch budget exceeded; run must not silently drop this game");
+                anyhow::ensure!(state.away_total_point <= 240 && state.home_total_point <= 240, "diagnostic score limit reached");
             }
-            state.process_count()?;pitches+=1;
-            if let GameProgress::WalkOff=state.progress() { break; }
+
+            if let Some(staffs) = &staffs
+                && state.inning_state.active_batter.is_none()
+            {
+                let staff = &staffs[usize::from(state.inning_tb == TB::Top)];
+                let active_id = state.current_pitcher()?.id;
+                if let Some(replacement) = staff.reliever(active_id, &pitch_counts) {
+                    state.change_pitcher(replacement)?;
+                }
+            }
+            state.process_count()?;
+            pitches += 1;
+            if staffs.is_some() && let Some(pitch) = state.game_result.player_pitchings.last() {
+                *pitch_counts.entry(pitch.pitcher_id).or_default() += 1;
+            }
+            if let GameProgress::WalkOff = state.progress() {
+                break;
+            }
         }
         state.finish_half_inning();
-        if let GameProgress::GameSet=state.progress() { break; }
+        if let GameProgress::GameSet = state.progress() {
+            break;
+        }
     }
-    info!("game completed");state.finish_game();Ok(state.game_result)
+    info!("game completed");
+    state.finish_game();
+    Ok(state.game_result)
 }
 
 #[cfg(test)]
@@ -278,6 +348,47 @@ mod tests {
             players: (first_player_id..first_player_id + 10)
                 .map(player)
                 .collect(),
+        }
+    }
+
+    #[test]
+    fn fatigue_rotates_the_starter_and_relieves_between_batters() {
+        let mut schedule = schedule(1);
+        schedule.away_team.players.extend([player(21), player(31), player(41)]);
+        for (index, stamina) in [(0, 2.0), (10, 1.0), (11, 0.0), (12, -1.0)] {
+            schedule.away_team.players[index].defense_skills.pitcher.as_mut().unwrap().stamina = stamina;
+        }
+        let loads = BTreeMap::from([(1, 250.0), (21, 240.0), (31, 99.5)]);
+        let staff = PitchingStaff::new(&schedule.away_team, &loads);
+        assert_eq!(staff.starter(), Some(31));
+
+        let game = simulate_game_with_pitching(
+            &schedule,
+            Box::new(RealRng::from_seed(9)),
+            &loads,
+            false,
+        )
+        .unwrap();
+        let entries = game.player_entries.iter()
+            .filter(|entry| entry.position == Position::P)
+            .map(|entry| (entry.player_id, entry.start_count_seq, entry.end_count_seq.unwrap()))
+            .collect::<Vec<_>>();
+        let relief = *entries.iter().find(|entry| entry.0 == 41).unwrap();
+        let starter = entries.iter().find(|entry| entry.0 == 31).unwrap();
+        assert_eq!(starter.1, 1);
+        assert_eq!(starter.2 + 1, relief.1);
+        assert!(!entries.iter().any(|entry| entry.0 == 1 || entry.0 == 21));
+        assert!(game.player_pitchings.iter().any(|pitch| pitch.pitcher_id == 31));
+        assert!(game.player_pitchings.iter().any(|pitch| pitch.pitcher_id == 41));
+        for (player, start, end) in entries {
+            assert!(game.player_pitchings.iter().filter(|pitch| pitch.pitcher_id == player)
+                .all(|pitch| (start..=end).contains(&pitch.count_seq)));
+        }
+        // Within a half-inning the preceding play must have completed a plate appearance.
+        if game.innings.iter().any(|half| half.counts.iter().skip(1).any(|c| c.seq == relief.1)) {
+            use crate::domain::shared::game::BattingResult;
+            let prior = game.player_battings.iter().find(|play| play.count_seq == relief.1 - 1).unwrap();
+            assert!(!matches!(prior.result, BattingResult::Take | BattingResult::StrikeSwung | BattingResult::Foul | BattingResult::WildPitch));
         }
     }
 

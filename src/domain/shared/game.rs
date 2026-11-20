@@ -176,6 +176,16 @@ impl GameResult {
         )
     }
 
+    pub(crate) fn record_pitcher_change(&mut self, outgoing: i64, incoming: i64, count_seq: u16) {
+        if let Some(entry) = self.player_entries.iter_mut().find(|entry| {
+            entry.player_id == outgoing && entry.position == Position::P && entry.end_count_seq.is_none()
+        }) {
+            entry.end_count_seq = Some(count_seq - 1);
+        }
+        self.player_entries
+            .push(PlayerGameEntry::new(count_seq, None, Position::P, 0, incoming));
+    }
+
     pub fn update_player_game_entry_at_game_end(&mut self, end_count_seq: u16) {
         for player_entry in &mut self.player_entries {
             if player_entry.end_count_seq.is_none() {
@@ -416,6 +426,13 @@ impl GameResult {
     }
 }
 
+/// Run attribution from the completed-game pitching statistics.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+pub struct GamePitcherRuns {
+    pub runs: u16,
+    pub earned_runs: Option<u16>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct GameDetail {
     pub id: u32,
@@ -430,6 +447,8 @@ pub struct GameDetail {
     pub player_pitchings: Vec<PlayerGamePitchingView>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub pitcher_fatigue: BTreeMap<i64, PitcherFatigue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pitcher_runs: BTreeMap<i64, GamePitcherRuns>,
     pub player_pitching_decisions: Vec<PlayerGamePitchingDecisionView>,
     pub player_home_runs: Vec<PlayerGameHomeRunView>,
     pub player_battings: Vec<PlayerGameBattingView>,

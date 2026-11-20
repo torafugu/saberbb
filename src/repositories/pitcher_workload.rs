@@ -1,5 +1,5 @@
 //! Game appearances are the persistent workload history. Rest is applied when reading it.
-use crate::domain::shared::pitcher_fatigue::PitcherFatigue;
+use crate::domain::shared::{game::GameSchedule, pitcher_fatigue::PitcherFatigue};
 use chrono::NaiveDate;
 use rusqlite::{Connection, Result, params};
 use std::collections::BTreeMap;
@@ -75,6 +75,38 @@ pub(super) fn load_game(conn: &Connection, game: u32) -> Result<BTreeMap<i64, Pi
     Ok(fatigue)
 }
 
+/// Read the committed workload for both rosters immediately before the game.
+pub(super) fn load_before_game(
+    conn: &Connection,
+    game: &GameSchedule,
+) -> Result<BTreeMap<i64, f64>> {
+    let mut loads = BTreeMap::new();
+    if !table_exists(conn)? {
+        return Ok(loads);
+    }
+    let mut query = conn.prepare_cached(
+        "SELECT w.player_id,w.pitches,g.actual_date
+         FROM player_info p JOIN game_pitcher_workload w ON w.player_id=p.id
+         JOIN game g ON g.id=w.game_id
+         WHERE p.team_id IN (?1,?2) AND (g.actual_date,COALESCE(g.seq,0),g.id)<(?3,?4,?5)
+         ORDER BY w.player_id,g.actual_date,COALESCE(g.seq,0),g.id",
+    )?;
+    let mut rows = query.query(params![
+        game.away_team.id,
+        game.home_team.id,
+        game.planned_date,
+        game.seq,
+        game.id
+    ])?;
+    while let Some(row) = rows.next()? {
+        let player = row.get(0)?;
+        let date: NaiveDate = row.get(2)?;
+        let days = (game.planned_date - date).num_days();
+        *loads.entry(player).or_default() += PitcherFatigue::recovered_load(row.get(1)?, days);
+    }
+    Ok(loads)
+}
+
 pub fn clear(conn: &Connection) -> Result<()> {
     if table_exists(conn)? {
         conn.execute("DELETE FROM game_pitcher_workload", [])?;
@@ -101,6 +133,8 @@ mod tests {
             "CREATE TABLE game(id INTEGER PRIMARY KEY, seq INTEGER, actual_date TEXT);
              CREATE TABLE player_game_pitching(game_id INTEGER, pitcher_id INTEGER);
              CREATE TABLE pitcher_info(player_id INTEGER PRIMARY KEY, stamina REAL);
+             CREATE TABLE player_info(id INTEGER PRIMARY KEY, team_id INTEGER);
+             INSERT INTO player_info VALUES (7,1),(8,3);
              INSERT INTO pitcher_info VALUES (7,0.0),(8,1.0);
              INSERT INTO game VALUES
                 (1,1,'2026-04-01'),(2,1,'2026-04-02'),(3,2,'2026-04-02'),
@@ -133,6 +167,26 @@ mod tests {
         assert_eq!(next_day[&8].reference_pitches, 115.0);
         assert_eq!(load_game(&conn, 3).unwrap()[&7].entering_load, 80.0);
         assert_eq!(load_game(&conn, 4).unwrap()[&7].entering_load, 22.5);
+
+        use crate::domain::shared::{game::GameType, stadium::Stadium, team::Team};
+        let schedule = GameSchedule {
+            id: 3,
+            season: 2026,
+            round_seq: 1,
+            seq: 2,
+            planned_date: "2026-04-02".parse().unwrap(),
+            away_team: Team::min(1, "Away"),
+            home_team: Team::min(2, "Home"),
+            stadium: Stadium::default(),
+            game_type: GameType::Regular,
+            max_inning: 12,
+            base_four_seam_speed: 40.833,
+        };
+        // Same-day earlier games count, the game itself, later games and other teams do not.
+        assert_eq!(
+            load_before_game(&conn, &schedule).unwrap(),
+            BTreeMap::from([(7, 80.0)])
+        );
 
         let tx = conn.transaction().unwrap();
         tx.execute("DELETE FROM player_game_pitching WHERE game_id=2", [])
