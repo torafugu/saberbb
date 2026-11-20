@@ -1,9 +1,50 @@
 //! Accumulate pitching statistics alongside the batting cache's saved-play replay.
+use crate::domain::shared::{
+    game::GameSchedule,
+    stats::{SeasonPitchingLine, SeasonPitchingStats},
+};
 use anyhow::Result;
 use rusqlite::{Connection, params};
 use std::collections::{BTreeMap, HashMap};
 
 pub(super) const COUNTS: &str = "games,outs,runs,wins,losses,saves,holds,so,bb,starts,complete_games,shutouts,quality_starts,uncertain_starts,relief_wins,hits,home_runs,hbp,wild_pitches,earned_runs,unclassified_runs,at_bats";
+
+pub(super) fn load_season_before_game(
+    conn: &Connection,
+    game: &GameSchedule,
+) -> Result<SeasonPitchingStats> {
+    let mut query = conn.prepare_cached(
+        "SELECT CASE WHEN p.team_id IN (?1,?2) THEN c.player_id END AS roster_pitcher,
+                SUM(c.outs), SUM(c.runs)
+         FROM game_pitching_stat_cache c
+         JOIN game g ON g.id=c.game_id
+         LEFT JOIN player_info p ON p.id=c.player_id
+         WHERE g.season=?3 AND g.game_type='Regular' AND g.actual_date!='1900-01-01'
+           AND g.id!=?6 AND (g.actual_date,COALESCE(g.seq,0),g.id)<(?4,?5,?6)
+         GROUP BY roster_pitcher",
+    )?;
+    let mut rows = query.query(params![
+        game.away_team.id,
+        game.home_team.id,
+        game.season,
+        game.planned_date,
+        game.seq,
+        game.id,
+    ])?;
+    let mut stats = SeasonPitchingStats::default();
+    while let Some(row) = rows.next()? {
+        let line = SeasonPitchingLine {
+            outs: row.get(1)?,
+            runs: row.get(2)?,
+        };
+        stats.season_total.outs += line.outs;
+        stats.season_total.runs += line.runs;
+        if let Some(player_id) = row.get::<_, Option<i64>>(0)? {
+            stats.pitchers.insert(player_id, line);
+        }
+    }
+    Ok(stats)
+}
 
 #[derive(Default)]
 struct Line {
@@ -194,5 +235,65 @@ impl GamePitching {
             ])?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::{game::GameType, stadium::Stadium, team::Team};
+
+    #[test]
+    fn season_pitching_stats_use_only_prior_completed_regular_games() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE game(id INTEGER PRIMARY KEY, season INTEGER, seq INTEGER,
+                               actual_date TEXT, game_type TEXT);
+             CREATE TABLE player_info(id INTEGER PRIMARY KEY, team_id INTEGER);
+             CREATE TABLE game_pitching_stat_cache(game_id INTEGER, player_id INTEGER,
+                                                   outs INTEGER, runs INTEGER);
+             INSERT INTO player_info VALUES (1,1),(2,2),(3,3);
+             INSERT INTO game VALUES
+                 (1,2026,2,'2026-04-01','Regular'),
+                 (2,2026,2,'2026-04-02','Regular'),
+                 (3,2026,1,'2026-04-02','Regular'),
+                 (4,2025,2,'2025-04-01','Regular'),
+                 (5,2026,2,'1900-01-01','Regular'),
+                 (6,2026,2,NULL,'Regular'),
+                 (7,2026,2,'2026-04-01','Exhibition'),
+                 (8,2026,2,'2026-04-01','Postseason'),
+                 (9,2026,3,'2026-04-02','Regular'),
+                 (10,2026,2,'2026-04-02','Regular'),
+                 (11,2026,2,'2026-04-02','Regular'),
+                 (12,2026,1,'2026-04-03','Regular');
+             INSERT INTO game_pitching_stat_cache
+                 SELECT id,1,18,4 FROM game;
+             INSERT INTO game_pitching_stat_cache VALUES (1,2,0,2),(1,3,27,3);",
+        )
+        .unwrap();
+        let game = GameSchedule {
+            id: 10,
+            season: 2026,
+            round_seq: 1,
+            seq: 2,
+            planned_date: "2026-04-02".parse().unwrap(),
+            away_team: Team::min(1, "Away"),
+            home_team: Team::min(2, "Home"),
+            stadium: Stadium::default(),
+            game_type: GameType::Regular,
+            max_inning: 9,
+            base_four_seam_speed: 40.833,
+        };
+        let stats = load_season_before_game(&conn, &game).unwrap();
+        assert_eq!(stats.pitchers.len(), 2);
+        assert_eq!(
+            stats.pitchers[&1],
+            SeasonPitchingLine { outs: 54, runs: 12 }
+        );
+        assert_eq!(stats.pitchers[&2], SeasonPitchingLine { outs: 0, runs: 2 });
+        assert_eq!(
+            stats.season_total,
+            SeasonPitchingLine { outs: 81, runs: 17 }
+        );
     }
 }

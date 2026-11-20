@@ -1,5 +1,6 @@
 use crate::domain::shared::game::{
-    Count, GameDetail, GameHeader, GamePitcherRuns, GameResult, GameSchedule, Inning, TB, TeamGameScheduleView,
+    Count, GameDetail, GameHeader, GamePitcherRuns, GameResult, GameSchedule, GameType, Inning,
+    TB, TeamGameScheduleView,
 };
 use crate::domain::shared::game_stats::{
     PlayerGameBattingView, PlayerGameEntryView, PlayerGameHomeRunView,
@@ -9,6 +10,7 @@ use crate::domain::shared::player::{
     BatterInfo, CatcherInfo, DefenseSkills, FielderInfo, FielderType, PitchSkill, PitcherInfo,
     Player, PlayerInfo, Position, RunningSkills,
 };
+use crate::domain::shared::stats::SeasonPitchingStats;
 use crate::error::AppError;
 use crate::repositories::db::{DbClient, SqlDb};
 use crate::repositories::sql_helper::game_helper::{
@@ -38,6 +40,9 @@ pub trait GameScheduleReader {
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError>;
     fn load_pitcher_workload(&self, _game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
         Ok(Default::default())
+    }
+    fn load_pitcher_season_stats(&self, _game: &GameSchedule) -> Result<SeasonPitchingStats, AppError> {
+        Ok(SeasonPitchingStats::default())
     }
     fn load_team_game_schedules(
         &self,
@@ -294,6 +299,15 @@ impl GameScheduleReader for SqlGameRepository {
     fn load_pitcher_workload(&self, game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
         let conn = self.db_client.get_conn()?;
         Ok(super::pitcher_workload::load_before_game(&conn, game)?)
+    }
+
+    fn load_pitcher_season_stats(&self, game: &GameSchedule) -> Result<SeasonPitchingStats, AppError> {
+        if matches!(game.game_type, GameType::Exhibition) {
+            return Ok(SeasonPitchingStats::default());
+        }
+        super::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        let conn = self.db_client.get_conn()?;
+        super::pitching_stat_cache::load_season_before_game(&conn, game).map_err(AppError::Internal)
     }
 
     #[tracing::instrument(skip(self), fields(team_id = %team_id, start_date = %start_date, end_date = %end_date), err)]

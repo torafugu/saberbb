@@ -1,8 +1,9 @@
 //! Select pitchers using pregame workload, in-game pitches and an ability evaluation.
-use super::pitcher_evaluation::{PitcherAttributeRating, PitcherAttributeWeights};
+use super::pitcher_evaluation::{PitcherAttributeRating, PitcherAttributeWeights, rotation_score};
 use crate::domain::shared::{
     pitcher_fatigue::PitcherFatigue,
     player::{Player, Position},
+    stats::SeasonPitchingStats,
     team::Team,
 };
 use std::collections::BTreeMap;
@@ -13,6 +14,7 @@ struct Candidate<'a> {
     player: &'a Player,
     fatigue: PitcherFatigue,
     ability_score: f64,
+    rotation_score: f64,
 }
 
 impl Candidate<'_> {
@@ -37,7 +39,9 @@ impl<'a> PitchingStaff<'a> {
         loads: &BTreeMap<i64, f64>,
         base_four_seam_speed: f64,
         weights: PitcherAttributeWeights,
+        season: &SeasonPitchingStats,
     ) -> Self {
+        let starter_workload = PitcherFatigue::reference_pitches(0.0);
         let mut candidates: Vec<_> = team
             .players
             .iter()
@@ -45,36 +49,36 @@ impl<'a> PitchingStaff<'a> {
             .filter_map(|player| {
                 let pitcher = player.defense_skills.pitcher.as_ref()?;
                 let rating = PitcherAttributeRating::measure(pitcher, base_four_seam_speed);
+                let ability_score =
+                    rating.map_or(f64::NEG_INFINITY, |rating| weights.score(rating));
+                let reference_pitches = PitcherFatigue::reference_pitches(pitcher.stamina);
+                // Preserve ability ordering above the opening workload target
+                // and stamina ordering below it. Season results can cross it.
+                let prior = if reference_pitches >= starter_workload {
+                    0.5 + 0.5 * ability_score.max(0.0)
+                } else {
+                    0.5 * reference_pitches / starter_workload
+                };
                 Some(Candidate {
                     player,
-                    ability_score: rating.map_or(f64::NEG_INFINITY, |rating| weights.score(rating)),
+                    ability_score,
+                    rotation_score: rotation_score(prior, player.info.id, season),
                     fatigue: PitcherFatigue {
                         entering_load: loads.get(&player.info.id).copied().unwrap_or_default(),
-                        reference_pitches: PitcherFatigue::reference_pitches(pitcher.stamina),
+                        reference_pitches,
                         pitches: 0,
                     },
                 })
             })
             .collect();
 
-        // Prefer pitchers who can handle the reference workload. If there are
-        // too few, fill the remaining slots with the highest-stamina pitchers.
-        let starter_workload = PitcherFatigue::reference_pitches(0.0);
         candidates.sort_by(|a, b| {
-            let a_capacity = a.fatigue.reference_pitches;
-            let b_capacity = b.fatigue.reference_pitches;
-            let a_ready = a_capacity >= starter_workload;
-            let b_ready = b_capacity >= starter_workload;
-            b_ready
-                .cmp(&a_ready)
+            b.rotation_score
+                .total_cmp(&a.rotation_score)
                 .then_with(|| {
-                    if a_ready && b_ready {
-                        b.ability_score
-                            .total_cmp(&a.ability_score)
-                            .then_with(|| b_capacity.total_cmp(&a_capacity))
-                    } else {
-                        b_capacity.total_cmp(&a_capacity)
-                    }
+                    b.fatigue
+                        .reference_pitches
+                        .total_cmp(&a.fatigue.reference_pitches)
                 })
                 .then_with(|| a.player.info.id.cmp(&b.player.info.id))
         });
