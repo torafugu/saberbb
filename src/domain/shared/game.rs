@@ -113,6 +113,9 @@ pub struct GameResult {
     pub away_total_point: u8,
     pub home_total_point: u8,
     pub player_entries: Vec<PlayerGameEntry>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub position_player_workloads:
+        BTreeMap<i64, crate::domain::strategy::position_player_usage::PositionPlayerWorkload>,
     pub player_pitchings: Vec<PlayerGamePitching>,
     pub player_battings: Vec<PlayerGameBatting>,
     #[serde(default)]
@@ -137,6 +140,7 @@ impl GameResult {
             away_total_point: 0,
             home_total_point: 0,
             player_entries,
+            position_player_workloads: BTreeMap::new(),
             player_pitchings: Vec::new(),
             player_battings: Vec::new(),
             player_contact_states: Vec::new(),
@@ -177,13 +181,27 @@ impl GameResult {
     }
 
     pub(crate) fn record_pitcher_change(&mut self, outgoing: i64, incoming: i64, count_seq: u16) {
-        if let Some(entry) = self.player_entries.iter_mut().find(|entry| {
-            entry.player_id == outgoing && entry.position == Position::P && entry.end_count_seq.is_none()
-        }) {
+        self.record_lineup_change(outgoing, incoming, Position::P, 0, count_seq);
+    }
+
+    pub(crate) fn record_lineup_change(
+        &mut self,
+        outgoing: i64,
+        incoming: i64,
+        position: Position,
+        order: u8,
+        count_seq: u16,
+    ) {
+        if let Some(entry) = self
+            .player_entries
+            .iter_mut()
+            .find(|entry| entry.player_id == outgoing && entry.end_count_seq.is_none())
+        {
             entry.end_count_seq = Some(count_seq - 1);
         }
-        self.player_entries
-            .push(PlayerGameEntry::new(count_seq, None, Position::P, 0, incoming));
+        self.player_entries.push(PlayerGameEntry::new(
+            count_seq, None, position, order, incoming,
+        ));
     }
 
     pub fn update_player_game_entry_at_game_end(&mut self, end_count_seq: u16) {

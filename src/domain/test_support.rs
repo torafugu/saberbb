@@ -153,7 +153,7 @@ pub(crate) fn player(id: i64, position: Position, batting_order: Option<u8>) -> 
         Position::LF | Position::CF | Position::RF => {
             defense_skills.outfielder = Some(fielder_info(FielderType::Outfielder));
         }
-        Position::DH => {}
+        Position::DH | Position::PH => {}
     }
 
     let mut batter = (position != Position::P).then(|| batter_info(RL::Right));
@@ -342,6 +342,6 @@ fn fielder_type_for(position: Position) -> FielderType {
         Position::SB | Position::SS => FielderType::MiddleInfielder,
         Position::FB | Position::TB => FielderType::CornerInfielder,
         Position::LF | Position::CF | Position::RF => FielderType::Outfielder,
-        Position::DH => FielderType::Outfielder,
+        Position::DH | Position::PH => FielderType::Outfielder,
     }
 }

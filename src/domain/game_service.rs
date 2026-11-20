@@ -2,9 +2,11 @@ use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
+use crate::domain::shared::player::Position;
 use crate::domain::shared::stats::SeasonPitchingStats;
 use crate::domain::strategy::pitcher_evaluation::PitcherAttributeWeights;
 use crate::domain::strategy::pitching_usage::PitchingStaff;
+use crate::domain::strategy::position_player_usage::PositionPlayers;
 use std::collections::BTreeMap;
 use crate::domain::strategy::batting_strategy::BattingStrategySettings;
 use crate::repositories::game_repository::GameRoundRepository;
@@ -40,11 +42,13 @@ impl<R: GameRoundRepository> GameService<R> {
 
             let loads = self.repo.load_pitcher_workload(&game_schedule)?;
             let season_stats = self.repo.load_pitcher_season_stats(&game_schedule)?;
+            let position_fatigue = self.repo.load_position_player_fatigue(&game_schedule)?;
             let result = simulate_game_with_pitching(
                 &game_schedule,
                 Box::new(RealRng::new()),
                 &loads,
                 &season_stats,
+                Some(&position_fatigue),
                 record_contact_states,
             )?;
             if let Err(e) = self.repo.update_game_result(&result) {
@@ -76,6 +80,7 @@ pub fn simulate_game(
         pitch_budget,
         record_contact_states,
         None,
+        None,
     )
 }
 
@@ -84,6 +89,7 @@ fn simulate_game_with_pitching(
     rng: Box<dyn RandomProvider>,
     loads: &BTreeMap<i64, f64>,
     season_stats: &SeasonPitchingStats,
+    position_fatigue: Option<&BTreeMap<i64, f64>>,
     record_contact_states: bool,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
@@ -92,13 +98,25 @@ fn simulate_game_with_pitching(
     };
     let away = staff(&schedule.away_team);
     let home = staff(&schedule.home_team);
-    let state = GameState::with_starters(rng, schedule, away.starter(), home.starter())?;
+    let state = GameState::with_lineup_policy(
+        rng,
+        schedule,
+        [away.starter(), home.starter()],
+        position_fatigue,
+    )?;
     play_game(
         state,
         BattingStrategySettings::player_driven(),
         None,
         record_contact_states,
         Some([away, home]),
+        position_fatigue.map(|entering| {
+            [&schedule.away_team, &schedule.home_team].map(|team| PositionPlayers {
+                team,
+                entering,
+                pending: None,
+            })
+        }),
     )
 }
 
@@ -108,6 +126,7 @@ fn play_game(
     pitch_budget: Option<u32>,
     record_contact_states: bool,
     staffs: Option<[PitchingStaff<'_>; 2]>,
+    mut position_players: Option<[PositionPlayers<'_>; 2]>,
 ) -> Result<GameResult> {
     state.record_contact_states = record_contact_states;
     state.batting_strategy_settings = settings;
@@ -116,6 +135,30 @@ fn play_game(
     while let GameProgress::Ongoing = state.progress() {
         info!("new inning started");
         state.advance_half_inning()?;
+        let home_defending = state.inning_tb == TB::Top;
+        if let Some(players) = &mut position_players {
+            let defense = &mut players[usize::from(home_defending)];
+            if let Some(pinch_hit) = defense.pending.take() {
+                state.change_position_player(
+                    home_defending,
+                    pinch_hit.hitter.info.id,
+                    pinch_hit.defender,
+                    pinch_hit.position,
+                )?;
+            }
+            if state.inning_seq >= 4 {
+                let lineup = if home_defending {
+                    &state.home_lineup
+                } else {
+                    &state.away_lineup
+                };
+                if let Some((id, replacement, role)) =
+                    defense.defensive_change(&state.game_result, lineup)
+                {
+                    state.change_position_player(home_defending, id, replacement, role)?;
+                }
+            }
+        }
         while let InningProgress::Ongoing = state.inning_state.inning_progress() {
             if let Some(limit) = pitch_budget {
                 anyhow::ensure!(pitches < limit, "declared pitch budget exceeded; run must not silently drop this game");
@@ -130,6 +173,15 @@ fn play_game(
                 if let Some(replacement) = staff.reliever(active_id, &pitch_counts) {
                     state.change_pitcher(replacement)?;
                 }
+            }
+            if let Some(players) = &mut position_players
+                && state.inning_state.active_batter.is_none()
+            {
+                manage_pinch_hit(
+                    &mut state,
+                    &mut players[usize::from(!home_defending)],
+                    !home_defending,
+                )?;
             }
             state.process_count()?;
             pitches += 1;
@@ -148,6 +200,38 @@ fn play_game(
     info!("game completed");
     state.finish_game();
     Ok(state.game_result)
+}
+
+fn manage_pinch_hit(
+    state: &mut GameState,
+    offense: &mut PositionPlayers<'_>,
+    home: bool,
+) -> Result<()> {
+    if state.inning_seq < 7 {
+        return Ok(());
+    }
+    let lineup = if home {
+        &state.home_lineup
+    } else {
+        &state.away_lineup
+    };
+    let Some(active) = lineup.next_position_player() else {
+        return Ok(());
+    };
+    let outgoing = active.id;
+    if let Some(pinch_hit) = &offense.pending {
+        // If the lineup bats around, resolve the temporary role before its next plate appearance.
+        if pinch_hit.hitter.info.id == outgoing {
+            let pinch_hit = offense.pending.take().expect("pending pinch hitter");
+            state.change_position_player(home, outgoing, pinch_hit.defender, pinch_hit.position)?;
+        }
+    } else if state.home_total_point.abs_diff(state.away_total_point) <= 3
+        && let Some(pinch_hit) = offense.pinch_hit(&state.game_result, active)
+    {
+        state.change_position_player(home, outgoing, pinch_hit.hitter, Position::PH)?;
+        offense.pending = Some(pinch_hit);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -384,6 +468,7 @@ mod tests {
             Box::new(RealRng::from_seed(9)),
             &loads,
             &season_stats,
+            None,
             false,
         )
         .unwrap();
@@ -509,12 +594,121 @@ mod tests {
             Box::new(RealRng::from_seed(9)),
             &loads,
             &season,
+            None,
             false,
         )
         .unwrap();
         assert!(result.player_entries.iter().any(|entry| {
             entry.position == Position::P && entry.start_count_seq == 1 && entry.player_id == 31
         }));
+    }
+
+    #[test]
+    fn position_player_policy_rests_tired_starters_and_records_pinch_hit_roles() {
+        let mut schedule = schedule(1);
+        let mut dh = player(20);
+        dh.offense_skills.batter.as_mut().unwrap().swing_power = 5.0;
+        let mut hitter = player(30);
+        hitter.offense_skills.batter.as_mut().unwrap().swing_power = 8.0;
+        schedule.away_team.players.extend([player(12), dh, hitter]);
+        let tired_starters = BTreeMap::from([(2, 0.8), (30, 0.8)]);
+        let rested = GameState::with_lineup_policy(
+            Box::new(RealRng::from_seed(9)),
+            &schedule,
+            [Some(1), Some(101)],
+            Some(&tired_starters),
+        )
+        .unwrap();
+        assert_eq!(rested.away_lineup.catcher().unwrap().id, 12);
+
+        let loads = BTreeMap::from([(30, 0.8)]);
+        let mut state = GameState::with_lineup_policy(
+            Box::new(RealRng::from_seed(9)),
+            &schedule,
+            [Some(1), Some(101)],
+            Some(&loads),
+        )
+        .unwrap();
+        let mut offense = PositionPlayers {
+            team: &schedule.away_team,
+            entering: &loads,
+            pending: None,
+        };
+        state
+            .game_result
+            .position_player_workloads
+            .entry(2)
+            .or_default()
+            .fielding = 0.9;
+        let (outgoing, defender, role) = offense
+            .defensive_change(&state.game_result, &state.away_lineup)
+            .unwrap();
+        assert_eq!((outgoing, defender.info.id, role), (2, 12, Position::C));
+
+        state.inning_seq = 7;
+        state.inning_tb = TB::Top;
+        state.count_seq = 57;
+        let catcher = state
+            .away_lineup
+            .players
+            .iter()
+            .find(|p| p.id == 2)
+            .unwrap();
+        let slot = catcher.batting_order.unwrap();
+        state.away_lineup.current_index = usize::from(slot - 1);
+        manage_pinch_hit(&mut state, &mut offense, false).unwrap();
+        let pinch_hit = offense.pending.take().unwrap();
+        assert_eq!(
+            (pinch_hit.hitter.info.id, pinch_hit.defender.info.id),
+            (30, 12)
+        );
+        assert_eq!(state.current_batter().unwrap().id, 30);
+        assert_eq!(
+            state
+                .game_result
+                .player_entries
+                .iter()
+                .find(|e| e.player_id == 2)
+                .unwrap()
+                .end_count_seq,
+            Some(56)
+        );
+
+        state.inning_tb = TB::Bottom;
+        state.count_seq = 65;
+        state
+            .change_position_player(false, 30, pinch_hit.defender, pinch_hit.position)
+            .unwrap();
+        assert_eq!(state.current_catcher().unwrap().id, 12);
+        let entry = |id| {
+            state
+                .game_result
+                .player_entries
+                .iter()
+                .find(|e| e.player_id == id)
+                .unwrap()
+        };
+        assert_eq!(
+            (
+                entry(30).position,
+                entry(30).batting_order,
+                entry(30).end_count_seq
+            ),
+            (Position::PH, slot, Some(64))
+        );
+        assert_eq!(
+            (
+                entry(12).position,
+                entry(12).batting_order,
+                entry(12).start_count_seq
+            ),
+            (Position::C, slot, 65)
+        );
+        assert!(
+            state
+                .change_position_player(false, 12, &schedule.away_team.players[1], Position::C)
+                .is_err()
+        );
     }
 
     fn schedule(id: u32) -> GameSchedule {

@@ -41,6 +41,7 @@ cutter = Cutter
 date_parse_error = Date parse error
 delivery_motion_time = Delivery Motion Time
 dh = DH
+ph = PH
 diagonal_cross = Diagonal Cross
 distance = Distance
 double = Double

@@ -35,6 +35,7 @@ pub enum Position {
     CF,
     RF,
     DH,
+    PH,
 }
 impl Position {
     pub const ALL: [Position; 10] = [
@@ -87,6 +88,7 @@ impl std::fmt::Display for Position {
             Position::CF => write!(f, "{}", t!("cf")),
             Position::RF => write!(f, "{}", t!("rf")),
             Position::DH => write!(f, "{}", t!("dh")),
+            Position::PH => write!(f, "{}", t!("ph")),
         }
     }
 }
@@ -106,6 +108,7 @@ impl<'a> std::fmt::Display for LongPositionFormatter<'a> {
             Position::CF => write!(f, "{}", t!("center_fielder")),
             Position::RF => write!(f, "{}", t!("right_fielder")),
             Position::DH => write!(f, "{}", t!("dh")),
+            Position::PH => write!(f, "{}", t!("ph")),
         }
     }
 }

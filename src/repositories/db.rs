@@ -337,6 +337,7 @@ fn setup_database(conn: &mut Connection, migrations_dir: &Path) -> Result<()> {
             .with_context(|| format!("Failed to import {}", path.display()))?;
     }
     super::pitcher_workload::clear(&tx)?;
+    super::position_player_workload::clear(&tx)?;
     crate::repositories::stat_cache::clear(&tx)?;
     tx.commit()?;
     Ok(())

@@ -41,6 +41,7 @@ cutter = カットボール
 date_parse_error = 日付パースエラー
 delivery_motion_time = モーション時間
 dh = 指
+ph = 代打
 diagonal_cross = 対角クロスが得意
 distance = 飛距離
 double = 二塁打
