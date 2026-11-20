@@ -558,6 +558,31 @@ the wall in the air. Wall impacts with missing fielding time are counted
 separately within the wall-impact total. The report requires ordinary saved
 game logs and reads them without replaying games.
 
+To investigate hard low-angle singles and the vertical contact that creates
+hard fly balls, use the same database and qualification settings:
+
+```sh
+python3 tools/diagnostics/offense_audit.py --league-batting --hard-contact --season 2026 --top 9 > hard_contact_2026.json
+```
+
+Under `hard_contact`, compare the selected batting leaders with all other
+batters. The low-angle tables cover EV of at least 45 m/s and launch angles
+from 0° up to 10°. They report singles and outs by exit speed, launch angle,
+field-relative direction, first bounce, and the first recorded fielder and
+play at first base. `low_angle_shared_geometry` applies the same mix of
+EV, launch-angle and direction bins to both cohorts where both have data.
+Use the retained ball counts to judge coverage. The first-base split uses
+the first recorded GrounderPlay targeting the batter at first. Its field
+completion clock can include handling, and delivery can include a carry
+to the base. Other targets and missing observations retain their own counts.
+
+`hard_by_launch_angle` summarizes the signed contact offset, adapted
+vertical offset and execution error by launch-angle band. Use
+`hard_by_vertical_offset` to compare the resulting angles and home-run
+counts within each hard-contact EV band. Missing measurement columns or
+values remain unknown. The report uses ordinary saved logs. Candidate
+reachability and unattempted first-base plays require replay diagnostics.
+
 For extra-base hit diagnostics on ordinary saved games:
 
 ```sh

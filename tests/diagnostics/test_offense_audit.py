@@ -193,6 +193,92 @@ class OffenseAuditTest(unittest.TestCase):
                              power['measured_fair_contacts'])
             self.assertEqual(path.read_bytes(), before)
 
+    def test_hard_contact_uses_shared_geometry_and_observed_first_base_clocks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'test.db'
+            with sqlite3.connect(path) as conn:
+                conn.executescript('''
+                    CREATE TABLE game(id INTEGER PRIMARY KEY, season INTEGER, game_type TEXT,
+                        actual_date TEXT, away_team_id INTEGER, home_team_id INTEGER);
+                    INSERT INTO game VALUES (1,2026,'Regular','2026-04-01',1,2),(2,2026,'Playoff','2026-09-01',1,2);
+                    CREATE TABLE player_info(id PRIMARY KEY,team_id,first_name,last_name);
+                    INSERT INTO player_info VALUES (7,1,'A','A'),(8,2,'B','B');
+                    CREATE TABLE player_game_batting(game_id,count_seq,batter_id,result,launch_speed,launch_angle,
+                        outbound_result,first_bounce_time,fence_impact_time,final_hla_deg,first_bounce_distance,
+                        first_bounce_angle,contact_offset_z_m,adapted_vertical_offset_m);
+                    INSERT INTO player_game_batting VALUES
+                        (1,1,7,'Single',45,0,'InField',.8,NULL,-5,15,-4,-.005,-.003),
+                        (1,2,7,'Single',46,1,'InField',1.4,NULL,-5,17,-4,.003,.004),
+                        (1,3,7,'Single',45,3,'InField',.5,NULL,5,18,4,NULL,.01),
+                        (1,4,7,'Out',49,7,'InField',.5,NULL,NULL,16,9,.008,NULL),
+                        (1,5,7,'HomeRun',51,30,'HomeRun',NULL,NULL,5,NULL,NULL,.032,.030),
+                        (1,6,8,'Out',45,0,'InField',.6,NULL,-5,15,-5,-.002,-.003),
+                        (1,7,8,'Single',46,2,'InField',.6,NULL,-5,15,-5,.003,.001),
+                        (1,8,8,'Out',45,4,'InField',.4,NULL,5,15,5,-.004,-.003),
+                        (1,9,8,'Out',45,9,'InField',.8,NULL,-5,19,-4,-.004,-.002),
+                        (1,10,8,'Out',44.99,0,'InField',.6,NULL,-5,15,-5,0,0),
+                        (1,11,8,'Out',47.5,10,'InField',.6,NULL,-5,15,-5,.013,.011),
+                        (2,1,7,'HomeRun',51,31,'HomeRun',NULL,NULL,5,NULL,NULL,.033,.031);
+                    CREATE TABLE count(game_id,seq,point);
+                    CREATE TABLE player_game_running(game_id,count_seq,seq,event,throw_target_base,target_runner_id,
+                        defense_time,runner_time,ruling);
+                    INSERT INTO player_game_running VALUES
+                        (1,1,1,'BaseSteal','Second',8,4,3,'Safe'),
+                        (1,1,2,'GrounderPlay','First',7,3.4,3,'Safe'),
+                        (1,2,1,'GrounderPlay','First',7,3,3,'Safe'),
+                        (1,2,2,'DoublePlay','Second',8,4,3,'Safe'),
+                        (1,3,1,'GrounderPlay','Second',8,4,3,'Safe'),
+                        (1,6,1,'GrounderPlay','First',8,2,3,'Out'),
+                        (1,7,1,'GrounderPlay','First',8,2,3,'Safe'),
+                        (1,8,1,'GrounderPlay','First',8,0,0,'Safe'),
+                        (1,9,1,'GrounderPlay','First',7,2,3,'Out');
+                    CREATE TABLE player_game_fielding(game_id,count_seq,seq,time_to_field,
+                        catch_fielder_position,interception_fielder_position,selection_path,catch_type);
+                    INSERT INTO player_game_fielding VALUES
+                        (1,1,1,3.1,'FB','SS','final_pickup','FinalPickup'),
+                        (1,2,1,1,'FB','SB','interception','BounceCatch'),
+                        (1,2,2,10,'SS',NULL,NULL,NULL),
+                        (1,3,1,3.8,'CF',NULL,'final_pickup','FinalPickup'),
+                        (1,6,1,1,'FB','SB','interception','BounceCatch'),
+                        (1,7,1,1,'FB','SS','interception','BounceCatch');
+                ''')
+            before = path.read_bytes()
+            env = dict(os.environ, SABERBB_DB=str(path))
+            proc = subprocess.run(
+                [sys.executable, offense_audit.__file__, '--league-batting', '--hard-contact', '--top', '1'],
+                env=env, text=True, capture_output=True, check=True,
+            )
+            report = json.loads(proc.stdout)['hard_contact']
+            shared = report['low_angle_shared_geometry']
+            self.assertEqual(shared, dict(cells=2,
+                top_qualified=dict(shared_balls=3, total_balls=4, standardized_single_rate=1.0),
+                other_batters=dict(shared_balls=3, total_balls=4, standardized_single_rate=1/3)))
+            stages = {row['first_base_phase']: row for row in report['low_angle_by_fielding_and_first_base']}
+            late = stages['fielding_completed_at_or_after_batter']
+            self.assertEqual(late['fielder_position'], 'SS')
+            self.assertAlmostEqual(late['timing_seconds']['defense_minus_batter_sec']['mean'], 0.4)
+            tie = stages['delivery_completed_at_or_after_batter']
+            self.assertEqual(tie['timing_seconds']['defense_minus_batter_sec']['mean'], 0)
+            self.assertEqual(tie['timing_seconds']['defense_after_field_sec']['mean'], 2.0)
+            for phase in ('other_base', 'no_primary_grounder_play', 'first_base_times_missing',
+                          'first_base_times_inconsistent', 'first_base_target_unverified'):
+                self.assertEqual(stages[phase]['timing_seconds']['defense_minus_batter_sec']['n'], 0)
+            self.assertEqual(stages['defense_before_batter']['timing_seconds']['defense_minus_batter_sec']['mean'], -1)
+            bounces = {row['phase']: row for row in report['low_angle_by_first_bounce']}
+            self.assertIsNone(bounces['projected_after_fielding']['distance_m'])
+            self.assertEqual(bounces['field_time_unrecorded']['distance_m'], [10, 20])
+            vertical = [row for row in report['hard_by_vertical_offset'] if row['cohort'] == 'league']
+            self.assertEqual(sum(row['balls'] for row in vertical), 10)
+            self.assertEqual(sum(row['balls'] for row in vertical if row['contact_offset_z_cm'] is None), 1)
+            lifted = next(row for row in vertical if row['home_runs'])
+            self.assertEqual((lifted['ev_ms'], lifted['contact_offset_z_cm'], lifted['vla_at_least_30']),
+                             ([50, None], [3, 4], 1))
+            launch = next(row for row in report['hard_by_launch_angle']
+                          if row['cohort'] == 'league' and row['vla_deg'] == [30, 40])
+            self.assertAlmostEqual(launch['vertical_cm']['adapted_vertical_offset']['mean'], 3.0)
+            self.assertEqual(launch['vertical_cm']['swing_error_z']['n'], 0)
+            self.assertEqual(path.read_bytes(), before)
+
     def test_targeted_comparison_uses_display_line_but_checks_raw_plays(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'test.db'
