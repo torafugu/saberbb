@@ -49,6 +49,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 mod bip_audit;
 #[path = "support/contact_direction_audit.rs"]
 mod contact_direction_audit;
+#[path = "support/contact_first_ev_comparison.rs"]
+mod contact_first_ev_comparison;
 #[path = "support/fair_launch_audit.rs"]
 mod fair_launch_audit;
 #[path = "support/intent_aim_comparison.rs"]
@@ -104,6 +106,20 @@ struct Args {
     /// Alternate absolute LineDrive aim in mm. Defaults to +32 mm.
     #[arg(long, requires = "intent_aim_comparison", allow_negative_numbers = true)]
     line_drive_aim_mm: Option<i16>,
+    /// Replay hard fair ContactFirst swings at lower exit speeds with the same launch angles and spin.
+    #[arg(long, conflicts_with_all = [
+        "intent_aim_comparison", "swing_speed_batter_id", "line_drive_lift_comparison",
+        "vertical_contact_sweep", "vertical_contact_comparison", "vertical_contact_paired_fielding",
+        "timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison",
+        "pre_fence_pickup_comparison", "bip_diagnostics", "fair_launch_diagnostics",
+        "contact_direction_diagnostics", "moving_collision_diagnostics", "selected_intent_diagnostics",
+        "timing_scale_diagnostics", "infield_opportunity_diagnostics", "outfield_advance_diagnostics",
+        "no_bounce_catch_diagnostics"
+    ])]
+    contact_first_ev_comparison: bool,
+    /// Positive exit-speed reductions in m/s, comma separated. Defaults to 2,4,6.
+    #[arg(long, value_delimiter = ',', requires = "contact_first_ev_comparison")]
+    exit_speed_reductions_ms: Vec<f64>,
     /// Historical drag control; applies to gameplay and shadow flights on this thread.
     #[arg(long)]
     legacy_flight_drag: bool,
@@ -893,7 +909,9 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.intent_aim_comparison {
+    if args.contact_first_ev_comparison {
+        output["contact_first_ev_comparison"] = contact_first_ev_comparison::run(&args, &games)?;
+    } else if args.intent_aim_comparison {
         output["intent_aim_comparison"] = intent_aim_comparison::run(&args, &games)?;
     } else if args.vertical_contact_paired_fielding {
         let mut summary = PairedContactSummary::default();
