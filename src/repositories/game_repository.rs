@@ -1,5 +1,5 @@
 use crate::domain::shared::game::{
-    Count, GameDetail, GameHeader, GameResult, GameSchedule, Inning, TB, TeamGameScheduleView,
+    Count, GameDetail, GameHeader, GamePitcherRuns, GameResult, GameSchedule, Inning, TB, TeamGameScheduleView,
 };
 use crate::domain::shared::game_stats::{
     PlayerGameBattingView, PlayerGameEntryView, PlayerGameHomeRunView,
@@ -23,6 +23,7 @@ use crate::repositories::sql_helper::game_stat_helper::{
 use anyhow::Result;
 use chrono::NaiveDate;
 use rusqlite::params;
+use std::collections::BTreeMap;
 use tracing::info;
 
 pub trait GameResultWriter {
@@ -35,6 +36,9 @@ pub trait GameRoundWriter {
 
 pub trait GameScheduleReader {
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError>;
+    fn load_pitcher_workload(&self, _game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
+        Ok(Default::default())
+    }
     fn load_team_game_schedules(
         &self,
         team_id: u16,
@@ -287,6 +291,11 @@ impl GameScheduleReader for SqlGameRepository {
         Ok(game_schedules)
     }
 
+    fn load_pitcher_workload(&self, game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
+        let conn = self.db_client.get_conn()?;
+        Ok(super::pitcher_workload::load_before_game(&conn, game)?)
+    }
+
     #[tracing::instrument(skip(self), fields(team_id = %team_id, start_date = %start_date, end_date = %end_date), err)]
     fn load_team_game_schedules(
         &self,
@@ -361,6 +370,19 @@ impl GameDetailReader for SqlGameRepository {
         game.player_runnings = self.load_player_game_running_views(game.id)?;
         let conn = self.db_client.get_conn()?;
         game.pitcher_fatigue = super::pitcher_workload::load_game(&conn, game.id)?;
+
+        // Workload and game statistics are saved together for recent games.
+        if !game.pitcher_fatigue.is_empty() {
+            let mut query = conn.prepare_cached(
+                "SELECT player_id,runs,CASE WHEN unclassified_runs=0 THEN earned_runs END
+                 FROM game_pitching_stat_cache WHERE game_id=?1",
+            )?;
+            game.pitcher_runs = query
+                .query_map([game.id], |row| {
+                    Ok((row.get(0)?, GamePitcherRuns { runs: row.get(1)?, earned_runs: row.get(2)? }))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+        }
 
         Ok(game)
     }
