@@ -964,6 +964,33 @@ third strikes, using the contact result before official scoring. The 0 mm
 condition reproduces the previous contact offset, and +20 mm matches the
 current standard.
 
+### ContactFirst and LineDrive aim comparison
+
+Set `SABERBB_DB` to the roster and schedule database, then run:
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --intent-aim-comparison > intent_aim_2026.json
+```
+
+The four settings use absolute world-vertical contact offsets in millimeters.
+The baseline uses ContactFirst 0 and LineDrive +20. The alternatives change
+ContactFirst to +8, LineDrive to +32, or both. Set `--contact-first-aim-mm`
+and `--line-drive-aim-mm` to change the alternate values. Set one of them
+to its baseline value for a comparison of the other intent alone.
+
+Under `intent_aim_comparison.paired_swings.pooled`, compare `all`,
+`contact_first` and `line_drive`. Each setting replays the same live
+swings with the selected intent, pitch, starting defense, runners, and
+random state held fixed. The normal contact window is recomputed for the
+new aim. Counts and rates for whiffs, fouls, and fair launch bands use all
+swings. `baseline_hard_low_single_destinations` shows the alternate launch
+band and official batting result for each original hard low-angle single.
+
+`intent_aim_comparison.full_games` reports BA, BABIP, singles per PA and
+home runs per PA by setting and seed. These games share the schedule,
+rosters and starting seeds. Later plays can diverge as results change.
+The tool reads the source database and runs new games in memory.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,

@@ -14,8 +14,8 @@ use crate::domain::{
 };
 use std::cell::RefCell;
 
-#[derive(Clone, Copy)]
-pub struct SwingSpeedPlay {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SwingReplay {
     pub outcome: Option<BattingResult>,
     pub flight: Option<(OutboundResult, f64, f64)>,
 }
@@ -23,7 +23,7 @@ pub struct SwingSpeedPlay {
 struct Audit {
     batter_id: i64,
     alternatives: Vec<f64>,
-    swings: Vec<(u16, Vec<SwingSpeedPlay>)>,
+    swings: Vec<(u16, Vec<SwingReplay>)>,
 }
 
 thread_local! {
@@ -36,7 +36,7 @@ pub fn with_swing_speed_audit<T>(
     batter_id: i64,
     alternatives: &[f64],
     run: impl FnOnce() -> T,
-) -> (T, Vec<(u16, Vec<SwingSpeedPlay>)>) {
+) -> (T, Vec<(u16, Vec<SwingReplay>)>) {
     struct Restore(Option<Audit>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -54,6 +54,38 @@ pub fn with_swing_speed_audit<T>(
 }
 
 impl GameState {
+    /// Replay contact, flight, and the ruling from the live pre-contact RNG position.
+    pub(super) fn replay_swing_variant(
+        &self,
+        batter_id: i64,
+        batter: &BatterInfo,
+        pitch: PitchedBall,
+        displacement: &PitchDisplacement,
+        mut error: SwingExecutionError,
+    ) -> Result<SwingReplay, GameError> {
+        let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
+        let baseline_z_m = displacement.vertical_offset_m + error.additional_z_m;
+        error.additional_z_m += vertical_contact_policy_offset_m(baseline_z_m, || {
+            pre_trial_exit_speed_ms(batter, pitch.speed, displacement, &error)
+        });
+        let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
+        let flight = launch_swing(rng.as_mut(), batter, pitch, &contact, &self.stadium)?;
+        let replay = self.replay_swing(
+            self.current_pitcher()?.id,
+            batter_id,
+            batter.batting_side,
+            &contact,
+            flight,
+            rng,
+        )?;
+        Ok(SwingReplay {
+            outcome: replay.batting_result,
+            flight: replay
+                .ball
+                .map(|ball| (ball.outbound_result, ball.launch_speed, ball.launch_angle)),
+        })
+    }
+
     pub(super) fn record_swing_speed_trials(
         &self,
         batter: &BatterInfo,
@@ -71,7 +103,6 @@ impl GameState {
             if active.id != audit.batter_id {
                 return Ok(());
             }
-            let pitcher_id = self.current_pitcher()?.id;
             let mut arms = Vec::with_capacity(audit.alternatives.len() + 1);
             for speed in
                 std::iter::once(batter.swing_speed).chain(audit.alternatives.iter().copied())
@@ -80,30 +111,13 @@ impl GameState {
                     swing_speed: speed,
                     ..*batter
                 };
-                let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
-                let mut error = *swing_error;
-                let baseline_z_m = displacement.vertical_offset_m + error.additional_z_m;
-                error.additional_z_m += vertical_contact_policy_offset_m(baseline_z_m, || {
-                    pre_trial_exit_speed_ms(&alternative, pitch.speed, displacement, &error)
-                });
-                let contact =
-                    evaluate_swing_contact(rng.as_mut(), &alternative, displacement, &error);
-                let flight =
-                    launch_swing(rng.as_mut(), &alternative, pitch, &contact, &self.stadium)?;
-                let replay = self.replay_swing(
-                    pitcher_id,
+                arms.push(self.replay_swing_variant(
                     active.id,
-                    alternative.batting_side,
-                    &contact,
-                    flight,
-                    rng,
-                )?;
-                arms.push(SwingSpeedPlay {
-                    outcome: replay.batting_result,
-                    flight: replay
-                        .ball
-                        .map(|ball| (ball.outbound_result, ball.launch_speed, ball.launch_angle)),
-                });
+                    &alternative,
+                    pitch,
+                    displacement,
+                    *swing_error,
+                )?);
             }
             audit.swings.push((self.count_seq, arms));
             Ok(())
