@@ -49,7 +49,10 @@ pub use contact_first_ev_audit::{
     with_contact_first_launch_audit,
 };
 mod intent_aim_audit;
-pub use intent_aim_audit::{IntentAimOffsets, IntentAimPlay, IntentAimSwing, with_intent_aim_audit};
+pub use intent_aim_audit::{
+    IntentAimOffsets, IntentAimPlay, IntentAimSwing, with_contact_first_speed_audit,
+    with_intent_aim_audit,
+};
 mod paired_contact;
 use paired_contact::PairedSwing;
 pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};

@@ -6,8 +6,8 @@ use saberbb::domain::{
         ball::OutboundResult,
         game::{BattingResult, GameResult},
         game_state::{
-            IntentAimOffsets, IntentAimPlay, IntentAimSwing, SwingReplay, with_intent_aim_audit,
-            with_intent_aim_trial,
+            IntentAimOffsets, IntentAimPlay, IntentAimSwing, SwingReplay,
+            with_contact_first_speed_audit, with_intent_aim_audit, with_intent_aim_trial,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -92,6 +92,9 @@ struct SwingCounts {
     transitions: BTreeMap<&'static str, BTreeMap<&'static str, u64>>,
     low_single_transitions: BTreeMap<String, u64>,
     hard_low_singles: u64,
+    singles_5_to_10_deg: u64,
+    doubles: u64,
+    triples: u64,
     singles: u64,
     home_runs: u64,
     no_batting_result: u64,
@@ -113,6 +116,14 @@ impl SwingCounts {
             .entry(band)
             .or_default() += 1;
         self.singles += u64::from(play.outcome == Some(BattingResult::Single));
+        self.singles_5_to_10_deg += u64::from(
+            play.outcome == Some(BattingResult::Single)
+                && play
+                    .flight
+                    .is_some_and(|(_, _, angle)| (5.0..10.0).contains(&angle)),
+        );
+        self.doubles += u64::from(play.outcome == Some(BattingResult::Double));
+        self.triples += u64::from(play.outcome == Some(BattingResult::Triple));
         self.home_runs += u64::from(play.outcome == Some(BattingResult::HomeRun));
         self.hard_low_singles +=
             u64::from(band == HARD_LOW && play.outcome == Some(BattingResult::Single));
@@ -143,6 +154,9 @@ impl SwingCounts {
             "baseline_to_trial_swing_bands": self.transitions,
             "baseline_hard_low_single_destinations": self.low_single_transitions,
             "singles": self.singles, "singles_per_swing": rate(self.singles),
+            "singles_5_to_10_deg": self.singles_5_to_10_deg,
+            "singles_5_to_10_deg_per_swing": rate(self.singles_5_to_10_deg),
+            "doubles": self.doubles, "triples": self.triples,
             "home_runs": self.home_runs, "home_runs_per_swing": rate(self.home_runs),
             "hard_low_singles": self.hard_low_singles, "hard_low_singles_per_swing": rate(self.hard_low_singles),
             "no_batting_result": self.no_batting_result,
@@ -195,7 +209,7 @@ fn observe_paired(
     for swing in swings {
         ensure!(
             swing.plays.len() == pooled.len(),
-            "paired aim arm count mismatch"
+            "paired swing arm count mismatch"
         );
         let baseline = swing.plays[0];
         let recorded = live.remove(&swing.count_seq);
@@ -225,6 +239,49 @@ fn observe_paired(
         result.id
     );
     Ok(())
+}
+
+pub(super) fn run_speed(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    const FACTORS: [f64; 3] = [1.0, 0.97, 0.94];
+    let empty = || FACTORS.map(|_| PairedCounts::default());
+    let report = |counts: &[PairedCounts]| {
+        FACTORS.iter().zip(counts).map(|(factor, summary)| {
+            json!({"contact_first_speed_factor":factor,"summary":summary.report()})
+        }).collect::<Vec<_>>()
+    };
+    let mut pooled = empty();
+    let mut reports = Vec::new();
+    for &seed in &args.seeds {
+        let mut per_seed = empty();
+        for game in games {
+            let (result, swings) = with_contact_first_speed_audit(&FACTORS, || {
+                simulate_game(
+                    game.clone(),
+                    Box::new(RealRng::from_seed(derived_seed(seed, game.id))),
+                    BattingStrategySettings::player_driven(),
+                    Some(args.max_pitches),
+                    false,
+                )
+            });
+            let result = result.with_context(|| {
+                format!(
+                    "ContactFirst swing-speed replay failed in game {}, seed {seed}",
+                    game.id
+                )
+            })?;
+            observe_paired(&result, swings, &mut pooled, &mut per_seed)?;
+        }
+        eprintln!(
+            "ContactFirst swing speed, seed {seed}: {} games complete",
+            games.len()
+        );
+        reports.push(json!({"seed":seed.to_string(),"arms":report(&per_seed)}));
+    }
+    Ok(json!({
+        "definition":"Paired live swing decisions from the same pitch, intent, count and pre-contact RNG state. Scale only ContactFirst bat speed before contact geometry. Timing displacement, the existing EV-dependent contact window, collision, flight, fielding and baserunning are recalculated. Later pitches follow the live baseline. Rates use the same swings, including whiffs, fouls and interrupted plays.",
+        "pooled":report(&pooled),
+        "reports":reports,
+    }))
 }
 
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {

@@ -1050,6 +1050,28 @@ Geometric misses and missing inputs are shown separately. These
 sensitivities use the original contacts and angles as the comparison
 population and measure EV before flight or fielding.
 
+### ContactFirst swing-speed comparison
+
+Set `SABERBB_DB` to the same roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --contact-first-swing-speed-comparison > contact_first_swing_speed_2026.json
+```
+
+For each live swing, replay contact geometry, collision, flight, fielding
+and baserunning at 100%, 97% and 94% of the player's bat speed. The speed
+multiplier applies only to ContactFirst. Each arm starts from the same pitch,
+intent, game situation and pre-contact random state. Later pitches use the
+live baseline.
+
+In `contact_first_swing_speed_comparison.pooled[*].summary.contact_first`,
+`singles_5_to_10_deg` counts singles hit at 5° inclusive to 10° exclusive
+at any exit speed. `hard_5_to_15_deg_infield` breaks down balls at or above
+45 m/s, including the two sub-bands between 5° and 10°. Check `by_swing_band`
+for whiffs and fouls, and `doubles`, `triples` and `home_runs` for extra-base
+hits. Rates use all swings in the corresponding intent group. Per-seed
+results are available under `reports`.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,
