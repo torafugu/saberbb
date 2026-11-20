@@ -57,6 +57,8 @@ mod moving_collision_audit;
 mod pickup_timing_audit;
 #[path = "support/selected_intent_audit.rs"]
 mod selected_intent_audit;
+#[path = "support/swing_speed_comparison.rs"]
+mod swing_speed_comparison;
 #[path = "support/throw_origin_audit.rs"]
 mod throw_origin_audit;
 #[path = "support/vertical_contact_game_sweep.rs"]
@@ -68,6 +70,16 @@ mod vertical_contact_replay;
 struct Args {
     #[arg(long)]
     season: u16,
+    /// Replay one batter's simulated swings at alternate speeds on the same pitches.
+    #[arg(long, conflicts_with_all = [
+        "vertical_contact_sweep", "vertical_contact_comparison", "vertical_contact_paired_fielding",
+        "line_drive_lift_comparison", "timing_geometry_sweep", "right_field_first_comparison",
+        "no_bounce_margin_comparison", "pre_fence_pickup_comparison"
+    ])]
+    swing_speed_batter_id: Option<i64>,
+    /// Alternate swing speeds in m/s, comma separated. Defaults to 33.72,34.5,35.5.
+    #[arg(long, value_delimiter = ',', requires = "swing_speed_batter_id")]
+    swing_speed_ms: Vec<f64>,
     /// Compare 0, +10, +15 and +20 mm for swings with the existing LineDrive intent.
     #[arg(long, conflicts_with_all = ["timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison"])]
     line_drive_lift_comparison: bool,
@@ -635,10 +647,13 @@ fn schedules(
         COALESCE(l.max_inning,12) AS max_inning,COALESCE(l.base_four_seam_speed,40.833) AS base_four_seam_speed
         FROM game g JOIN team a ON a.id=g.away_team_id JOIN team h ON h.id=g.home_team_id
         JOIN stadium st ON st.id=g.stadium_id JOIN league l ON l.id=a.league_id
-        WHERE g.season=?1 ORDER BY g.round_seq,g.seq,g.id LIMIT ?2")?;
+        WHERE g.season=?1 AND (?3 IS NULL OR
+            (SELECT team_id FROM player_info WHERE id=?3) IN (g.away_team_id,g.home_team_id))
+        ORDER BY g.round_seq,g.seq,g.id LIMIT ?2")?;
     let mut rows = query.query(rusqlite::params![
         args.season,
-        args.games.map(|v| v as i64).unwrap_or(-1)
+        args.games.map(|v| v as i64).unwrap_or(-1),
+        args.swing_speed_batter_id
     ])?;
     let mut teams = BTreeMap::<u16, Team>::new();
     let mut games = Vec::new();
@@ -822,6 +837,11 @@ fn run(args: Args) -> Result<()> {
     let games = schedules(&conn, &repo, &args)?;
     let input_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&games)?));
     I18nManager::init("en-US");
+    if let Some(batter_id) = args.swing_speed_batter_id {
+        let report = swing_speed_comparison::run(&conn, &args, &games, batter_id, &input_hash)?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     let mut output = serde_json::json!({
         "engine_source_sha256": saberbb::domain::seeded_diagnostic::ENGINE,
         "flight_drag_model": saberbb::domain::shared::flight_drag::current_model(),

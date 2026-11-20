@@ -604,6 +604,35 @@ mod tests {
     }
 
     #[test]
+    fn swing_speed_replays_preserve_the_live_game() {
+        use crate::domain::shared::game_state::with_swing_speed_audit;
+
+        let schedule = schedule(1);
+        let speed = schedule.away_team.players[1].batter().unwrap().swing_speed;
+        let run = || {
+            simulate_game(
+                schedule.clone(),
+                Box::new(RealRng::from_seed(9)),
+                BattingStrategySettings::player_driven(),
+                Some(5000),
+                false,
+            )
+            .unwrap()
+        };
+        let baseline = run();
+        let (live, swings) = with_swing_speed_audit(2, &[speed, speed - 1.0], run);
+        assert!(!swings.is_empty());
+        for (_, plays) in swings {
+            assert_eq!(plays[0].outcome, plays[1].outcome);
+            assert_eq!(plays[0].flight, plays[1].flight);
+        }
+        assert_eq!(
+            serde_json::to_value(baseline).unwrap(),
+            serde_json::to_value(live).unwrap()
+        );
+    }
+
+    #[test]
     fn position_player_policy_rests_tired_starters_and_records_pinch_hit_roles() {
         let mut schedule = schedule(1);
         let mut dh = player(20);
