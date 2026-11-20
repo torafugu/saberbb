@@ -43,10 +43,10 @@ pub(super) fn load_game(conn: &Connection, game: u32) -> Result<BTreeMap<i64, Pi
         return Ok(fatigue);
     }
 
-    // Loads are additive, so the remaining fraction of each past appearance
-    // gives the same answer as decaying the running total between appearances.
+    // Sum residual loads by appearance so each can use its saved stamina.
     let mut query = conn.prepare_cached(
-        "SELECT w.player_id,w.pitches,w.reference_pitches,g.actual_date,p.pitches,earlier.actual_date
+        "SELECT w.player_id,w.pitches,w.reference_pitches,g.actual_date,
+                p.pitches,earlier.actual_date,p.reference_pitches
          FROM game_pitcher_workload w JOIN game g ON g.id=w.game_id
          LEFT JOIN game_pitcher_workload p ON p.player_id=w.player_id
          LEFT JOIN game earlier ON earlier.id=p.game_id
@@ -66,9 +66,11 @@ pub(super) fn load_game(conn: &Connection, game: u32) -> Result<BTreeMap<i64, Pi
         if let Some(previous_date) = row.get::<_, Option<NaiveDate>>(5)? {
             let current_date: NaiveDate = row.get(3)?;
             let earlier_pitches = row.get(4)?;
-            state.entering_load += PitcherFatigue::recovered_load(
+            state.entering_load += PitcherFatigue::remaining_load(
                 earlier_pitches,
                 (current_date - previous_date).num_days(),
+                row.get(6)?,
+                reference_pitches,
             );
         }
     }
@@ -85,9 +87,10 @@ pub(super) fn load_before_game(
         return Ok(loads);
     }
     let mut query = conn.prepare_cached(
-        "SELECT w.player_id,w.pitches,g.actual_date
+        "SELECT w.player_id,w.pitches,g.actual_date,w.reference_pitches,COALESCE(s.stamina,0.0)
          FROM player_info p JOIN game_pitcher_workload w ON w.player_id=p.id
          JOIN game g ON g.id=w.game_id
+         LEFT JOIN pitcher_info s ON s.player_id=w.player_id
          WHERE p.team_id IN (?1,?2) AND (g.actual_date,COALESCE(g.seq,0),g.id)<(?3,?4,?5)
          ORDER BY w.player_id,g.actual_date,COALESCE(g.seq,0),g.id",
     )?;
@@ -102,7 +105,9 @@ pub(super) fn load_before_game(
         let player = row.get(0)?;
         let date: NaiveDate = row.get(2)?;
         let days = (game.planned_date - date).num_days();
-        *loads.entry(player).or_default() += PitcherFatigue::recovered_load(row.get(1)?, days);
+        let current_reference = PitcherFatigue::reference_pitches(row.get(4)?);
+        *loads.entry(player).or_default() +=
+            PitcherFatigue::remaining_load(row.get(1)?, days, row.get(3)?, current_reference);
     }
     Ok(loads)
 }
@@ -125,6 +130,7 @@ fn table_exists(conn: &Connection) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::shared::{game::GameType, stadium::Stadium, team::Team};
 
     #[test]
     fn workload_uses_committed_pitches_and_game_dates() {
@@ -168,7 +174,6 @@ mod tests {
         assert_eq!(load_game(&conn, 3).unwrap()[&7].entering_load, 80.0);
         assert_eq!(load_game(&conn, 4).unwrap()[&7].entering_load, 22.5);
 
-        use crate::domain::shared::{game::GameType, stadium::Stadium, team::Team};
         let schedule = GameSchedule {
             id: 3,
             season: 2026,
@@ -196,5 +201,61 @@ mod tests {
         assert_eq!(load_game(&conn, 4).unwrap()[&7].entering_load, 22.5);
         clear(&conn).unwrap();
         assert!(load_game(&conn, 4).unwrap().is_empty());
+    }
+
+    #[test]
+    fn stamina_changes_pitch_cost_and_recovery_for_selection_and_replay() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE game(id INTEGER PRIMARY KEY, seq INTEGER, actual_date TEXT);
+             CREATE TABLE player_game_pitching(game_id INTEGER, pitcher_id INTEGER);
+             CREATE TABLE pitcher_info(player_id INTEGER PRIMARY KEY, stamina REAL);
+             CREATE TABLE player_info(id INTEGER PRIMARY KEY, team_id INTEGER);
+             INSERT INTO player_info VALUES (7,1),(8,2);
+             INSERT INTO pitcher_info VALUES (7,1.0),(8,-1.0);
+             INSERT INTO game VALUES (1,1,'2026-04-01'),(2,1,'2026-04-02');
+             WITH RECURSIVE pitches(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM pitches WHERE n<80)
+             INSERT INTO player_game_pitching
+                 SELECT 1,7 FROM pitches UNION ALL SELECT 1,8 FROM pitches
+                 UNION ALL SELECT 2,7 UNION ALL SELECT 2,8;",
+        )
+        .unwrap();
+        record_game(&conn, 1).unwrap();
+        let first = load_game(&conn, 1).unwrap();
+        assert_eq!(first[&7].leaving_ratio(), 80.0 / 115.0);
+        assert_eq!(first[&8].leaving_ratio(), 80.0 / 85.0);
+
+        let schedule = GameSchedule {
+            id: 2,
+            season: 2026,
+            round_seq: 1,
+            seq: 1,
+            planned_date: "2026-04-02".parse().unwrap(),
+            away_team: Team::min(1, "Away"),
+            home_team: Team::min(2, "Home"),
+            stadium: Stadium::default(),
+            game_type: GameType::Regular,
+            max_inning: 12,
+            base_four_seam_speed: 40.833,
+        };
+        let recovered_loads = load_before_game(&conn, &schedule).unwrap();
+        assert!((recovered_loads[&7] / 80.0 - 0.451).abs() < 0.001);
+        assert!((recovered_loads[&8] / 80.0 - 0.555).abs() < 0.001);
+
+        // A new stamina setting applies to new pitches. Historical fatigue
+        // keeps the cost and recovery rate saved when those pitches were thrown.
+        conn.execute("UPDATE pitcher_info SET stamina=0.0 WHERE player_id=7", [])
+            .unwrap();
+        let loads = load_before_game(&conn, &schedule).unwrap();
+        assert!((loads[&7] / 100.0 - recovered_loads[&7] / 115.0).abs() < 1e-12);
+        assert_eq!(loads[&8], recovered_loads[&8]);
+
+        record_game(&conn, 2).unwrap();
+        let next_day = load_game(&conn, 2).unwrap();
+        assert_eq!(next_day[&7].entering_load, loads[&7]);
+        assert_eq!(next_day[&8].entering_load, loads[&8]);
+        let new_pitch_cost = next_day[&7].leaving_ratio() - next_day[&7].entering_ratio();
+        assert!((new_pitch_cost - 0.01).abs() < 1e-12);
+        assert_eq!(load_game(&conn, 1).unwrap(), first);
     }
 }
