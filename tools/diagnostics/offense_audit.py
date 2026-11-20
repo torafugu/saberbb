@@ -15,13 +15,16 @@ AB_SQL = ','.join("'" + value + "'" for value in AB_RESULTS)
 PA_SQL = ','.join("'" + value + "'" for value in PA_RESULTS)
 
 
-def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batter_line=None):
+def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batter_line=None,
+          league_batting=False):
     """Never create, rebuild, or modify the supplied database or its caches."""
     uri = Path(path).expanduser().resolve().as_uri() + '?mode=ro'
     with sqlite3.connect(uri, uri=True, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA query_only=ON')
         conn.execute('BEGIN')  # Keep all report sections on one consistent read snapshot.
+        if league_batting:
+            return league_batting_audit(conn, season, limit)
         def rows(sql, args=()):
             return [dict(row) for row in conn.execute(sql, args)]
         args = (season,)
@@ -133,6 +136,142 @@ EV_EDGES = (20, 30, 35, 40, 45, 50)
 VLA_EDGES = (-10, 0, 10, 20, 30, 40, 50)
 FAIR_RESULTS = ('Single', 'Double', 'Triple', 'HomeRun', 'Out', 'FieldersChoice', 'DoublePlay')
 FAIR_SQL = ','.join(f"'{result}'" for result in FAIR_RESULTS)
+NON_HR_HITS = ('Single', 'Double', 'Triple')
+IN_PLAY_RESULTS = (*NON_HR_HITS, 'Out', 'FieldersChoice', 'DoublePlay')
+FAIR_TRAJECTORIES = ('InField', 'HomeRun', 'GroundRuleDouble')
+VLA_TYPES = ('Grounder', 'Liner', 'Fly', 'PopUp')
+VLA_TYPE_EDGES = (10, 25, 50)
+
+
+def rate(numerator, denominator):
+    return numerator / denominator if denominator else None
+
+
+def league_batting_audit(conn, season, limit):
+    completed_regular = "game_type='Regular' AND actual_date!='1900-01-01'"
+    if season is None:
+        season = conn.execute(f'SELECT MAX(season) FROM game WHERE {completed_regular}').fetchone()[0]
+    games = conn.execute(f'''
+        SELECT id, away_team_id, home_team_id FROM game WHERE season=? AND {completed_regular}
+    ''', (season,)).fetchall()
+    if not games:
+        raise ValueError('no completed regular-season games in scope')
+    team_games = Counter(team for game in games for team in (game['away_team_id'], game['home_team_id']))
+    players = {row['id']: dict(row) for row in conn.execute(
+        'SELECT id, team_id, first_name, last_name FROM player_info'
+    )}
+    batters = defaultdict(Counter)
+    batted_balls = defaultdict(Counter)
+    grid = defaultdict(Counter)
+    power = Counter()
+    games_with_logs = set()
+    for play in conn.execute(f'''
+        SELECT b.game_id, b.batter_id, b.result, b.launch_speed, b.launch_angle, b.outbound_result,
+               b.first_bounce_time, b.fence_impact_time, f.time_to_field,
+               CASE WHEN b.result='Out' AND (
+                   SELECT r.event FROM player_game_running r
+                   WHERE r.game_id=b.game_id AND r.count_seq=b.count_seq ORDER BY r.seq DESC LIMIT 1
+               )='TagUp' THEN EXISTS (
+                   SELECT 1 FROM count c WHERE c.game_id=b.game_id AND c.seq=b.count_seq AND c.point>0
+               ) ELSE 0 END AS sacrifice_fly
+        FROM game g JOIN player_game_batting b ON b.game_id=g.id
+        LEFT JOIN player_game_fielding f ON f.game_id=b.game_id AND f.count_seq=b.count_seq AND f.seq=1
+        WHERE g.season=? AND {completed_regular} AND b.result IN ({PA_SQL})
+    ''', (season,)):
+        games_with_logs.add(play['game_id'])
+        pid, result = play['batter_id'], play['result']
+        batters[pid][result] += 1
+        batters[pid]['sf'] += play['sacrifice_fly']
+        ev, vla = play['launch_speed'], play['launch_angle']
+        measured = ev is not None and ev > 0 and vla is not None and play['outbound_result'] in FAIR_TRAJECTORIES
+        if result in IN_PLAY_RESULTS:
+            kind = VLA_TYPES[bisect_right(VLA_TYPE_EDGES, vla)] if measured else 'Unknown'
+            batted_balls[pid][kind, result] += 1
+        if result in FAIR_RESULTS and measured:
+            grid[bisect_right(EV_EDGES, ev), bisect_right(VLA_EDGES, vla)][result] += 1
+            if in_power_window(ev, vla):
+                power['fair_contacts'] += 1
+                power['home_runs'] += result == 'HomeRun'
+                power['trajectory_home_runs'] += play['outbound_result'] == 'HomeRun'
+                if result != 'HomeRun' and airborne_wall_impact(play):
+                    power['airborne_wall_impacts'] += 1
+                    power['airborne_wall_impacts_without_fielding_time'] += play['time_to_field'] is None
+    if not games_with_logs:
+        raise ValueError(f'no terminal batting logs for completed regular-season games in {season}')
+
+    qualified = []
+    qualified_without_ab = 0
+    totals, league_balls = Counter(), Counter()
+    for pid, counts in batters.items():
+        totals.update(counts)
+        league_balls.update(batted_balls[pid])
+        team = team_games[players.get(pid, {}).get('team_id')]
+        minimum = (31 * team + 5) // 10
+        line = league_batting_line(counts, batted_balls[pid])
+        if not team or line['pa'] < minimum:
+            continue
+        if not line['ab']:
+            qualified_without_ab += 1
+            continue
+        qualified.append(dict(player=players[pid], team_games=team, minimum_pa=minimum, **line))
+    qualified.sort(key=lambda line: (-line['ba'], line['player']['id']))
+    top = qualified[:limit]
+    top_totals, top_balls = Counter(), Counter()
+    for line in top:
+        pid = line['player']['id']
+        top_totals.update(batters[pid])
+        top_balls.update(batted_balls[pid])
+
+    fair_contacts = sum(counts.total() for counts in grid.values())
+    return dict(
+        scope=dict(season=season, completed_regular_games=len(games), games_with_terminal_batting_logs=len(games_with_logs)),
+        definitions=dict(
+            qualification='3.1 PA per completed regular-season game of the current team, rounded to the nearest whole PA (halves up), matching GUI.',
+            batting_stats='Terminal batting logs. An Out with a final TagUp event and a run scored is a sacrifice fly, as in the batting cache.',
+            babip='(H - HR) / (AB - K - HR + SF). Includes sacrifice flies and balls without recorded launch measurements.',
+            launch_angle_types='Measured fair balls in play only: Grounder <10°, Liner [10°,25°), Fly [25°,50°), PopUp >=50°. Uses saved launch angle without spin correction. Unknown counts plays without usable measurements.',
+            power_window='Measured fair contact with EV >=40 m/s and VLA [20°,50°). Wall impact must precede first bounce and occur by first fielding when the fielding time is known. Saved logs do not record fence-crossing height.',
+        ),
+        qualified_batters=len(qualified) + qualified_without_ab,
+        qualified_without_at_bats=qualified_without_ab,
+        qualified_batting_avg_counts={
+            'at_least_500': sum(line['ba'] >= 0.500 for line in qualified),
+            '400_to_under_500': sum(0.400 <= line['ba'] < 0.500 for line in qualified),
+        },
+        max_home_runs=max(counts['HomeRun'] for counts in batters.values()),
+        league=league_batting_line(totals, league_balls),
+        top_qualified=top,
+        top_qualified_pool=league_batting_line(top_totals, top_balls),
+        league_power=dict(
+            measured_fair_contacts=fair_contacts,
+            **{key: power[key] for key in ('fair_contacts', 'home_runs', 'trajectory_home_runs',
+                                           'airborne_wall_impacts', 'airborne_wall_impacts_without_fielding_time')},
+            window_share_of_measured_fair=rate(power['fair_contacts'], fair_contacts),
+            home_runs_per_window_contact=rate(power['home_runs'], power['fair_contacts']),
+        ),
+        league_ev_vla=ev_vla_grid(grid),
+    )
+
+
+def league_batting_line(counts, batted_balls):
+    ab = sum(counts[result] for result in AB_RESULTS) - counts['sf']
+    non_hr_hits = sum(counts[result] for result in NON_HR_HITS)
+    hr, k = counts['HomeRun'], counts['Strikeout']
+    hits = non_hr_hits + hr
+    bip = ab - k - hr + counts['sf']
+    by_type = {}
+    for kind in (*VLA_TYPES, 'Unknown'):
+        results = {result: batted_balls[kind, result] for result in IN_PLAY_RESULTS}
+        balls = sum(results.values())
+        type_hits = sum(results[result] for result in NON_HR_HITS)
+        by_type[kind] = dict(balls=balls, hits=type_hits, hit_rate=rate(type_hits, balls), outcomes=results)
+    return dict(
+        pa=sum(counts[result] for result in PA_RESULTS),
+        ab=ab, hits=hits, ba=rate(hits, ab), strikeouts=k, strikeouts_per_ab=rate(k, ab),
+        singles=counts['Single'], doubles=counts['Double'], triples=counts['Triple'], hr=hr,
+        sacrifice_flies=counts['sf'], balls_in_play=bip, babip=rate(non_hr_hits, bip),
+        bip_by_launch_angle=by_type,
+    )
 
 
 def compare_batters(conn, season, limit, players, batter_id, batter_line):
@@ -277,9 +416,6 @@ def batting_profile(records):
         return dict(n=n, mean=sum(values) / n, p50=values[(50*n - 1)//100],
                     p90=values[(90*n - 1)//100], p95=values[(95*n - 1)//100], max=values[-1])
 
-    def rate(num, denom):
-        return num / denom if denom else None
-
     return dict(
         **{key: counts[key] for key in ('pitches','pa','swings','contacts','fair_contacts','hr','strikeouts',
                                        'inferred_swing_decisions','unknown_swing_decisions','hr_with_prior_bounce',
@@ -311,6 +447,28 @@ def outcomes(counts):
     return {result: counts[result] for result in FAIR_RESULTS}
 
 
+def ev_vla_grid(grid):
+    return [
+        dict(ev_ms=bands(EV_EDGES, ev), vla_deg=bands(VLA_EDGES, vla), fair_contacts=counts.total(),
+             home_run_rate=counts['HomeRun'] / counts.total(), outcomes=outcomes(counts))
+        for (ev, vla), counts in sorted(grid.items())
+    ]
+
+
+def in_power_window(ev, vla):
+    return ev >= 40 and 20 <= vla < 50
+
+
+def wall_before_fielding(hit):
+    wall_time, field_time = hit['fence_impact_time'], hit['time_to_field']
+    return wall_time is not None and (field_time is None or wall_time <= field_time)
+
+
+def airborne_wall_impact(hit):
+    bounce_time = hit['first_bounce_time']
+    return wall_before_fielding(hit) and (bounce_time is None or hit['fence_impact_time'] < bounce_time)
+
+
 def extra_base_audit(conn, season):
     """Use first fielding and ordinary batted-ball running rows, one row per play."""
     grid = defaultdict(Counter)
@@ -340,26 +498,24 @@ def extra_base_audit(conn, season):
         grid[bisect_right(EV_EDGES, ev), bisect_right(VLA_EDGES, vla)][result] += 1
 
         field_time = hit['time_to_field']
-        wall_time = hit['fence_impact_time']
         bounce_time = hit['first_bounce_time']
-        wall_before_fielding = wall_time is not None and (field_time is None or wall_time <= field_time)
         deep_gap = (
             hit['first_bounce_distance'] is not None and hit['first_bounce_distance'] >= 75
             and hit['first_bounce_angle'] is not None and 8 <= abs(hit['first_bounce_angle']) < 18
             and bounce_time is not None and (field_time is None or bounce_time <= field_time)
         )
-        if ev >= 40 and 20 <= vla < 50:
+        if in_power_window(ev, vla):
             flight['fair_contacts'] += 1
             if result == 'HomeRun':
                 flight['home_runs'] += 1
-            elif wall_before_fielding and (bounce_time is None or wall_time < bounce_time):
+            elif airborne_wall_impact(hit):
                 flight['airborne_wall_impacts'] += 1
 
         if result == 'HomeRun':
             continue
         if hit['outbound_result'] == 'GroundRuleDouble':
             location = 'ground_rule_double'
-        elif wall_before_fielding:
+        elif wall_before_fielding(hit):
             location = 'wall_impact'
         elif deep_gap:
             location = 'deep_gap_first_bounce'
@@ -383,11 +539,7 @@ def extra_base_audit(conn, season):
             deep_gap_first_bounce='First bounce at least 75 m from home and absolute spray angle [8,18) degrees, at or before first recorded fielding when present. Uses nominal gap sectors, not dynamic fielder positions.',
             timing='First fielding time and first GrounderPlay defense time. Batter target time is only recorded when the throw targets the batter; it is grouped by actual target base. Missing observations are omitted. These logs do not record the batter’s unattempted base-arrival times or fence-crossing height.',
         ),
-        ev_vla=[
-            dict(ev_ms=bands(EV_EDGES, ev), vla_deg=bands(VLA_EDGES, vla), fair_contacts=counts.total(),
-                 home_run_rate=counts['HomeRun'] / counts.total(), outcomes=outcomes(counts))
-            for (ev, vla), counts in sorted(grid.items())
-        ],
+        ev_vla=ev_vla_grid(grid),
         power_window={key: flight[key] for key in ('fair_contacts', 'home_runs', 'airborne_wall_impacts')},
         conversion=[
             dict(location=location, fielding=fielding, balls=counts.total(), outcomes=outcomes(counts))
@@ -403,21 +555,26 @@ def extra_base_audit(conn, season):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--season', type=int, help='Omit to audit all seasons, matching the career batting display')
+    parser.add_argument('--season', type=int, help='Defaults to the latest completed regular season with --league-batting, otherwise all seasons')
     parser.add_argument('--extra-base', action='store_true', help='Include saved fair-contact and extra-base conversion diagnostics')
     parser.add_argument('--top', type=int, default=10)
     target = parser.add_mutually_exclusive_group()
     target.add_argument('--batter-id', type=int, help='Compare this batter with the --top current teammates by PA')
     target.add_argument('--batter-line', type=int, nargs=2, metavar=('PA', 'HR'),
                         help='Select the batter by displayed PA and HR, then compare with teammates')
+    target.add_argument('--league-batting', action='store_true',
+                        help='Compare the --top qualified batting-average leaders with the league')
     options = parser.parse_args()
     if options.top < 1:
         parser.error('--top must be positive')
     if options.extra_base and (options.batter_id is not None or options.batter_line is not None):
         parser.error('--extra-base is only available in the league audit')
+    if options.extra_base and options.league_batting:
+        parser.error('--extra-base and --league-batting are independent reports; choose one')
     try:
         report = audit(db_from_env(), options.season, options.top, options.extra_base,
-                       batter_id=options.batter_id, batter_line=options.batter_line)
+                       batter_id=options.batter_id, batter_line=options.batter_line,
+                       league_batting=options.league_batting)
     except (ValueError, sqlite3.Error) as exc:
         parser.exit(1, f'offense audit failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))

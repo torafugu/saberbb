@@ -540,6 +540,24 @@ New batters retain their sampled swing speed up to 35.0 m/s. Above that
 point, the generator smoothly compresses samples toward 35.5 m/s. Stored
 player speeds are used as-is in games. The report opens `SABERBB_DB` read-only.
 
+To investigate a season with high batting averages and few home runs:
+
+```sh
+python3 tools/diagnostics/offense_audit.py --league-batting --season 2026 --top 9 > league_batting_2026.json
+```
+
+Omit `--season` to use the latest season with completed regular-season games,
+matching the GUI qualified batting filter. The audit reads the saved games and
+uses 3.1 PA per game played by a batter's current team, rounded to a whole PA.
+`league`, `top_qualified`, and `top_qualified_pool` report K/AB, BABIP, and
+in-play hit rates by saved launch-angle band. BABIP includes sacrifice flies.
+The launch-angle bands use the saved angle without spin correction. The pool
+and league rates use summed counts. `league_ev_vla` and `league_power` report how
+often high-EV batted balls occur and how often they become home runs or reach
+the wall in the air. Wall impacts with missing fielding time are counted
+separately within the wall-impact total. The report requires ordinary saved
+game logs and reads them without replaying games.
+
 For extra-base hit diagnostics on ordinary saved games:
 
 ```sh
