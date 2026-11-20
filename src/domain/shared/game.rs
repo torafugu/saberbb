@@ -5,6 +5,7 @@ use super::game_stats::{
     PlayerGamePitching, PlayerGamePitchingDecisionView, PlayerGamePitchingView, PlayerGameRunning,
     PlayerGameRunningView,
 };
+use super::pitcher_fatigue::PitcherFatigue;
 use super::team::Team;
 use crate::domain::resolver::fielding_physics::FieldingCatchDiagnostics;
 use crate::domain::resolver::fielding_resolver::{
@@ -20,6 +21,7 @@ use crate::domain::shared::player::Position;
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::t;
 use chrono::NaiveDate;
+use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum_macros::{AsRefStr, EnumString};
@@ -426,6 +428,8 @@ pub struct GameDetail {
     pub home_points: u8,
     pub player_entries: Vec<PlayerGameEntryView>,
     pub player_pitchings: Vec<PlayerGamePitchingView>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pitcher_fatigue: BTreeMap<i64, PitcherFatigue>,
     pub player_pitching_decisions: Vec<PlayerGamePitchingDecisionView>,
     pub player_home_runs: Vec<PlayerGameHomeRunView>,
     pub player_battings: Vec<PlayerGameBattingView>,

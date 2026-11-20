@@ -1,3 +1,4 @@
+use super::pitcher_fatigue::PitcherFatigue;
 use super::game::{BattingResult, Count, GameDetail, Inning, TB};
 use super::game_stats::{
     PlayerGameBattingView, PlayerGamePitchingDecisionView, PlayerGamePitchingView,
@@ -105,6 +106,10 @@ impl GameCursor {
         let count_seq = inning.counts.iter().map(|count| count.seq).min()?;
 
         Some((inning.seq, inning.tb, count_seq))
+    }
+
+    pub fn pitcher_fatigue(&self, player_id: i64) -> Option<&PitcherFatigue> {
+        self.game.pitcher_fatigue.get(&player_id)
     }
 
     pub fn game_type(&self) -> String {
@@ -876,6 +881,7 @@ mod tests {
             home_points: 0,
             player_entries: Vec::new(),
             player_pitchings: Vec::new(),
+            pitcher_fatigue: Default::default(),
             player_pitching_decisions: Vec::new(),
             player_home_runs: Vec::new(),
             player_battings: Vec::new(),

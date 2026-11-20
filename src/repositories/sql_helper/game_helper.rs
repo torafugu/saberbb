@@ -272,6 +272,7 @@ impl FromRow for GameDetail {
             home_points: row.get("home_points")?,
             player_entries: Vec::new(),
             player_pitchings: Vec::new(),
+            pitcher_fatigue: Default::default(),
             player_pitching_decisions: Vec::new(),
             player_home_runs: Vec::new(),
             player_battings: Vec::new(),

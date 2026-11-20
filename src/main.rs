@@ -129,6 +129,7 @@ fn reset_season(conn: &mut rusqlite::Connection, year: i32) -> Result<()> {
          DELETE FROM player_game_contact_state;
          DELETE FROM player_game_pitching_decision;",
     )?;
+    saberbb::repositories::pitcher_workload::clear(&tx)?;
     saberbb::repositories::stat_cache::clear(&tx)?;
     tx.execute("UPDATE game_season SET current_season = ?1", [year])?;
     tx.execute("UPDATE game_season SET scheduled_season = ?1", [year - 1])?;
@@ -202,7 +203,7 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
 
-    const GAME_TABLES: [&str; 11] = [
+    const GAME_TABLES: [&str; 12] = [
         "count",
         "inning",
         "game",
@@ -214,6 +215,7 @@ mod tests {
         "player_game_pitching",
         "player_game_contact_state",
         "player_game_pitching_decision",
+        "game_pitcher_workload",
     ];
 
     fn populated_database() -> Connection {

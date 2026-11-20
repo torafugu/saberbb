@@ -14,3 +14,5 @@ mod batting_stat_cache;
 mod pitching_stat_cache;
 
 pub mod team_stat_cache;
+
+pub mod pitcher_workload;
