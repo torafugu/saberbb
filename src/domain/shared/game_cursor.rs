@@ -622,23 +622,26 @@ impl GameCursor {
             .player_entries
             .iter()
             .filter(|entry| entry.team_id == team_id)
-            .filter(|entry| entry.start_count_seq == 1)
+            .filter(|entry| entry.start_count_seq <= self.count_seq)
             .filter(|entry| entry.batting_order > 0)
             .map(|entry| {
                 (
                     entry.player.id,
-                    BatterGameStatView {
-                        team_id,
-                        batting_order: entry.batting_order,
-                        position: entry.position,
-                        player: entry.player.clone(),
-                        plate_appearances: 0,
-                        at_bats: 0,
-                        hits: 0,
-                        doubles: 0,
-                        triples: 0,
-                        home_runs: 0,
-                    },
+                    (
+                        entry.start_count_seq,
+                        BatterGameStatView {
+                            team_id,
+                            batting_order: entry.batting_order,
+                            position: entry.position,
+                            player: entry.player.clone(),
+                            plate_appearances: 0,
+                            at_bats: 0,
+                            hits: 0,
+                            doubles: 0,
+                            triples: 0,
+                            home_runs: 0,
+                        },
+                    ),
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -649,7 +652,7 @@ impl GameCursor {
             .iter()
             .filter(|batting| batting.count_seq <= self.count_seq)
         {
-            let Some(stat) = stats.get_mut(&batting.batter.id) else {
+            let Some((_, stat)) = stats.get_mut(&batting.batter.id) else {
                 continue;
             };
 
@@ -698,8 +701,8 @@ impl GameCursor {
         }
 
         let mut rows = stats.into_values().collect::<Vec<_>>();
-        rows.sort_by_key(|row| row.batting_order);
-        rows
+        rows.sort_by_key(|(entry, row)| (row.batting_order, *entry, row.player.id));
+        rows.into_iter().map(|(_, row)| row).collect()
     }
 
     pub fn current_pitching_stats_for_team(&self, team_id: u16) -> Vec<PitcherGameStatView> {

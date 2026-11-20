@@ -6,9 +6,10 @@ use crate::domain::shared::game_state::{
 };
 use crate::domain::shared::player::Player;
 use crate::domain::shared::stadium::MOUND_DISTANCE;
+use crate::domain::strategy::position_player_usage::lineup_score;
 use crate::domain::util::PolarPosition;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use validator::Validate;
 
@@ -26,8 +27,8 @@ pub struct League {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Validate)]
 pub struct Team {
-    #[serde(default,skip_serializing_if="Option::is_none")]
-    pub manager:Option<super::batting_personnel::Manager>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manager: Option<super::batting_personnel::Manager>,
     pub id: u16,
     pub name: Arc<str>,
     pub players: Vec<Player>,
@@ -35,7 +36,7 @@ pub struct Team {
 impl Team {
     pub fn min(id: u16, name: &str) -> Self {
         Self {
-            manager:None,
+            manager: None,
             id: id,
             name: name.into(),
             players: Vec::new(),
@@ -43,13 +44,14 @@ impl Team {
     }
 
     pub fn lineup(&mut self, rng: &mut dyn RandomProvider) -> Result<Lineup, GameError> {
-        self.lineup_with_starter(rng, None)
+        self.select_lineup(rng, None, None)
     }
 
-    pub(crate) fn lineup_with_starter(
+    pub(crate) fn select_lineup(
         &self,
         rng: &mut dyn RandomProvider,
         starter: Option<i64>,
+        fatigue: Option<&BTreeMap<i64, f64>>,
     ) -> Result<Lineup, GameError> {
         let mut players = Vec::new();
 
@@ -73,53 +75,19 @@ impl Team {
                 return Err(GameError::NoPlayerFor(position.to_string()));
             }
 
-            // TODO: Consider player ability to select the lineup
-            let random_player = match starter.filter(|_| position == Position::P) {
-                Some(id) => vec.iter().find(|player| player.info.id == id).copied()
-                    .ok_or_else(|| GameError::Lineup(format!("Starting pitcher {id} is not on the roster")))?,
-                None => vec[rng.gen_range(0, vec.len() - 1)],
+            let selected = match starter.filter(|_| position == Position::P) {
+                Some(id) => vec
+                    .iter()
+                    .find(|player| player.info.id == id)
+                    .copied()
+                    .ok_or_else(|| {
+                        GameError::Lineup(format!("Starting pitcher {id} is not on the roster"))
+                    })?,
+                None => select_player(&vec, position, fatigue, rng),
             };
-            selected_player_ids.push(random_player.info.id);
+            selected_player_ids.push(selected.info.id);
 
-            // TODO: Move to team pameter. (It should be set in FieldingStrategy, originally.)
-            let polar_position = match position {
-                Position::P => PolarPosition::new(MOUND_DISTANCE, 0.0),
-                Position::C => PolarPosition::new(0.0, 0.0),
-                Position::FB => PolarPosition::new(35.0, 33.0),
-                Position::SB => PolarPosition::new(40.0, 18.0),
-                Position::TB => PolarPosition::new(35.0, -33.0),
-                Position::SS => PolarPosition::new(40.0, -18.0),
-                Position::RF => PolarPosition::new(80.0, 26.0),
-                Position::CF => PolarPosition::new(90.0, 0.0),
-                Position::LF => PolarPosition::new(80.0, -26.0),
-                Position::DH => {
-                    return Err(GameError::Lineup("No polar position for DH".to_string()));
-                }
-            };
-
-            players.push(ActivePlayer {
-                id: random_player.info.id,
-                batting_order: None,
-                batter: if position != Position::P {
-                    Some(random_player.batter()?)
-                } else {
-                    None
-                },
-                runner: random_player.runner(),
-                fielding_position: Some(position),
-                fielder: Some(random_player.fielder()?),
-                polar_position: Some(polar_position),
-                pitcher: if position == Position::P {
-                    Some(random_player.pitcher()?)
-                } else {
-                    None
-                },
-                catcher: if position == Position::C {
-                    Some(random_player.catcher()?)
-                } else {
-                    None
-                },
-            });
+            players.push(player_in_role(selected, position, None)?);
         }
 
         let dedicated_dh_candidates = self
@@ -134,7 +102,7 @@ impl Team {
             .filter(|player| player.defense_skills.position != Position::P)
             .filter(|player| player.offense_skills.batter.is_some())
             .collect::<Vec<_>>();
-        let dh_candidates = if dedicated_dh_candidates.is_empty() {
+        let dh_candidates = if fatigue.is_some() || dedicated_dh_candidates.is_empty() {
             bench_batter_candidates
         } else {
             dedicated_dh_candidates
@@ -143,22 +111,10 @@ impl Team {
         if dh_candidates.is_empty() {
             return Err(GameError::NoPlayerFor(Position::DH.to_string()));
         }
+        let dh = select_player(&dh_candidates, Position::DH, fatigue, rng);
+        players.push(player_in_role(dh, Position::DH, None)?);
 
-        let index = rng.gen_range(0, dh_candidates.len() - 1);
-        let dh_player = dh_candidates[index];
-        players.push(ActivePlayer {
-            id: dh_player.info.id,
-            batting_order: None,
-            batter: Some(dh_player.batter()?),
-            runner: dh_player.runner(),
-            fielding_position: None,
-            fielder: None,
-            polar_position: None,
-            pitcher: None,
-            catcher: None,
-        });
-
-        // TODO: The batting order should be considered by team starategy.
+        // Batting order continues to use swing speed.
         let mut batter_ids: Vec<(i64, f64)> = players
             .iter()
             .filter_map(|player| Some((player.id, player.batter.as_ref()?.swing_speed)))
@@ -170,7 +126,7 @@ impl Team {
             }
         }
 
-        Ok(Lineup::new(players)?)
+        Lineup::new(players)
     }
 
     fn init_position_hashmap(&self) -> HashMap<Position, Vec<&Player>> {
@@ -180,6 +136,88 @@ impl Team {
         }
         map
     }
+}
+
+fn select_player<'a>(
+    candidates: &[&'a Player],
+    role: Position,
+    fatigue: Option<&BTreeMap<i64, f64>>,
+    rng: &mut dyn RandomProvider,
+) -> &'a Player {
+    if let Some(loads) = fatigue.filter(|_| role != Position::P) {
+        let score = |player: &Player| {
+            lineup_score(
+                player,
+                role,
+                loads.get(&player.info.id).copied().unwrap_or_default(),
+            )
+        };
+        return candidates
+            .iter()
+            .copied()
+            .max_by(|a, b| {
+                score(a)
+                    .total_cmp(&score(b))
+                    .then_with(|| b.info.id.cmp(&a.info.id))
+            })
+            .expect("lineup candidates were checked");
+    }
+    candidates[rng.gen_range(0, candidates.len() - 1)]
+}
+
+fn player_in_role(
+    player: &Player,
+    position: Position,
+    batting_order: Option<u8>,
+) -> Result<ActivePlayer, GameError> {
+    let polar_position = match position {
+        Position::P => PolarPosition::new(MOUND_DISTANCE, 0.0),
+        Position::C => PolarPosition::new(0.0, 0.0),
+        Position::FB => PolarPosition::new(35.0, 33.0),
+        Position::SB => PolarPosition::new(40.0, 18.0),
+        Position::TB => PolarPosition::new(35.0, -33.0),
+        Position::SS => PolarPosition::new(40.0, -18.0),
+        Position::RF => PolarPosition::new(80.0, 26.0),
+        Position::CF => PolarPosition::new(90.0, 0.0),
+        Position::LF => PolarPosition::new(80.0, -26.0),
+        Position::DH | Position::PH => {
+            return Ok(ActivePlayer {
+                id: player.info.id,
+                batting_order,
+                batter: Some(player.batter()?),
+                runner: player.runner(),
+                fielding_position: None,
+                fielder: None,
+                polar_position: None,
+                pitcher: None,
+                catcher: None,
+            });
+        }
+    };
+
+    Ok(ActivePlayer {
+        id: player.info.id,
+        batting_order,
+        batter: if position != Position::P {
+            Some(player.batter()?)
+        } else {
+            None
+        },
+        runner: player.runner(),
+        fielding_position: Some(position),
+        fielder: Some(player.fielder()?),
+        polar_position: Some(polar_position),
+        pitcher: if position == Position::P {
+            Some(player.pitcher()?)
+        } else {
+            None
+        },
+        catcher: if position == Position::C {
+            Some(player.catcher()?)
+        } else {
+            None
+        },
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -250,7 +288,9 @@ impl Lineup {
     }
 
     pub(crate) fn replace_pitcher(&mut self, player: &Player) -> Result<i64, GameError> {
-        let slot = self.players.iter_mut()
+        let slot = self
+            .players
+            .iter_mut()
             .find(|entry| entry.fielding_position == Some(Position::P))
             .ok_or_else(|| GameError::Lineup("Lineup must have pitcher.".to_string()))?;
         let outgoing = slot.id;
@@ -269,6 +309,37 @@ impl Lineup {
             .iter()
             .find_map(ActivePlayer::active_catcher)
             .ok_or_else(|| GameError::Lineup("Lineup must have catcher.".to_string()))
+    }
+
+    pub(crate) fn next_position_player(&self) -> Option<&ActivePlayer> {
+        let order = self.current_index + 1;
+        self.players
+            .iter()
+            .find(|p| p.batting_order.map(usize::from) == Some(order))
+    }
+
+    pub(crate) fn replace_position_player(
+        &mut self,
+        outgoing: i64,
+        replacement: &Player,
+        role: Position,
+    ) -> Result<u8, GameError> {
+        if !matches!(role, Position::DH | Position::PH)
+            && replacement.defense_skills.position != role
+        {
+            return Err(GameError::Lineup(format!(
+                "Player {} cannot play {role}",
+                replacement.info.id
+            )));
+        }
+        let slot = self
+            .players
+            .iter_mut()
+            .find(|p| p.id == outgoing && p.is_batter())
+            .ok_or_else(|| GameError::Lineup(format!("No batting slot for {outgoing}")))?;
+        let order = slot.batting_order.expect("batting slot was checked");
+        *slot = player_in_role(replacement, role, Some(order))?;
+        Ok(order)
     }
 
     pub fn next(&mut self) -> Result<ActiveBatter, GameError> {
@@ -292,7 +363,7 @@ mod tests {
 
     fn team_with_positions(positions: Vec<Position>) -> Team {
         Team {
-            manager:None,
+            manager: None,
             id: 1,
             name: "Test".into(),
             players: positions

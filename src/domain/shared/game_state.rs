@@ -35,7 +35,7 @@ use crate::domain::strategy::pitching_strategy::{
     PitchCall, PitchEvaluationContext, catcher_preferences, pitcher_preferences,
     reconcile_pitch_call_proposals, select_pitching_strategy,
 };
-use crate::domain::util::PolarPosition;
+use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::error::AppError;
 use crate::t;
 use serde::{Deserialize, Serialize};
@@ -474,6 +474,7 @@ pub enum GameProgress {
 pub struct GameState {
     /// Collect detailed contact diagnostics only for analysis runs.
     pub record_contact_states: bool,
+    pub(crate) track_position_player_workload: bool,
     pub away_manager:Option<super::batting_personnel::Manager>,
     pub home_manager:Option<super::batting_personnel::Manager>,
     pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
@@ -501,20 +502,27 @@ impl GameState {
         rng: Box<dyn RandomProvider>,
         game_schedule: GameSchedule,
     ) -> Result<Self, GameError> {
-        Self::with_starters(rng, &game_schedule, None, None)
+        Self::with_lineup_policy(rng, &game_schedule, [None, None], None)
     }
 
-    pub(crate) fn with_starters(
+    pub(crate) fn with_lineup_policy(
         mut rng: Box<dyn RandomProvider>,
         game_schedule: &GameSchedule,
-        away_starter: Option<i64>,
-        home_starter: Option<i64>,
+        starters: [Option<i64>; 2],
+        fatigue: Option<&std::collections::BTreeMap<i64, f64>>,
     ) -> Result<Self, GameError> {
-        let away_lineup = game_schedule.away_team.lineup_with_starter(rng.as_mut(), away_starter)?;
-        let home_lineup = game_schedule.home_team.lineup_with_starter(rng.as_mut(), home_starter)?;
+        let away_lineup =
+            game_schedule
+                .away_team
+                .select_lineup(rng.as_mut(), starters[0], fatigue)?;
+        let home_lineup =
+            game_schedule
+                .home_team
+                .select_lineup(rng.as_mut(), starters[1], fatigue)?;
 
         Ok(GameState {
             record_contact_states: false,
+            track_position_player_workload: fatigue.is_some(),
             away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
             batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
             batting_strategy_settings: BattingStrategySettings::player_driven(),
@@ -646,6 +654,40 @@ impl GameState {
         } else {
             self.away_lineup.catcher()
         }
+    }
+
+    pub(crate) fn change_position_player(
+        &mut self,
+        home: bool,
+        outgoing: i64,
+        replacement: &super::player::Player,
+        role: Position,
+    ) -> Result<(), GameError> {
+        if self
+            .game_result
+            .player_entries
+            .iter()
+            .any(|entry| entry.player_id == replacement.info.id)
+        {
+            return Err(GameError::Lineup(format!(
+                "Player {} has already appeared",
+                replacement.info.id
+            )));
+        }
+        let lineup = if home {
+            &mut self.home_lineup
+        } else {
+            &mut self.away_lineup
+        };
+        let order = lineup.replace_position_player(outgoing, replacement, role)?;
+        self.game_result.record_lineup_change(
+            outgoing,
+            replacement.info.id,
+            role,
+            order,
+            self.count_seq,
+        );
+        Ok(())
     }
 
     pub fn current_batter(&mut self) -> Result<ActiveBatter, GameError> {
@@ -815,6 +857,17 @@ impl GameState {
                 .runners
                 .after_tagup(&defense_play_result)?;
 
+            if self.track_position_player_workload {
+                let work = &mut self.game_result.position_player_workloads;
+                work.entry(ctx.try_catch_fielder.id).or_default().fielding += 0.012;
+                if let Some(cutoff) = defense_play_result.cutoff_fielder_id {
+                    work.entry(cutoff).or_default().fielding += 0.012;
+                }
+                if let Some(runner) = runner_advance_result.target_runner {
+                    work.entry(runner.id).or_default().running += 0.012;
+                }
+            }
+
             self.game_result.add_player_running(
                 self.count_seq,
                 1,
@@ -859,7 +912,8 @@ impl GameState {
     // TODO: stolen base should cover hit-and-run case
     fn try_steal_base(&mut self) -> Result<Ruling, GameError> {
         let pitcher = self.current_pitcher()?.pitcher.clone();
-        let catcher = self.current_catcher()?.catcher;
+        let active_catcher = self.current_catcher()?;
+        let catcher = active_catcher.catcher;
         let steal_defense_play_result =
             evaluate_base_stealing(Base::Second, &pitcher, &catcher, self.rng.as_mut());
 
@@ -872,6 +926,14 @@ impl GameState {
             .inning_state
             .runners
             .after_base_stealing(steal_defense_play_result)?;
+
+        if self.track_position_player_workload {
+            let work = &mut self.game_result.position_player_workloads;
+            work.entry(active_catcher.id).or_default().fielding += 0.018;
+            if let Some(runner) = steal_runner_advance_result.target_runner {
+                work.entry(runner.id).or_default().running += 0.018;
+            }
+        }
 
         info!(
             "Steal Runner Advance Result: {:#?}",
@@ -999,6 +1061,15 @@ impl GameState {
         );
 
         if let Some(double_play_defense_play_result) = double_play_defense_play_result {
+            if self.track_position_player_workload
+                && double_play_defense_play_result.thrower_fielder_position != Position::P
+            {
+                self.game_result
+                    .position_player_workloads
+                    .entry(double_play_defense_play_result.thrower_fielder_id)
+                    .or_default()
+                    .fielding += 0.012;
+            }
             self.game_result.add_player_fielding_from_double_play(
                 self.count_seq,
                 &double_play_defense_play_result,
@@ -1050,6 +1121,34 @@ impl GameState {
         point: u8,
         unsaved_runners: RunnersUnsaved,
     ) -> Result<(), GameError> {
+        if self.track_position_player_workload {
+            let bases = [Base::First, Base::Second, Base::Third];
+            let before = self.inning_state.runners.current_runners();
+            let after = bases.map(|base| unsaved_runners.runner_id_on(base));
+            let work = &mut self.game_result.position_player_workloads;
+            let mut scorers_left = point;
+            for (index, base) in bases.into_iter().enumerate().rev() {
+                if let Some(id) = before.runner_id_on(base) {
+                    let advanced =
+                        if let Some(next) = after.iter().position(|runner| *runner == Some(id)) {
+                            next.saturating_sub(index)
+                        } else if scorers_left > 0 {
+                            scorers_left -= 1;
+                            3 - index
+                        } else {
+                            1 // A retired runner still ran toward the next base.
+                        };
+                    if advanced > 0 {
+                        work.entry(id).or_default().running += 0.012 * advanced as f64;
+                    }
+                }
+            }
+            let bases_run = after
+                .iter()
+                .position(|runner| *runner == Some(batter_id))
+                .map_or(1, |base| base + 1);
+            work.entry(batter_id).or_default().running += 0.012 * bases_run as f64;
+        }
         self.inning_state
             .runners
             .commit_unsaved_runners(unsaved_runners);
@@ -1188,6 +1287,26 @@ impl GameState {
         let decision_count_seq = self.count_seq;
         let swing_execution = select_swing_execution(self.rng.as_mut(), swing_decision.score);
         swing_decision.swung = swing_execution == SwingExecution::Swing;
+        if self.track_position_player_workload {
+            let defense = if self.is_top() {
+                &self.home_lineup
+            } else {
+                &self.away_lineup
+            };
+            let work = &mut self.game_result.position_player_workloads;
+            for fielder in &defense.players {
+                match fielder.fielding_position {
+                    Some(Position::C) => work.entry(fielder.id).or_default().fielding += 0.0045,
+                    Some(role) if role != Position::P => {
+                        work.entry(fielder.id).or_default().fielding += 0.0018
+                    }
+                    _ => {}
+                }
+            }
+            if swing_decision.swung {
+                work.entry(batter_id).or_default().batting += 0.002;
+            }
+        }
 
         if swing_execution == SwingExecution::Take {
             self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
@@ -1492,6 +1611,20 @@ impl GameState {
     }
 
     fn record_fielding_candidates(&mut self, play: &FieldPlayPlayResult<'_>) {
+        if self.track_position_player_workload {
+            let work = &mut self.game_result.position_player_workloads;
+            for attempt in
+                std::iter::once(&play.primary_interception).chain(play.covering_interception.iter())
+            {
+                if attempt.fielder.position != Position::P {
+                    let target =
+                        PolarPosition::new(attempt.catch_distance_m, attempt.catch_spray_angle_deg);
+                    let distance =
+                        calculate_polar_distance(&attempt.fielder.polar_position, &target);
+                    work.entry(attempt.fielder.id).or_default().fielding += 0.0005 * distance;
+                }
+            }
+        }
         let count_seq = self.count_seq;
         self.game_result
             .player_fielding_candidates
@@ -1609,6 +1742,17 @@ impl GameState {
         let (defense_play_result, runner_advance_result) = self
             .try_right_field_first(&ctx, batting_side, catch_diagnostics, &runner_advance_result)?
             .unwrap_or((defense_play_result, runner_advance_result));
+        if self.track_position_player_workload
+            && defense_play_result.play_type != PlayType::CatchPlay
+        {
+            let work = &mut self.game_result.position_player_workloads;
+            if fielder.position != Position::P {
+                work.entry(fielder.id).or_default().fielding += 0.012;
+            }
+            if let Some(cutoff) = defense_play_result.cutoff_fielder_id {
+                work.entry(cutoff).or_default().fielding += 0.012;
+            }
+        }
         super::outfield_advance_audit::record(
             &ctx,
             self.game_result.id,

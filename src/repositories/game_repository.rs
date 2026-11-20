@@ -41,6 +41,12 @@ pub trait GameScheduleReader {
     fn load_pitcher_workload(&self, _game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
         Ok(Default::default())
     }
+    fn load_position_player_fatigue(
+        &self,
+        _game: &GameSchedule,
+    ) -> Result<BTreeMap<i64, f64>, AppError> {
+        Ok(Default::default())
+    }
     fn load_pitcher_season_stats(&self, _game: &GameSchedule) -> Result<SeasonPitchingStats, AppError> {
         Ok(SeasonPitchingStats::default())
     }
@@ -188,6 +194,7 @@ impl GameResultWriter for SqlGameRepository {
             }
 
             super::pitcher_workload::record_game(tx, game.id)?;
+            super::position_player_workload::record_game(tx, game)?;
             refresh_player_game_pitching_decisions(&self.db_client, tx, game.id)?;
             crate::repositories::stat_cache::refresh_game(tx,game.id).map_err(AppError::Internal)?;
 
@@ -299,6 +306,16 @@ impl GameScheduleReader for SqlGameRepository {
     fn load_pitcher_workload(&self, game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
         let conn = self.db_client.get_conn()?;
         Ok(super::pitcher_workload::load_before_game(&conn, game)?)
+    }
+
+    fn load_position_player_fatigue(
+        &self,
+        game: &GameSchedule,
+    ) -> Result<BTreeMap<i64, f64>, AppError> {
+        let conn = self.db_client.get_conn()?;
+        Ok(super::position_player_workload::load_before_game(
+            &conn, game,
+        )?)
     }
 
     fn load_pitcher_season_stats(&self, game: &GameSchedule) -> Result<SeasonPitchingStats, AppError> {
@@ -1849,6 +1866,7 @@ mod tests {
         seed_players(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
         let game = GameResult {
+            position_player_workloads: Default::default(),
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 4,
@@ -2028,6 +2046,7 @@ mod tests {
             ..filtered
         };
         let mut game = GameResult {
+            position_player_workloads: Default::default(),
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 1,
@@ -2257,6 +2276,7 @@ mod tests {
         seed_players(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
         let mut game = GameResult {
+            position_player_workloads: Default::default(),
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 1,
@@ -2352,6 +2372,7 @@ mod tests {
         seed_game(&repo, 1, 2026, 1, 1, None);
         let ended_history = PlayerGameEntry::new(1, Some(3), Position::P, 0, 1);
         let game = GameResult {
+            position_player_workloads: Default::default(),
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 0,
@@ -2412,6 +2433,7 @@ mod tests {
         seed_players(&repo);
         seed_game(&repo, 1, 2026, 1, 1, None);
         let game = GameResult {
+            position_player_workloads: Default::default(),
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 3,
@@ -2570,6 +2592,7 @@ mod tests {
             out: 0,
         };
         let game = GameResult {
+            position_player_workloads: Default::default(),
             id: 1,
             actual_date: "2026-04-01".parse().unwrap(),
             away_total_point: 4,

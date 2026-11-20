@@ -205,6 +205,7 @@ impl PairedSwing {
         let fence_audit = PairedFenceAudit::compare(live, flat, alternative)?;
         let mut replay = GameState {
             record_contact_states: false,
+            track_position_player_workload: false,
             away_manager: live.away_manager.clone(),
             home_manager: live.home_manager.clone(),
             batter_characters: live.batter_characters.clone(),
