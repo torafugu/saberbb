@@ -5,6 +5,24 @@ use crate::repositories::db::{DbClient, SqlDb};
 use anyhow::Result;
 use rusqlite::params;
 
+const COMPLETED_REGULAR_GAME: &str = "game_type='Regular' AND actual_date!='1900-01-01'";
+
+const BATTING_COLUMNS: &str =
+    "s.*,pi.first_name AS batter_first_name,pi.last_name AS batter_last_name,
+     COALESCE(ROUND(CAST((s.single+s.double+s.triple+s.homerun) AS REAL)/NULLIF(s.ab,0),3),0.0) AS ba";
+const PITCHING_COLUMNS: &str =
+    "s.*,pi.first_name AS pitcher_first_name,pi.last_name AS pitcher_last_name";
+
+pub(crate) fn latest_completed_regular_season(
+    conn: &rusqlite::Connection,
+) -> rusqlite::Result<Option<u16>> {
+    conn.query_row(
+        &format!("SELECT MAX(season) FROM game WHERE {COMPLETED_REGULAR_GAME}"),
+        [],
+        |row| row.get(0),
+    )
+}
+
 pub trait StatRepository {
     fn load_standings(&self) -> Result<Vec<Standing>, AppError>;
     fn load_season_standings(&self, season: u16) -> Result<Vec<Standing>, AppError>;
@@ -53,23 +71,92 @@ impl SqlStatRepository {
             LEFT JOIN pending p ON p.team_id=t.id
             ORDER BY pct DESC,wins DESC,t.id"),params![season])
     }
-    fn cached_batting(&self,team:Option<u16>)->Result<Vec<BattingStats>,AppError> {
+    fn cached_batting(&self, team: Option<u16>) -> Result<Vec<BattingStats>, AppError> {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
-            "SELECT s.player_id,pi.first_name AS batter_first_name,pi.last_name AS batter_last_name,
-             s.*,
-             COALESCE(ROUND(CAST((s.single+s.double+s.triple+s.homerun) AS REAL)/NULLIF(s.ab,0),3),0.0) AS ba
-             FROM batting_stat_totals s JOIN player_info pi ON pi.id=s.player_id
-             WHERE ?1 IS NULL OR pi.team_id=?1 ORDER BY s.player_id",params![team])
+            &format!("SELECT {BATTING_COLUMNS}
+              FROM batting_stat_totals s JOIN player_info pi ON pi.id=s.player_id
+              WHERE ?1 IS NULL OR pi.team_id=?1 ORDER BY s.player_id"),
+            params![team],
+        )
     }
-    fn cached_pitching(&self,team:Option<u16>)->Result<Vec<PitchingStats>,AppError> {
+
+    fn cached_pitching(&self, team: Option<u16>) -> Result<Vec<PitchingStats>, AppError> {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
-            "SELECT s.player_id,pi.first_name AS pitcher_first_name,pi.last_name AS pitcher_last_name,
-             s.*
-             FROM pitching_stat_totals s JOIN player_info pi ON pi.id=s.player_id
-             WHERE ?1 IS NULL OR pi.team_id=?1 ORDER BY s.player_id",params![team])
+            &format!("SELECT {PITCHING_COLUMNS}
+              FROM pitching_stat_totals s JOIN player_info pi ON pi.id=s.player_id
+              WHERE ?1 IS NULL OR pi.team_id=?1 ORDER BY s.player_id"),
+            params![team],
+        )
     }
+
+    pub(crate) fn load_qualified_batting_stats(
+        &self,
+        season: u16,
+        team: Option<u16>,
+    ) -> Result<Vec<BattingStats>, AppError> {
+        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        self.db_client.query_rows(
+            &qualified_stats_query(
+                "game_batting_stat_cache",
+                super::batting_stat_cache::COUNTS,
+                BATTING_COLUMNS,
+                // 3.1 PA per team game, rounded to the nearest whole PA.
+                "s.pa >= (31 * t.games + 5) / 10",
+            ),
+            params![season, team],
+        )
+    }
+
+    pub(crate) fn load_qualified_pitching_stats(
+        &self,
+        season: u16,
+        team: Option<u16>,
+    ) -> Result<Vec<PitchingStats>, AppError> {
+        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        self.db_client.query_rows(
+            &qualified_stats_query(
+                "game_pitching_stat_cache",
+                super::pitching_stat_cache::COUNTS,
+                PITCHING_COLUMNS,
+                "s.outs >= 3 * t.games",
+            ),
+            params![season, team],
+        )
+    }
+}
+
+fn qualified_stats_query(
+    cache: &str,
+    counts: &str,
+    columns: &str,
+    threshold: &str,
+) -> String {
+    let sums = counts
+        .split(',')
+        .map(|name| format!("SUM(c.{name}) AS {name}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "WITH completed AS (
+            SELECT id, away_team_id, home_team_id
+            FROM game WHERE season=?1 AND {COMPLETED_REGULAR_GAME}
+        ), team_games AS (
+            SELECT team_id, COUNT(*) AS games FROM (
+                SELECT away_team_id AS team_id FROM completed
+                UNION ALL SELECT home_team_id AS team_id FROM completed
+            ) GROUP BY team_id
+        ), season_totals AS (
+            SELECT c.player_id, {sums} FROM {cache} c
+            JOIN completed g ON g.id=c.game_id
+            GROUP BY c.player_id
+        )
+        SELECT {columns} FROM season_totals s
+        JOIN player_info pi ON pi.id=s.player_id
+        JOIN team_games t ON t.team_id=pi.team_id
+        WHERE (?2 IS NULL OR pi.team_id=?2) AND {threshold} ORDER BY s.player_id"
+    )
 }
 
 impl StatRepository for SqlStatRepository {
@@ -416,6 +503,85 @@ mod tests {
                 params![game_id, pitcher_id, decision],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn qualified_stats_use_completed_regular_games_and_each_teams_minimum() {
+        let (repo, path) = setup_repo();
+        let conn = conn(&repo);
+        assert_eq!(latest_completed_regular_season(&conn).unwrap(), None);
+        seed_team(&repo, 1, "Aces");
+        seed_team(&repo, 2, "Bees");
+        seed_team(&repo, 3, "Cats");
+        for game in 1..=4 {
+            seed_game(&repo, game, 1, 2, Some(2), Some(1), Some("2026-04-01"));
+        }
+        seed_game(&repo, 5, 3, 1, Some(1), Some(1), Some("2026-04-02"));
+        seed_game(&repo, 6, 1, 2, None, None, None);
+        seed_game(&repo, 7, 1, 2, None, None, Some("1900-01-01"));
+        seed_game(&repo, 8, 1, 2, Some(2), Some(1), Some("2026-04-03"));
+        seed_game(&repo, 9, 1, 2, Some(2), Some(1), Some("2025-04-01"));
+        seed_game(&repo, 10, 1, 2, None, None, None);
+        seed_game(&repo, 11, 1, 2, Some(2), Some(1), Some("2027-03-01"));
+        conn.execute_batch(
+            "UPDATE game SET game_type='Exhibition' WHERE id IN (8,11);
+             UPDATE game SET season=2025 WHERE id=9;
+             UPDATE game SET season=2027 WHERE id IN (10,11);",
+        )
+        .unwrap();
+        assert_eq!(latest_completed_regular_season(&conn).unwrap(), Some(2026));
+
+        seed_team_player_info(&repo, 10, 1, "A", "One");
+        seed_team_player_info(&repo, 20, 1, "A", "Two");
+        seed_team_player_info(&repo, 30, 2, "B", "One");
+        crate::repositories::stat_cache::ensure_ready(&repo.db_client).unwrap();
+
+        // Five games require 16 PA and 15 outs. Four require 12 PA and 12 outs.
+        for (game, player, pa, outs) in [
+            (1, 10, 9, 8),
+            (2, 10, 7, 7),
+            (1, 20, 15, 14),
+            (1, 30, 12, 12),
+            (6, 20, 2, 2),
+            (7, 20, 2, 2),
+            (8, 20, 2, 2),
+            (9, 20, 2, 2),
+        ] {
+            conn.execute(
+                "INSERT INTO game_batting_stat_cache
+                     (game_id, player_id, ab, single, double, triple, homerun, rbi, games, pa, bb)
+                 VALUES (?1, ?2, ?3-1, 1, 0, 0, 0, 0, 1, ?3, 1)",
+                params![game, player, pa],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO game_pitching_stat_cache
+                     (game_id, player_id, games, outs, runs, wins, losses, saves,
+                      holds, so, bb, starts, complete_games, shutouts, quality_starts,
+                      uncertain_starts, relief_wins, hits, home_runs, hbp, wild_pitches,
+                      earned_runs, unclassified_runs, at_bats)
+                 VALUES (?1, ?2, 1, ?3, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0,
+                         0, 0, 0, 0, 0, 0, 0, 0, ?3)",
+                params![game, player, outs],
+            )
+            .unwrap();
+        }
+
+        let batting = repo.load_qualified_batting_stats(2026, None).unwrap();
+        let batters: Vec<_> = batting.iter().map(|s| (s.batter.info.id, s.pa, s.ab)).collect();
+        assert_eq!(batters, [(10, 16, 14), (30, 12, 11)]);
+
+        let pitching = repo.load_qualified_pitching_stats(2026, None).unwrap();
+        let pitchers: Vec<_> = pitching.iter().map(|s| (s.batter.info.id, s.outs)).collect();
+        assert_eq!(pitchers, [(10, 15), (30, 12)]);
+
+        let batting = repo.load_qualified_batting_stats(2026, Some(2)).unwrap();
+        assert_eq!(batting.len(), 1);
+        assert_eq!(batting[0].batter.info.id, 30);
+        let pitching = repo.load_qualified_pitching_stats(2026, Some(1)).unwrap();
+        assert_eq!(pitching.len(), 1);
+        assert_eq!(pitching[0].batter.info.id, 10);
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

@@ -18,6 +18,8 @@ pub fn translate(source:&str,language:Language)->String {
         "表"=>"Top", "裏"=>"Bottom", "件"=>"rows", "一塁"=>"First base", "二塁"=>"Second base", "三塁"=>"Third base", "監督"=>"Manager",
         "試合結果"=>"Games", "順位表"=>"Standings", "打撃成績"=>"Batting", "投手成績"=>"Pitching", "チーム・選手"=>"Teams & players",
         "再読み込み"=>"Refresh", "↻ 再読み込み"=>"↻ Refresh", "リーグ"=>"League", "チーム"=>"Team", "全リーグ"=>"All leagues", "全チーム"=>"All teams",
+        "規定打席以上のみ"=>"Qualified batters only", "規定投球回以上のみ"=>"Qualified pitchers only",
+        "規定に達した選手はいません。"=>"No players meet the qualification minimum.",
         "集計範囲：保存済み全試合（通算）"=>"Scope: all saved games (career)", "同じローカルDBから表示"=>"Using the same local database",
         "データベースを読み込み中…"=>"Loading database…", "成績を読み込み中…（初回のみ集計します）"=>"Loading statistics… (one-time backfill on first use)",
         "別の処理がDBを使用中です。集計・試合保存の完了を待ち、DB編集ツールのトランザクションを終了して再読み込みしてください。"=>"The database is in use. Wait for statistics or game saves to finish, end transactions in database editing tools, then refresh.",
