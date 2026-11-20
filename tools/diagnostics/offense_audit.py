@@ -4,6 +4,7 @@ import argparse
 from bisect import bisect_right
 from collections import Counter, defaultdict
 import json
+from math import isfinite
 from pathlib import Path
 import sqlite3
 
@@ -16,15 +17,21 @@ PA_SQL = ','.join("'" + value + "'" for value in PA_RESULTS)
 
 
 def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batter_line=None,
-          league_batting=False):
+          league_batting=False, hard_contact=False):
     """Never create, rebuild, or modify the supplied database or its caches."""
     uri = Path(path).expanduser().resolve().as_uri() + '?mode=ro'
     with sqlite3.connect(uri, uri=True, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA query_only=ON')
         conn.execute('BEGIN')  # Keep all report sections on one consistent read snapshot.
+        if hard_contact and not league_batting:
+            raise ValueError('--hard-contact requires --league-batting')
         if league_batting:
-            return league_batting_audit(conn, season, limit)
+            report = league_batting_audit(conn, season, limit)
+            if hard_contact:
+                top_ids = {line['player']['id'] for line in report['top_qualified']}
+                report['hard_contact'] = hard_contact_audit(conn, report['scope']['season'], top_ids)
+            return report
         def rows(sql, args=()):
             return [dict(row) for row in conn.execute(sql, args)]
         args = (season,)
@@ -139,6 +146,8 @@ FAIR_SQL = ','.join(f"'{result}'" for result in FAIR_RESULTS)
 NON_HR_HITS = ('Single', 'Double', 'Triple')
 IN_PLAY_RESULTS = (*NON_HR_HITS, 'Out', 'FieldersChoice', 'DoublePlay')
 FAIR_TRAJECTORIES = ('InField', 'HomeRun', 'GroundRuleDouble')
+FAIR_TRAJECTORY_SQL = ','.join(f"'{value}'" for value in FAIR_TRAJECTORIES)
+COMPLETED_REGULAR_SQL = "g.game_type='Regular' AND g.actual_date!='1900-01-01'"
 VLA_TYPES = ('Grounder', 'Liner', 'Fly', 'PopUp')
 VLA_TYPE_EDGES = (10, 25, 50)
 
@@ -148,11 +157,10 @@ def rate(numerator, denominator):
 
 
 def league_batting_audit(conn, season, limit):
-    completed_regular = "game_type='Regular' AND actual_date!='1900-01-01'"
     if season is None:
-        season = conn.execute(f'SELECT MAX(season) FROM game WHERE {completed_regular}').fetchone()[0]
+        season = conn.execute(f'SELECT MAX(season) FROM game g WHERE {COMPLETED_REGULAR_SQL}').fetchone()[0]
     games = conn.execute(f'''
-        SELECT id, away_team_id, home_team_id FROM game WHERE season=? AND {completed_regular}
+        SELECT id, away_team_id, home_team_id FROM game g WHERE season=? AND {COMPLETED_REGULAR_SQL}
     ''', (season,)).fetchall()
     if not games:
         raise ValueError('no completed regular-season games in scope')
@@ -176,7 +184,7 @@ def league_batting_audit(conn, season, limit):
                ) ELSE 0 END AS sacrifice_fly
         FROM game g JOIN player_game_batting b ON b.game_id=g.id
         LEFT JOIN player_game_fielding f ON f.game_id=b.game_id AND f.count_seq=b.count_seq AND f.seq=1
-        WHERE g.season=? AND {completed_regular} AND b.result IN ({PA_SQL})
+        WHERE g.season=? AND {COMPLETED_REGULAR_SQL} AND b.result IN ({PA_SQL})
     ''', (season,)):
         games_with_logs.add(play['game_id'])
         pid, result = play['batter_id'], play['result']
@@ -271,6 +279,196 @@ def league_batting_line(counts, batted_balls):
         singles=counts['Single'], doubles=counts['Double'], triples=counts['Triple'], hr=hr,
         sacrifice_flies=counts['sf'], balls_in_play=bip, babip=rate(non_hr_hits, bip),
         bip_by_launch_angle=by_type,
+    )
+
+
+HARD_EV_EDGES = (45, 47.5, 50)
+LOW_VLA_EDGES = (0, 2.5, 5, 7.5, 10)
+HARD_VLA_EDGES = (-10, 0, 10, 20, 30, 40, 50)
+HLA_EDGES = (-30, -20, -10, 0, 10, 20, 30)
+BOUNCE_DISTANCE_EDGES = (10, 20, 30, 40, 50, 60)
+CONTACT_Z_CM_EDGES = (-4, -3, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 4)
+HARD_CONTACT_COHORTS = ('top_qualified', 'other_batters')
+VERTICAL_INPUTS = ('contact_offset_z_m', 'adapted_vertical_offset_m', 'swing_error_z_m')
+
+
+def observed_number(value):
+    return value is not None and isfinite(value)
+
+
+def measured_band(edges, value):
+    return bisect_right(edges, value) if observed_number(value) else -1
+
+
+def labeled_band(edges, band):
+    return bands(edges, band) if band >= 0 else None
+
+
+def summary(values):
+    values = sorted(value for value in values if observed_number(value))
+    n = len(values)
+    return dict(n=n, mean=rate(sum(values), n), p50=values[(n - 1) // 2] if n else None)
+
+
+def hard_contact_rows(conn, season):
+    optional = []
+    for alias, table, names in (
+        ('b', 'player_game_batting', VERTICAL_INPUTS),
+        ('f', 'player_game_fielding', ('interception_fielder_position', 'selection_path', 'catch_type')),
+    ):
+        columns = {row['name'] for row in conn.execute(f'PRAGMA table_info({table})')}
+        optional.extend(f'{alias}.{name}' if name in columns else f'NULL AS {name}' for name in names)
+    return conn.execute(f'''
+        SELECT b.batter_id, b.result, b.launch_speed, b.launch_angle, b.final_hla_deg,
+               b.first_bounce_time, b.first_bounce_distance, b.first_bounce_angle,
+               f.seq IS NOT NULL AS has_fielding, f.catch_fielder_position, f.time_to_field,
+               r.seq IS NOT NULL AS has_primary_play, r.throw_target_base, r.target_runner_id,
+               r.defense_time, r.runner_time, r.ruling, {', '.join(optional)}
+        FROM game g JOIN player_game_batting b ON b.game_id=g.id
+        LEFT JOIN player_game_fielding f ON f.game_id=b.game_id AND f.count_seq=b.count_seq AND f.seq=1
+        LEFT JOIN player_game_running r ON r.game_id=b.game_id AND r.count_seq=b.count_seq
+          AND r.seq=(SELECT MIN(saved.seq) FROM player_game_running saved
+                     WHERE saved.game_id=b.game_id AND saved.count_seq=b.count_seq AND saved.event='GrounderPlay')
+        WHERE g.season=? AND {COMPLETED_REGULAR_SQL}
+          AND b.launch_speed>=45 AND b.launch_angle IS NOT NULL
+          AND b.result IN ({FAIR_SQL}) AND b.outbound_result IN ({FAIR_TRAJECTORY_SQL})
+    ''', (season,))
+
+
+def first_base_phase(play, field):
+    if not play['has_primary_play']:
+        return 'no_primary_grounder_play', {}
+    if not play['throw_target_base']:
+        return 'base_unrecorded', {}
+    if play['throw_target_base'] != 'First':
+        return 'other_base', {}
+    if play['target_runner_id'] != play['batter_id']:
+        return 'first_base_target_unverified', {}
+    runner, defense = play['runner_time'], play['defense_time']
+    if not (observed_number(runner) and runner > 0 and observed_number(defense) and defense >= 0):
+        return 'first_base_times_missing', {}
+    margin = defense - runner
+    if (field is not None and defense < field) or play['ruling'] != ('Safe' if margin >= 0 else 'Out'):
+        return 'first_base_times_inconsistent', {}
+    times = dict(batter_first_sec=runner, defense_first_sec=defense, defense_minus_batter_sec=margin)
+    if field is not None:
+        times['defense_after_field_sec'] = defense - field
+    if margin < 0:
+        return 'defense_before_batter', times
+    if field is None:
+        return 'safe_field_time_missing', times
+    if field >= runner:
+        return 'fielding_completed_at_or_after_batter', times
+    return 'delivery_completed_at_or_after_batter', times
+
+
+def bounce_checkpoint(play, field):
+    bounce = play['first_bounce_time']
+    if not observed_number(bounce) or bounce < 0:
+        return 'no_saved_bounce', -1, -1
+    if field is not None and bounce > field:
+        return 'projected_after_fielding', -1, -1
+    status = 'by_fielding' if field is not None else 'field_time_unrecorded'
+    return (status, measured_band(BOUNCE_DISTANCE_EDGES, play['first_bounce_distance']),
+            measured_band(HLA_EDGES, play['first_bounce_angle']))
+
+
+def low_contact_line(counts):
+    n = counts.total()
+    return dict(balls=n, singles=counts['Single'], single_rate=rate(counts['Single'], n),
+                outcomes={result: counts[result] for result in IN_PLAY_RESULTS})
+
+
+def shared_geometry_rates(geometry):
+    top, others = (geometry[cohort] for cohort in HARD_CONTACT_COHORTS)
+    shared = sorted(key for key in top.keys() & others.keys() if key[2] >= 0)
+    shared_balls = sum(top[key].total() + others[key].total() for key in shared)
+    return dict(cells=len(shared), **{
+        cohort: dict(
+            shared_balls=sum(groups[key].total() for key in shared),
+            total_balls=sum(cell.total() for cell in groups.values()),
+            standardized_single_rate=rate(sum(
+                (top[key].total() + others[key].total()) * groups[key]['Single'] / groups[key].total()
+                for key in shared
+            ), shared_balls),
+        )
+        for cohort, groups in geometry.items()
+    })
+
+
+def hard_contact_audit(conn, season, top_ids):
+    geometry = {cohort: defaultdict(Counter) for cohort in HARD_CONTACT_COHORTS}
+    bounces = defaultdict(Counter)
+    fielding = defaultdict(list)
+    vertical_angles = defaultdict(list)
+    vertical_offsets = defaultdict(list)
+    for play in hard_contact_rows(conn, season):
+        ev, angle = play['launch_speed'], play['launch_angle']
+        result = play['result']
+        cohort = 'top_qualified' if play['batter_id'] in top_ids else 'other_batters'
+        ev_band = measured_band(HARD_EV_EDGES, ev)
+        z = play['contact_offset_z_m']
+        z_band = measured_band(CONTACT_Z_CM_EDGES, 100 * z if observed_number(z) else None)
+        for cohort_key in ('league', cohort):
+            vertical_angles[cohort_key, measured_band(HARD_VLA_EDGES, angle)].append(play)
+            vertical_offsets[cohort_key, ev_band, z_band].append(play)
+        if result not in IN_PLAY_RESULTS or not 0 <= angle < 10:
+            continue
+        angle_band = measured_band(LOW_VLA_EDGES, angle)
+        hla_band = measured_band(HLA_EDGES, play['final_hla_deg'])
+        geometry[cohort][ev_band, angle_band, hla_band][result] += 1
+        field = play['time_to_field']
+        field = field if observed_number(field) and field >= 0 else None
+        bounces[(cohort, *bounce_checkpoint(play, field))][result] += 1
+        phase, times = first_base_phase(play, field)
+        position = play['interception_fielder_position'] or play['catch_fielder_position']
+        key = (cohort, result, bool(play['has_fielding']), position or 'Unknown',
+               play['selection_path'] or 'Unknown', play['catch_type'] or 'Unknown', phase)
+        fielding[key].append(dict(field_complete_sec=field, **times))
+
+    return dict(
+        definitions=dict(
+            low_angle='Non-HR terminal fair balls in play with EV >=45 m/s and saved VLA [0°,10°).',
+            geometry='Signed HLA is field-relative. Shared cells require known HLA and at least one ball per cohort. Both standardized rates use pooled cell weights. Counts show shared coverage.',
+            first_bounce='Saved first bounce by the first fielding completion. A projected bounce after fielding carries no location in this report. When fielding time is absent, bounce timing is unverified.',
+            first_base='First saved GrounderPlay only. An observed first-base play must target the batter. Positive defense-minus-batter time means the batter was earlier; a tie is safe. Time after fielding includes transfer, throw, receipt, or carry. Missing plays have no inferred timing.',
+            vertical_contact='Terminal measured fair contact with EV >=45 m/s, including HR. Signed contact Z in centimeters is positive toward higher VLA in the live launch calculation. Null bands identify missing observations.',
+        ),
+        low_angle_by_geometry=[
+            dict(cohort=cohort, ev_ms=bands(HARD_EV_EDGES, ev), vla_deg=bands(LOW_VLA_EDGES, vla),
+                 hla_deg=labeled_band(HLA_EDGES, hla), **low_contact_line(counts))
+            for cohort, cells in geometry.items() for (ev, vla, hla), counts in sorted(cells.items())
+        ],
+        low_angle_shared_geometry=shared_geometry_rates(geometry),
+        low_angle_by_first_bounce=[
+            dict(cohort=cohort, phase=phase, distance_m=labeled_band(BOUNCE_DISTANCE_EDGES, distance),
+                 angle_deg=labeled_band(HLA_EDGES, angle), **low_contact_line(counts))
+            for (cohort, phase, distance, angle), counts in sorted(bounces.items())
+        ],
+        low_angle_by_fielding_and_first_base=[
+            dict(cohort=cohort, result=result, fielding_recorded=recorded, fielder_position=position,
+                 selection_path=path, catch_type=catch, first_base_phase=phase, balls=len(records),
+                 timing_seconds={metric: summary(row.get(metric) for row in records)
+                                 for metric in ('field_complete_sec', 'batter_first_sec', 'defense_first_sec',
+                                                'defense_minus_batter_sec', 'defense_after_field_sec')})
+            for (cohort, result, recorded, position, path, catch, phase), records in sorted(fielding.items())
+        ],
+        hard_by_launch_angle=[
+            dict(cohort=cohort, vla_deg=bands(HARD_VLA_EDGES, vla), balls=len(plays),
+                 home_runs=sum(row['result'] == 'HomeRun' for row in plays),
+                 vertical_cm={name.removesuffix('_m'): summary(
+                     100 * row[name] for row in plays if observed_number(row[name])
+                 ) for name in VERTICAL_INPUTS})
+            for (cohort, vla), plays in sorted(vertical_angles.items())
+        ],
+        hard_by_vertical_offset=[
+            dict(cohort=cohort, ev_ms=bands(HARD_EV_EDGES, ev), contact_offset_z_cm=labeled_band(CONTACT_Z_CM_EDGES, z),
+                 balls=len(plays), launch_angle_deg=summary(row['launch_angle'] for row in plays),
+                 vla_at_least_20=sum(row['launch_angle'] >= 20 for row in plays),
+                 vla_at_least_30=sum(row['launch_angle'] >= 30 for row in plays),
+                 home_runs=sum(row['result'] == 'HomeRun' for row in plays))
+            for (cohort, ev, z), plays in sorted(vertical_offsets.items())
+        ],
     )
 
 
@@ -557,6 +755,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--season', type=int, help='Defaults to the latest completed regular season with --league-batting, otherwise all seasons')
     parser.add_argument('--extra-base', action='store_true', help='Include saved fair-contact and extra-base conversion diagnostics')
+    parser.add_argument('--hard-contact', action='store_true',
+                        help='With --league-batting, diagnose low-angle fielding and vertical contact at EV >=45 m/s')
     parser.add_argument('--top', type=int, default=10)
     target = parser.add_mutually_exclusive_group()
     target.add_argument('--batter-id', type=int, help='Compare this batter with the --top current teammates by PA')
@@ -571,10 +771,12 @@ def main():
         parser.error('--extra-base is only available in the league audit')
     if options.extra_base and options.league_batting:
         parser.error('--extra-base and --league-batting are independent reports; choose one')
+    if options.hard_contact and not options.league_batting:
+        parser.error('--hard-contact requires --league-batting')
     try:
         report = audit(db_from_env(), options.season, options.top, options.extra_base,
                        batter_id=options.batter_id, batter_line=options.batter_line,
-                       league_batting=options.league_batting)
+                       league_batting=options.league_batting, hard_contact=options.hard_contact)
     except (ValueError, sqlite3.Error) as exc:
         parser.exit(1, f'offense audit failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
