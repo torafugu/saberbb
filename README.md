@@ -792,6 +792,16 @@ The fielding replay uses the normal estimated path, candidate filters and
 error draws from the same post-launch RNG state. The diagnostic leaves the
 official game results intact.
 
+Standard games apply the exit-speed-dependent vertical contact window.
+Measure world-vertical contact after the intent offset and before the window
+shift. Swings in [10, 30) mm get +2 mm below 47.5 m/s of estimated pre-shift
+exit speed, and +4 mm at or above 47.5 m/s or on a pre-shift geometric miss.
+Swings outside the window get zero additional shift.
+
+The full-game vertical contact comparison still selects each policy
+explicitly. The fixed-swing sweep uses zero additional shift for its live
+reference games so each replay starts from the uncorrected window input.
+
 A clean direct catch takes precedence in standard games when the projected
 trajectory would clear the fence after a bounce. Compare the three contact
 policies with this rule on using a separate set of starting seeds:

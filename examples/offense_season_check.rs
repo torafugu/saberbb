@@ -770,7 +770,13 @@ fn main() -> Result<()> {
     } else {
         FlightDragModel::Published2017
     };
-    with_model(model, || run(args))
+    with_model(model, || {
+        if args.vertical_contact_sweep {
+            with_vertical_contact_trial(0, || run(args))
+        } else {
+            run(args)
+        }
+    })
 }
 fn line_drive_lift_offsets(args: &Args) -> Result<&[u16]> {
     let offsets = if args.line_drive_lift_offsets.is_empty() {
@@ -829,6 +835,7 @@ fn run(args: Args) -> Result<()> {
         "default_direct_catch_margin_percent": 50,
         "default_ground_rule_double_catch_enabled": DEFAULT_GROUND_RULE_DOUBLE_CATCH_ENABLED,
         "default_line_drive_lift_offset_mm": DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM,
+        "default_vertical_contact_policy": "contact_z_window_by_baseline_ev",
         "inputs_sha256": input_hash, "season": args.season, "games_per_seed": games.len(),
         "definitions": {
             "ra9_reference": "Runs allowed * 27 / recorded outs; earned runs not recorded",
@@ -839,7 +846,7 @@ fn run(args: Args) -> Result<()> {
     });
     if args.vertical_contact_sweep {
         output["definitions"]["vertical_contact_sweep"] = serde_json::json!(
-            "Fixed simulated swings replayed at signed world-vertical contact offsets in mm. Positive shifts lift the vertical deflection. All shifts use the same baseline-matched swing pool. Recovered swings share one deterministic set of face-angle draws. Fair and home-run counts are trajectory outcomes; official baseline counts use recorded game outcomes."
+            "Fixed simulated swings replayed at signed world-vertical contact offsets in mm. Live games in this sweep use zero additional offset so that the replay starts from the uncorrected contact geometry. Positive shifts lift the vertical deflection. All shifts use the same baseline-matched swing pool. Recovered swings share one deterministic set of face-angle draws. Fair and home-run counts are trajectory outcomes; official baseline counts use recorded game outcomes."
         );
         output["definitions"]["paired_zero_to_plus_four_mm"] = serde_json::json!(
             "Paired trajectories on the same comparable swings. Low line drives are fair at exit speed [40,47.5) m/s and angle [10,15) degrees. The home-run cohort requires a home-run trajectory and angle [20,30) degrees. Input cells group by baseline world-vertical contact displacement, actual bat angle and baseline exit speed. A geometric miss has no baseline exit speed."
