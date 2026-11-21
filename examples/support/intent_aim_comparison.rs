@@ -46,6 +46,10 @@ use pitch_spin_impact::PitchSpinImpact;
 mod timing_vertical_alignment;
 use timing_vertical_alignment::TimingVerticalAlignment;
 
+#[path = "timing_thickness_crossings.rs"]
+mod timing_thickness_crossings;
+use timing_thickness_crossings::TimingThicknessCrossings;
+
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
     let alternative = IntentAimOffsets {
@@ -514,7 +518,10 @@ pub(super) fn run_length(args: &Args, games: &[GameSchedule]) -> Result<Value> {
 
 fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     const FACTORS: [Option<f64>; 4] = [None, Some(1.0), Some(1.5), Some(2.0)];
+    const THICKNESS_PAIRS: [(usize, usize); 2] = [(0, 1), (1, 3)];
     let mut alignment: [TimingVerticalAlignment; 3] = Default::default();
+    let mut thickness_crossings: [TimingThicknessCrossings; THICKNESS_PAIRS.len()] =
+        Default::default();
     let mut report = run_replays(
         args,
         games,
@@ -529,10 +536,31 @@ fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Val
                 for (counts, play) in alignment.iter_mut().zip(&swing.plays[1..]) {
                     counts.observe(swing.intent, baseline, play.batting);
                 }
+                for (counts, (before, after)) in thickness_crossings.iter_mut().zip(THICKNESS_PAIRS) {
+                    counts.observe(
+                        swing.intent,
+                        swing.plays[before].batting,
+                        swing.plays[after].batting,
+                    );
+                }
             }
             (result, swings)
         },
     )?;
+    report["paired_thickness_crossings"] = json!({
+        "definition": "All replayed swings paired with the same horizontal timing coefficient. Each crossing compares the absolute bat-local thickness offset with the inclusive live limit. The length flag requires the length offset to stay inside its own limit at both settings. Contact changes within a crossing come from the replayed contact types. The total contact-to-whiff and whiff-to-contact counts also include pairs without a thickness crossing.",
+        "thickness_limit_mm": saberbb::domain::resolver::batting_resolver::CONTACT_THICKNESS_LIMIT_M * 1000.0,
+        "length_limit_mm": saberbb::domain::resolver::batting_resolver::CONTACT_LENGTH_LIMIT_M * 1000.0,
+        "comparisons": THICKNESS_PAIRS
+            .into_iter()
+            .zip(&thickness_crossings)
+            .map(|((before, after), counts)| json!({
+                "from_downward_timing_height_scale": FACTORS[before],
+                "to_downward_timing_height_scale": FACTORS[after],
+                "counts": counts.report(),
+            }))
+            .collect::<Vec<_>>(),
+    });
     report["vertical_alignment_by_swing_outcome"] = json!(
         FACTORS[1..]
             .iter()
