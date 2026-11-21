@@ -1236,6 +1236,15 @@ counts foul launches as well, and uses all swings as the rate denominator.
 An outfield direct out is a recorded batting out on a clean catch in the
 air by an outfielder. The same counts by seed are in `reports`.
 
+`pitch_bat_timing_comparison.vertical_alignment_by_swing_outcome`
+compares arms 0 and 3, with live aim and attack angle in both. For each
+outcome it counts signed vertical alignment relative to the ±50.8 mm
+Statcast cutoff, including projected swing misses and separating
+unresolved fair flights. The offset is evaluated at the modeled contact
+point. Statcast uses its tracked closest approach. The report also
+counts swings entering or leaving the below-ball band and raw launch
+angles above 50°.
+
 ### ContactFirst vertical bat control comparison
 
 Set `SABERBB_DB` to the roster and schedule database.
