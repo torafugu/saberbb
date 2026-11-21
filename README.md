@@ -964,6 +964,30 @@ third strikes, using the contact result before official scoring. The 0 mm
 condition reproduces the previous contact offset, and +20 mm matches the
 current standard.
 
+### Paired ContactFirst and LineDrive approaches
+
+Set `SABERBB_DB` to the roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --contact-approach-comparison > contact_approach_2026.json
+```
+
+The live control reproduces the selected aim. The other two arms replay
+each swing with the current ContactFirst or LineDrive vertical offset
+(0 mm or +20 mm). They share the original pitch, swing decision and
+pre-contact random state. Contact, the EV-dependent vertical window,
+flight, fielding and running are evaluated again. The live baseline
+supplies later pitches.
+
+Read `contact_approach_comparison.pooled[*].summary.all` for the matched
+population. The intent subgroups describe the original intent. The
+adjusted contact type counts distinguish misses, marginal, weak and
+solid contact. The direct transition table shows whether the same
+swing moves between miss, foul, fair hit, fair non-hit, and interrupted
+fair play. The resolved-fair hit rate includes home runs and uses
+recorded non-foul outcomes on non-foul flights. See `reports` for
+results by seed.
+
 ### Count-based batting intent comparison
 
 Set `SABERBB_DB` to the roster and schedule database.

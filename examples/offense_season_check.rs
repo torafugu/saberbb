@@ -198,6 +198,17 @@ struct Args {
         "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     count_intent_comparison: bool,
+    /// Replay every live swing as both ContactFirst and LineDrive.
+    #[arg(long, conflicts_with_all = [
+        "count_intent_comparison", "vertical_bat_control_comparison", "pitch_bat_timing_comparison", "contact_length_comparison", "contact_first_swing_speed_comparison", "contact_first_ev_terms", "contact_first_ev_comparison", "intent_aim_comparison", "swing_speed_batter_id",
+        "line_drive_lift_comparison", "vertical_contact_sweep", "vertical_contact_comparison",
+        "vertical_contact_paired_fielding", "timing_geometry_sweep", "right_field_first_comparison",
+        "no_bounce_margin_comparison", "pre_fence_pickup_comparison", "bip_diagnostics",
+        "fair_launch_diagnostics", "contact_direction_diagnostics", "moving_collision_diagnostics",
+        "selected_intent_diagnostics", "timing_scale_diagnostics", "infield_opportunity_diagnostics",
+        "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    contact_approach_comparison: bool,
     #[arg(long, default_value_t = 5000)]
     max_pitches: u32,
     /// Include BIP quality, fielding/running timing groups and bounded example plays.
@@ -979,7 +990,10 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.count_intent_comparison {
+    if args.contact_approach_comparison {
+        output["contact_approach_comparison"] =
+            intent_aim_comparison::run_contact_approaches(&args, &games)?;
+    } else if args.count_intent_comparison {
         output["count_intent_comparison"] = count_intent_comparison::run(&args, &games)?;
     } else if args.vertical_bat_control_comparison {
         output["vertical_bat_control_comparison"] =

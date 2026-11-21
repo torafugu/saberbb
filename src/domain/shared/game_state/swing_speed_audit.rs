@@ -20,6 +20,7 @@ use std::cell::RefCell;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SwingReplay {
     pub outcome: Option<BattingResult>,
+    pub contact_type: SwingContactType,
     pub flight: Option<(OutboundResult, f64, f64)>,
     pub exit_speed_retention: Option<f64>,
     pub outfield_direct_out: bool,
@@ -166,6 +167,7 @@ impl GameState {
         };
         Ok(SwingReplay {
             outcome: replay.batting_result,
+            contact_type: contact.adjusted_contact_type,
             double_fence,
             outfield_direct_out: replay.batting_result == Some(BattingResult::Out)
                 && replay
