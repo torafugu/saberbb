@@ -620,6 +620,9 @@ fn run_predicted_contact_correction(args: &Args, games: &[GameSchedule]) -> Resu
         },
     )?;
     report["paired_predicted_contact_correction"] = counts.report();
+    report["corrected_thickness_direction_definition"] = json!(
+        "Only nonzero forecast corrections. Compare the magnitude of actual signed bat-local thickness offsets before and after correction. An increase after crossing the center is a shift past zero with a larger final magnitude. Baseline clearance is the smaller remaining margin to either contact limit. Negative clearance indicates a miss. Actual replay geometry is used for measurement only."
+    );
     Ok(report)
 }
 
