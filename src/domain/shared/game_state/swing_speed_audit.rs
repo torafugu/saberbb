@@ -3,15 +3,16 @@ use crate::domain::{
     resolver::{
         batting_resolver::{
             SwingContactType, SwingExecutionError, calculate_batted_ball_with_length_loss,
-            evaluate_swing_contact,
+            evaluate_swing_contact, replay_fence_flight,
         },
         fielding_physics::CatchType,
         pitching_resolver::PitchDisplacement,
     },
     shared::{
-        ball::{OutboundResult, PitchedBall},
+        ball::{BattedBall, OutboundResult, PitchedBall},
         game::BattingResult,
         player::BatterInfo,
+        stadium::Stadium,
     },
 };
 use std::cell::RefCell;
@@ -22,6 +23,54 @@ pub struct SwingReplay {
     pub flight: Option<(OutboundResult, f64, f64)>,
     pub exit_speed_retention: Option<f64>,
     pub outfield_direct_out: bool,
+    pub double_fence: Option<DoubleFenceObservation>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DoubleFenceObservation {
+    pub category: &'static str,
+    pub airborne_wall_shortfall_m: Option<f64>,
+    pub first_bounce_fence_gap_m: Option<f64>,
+    pub pickup_fence_gap_m: Option<f64>,
+}
+
+fn observe_double_fence(
+    ball: &BattedBall,
+    hla_deg: f64,
+    stadium: &Stadium,
+    clean_fielding_time_sec: Option<f64>,
+    pickup: Option<crate::domain::util::PolarPosition>,
+) -> Result<DoubleFenceObservation, GameError> {
+    let mut airborne_wall_shortfall_m = None;
+    let category = if ball.outbound_result == OutboundResult::GroundRuleDouble {
+        "ground_rule_double"
+    } else if ball.fence_impact_time.is_none() {
+        "no_projected_fence_contact"
+    } else {
+        let events = replay_fence_flight(ball, hla_deg, stadium, |_| {})?;
+        match events.first() {
+            Some(event) if clean_fielding_time_sec.is_some_and(|t| t < event.time_sec) => {
+                "fielded_before_projected_wall"
+            }
+            Some(event) if event.bounce_count == 0 => {
+                airborne_wall_shortfall_m = Some(-event.height_above_fence_m);
+                "airborne_wall"
+            }
+            Some(_) => "wall_after_bounce",
+            None => "no_projected_fence_contact",
+        }
+    };
+    let fence_gap = |point: crate::domain::util::PolarPosition| {
+        stadium
+            .fence_distance_at_angle(point.angle)
+            .map(|distance| distance - point.distance)
+    };
+    Ok(DoubleFenceObservation {
+        category,
+        airborne_wall_shortfall_m,
+        first_bounce_fence_gap_m: ball.first_bounce_position.map(fence_gap).transpose()?,
+        pickup_fence_gap_m: pickup.map(fence_gap).transpose()?,
+    })
 }
 
 struct Audit {
@@ -66,7 +115,7 @@ impl GameState {
         pitch: PitchedBall,
         displacement: &PitchDisplacement,
         mut error: SwingExecutionError,
-        max_length_loss: Option<f64>,
+        (max_length_loss, audit_doubles): (Option<f64>, bool),
     ) -> Result<SwingReplay, GameError> {
         let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
         let baseline_z_m = displacement.vertical_offset_m + error.additional_z_m;
@@ -96,8 +145,28 @@ impl GameState {
             flight,
             rng,
         )?;
+        let double_fence = if audit_doubles
+            && replay.batting_result == Some(BattingResult::Double)
+            && let Some((ball, metrics)) = flight
+        {
+            let catch = replay.fielding.and_then(|f| f.catch_diagnostics);
+            let pickup = catch.and_then(|d| d.pickup);
+            let clean_fielding_time = catch
+                .filter(|d| d.error_type.is_none())
+                .map(|d| pickup.map_or(d.catch_time_sec, |p| p.pickup_time_sec));
+            Some(observe_double_fence(
+                &ball,
+                metrics.final_hla_deg,
+                &self.stadium,
+                clean_fielding_time,
+                pickup.map(|p| p.pickup_position),
+            )?)
+        } else {
+            None
+        };
         Ok(SwingReplay {
             outcome: replay.batting_result,
+            double_fence,
             outfield_direct_out: replay.batting_result == Some(BattingResult::Out)
                 && replay
                     .fielding
@@ -145,11 +214,38 @@ impl GameState {
                     pitch,
                     displacement,
                     *swing_error,
-                    None,
+                    (None, false),
                 )?);
             }
             audit.swings.push((self.count_seq, arms));
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::resolver::batting_resolver::calculate_trajectory;
+
+    #[test]
+    fn distinguishes_airborne_wall_hit_from_earlier_fielding() {
+        let stadium = Stadium::new(1, "Tall outfield fence".into(), 25.0, 30.0, 30.0);
+        let ball = calculate_trajectory(40.0, 20.0, 0.0, 0.0, 0.0, &stadium).unwrap();
+        let observation = observe_double_fence(&ball, 0.0, &stadium, None, None).unwrap();
+        assert_eq!(observation.category, "airborne_wall");
+        assert!(observation.airborne_wall_shortfall_m.unwrap() > 0.0);
+        let recovered = observe_double_fence(&ball, 0.0, &stadium, Some(0.0), None).unwrap();
+        assert_eq!(recovered.category, "fielded_before_projected_wall");
+        assert!(recovered.airborne_wall_shortfall_m.is_none());
+    }
+
+    #[test]
+    fn recognizes_ground_rule_double_after_a_bounce() {
+        let stadium = Stadium::new(1, "Low outfield fence".into(), 20.0, 25.0, 0.0);
+        let ball = calculate_trajectory(40.0, -10.0, 0.0, 0.0, 0.0, &stadium).unwrap();
+        let observation = observe_double_fence(&ball, 0.0, &stadium, None, None).unwrap();
+        assert_eq!(observation.category, "ground_rule_double");
+        assert!(observation.first_bounce_fence_gap_m.unwrap() > 0.0);
     }
 }

@@ -6,9 +6,10 @@ use saberbb::domain::{
         ball::OutboundResult,
         game::{BattingResult, GameResult},
         game_state::{
-            IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial, SwingReplay,
-            with_contact_first_speed_audit, with_contact_length_audit, with_intent_aim_audit,
-            with_intent_aim_trial, with_pitch_bat_timing_audit,
+            DoubleFenceObservation, IntentAimOffsets, IntentAimPlay, IntentAimSwing,
+            PitchBatTimingTrial, SwingReplay, with_contact_first_speed_audit,
+            with_contact_length_audit, with_intent_aim_audit, with_intent_aim_trial,
+            with_pitch_bat_timing_audit,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -109,6 +110,61 @@ fn swing_band(play: SwingReplay) -> &'static str {
     }
 }
 
+#[derive(Default, serde::Serialize)]
+struct DoubleFenceCounts {
+    doubles: u64,
+    launch_angle_deg: BTreeMap<&'static str, u64>,
+    airborne_wall_shortfall_m: BTreeMap<&'static str, u64>,
+    projected_first_bounce_fence_gap_m: BTreeMap<&'static str, u64>,
+    pickup_fence_gap_m: BTreeMap<&'static str, u64>,
+}
+
+impl DoubleFenceCounts {
+    fn observe(&mut self, observation: DoubleFenceObservation, angle: f64) {
+        self.doubles += 1;
+        *self
+            .launch_angle_deg
+            .entry(fair_angle_band(angle))
+            .or_default() += 1;
+        if let Some(shortfall) = observation.airborne_wall_shortfall_m {
+            let band = if shortfall < 0.25 {
+                "below_0_25"
+            } else if shortfall < 0.5 {
+                "0_25_to_0_5"
+            } else if shortfall < 1.0 {
+                "0_5_to_1"
+            } else {
+                "at_least_1"
+            };
+            *self.airborne_wall_shortfall_m.entry(band).or_default() += 1;
+        }
+        for (gap, histogram) in [
+            (
+                observation.first_bounce_fence_gap_m,
+                &mut self.projected_first_bounce_fence_gap_m,
+            ),
+            (observation.pickup_fence_gap_m, &mut self.pickup_fence_gap_m),
+        ] {
+            if let Some(gap) = gap {
+                let band = if gap < 0.0 {
+                    "beyond_fence"
+                } else if gap < 5.0 {
+                    "0_to_5"
+                } else if gap < 10.0 {
+                    "5_to_10"
+                } else if gap < 20.0 {
+                    "10_to_20"
+                } else if gap < 40.0 {
+                    "20_to_40"
+                } else {
+                    "at_least_40"
+                };
+                *histogram.entry(band).or_default() += 1;
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 struct SwingCounts {
     swings: u64,
@@ -120,6 +176,7 @@ struct SwingCounts {
     hard_low_singles: u64,
     singles_5_to_10_deg: u64,
     doubles: u64,
+    double_fence: BTreeMap<&'static str, DoubleFenceCounts>,
     triples: u64,
     singles: u64,
     home_runs: u64,
@@ -191,6 +248,12 @@ impl SwingCounts {
         }
         self.outfield_direct_outs += u64::from(play.outfield_direct_out);
         self.doubles += u64::from(play.outcome == Some(BattingResult::Double));
+        if let (Some(observation), Some((_, _, angle))) = (play.double_fence, play.flight) {
+            self.double_fence
+                .entry(observation.category)
+                .or_default()
+                .observe(observation, angle);
+        }
         self.triples += u64::from(play.outcome == Some(BattingResult::Triple));
         self.home_runs += u64::from(play.outcome == Some(BattingResult::HomeRun));
         self.hard_low_singles +=
@@ -230,7 +293,7 @@ impl SwingCounts {
                 (band, json!({"launches":count,"share_of_fair":share}))
             })
             .collect();
-        json!({
+        let mut report = json!({
             "swings": self.swings, "by_swing_band": bands,
             "baseline_to_trial_swing_bands": self.transitions,
             "baseline_hard_low_single_destinations": self.low_single_transitions,
@@ -254,7 +317,11 @@ impl SwingCounts {
             "hard_low_singles": self.hard_low_singles, "hard_low_singles_per_swing": rate(self.hard_low_singles),
             "no_batting_result": self.no_batting_result,
             "hard_5_to_15_deg_infield": self.infield.report(),
-        })
+        });
+        if !self.double_fence.is_empty() {
+            report["double_fence_diagnostics"] = json!(self.double_fence);
+        }
+        report
     }
 }
 
@@ -397,7 +464,7 @@ pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result
         "trial",
         &trials,
         "Replay realized swings from the same pitch, intent, count, and RNG position. ContactFirst uses the current aim, an 8 mm undercut, or a 10 degree steeper attack. Each runs with and without the added timing height error from the local pitch and bat velocities in the vertical plane. The calculation uses signed adapted timing error, plate velocity, and the trial attack angle. LineDrive keeps its live aim and attack angle. Existing horizontal timing displacement and contact rules still apply. Strong contact counts include any launch that retains at least 80% or 95% of the modeled pre-offset EV, including fouls. Outfield direct outs require a recorded batting out and a clean air catch by an outfielder. Divide by all swings. Later pitches follow the live baseline.",
-        |simulate| with_pitch_bat_timing_audit(&trials, simulate),
+        |simulate| with_pitch_bat_timing_audit(&trials, false, simulate),
     )
 }
 
@@ -429,9 +496,9 @@ pub(super) fn run_vertical_bat_control(args: &Args, games: &[GameSchedule]) -> R
         "ContactFirst vertical bat control",
         "trial",
         &trials,
-        "Arm 0 verifies the live baseline. Compare arms 1–3 with the same pitch–bat timing geometry: current approach, ContactFirst attack +10 degrees, and attack +10 degrees with a 1-point bat_control reduction solely in the vertical pitch-offset correction. Stored bat_control, horizontal correction, timing correction, swing decision and later pitches follow the baseline. The destination table follows all control-arm doubles and home runs to their outcomes in the reduced-control arm.",
+        "Arm 0 verifies the live baseline. Compare arms 1–3 with the same pitch–bat timing geometry: current approach, ContactFirst attack +10 degrees, and attack +10 degrees with a 1-point bat_control reduction solely in the vertical pitch-offset correction. Stored bat_control, horizontal correction, timing correction, swing decision and later pitches follow the baseline. The destination table follows all control-arm doubles and home runs to their outcomes in the reduced-control arm. Double fence diagnostics classify official doubles by automatic award, wall contact before or after the first bounce, a clean fielding event before the projected wall contact, or no projected wall contact. Bounce and pickup gaps are the fence distance from home plate minus the point's distance from home plate at the same spray angle. Wall shortfall is fence height minus sampled ball height before the first bounce.",
         |simulate| {
-            let (result, swings) = with_pitch_bat_timing_audit(&trials, simulate);
+            let (result, swings) = with_pitch_bat_timing_audit(&trials, true, simulate);
             for swing in &swings {
                 if swing.intent != BattedBallIntent::ContactFirst {
                     continue;
@@ -628,6 +695,7 @@ mod tests {
             batting: SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                double_fence: None,
                 outcome,
                 flight,
             },
@@ -686,6 +754,7 @@ mod tests {
         let single = replay(SwingReplay {
             exit_speed_retention: None,
             outfield_direct_out: false,
+            double_fence: None,
             outcome: Some(BattingResult::Single),
             flight: Some((OutboundResult::InField, 45.0, 0.0)),
         });
@@ -695,6 +764,7 @@ mod tests {
             replay(SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                double_fence: None,
                 outcome: Some(BattingResult::Foul),
                 flight: Some((OutboundResult::Foul, 48.0, 31.0)),
             }),
@@ -704,6 +774,7 @@ mod tests {
             replay(SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                double_fence: None,
                 outcome: Some(BattingResult::HomeRun),
                 flight: Some((OutboundResult::HomeRun, 45.0, 30.0)),
             }),
