@@ -3,9 +3,10 @@ use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
     shared::game_state::{
-        FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
-        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupZoneLaunch,
-        PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit, with_popup_zone_audit,
+        FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M,
+        POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS,
+        PopupZoneLaunch, PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit,
+        with_popup_hla_sweep_audit, with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
 };
@@ -333,11 +334,25 @@ struct HlaControlCounts {
 }
 
 impl HlaControlCounts {
-    fn observe(&mut self, usual_scan_outcome: &'static str, plays: &[PopupZonePlay]) {
+    fn observe(
+        &mut self,
+        usual_scan_outcome: &'static str,
+        plays: &[PopupZonePlay],
+        arm: usize,
+        retention_pct: u8,
+    ) {
         let mut any_popup = false;
         let mut paired_foul_to_popup = false;
         for play in plays {
-            if let (Some(live), Some(control)) = (play.launch, play.hla_control_launch) {
+            let Some(live) = play.launch.filter(|&launch| has_high_vla(launch)) else {
+                continue;
+            };
+            let trial = if retention_pct == 100 {
+                Some(live)
+            } else {
+                play.hla_trial_launches[arm]
+            };
+            if let Some(control) = trial {
                 let from = hla_outcome(live);
                 let to = hla_outcome(control);
                 self.pairs[from][to] += 1;
@@ -350,6 +365,22 @@ impl HlaControlCounts {
         self.swings_by_usual_scan_outcome
             .entry(usual_scan_outcome)
             .or_default()[usize::from(any_popup)] += 1;
+    }
+
+    fn sweep_report(&self, retention_pct: u8) -> Value {
+        let [foul, popup, other_fair] = self.pairs;
+        json!({
+            "retained_rebound_pct": retention_pct,
+            "summary": {
+                "high_foul_positions": foul[0] + popup[0] + other_fair[0],
+                "foul_to_popup_at_same_position": foul[1],
+                "standard_fair_positions": popup.iter().sum::<u64>() + other_fair.iter().sum::<u64>(),
+                "standard_fair_positions_still_fair": popup[1] + popup[2] + other_fair[1] + other_fair[2],
+                "standard_popup_positions": popup.iter().sum::<u64>(),
+                "standard_popup_positions_still_popup": popup[1],
+            },
+            "comparison": self.report(),
+        })
     }
 
     fn report(&self) -> Value {
@@ -394,11 +425,16 @@ struct FixedHorizontalCounts {
     offset_to_first_popup: Distances,
     limits_and_outcomes: BTreeMap<&'static str, u64>,
     new_popup_launches: LaunchCounts,
-    hla_control: HlaControlCounts,
+    hla_trials: [HlaControlCounts; POPUP_HLA_RETENTION_PCT.len()],
 }
 
 impl FixedHorizontalCounts {
-    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan, hla_control: bool) {
+    fn observe(
+        &mut self,
+        baseline: PopupZonePlay,
+        scan: &FixedHorizontalScan,
+        hla_trial: PopupHlaTrial,
+    ) {
         use FixedHorizontalScan::*;
         self.swings += 1;
         let is_high_foul_air_out = |play: &PopupZonePlay| {
@@ -454,16 +490,16 @@ impl FixedHorizontalCounts {
             }
         };
         *self.limits_and_outcomes.entry(category).or_default() += 1;
-        if hla_control {
-            let plays: &[PopupZonePlay] = match scan {
-                HighVlaSamples(plays) => plays,
-                _ => &[],
-            };
-            self.hla_control.observe(category, plays);
+        let plays: &[PopupZonePlay] = match scan {
+            HighVlaSamples(plays) => plays,
+            _ => &[],
+        };
+        for (arm, &retention) in hla_trial.retention_percentages().iter().enumerate() {
+            self.hla_trials[arm].observe(category, plays, arm, retention);
         }
     }
 
-    fn report(&self, hla_control: bool) -> Value {
+    fn report(&self, hla_trial: PopupHlaTrial) -> Value {
         let mut report = json!({
             "swings": self.swings,
             "already_popup": self.already_popup,
@@ -473,8 +509,20 @@ impl FixedHorizontalCounts {
             "first_new_popup_launches": self.new_popup_launches.report(),
             "limits_and_outcomes": self.limits_and_outcomes,
         });
-        if hla_control {
-            report["hla_without_contact_normal"] = self.hla_control.report();
+        match hla_trial {
+            PopupHlaTrial::Disabled => {}
+            PopupHlaTrial::Control => {
+                report["hla_without_contact_normal"] = self.hla_trials[0].report();
+            }
+            PopupHlaTrial::Sweep => {
+                report["hla_rebound_sweep"] = json!(
+                    self.hla_trials
+                        .iter()
+                        .zip(POPUP_HLA_RETENTION_PCT)
+                        .map(|(counts, retention)| counts.sweep_report(retention))
+                        .collect::<Vec<_>>()
+                );
+            }
         }
         report
     }
@@ -488,25 +536,37 @@ struct FixedHorizontalGroup {
 }
 
 impl FixedHorizontalGroup {
-    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan, hla_control: bool) {
-        self.all.observe(baseline, scan, hla_control);
+    fn observe(
+        &mut self,
+        baseline: PopupZonePlay,
+        scan: &FixedHorizontalScan,
+        hla_trial: PopupHlaTrial,
+    ) {
+        self.all.observe(baseline, scan, hla_trial);
         if baseline.launch.is_some() {
-            self.from_live_contact.observe(baseline, scan, hla_control);
+            self.from_live_contact.observe(baseline, scan, hla_trial);
         } else {
-            self.from_live_whiff.observe(baseline, scan, hla_control);
+            self.from_live_whiff.observe(baseline, scan, hla_trial);
         }
     }
 
-    fn report(&self, hla_control: bool) -> Value {
+    fn report(&self, hla_trial: PopupHlaTrial) -> Value {
         json!({
-            "all": self.all.report(hla_control),
-            "from_live_contact": self.from_live_contact.report(hla_control),
-            "from_live_whiff": self.from_live_whiff.report(hla_control),
+            "all": self.all.report(hla_trial),
+            "from_live_contact": self.from_live_contact.report(hla_trial),
+            "from_live_whiff": self.from_live_whiff.report(hla_trial),
         })
     }
 }
 
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    let hla_trial = if args.popup_hla_sweep {
+        PopupHlaTrial::Sweep
+    } else if args.popup_hla_control {
+        PopupHlaTrial::Control
+    } else {
+        PopupHlaTrial::Disabled
+    };
     let mut all = ZoneCounts::default();
     let mut contact_first = ZoneCounts::default();
     let mut line_drive = ZoneCounts::default();
@@ -524,7 +584,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     false,
                 )
             };
-            let (result, swings) = if args.popup_fixed_horizontal {
+            let (result, swings) = if args.popup_hla_sweep {
+                with_popup_hla_sweep_audit(simulate)
+            } else if args.popup_fixed_horizontal {
                 with_fixed_horizontal_popup_audit(args.popup_hla_control, simulate)
             } else {
                 with_popup_zone_audit(simulate)
@@ -561,12 +623,12 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         .fixed_horizontal
                         .as_ref()
                         .context("missing fixed horizontal popup scan")?;
-                    fixed_all.observe(swing.baseline, scan, args.popup_hla_control);
+                    fixed_all.observe(swing.baseline, scan, hla_trial);
                     match swing.intent {
                         BattedBallIntent::ContactFirst => &mut fixed_contact_first,
                         BattedBallIntent::LineDrive => &mut fixed_line_drive,
                     }
-                    .observe(swing.baseline, scan, args.popup_hla_control);
+                    .observe(swing.baseline, scan, hla_trial);
                     continue;
                 }
                 ensure!(swing.grid.len() == CELLS, "popup zone grid size mismatch");
@@ -592,13 +654,18 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             "zero_speed_tolerance_ms": POPUP_ZERO_SPEED_TOLERANCE_MS,
             "infield_radius_m": POPUP_SCAN_INFIELD_M,
             "maximum_z_sample_step_mm": POPUP_FIXED_X_STEP_M * 1000.0,
-            "all": fixed_all.report(args.popup_hla_control),
-            "contact_first": fixed_contact_first.report(args.popup_hla_control),
-            "line_drive": fixed_line_drive.report(args.popup_hla_control),
+            "all": fixed_all.report(hla_trial),
+            "contact_first": fixed_contact_first.report(hla_trial),
+            "line_drive": fixed_line_drive.report(hla_trial),
         });
         if args.popup_hla_control {
             report["hla_control_definition"] = json!(
                 "At every scanned contact with nonzero EV and VLA above the threshold, remove only the signed contact-normal contribution to launch HLA. Keep the measured EV, VLA and spin and replay fielding with the same pre-fielding RNG state. Position transition counts use the same Z, while per-swing results allow any sampled Z."
+            );
+        }
+        if args.popup_hla_sweep {
+            report["hla_sweep_definition"] = json!(
+                "Scale only the signed contact-normal HLA contribution at each matched high-angle contact. Reuse live EV, VLA, spin and pre-fielding RNG. The 100% row pairs the standard result with itself. Position counts use the same Z, while a swing reaches a popup if any sampled Z qualifies."
             );
         }
         return Ok(report);
@@ -644,23 +711,25 @@ mod tests {
             z_m: 0.08,
             outcome: None,
             launch: Some(foul),
-            hla_control_launch: Some(popup),
+            hla_trial_launches: [Some(popup); POPUP_HLA_RETENTION_PCT.len() - 1],
         };
         let mut result = FixedHorizontalCounts::default();
         result.observe(
             PopupZonePlay {
                 z_m: 0.0,
                 launch: None,
-                hla_control_launch: None,
+                hla_trial_launches: [None; POPUP_HLA_RETENTION_PCT.len() - 1],
                 ..play
             },
             &FixedHorizontalScan::HighVlaSamples(vec![play, play]),
-            true,
+            PopupHlaTrial::Sweep,
         );
-        assert_eq!(result.hla_control.pairs[0][1], 2);
-        assert_eq!(result.hla_control.swings_with_paired_foul_to_popup, 1);
+        assert_eq!(result.hla_trials[0].pairs[0][1], 2);
+        assert_eq!(result.hla_trials[3].pairs[0][1], 2);
+        assert_eq!(result.hla_trials[4].pairs[0][0], 2);
+        assert_eq!(result.hla_trials[0].swings_with_paired_foul_to_popup, 1);
         assert_eq!(
-            result.hla_control.swings_by_usual_scan_outcome["high_foul_only"],
+            result.hla_trials[0].swings_by_usual_scan_outcome["high_foul_only"],
             [0, 1]
         );
     }
@@ -681,7 +750,7 @@ mod tests {
             x_m: 0.0,
             z_m: 0.08,
             launch: Some(launch),
-            hla_control_launch: None,
+            hla_trial_launches: [None; POPUP_HLA_RETENTION_PCT.len() - 1],
             outcome: None,
         };
         assert!(!is_popup(play));
@@ -704,7 +773,7 @@ mod tests {
                 ..play
             },
             &FixedHorizontalScan::HighVlaSamples(vec![play]),
-            false,
+            PopupHlaTrial::Disabled,
         );
         assert_eq!(
             fixed.limits_and_outcomes.get("zero_speed_high_angle_only"),
@@ -718,7 +787,7 @@ mod tests {
             x_m: -0.24,
             z_m: 0.02,
             launch: None,
-            hla_control_launch: None,
+            hla_trial_launches: [None; POPUP_HLA_RETENTION_PCT.len() - 1],
             outcome: None,
         };
         let popup = |x_m, z_m, foul| PopupZonePlay {
