@@ -5,6 +5,7 @@ use crate::domain::{
             SwingContactType, SwingExecutionError, calculate_batted_ball_with_length_loss,
             evaluate_swing_contact,
         },
+        fielding_physics::CatchType,
         pitching_resolver::PitchDisplacement,
     },
     shared::{
@@ -20,6 +21,7 @@ pub struct SwingReplay {
     pub outcome: Option<BattingResult>,
     pub flight: Option<(OutboundResult, f64, f64)>,
     pub exit_speed_retention: Option<f64>,
+    pub outfield_direct_out: bool,
 }
 
 struct Audit {
@@ -96,6 +98,15 @@ impl GameState {
         )?;
         Ok(SwingReplay {
             outcome: replay.batting_result,
+            outfield_direct_out: replay.batting_result == Some(BattingResult::Out)
+                && replay
+                    .fielding
+                    .and_then(|f| f.catch_diagnostics)
+                    .is_some_and(|catch| {
+                        catch.fielder_position.is_outfielder()
+                            && catch.catch_type == CatchType::DirectFly
+                            && catch.error_type.is_none()
+                    }),
             exit_speed_retention,
             flight: replay
                 .ball

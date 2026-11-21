@@ -1,8 +1,9 @@
 use super::{ActiveFielder, DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, GameError, GameState, SwingReplay};
 use crate::domain::{
     resolver::{
-        batting_resolver::SwingExecutionError, fielding_physics::FieldPlayPlayResult,
-        pitching_resolver::PitchDisplacement,
+        batting_resolver::SwingExecutionError,
+        fielding_physics::FieldPlayPlayResult,
+        pitching_resolver::{PitchDisplacement, StrikeZoneDimensions},
     },
     shared::{
         ball::{BattedBall, PitchedBall},
@@ -56,24 +57,69 @@ enum Trial {
     Aim(IntentAimOffsets),
     ContactFirstSpeed(f64),
     LengthLoss(f64),
+    TimingGeometry(PitchBatTimingTrial),
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct PitchBatTimingTrial {
+    pub contact_first_z_mm: i32,
+    pub contact_first_attack_deg: i32,
+    pub use_path_mismatch: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct ReplayInputs {
+    aim_m: f64,
+    speed_factor: f64,
+    length_loss: Option<f64>,
+    attack_delta_deg: f64,
+    use_path_mismatch: bool,
 }
 
 impl Trial {
-    fn inputs(self, intent: BattedBallIntent) -> (f64, f64, Option<f64>) {
+    fn inputs(self, intent: BattedBallIntent) -> ReplayInputs {
+        let mut inputs = ReplayInputs {
+            aim_m: super::intent_aim_offset_m(intent),
+            speed_factor: 1.0,
+            length_loss: None,
+            attack_delta_deg: 0.0,
+            use_path_mismatch: false,
+        };
         match self {
-            Self::Aim(offsets) => (offsets.offset_m(intent), 1.0, None),
-            Self::ContactFirstSpeed(factor) => (
-                super::intent_aim_offset_m(intent),
+            Self::Aim(offsets) => inputs.aim_m = offsets.offset_m(intent),
+            Self::ContactFirstSpeed(factor) if intent == BattedBallIntent::ContactFirst => {
+                inputs.speed_factor = factor;
+            }
+            Self::ContactFirstSpeed(_) => {}
+            Self::LengthLoss(loss) => inputs.length_loss = Some(loss),
+            Self::TimingGeometry(trial) => {
                 if intent == BattedBallIntent::ContactFirst {
-                    factor
-                } else {
-                    1.0
-                },
-                None,
-            ),
-            Self::LengthLoss(loss) => (super::intent_aim_offset_m(intent), 1.0, Some(loss)),
+                    inputs.aim_m = f64::from(trial.contact_first_z_mm) / 1000.0;
+                    inputs.attack_delta_deg = f64::from(trial.contact_first_attack_deg);
+                }
+                inputs.use_path_mismatch = trial.use_path_mismatch;
+                // Request the launch retention measurement with zero additional length loss.
+                inputs.length_loss = Some(0.0);
+            }
         }
+        inputs
     }
+}
+
+/// The two local sagittal paths meet ahead of the plate for an early swing and
+/// behind it for a late one. A positive height difference puts the ball above the bat.
+fn timing_height_error_m(
+    late_sec: f64,
+    pitch_forward_speed: f64,
+    pitch_vertical_speed: f64,
+    bat_speed: f64,
+    attack_deg: f64,
+) -> f64 {
+    let (bat_vertical, bat_forward) = attack_deg.to_radians().sin_cos();
+    let bat_forward = bat_speed * bat_forward;
+    let bat_vertical = bat_speed * bat_vertical;
+    late_sec * (pitch_forward_speed * bat_vertical + bat_forward * pitch_vertical_speed)
+        / (pitch_forward_speed + bat_forward)
 }
 
 struct Audit {
@@ -154,6 +200,17 @@ pub fn with_contact_length_audit<T>(
     with_trials(losses.iter().copied().map(Trial::LengthLoss).collect(), run)
 }
 
+/// Replay ContactFirst aim and attack angle with and without pitch–bat timing geometry.
+pub fn with_pitch_bat_timing_audit<T>(
+    trials: &[PitchBatTimingTrial],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(
+        trials.iter().copied().map(Trial::TimingGeometry).collect(),
+        run,
+    )
+}
+
 fn with_trials<T>(arms: Vec<Trial>, run: impl FnOnce() -> T) -> (T, Vec<IntentAimSwing>) {
     struct Restore(Option<Audit>);
     impl Drop for Restore {
@@ -191,19 +248,35 @@ impl GameState {
             let mut unique = Vec::new();
             let mut plays = Vec::with_capacity(audit.arms.len());
             for arm in &audit.arms {
-                let inputs @ (aim, factor, loss) = arm.inputs(intent);
+                let inputs = arm.inputs(intent);
                 if let Some(&(_, play)) = unique.iter().find(|(seen, _)| *seen == inputs) {
                     plays.push(play);
                     continue;
                 }
                 let mut error = *swing_error;
-                if aim != 0.0 {
-                    error.additional_z_m += aim;
+                if inputs.aim_m != 0.0 {
+                    error.additional_z_m += inputs.aim_m;
+                }
+                if inputs.attack_delta_deg != 0.0 {
+                    error.actual_attack_angle_deg += inputs.attack_delta_deg;
                 }
                 let trial_batter = BatterInfo {
-                    swing_speed: batter.swing_speed * factor,
+                    swing_speed: batter.swing_speed * inputs.speed_factor,
                     ..*batter
                 };
+                if inputs.use_path_mismatch {
+                    let velocity = pitch
+                        .velocity_at_plate(&StrikeZoneDimensions::default())
+                        .filter(|v| v.is_finite() && v.y < 0.0)
+                        .ok_or(GameError::InvalidPitchTimingGeometry)?;
+                    error.additional_z_m += timing_height_error_m(
+                        displacement.timing_offset_sec,
+                        -velocity.y,
+                        velocity.z,
+                        trial_batter.swing_speed,
+                        error.actual_attack_angle_deg,
+                    );
+                }
                 let play = capture_infield(|| {
                     self.replay_swing_variant(
                         active.id,
@@ -211,7 +284,7 @@ impl GameState {
                         pitch,
                         displacement,
                         error,
-                        loss,
+                        inputs.length_loss,
                     )
                 })?;
                 unique.push((inputs, play));
@@ -224,5 +297,28 @@ impl GameState {
             });
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::timing_height_error_m;
+
+    #[test]
+    fn matched_paths_or_on_time_swings_add_no_height_error() {
+        assert!(
+            timing_height_error_m(0.010, 40.0, -10.0, 32.0, 0.25_f64.atan().to_degrees()).abs()
+                < 1e-12
+        );
+        assert_eq!(timing_height_error_m(0.0, 40.0, -10.0, 32.0, 25.0), 0.0);
+    }
+
+    #[test]
+    fn opposite_timing_errors_move_contact_to_opposite_sides() {
+        let late = timing_height_error_m(0.010, 40.0, -4.0, 32.0, 20.0);
+        let early = timing_height_error_m(-0.010, 40.0, -4.0, 32.0, 20.0);
+        assert!(late > 0.04 && late < 0.05);
+        assert_eq!(early, -late);
+        assert!(timing_height_error_m(0.010, 40.0, -4.0, 32.0, 0.0) < 0.0);
     }
 }

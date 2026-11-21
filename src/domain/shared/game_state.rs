@@ -50,8 +50,9 @@ pub use contact_first_ev_audit::{
 };
 mod intent_aim_audit;
 pub use intent_aim_audit::{
-    IntentAimOffsets, IntentAimPlay, IntentAimSwing, with_contact_first_speed_audit,
-    with_contact_length_audit, with_intent_aim_audit,
+    IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial,
+    with_contact_first_speed_audit, with_contact_length_audit, with_intent_aim_audit,
+    with_pitch_bat_timing_audit,
 };
 mod paired_contact;
 use paired_contact::PairedSwing;
@@ -295,6 +296,9 @@ pub enum GameError {
 
     #[error("Paired contact fielding requires a forkable random provider")]
     PairedContactRng,
+
+    #[error("Pitch–bat timing replay requires a finite incoming pitch velocity at the plate")]
+    InvalidPitchTimingGeometry,
 
     #[error("Invalid trajectory diagnostic environment")]
     InvalidTrajectoryEnvironment,
