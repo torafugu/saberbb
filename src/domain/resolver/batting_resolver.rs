@@ -771,6 +771,12 @@ pub fn launch_speed_terms(
     }
 }
 
+/// Extra loss outside the center of the barrel for fixed-contact replays.
+fn off_center_length_retention(length_offset_m: f64, max_loss: f64) -> f64 {
+    let t = ((length_offset_m.abs() - 0.02) / 0.08).clamp(0.0, 1.0);
+    1.0 - max_loss * t * t * (3.0 - 2.0 * t)
+}
+
 #[derive(Clone, Debug)]
 pub struct SpinVector {
     pub x: f64, // Horizontal spin component (+: slider spin, -: screw spin)
@@ -1374,20 +1380,45 @@ pub fn calculate_batted_ball_with_metrics(
     contact: &SwingContactResult,
     stadium: &Stadium,
 ) -> Result<(BattedBall, PlayerGameBattingMetrics), GameError> {
+    let (ball, metrics, _) =
+        calculate_batted_ball_with_length_loss(rng, batter, ball, contact, stadium, 0.0)?;
+    Ok((ball, metrics))
+}
+
+pub(crate) fn calculate_batted_ball_with_length_loss(
+    rng: &mut dyn RandomProvider,
+    batter: &BatterInfo,
+    ball: PitchedBall,
+    contact: &SwingContactResult,
+    stadium: &Stadium,
+    max_loss: f64,
+) -> Result<(BattedBall, PlayerGameBattingMetrics, f64), GameError> {
     let angles = calculate_launch_angles(rng, contact, batter)?;
-    let batted_ball = if CONTACT_GEOMETRY_SCALE.get() == CONTACT_TIMING_POSITION_SCALE {
-        calculate_batted_ball(batter, ball, contact, &angles, stadium)?
+    let depth = if CONTACT_GEOMETRY_SCALE.get() == CONTACT_TIMING_POSITION_SCALE {
+        contact.timing_impact_x_m
     } else {
-        let depth = batter.swing_speed * contact.timing_offset_sec * CONTACT_TIMING_POSITION_SCALE;
-        let speed = calculate_launch_speed_with_depth(
-            contact,
-            ball.speed,
-            batter.swing_speed,
-            batter.swing_power,
-            depth,
-        );
-        calculate_batted_ball_from_speed(batter, ball, contact, &angles, stadium, speed)?
+        batter.swing_speed * contact.timing_offset_sec * CONTACT_TIMING_POSITION_SCALE
     };
+    let mut terms = launch_speed_terms(
+        ball.speed,
+        batter.swing_speed,
+        batter.swing_power,
+        depth,
+        contact.thickness_offset_m,
+        contact.length_offset_m,
+    );
+    if max_loss != 0.0 {
+        terms.length_retention *= off_center_length_retention(contact.length_offset_m, max_loss);
+    }
+    let retention = terms.thickness_retention * terms.length_retention;
+    let batted_ball = calculate_batted_ball_from_speed(
+        batter,
+        ball,
+        contact,
+        &angles,
+        stadium,
+        terms.exit_speed_ms(),
+    )?;
     let metrics = PlayerGameBattingMetrics {
         hla_model_version: Some(2),
         hla_handedness_sign: Some(batter.batting_side.handedness_sign()),
@@ -1400,7 +1431,7 @@ pub fn calculate_batted_ball_with_metrics(
         ..PlayerGameBattingMetrics::from_contact(contact)
     };
 
-    Ok((batted_ball, metrics))
+    Ok((batted_ball, metrics, retention))
 }
 
 #[cfg(test)]
@@ -1419,6 +1450,23 @@ mod tests {
     use crate::domain::util::Vector3D;
 
     type TestResult = Result<(), GameError>;
+
+    #[test]
+    fn extra_length_loss_preserves_center_and_increases_smoothly_off_center() {
+        for loss in [0.0, 0.20, 0.35] {
+            assert_eq!(off_center_length_retention(0.0, loss), 1.0);
+            assert_eq!(off_center_length_retention(-0.02, loss), 1.0);
+            assert_eq!(off_center_length_retention(0.10, loss), 1.0 - loss);
+            assert_eq!(off_center_length_retention(-0.14, loss), 1.0 - loss);
+            let mut previous = 1.0;
+            for mm in 0..=120 {
+                let retention = off_center_length_retention(f64::from(mm) / 1000.0, loss);
+                assert!(retention <= previous);
+                previous = retention;
+            }
+        }
+    }
+
 
     #[test]
     fn batter_type_does_not_add_a_physical_attack_angle_bonus() {

@@ -7,7 +7,8 @@ use saberbb::domain::{
         game::{BattingResult, GameResult},
         game_state::{
             IntentAimOffsets, IntentAimPlay, IntentAimSwing, SwingReplay,
-            with_contact_first_speed_audit, with_intent_aim_audit, with_intent_aim_trial,
+            with_contact_first_speed_audit, with_contact_length_audit, with_intent_aim_audit,
+            with_intent_aim_trial,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -99,12 +100,42 @@ struct SwingCounts {
     home_runs: u64,
     no_batting_result: u64,
     infield: InfieldCounts,
+    baseline_fair_retention_by_angle: BTreeMap<&'static str, BTreeMap<u8, u64>>,
+    hard_fair_5_to_10_deg: u64,
 }
 
 impl SwingCounts {
     fn observe(&mut self, baseline: IntentAimPlay, play: IntentAimPlay) {
         self.infield.observe(baseline, play);
         let (baseline, play) = (baseline.batting, play.batting);
+        if let Some((outbound, speed, angle)) = play.flight {
+            self.hard_fair_5_to_10_deg += u64::from(
+                outbound != OutboundResult::Foul && speed >= 45.0 && (5.0..10.0).contains(&angle),
+            );
+        }
+        if let Some((outbound, _, angle)) = baseline.flight
+            && outbound != OutboundResult::Foul
+            && let Some(retention) = play.exit_speed_retention
+        {
+            let angle_band = if angle < 5.0 {
+                "below_5"
+            } else if angle < 10.0 {
+                "5_to_10"
+            } else if angle < 20.0 {
+                "10_to_20"
+            } else if angle < 40.0 {
+                "20_to_40"
+            } else {
+                "at_least_40"
+            };
+            let bin = ((retention * 20.0).floor() as u8).min(19) * 5;
+            *self
+                .baseline_fair_retention_by_angle
+                .entry(angle_band)
+                .or_default()
+                .entry(bin)
+                .or_default() += 1;
+        }
         let source = swing_band(baseline);
         let band = swing_band(play);
         self.swings += 1;
@@ -158,6 +189,8 @@ impl SwingCounts {
             "singles_5_to_10_deg_per_swing": rate(self.singles_5_to_10_deg),
             "doubles": self.doubles, "triples": self.triples,
             "home_runs": self.home_runs, "home_runs_per_swing": rate(self.home_runs),
+            "hard_fair_5_to_10_deg": self.hard_fair_5_to_10_deg,
+            "baseline_fair_retention_by_angle_deg": self.baseline_fair_retention_by_angle,
             "hard_low_singles": self.hard_low_singles, "hard_low_singles_per_swing": rate(self.hard_low_singles),
             "no_batting_result": self.no_batting_result,
             "hard_5_to_15_deg_infield": self.infield.report(),
@@ -243,18 +276,73 @@ fn observe_paired(
 
 pub(super) fn run_speed(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     const FACTORS: [f64; 3] = [1.0, 0.97, 0.94];
-    let empty = || FACTORS.map(|_| PairedCounts::default());
+    run_replays(
+        args,
+        games,
+        "ContactFirst swing speed",
+        "contact_first_speed_factor",
+        &FACTORS,
+        "Paired live swing decisions from the same pitch, intent, count and pre-contact RNG state. Scale only ContactFirst bat speed before contact geometry. Timing displacement, the existing EV-dependent contact window, collision, flight, fielding and baserunning are recalculated. Later pitches follow the live baseline. Rates use the same swings, including whiffs, fouls and interrupted plays.",
+        |simulate| with_contact_first_speed_audit(&FACTORS, simulate),
+    )
+}
+
+pub(super) fn run_length(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    const LOSSES: [f64; 3] = [0.0, 0.20, 0.35];
+    run_replays(
+        args,
+        games,
+        "Contact length retention",
+        "max_additional_length_loss",
+        &LOSSES,
+        "Freeze contact geometry and classification, bat speed, launch angles and spin for both intents. Multiply the existing length retention by one minus the additional loss. Loss is zero through 2 cm from the sweet spot, increases by smoothstep to the arm maximum at 10 cm, and stays at that maximum beyond 10 cm. Recalculate flight, fielding and baserunning. Later pitches follow the live baseline. The retention histogram is grouped by baseline angle among baseline fair flights. Numeric keys are lower edges of 5 percentage point intervals; the 95 bin includes 100%. Retention uses both the thickness and length factors relative to the same pitch-plus-bat speed before either factor.",
+        |simulate| {
+            let (result, swings) = with_contact_length_audit(&LOSSES, simulate);
+            for swing in &swings {
+                let baseline = swing.plays[0].batting;
+                for arm in &swing.plays[1..] {
+                    let play = arm.batting;
+                    if !matches!((baseline.flight, play.flight), (None, None))
+                        && !matches!((baseline.flight, play.flight), (Some((_, before, angle)), Some((_, after, trial_angle))) if angle == trial_angle && after <= before)
+                    {
+                        return (
+                            Err(anyhow::anyhow!(
+                                "contact or launch angle changed, or exit speed increased at count {}",
+                                swing.count_seq
+                            )),
+                            swings,
+                        );
+                    }
+                }
+            }
+            (result, swings)
+        },
+    )
+}
+
+fn run_replays(
+    args: &Args,
+    games: &[GameSchedule],
+    name: &str,
+    parameter: &str,
+    values: &[f64; 3],
+    definition: &str,
+    audit: impl Fn(&mut dyn FnMut() -> Result<GameResult>) -> (Result<GameResult>, Vec<IntentAimSwing>),
+) -> Result<Value> {
+    let empty = || values.map(|_| PairedCounts::default());
     let report = |counts: &[PairedCounts]| {
-        FACTORS.iter().zip(counts).map(|(factor, summary)| {
-            json!({"contact_first_speed_factor":factor,"summary":summary.report()})
-        }).collect::<Vec<_>>()
+        values
+            .iter()
+            .zip(counts)
+            .map(|(value, summary)| json!({(parameter):value,"summary":summary.report()}))
+            .collect::<Vec<_>>()
     };
     let mut pooled = empty();
     let mut reports = Vec::new();
     for &seed in &args.seeds {
         let mut per_seed = empty();
         for game in games {
-            let (result, swings) = with_contact_first_speed_audit(&FACTORS, || {
+            let (result, swings) = audit(&mut || {
                 simulate_game(
                     game.clone(),
                     Box::new(RealRng::from_seed(derived_seed(seed, game.id))),
@@ -264,24 +352,14 @@ pub(super) fn run_speed(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 )
             });
             let result = result.with_context(|| {
-                format!(
-                    "ContactFirst swing-speed replay failed in game {}, seed {seed}",
-                    game.id
-                )
+                format!("{name} replay failed in game {}, seed {seed}", game.id)
             })?;
             observe_paired(&result, swings, &mut pooled, &mut per_seed)?;
         }
-        eprintln!(
-            "ContactFirst swing speed, seed {seed}: {} games complete",
-            games.len()
-        );
+        eprintln!("{name}, seed {seed}: {} games complete", games.len());
         reports.push(json!({"seed":seed.to_string(),"arms":report(&per_seed)}));
     }
-    Ok(json!({
-        "definition":"Paired live swing decisions from the same pitch, intent, count and pre-contact RNG state. Scale only ContactFirst bat speed before contact geometry. Timing displacement, the existing EV-dependent contact window, collision, flight, fielding and baserunning are recalculated. Later pitches follow the live baseline. Rates use the same swings, including whiffs, fouls and interrupted plays.",
-        "pooled":report(&pooled),
-        "reports":reports,
-    }))
+    Ok(json!({"definition":definition,"pooled":report(&pooled),"reports":reports}))
 }
 
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
@@ -404,6 +482,7 @@ mod tests {
             infield: None,
         };
         let single = replay(SwingReplay {
+            exit_speed_retention: None,
             outcome: Some(BattingResult::Single),
             flight: Some((OutboundResult::InField, 45.0, 0.0)),
         });
@@ -411,6 +490,7 @@ mod tests {
         counts.observe(
             single,
             replay(SwingReplay {
+                exit_speed_retention: None,
                 outcome: Some(BattingResult::Foul),
                 flight: Some((OutboundResult::Foul, 48.0, 31.0)),
             }),
@@ -418,6 +498,7 @@ mod tests {
         counts.observe(
             single,
             replay(SwingReplay {
+                exit_speed_retention: None,
                 outcome: Some(BattingResult::HomeRun),
                 flight: Some((OutboundResult::HomeRun, 45.0, 30.0)),
             }),
