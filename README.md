@@ -1015,6 +1015,14 @@ spin transfer, holding launch angle, collision spin, and the baseline
 fair/foul rulings fixed. The sensitivity measures the classification
 effect. These fractions are trial values for comparison.
 
+Add `--vertical-prediction-break-comparison` to compare live swings with
+the signed vertical prediction break scaled by 0, 0.5, and 1 before bat
+control. The trials keep the pitch-location bias, horizontal and timing
+inputs, and original batting intent. The example recomputes contact,
+flight, and fair/foul. Each pitch-spin group reports
+`vertical_prediction_break_replay`, including the paired gains and
+losses above 50° relative to the exact live arm.
+
 Use `contact_approach_comparison.paired_contact_quality` to compare the
 four pooled contact/miss combinations. In `contact_first_only_contact`,
 check how often ContactFirst produces a foul and how much EV it retains.

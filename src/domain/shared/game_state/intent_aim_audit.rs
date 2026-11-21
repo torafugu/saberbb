@@ -5,7 +5,7 @@ use crate::domain::{
             BattingFactor, ContactProtectionTrial, SwingExecutionError, adapt_to_pitch,
         },
         fielding_physics::FieldPlayPlayResult,
-        pitching_resolver::{PitchDisplacement, StrikeZoneDimensions},
+        pitching_resolver::{PitchDisplacement, StrikeZoneDimensions, calculate_location_bias},
     },
     shared::{
         ball::{BattedBall, PitchedBall},
@@ -47,6 +47,7 @@ pub struct IntentAimSwing {
     pub intent: BattedBallIntent,
     pub plays: Vec<IntentAimPlay>,
     pub protection_plays: Option<[SwingReplay; 3]>,
+    pub vertical_break_plays: Option<[SwingReplay; 2]>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -151,6 +152,7 @@ struct Audit {
     arms: Vec<Trial>,
     audit_doubles: bool,
     audit_protection: bool,
+    audit_vertical_break: bool,
     swings: Vec<IntentAimSwing>,
 }
 
@@ -209,6 +211,7 @@ pub fn with_intent_aim_audit<T>(
 pub fn with_contact_approach_audit<T>(
     arms: &[IntentAimOffsets],
     audit_protection: bool,
+    audit_vertical_break: bool,
     run: impl FnOnce() -> T,
 ) -> (T, Vec<IntentAimSwing>, Vec<TwoStrikePitch>) {
     struct Restore(Option<Vec<TwoStrikePitch>>);
@@ -220,9 +223,9 @@ pub fn with_contact_approach_audit<T>(
     let _restore = Restore(TWO_STRIKE_PITCHES.replace(Some(Vec::new())));
     let (result, swings) = with_aim_trials(arms, true, || {
         AUDIT.with_borrow_mut(|slot| {
-            slot.as_mut()
-                .expect("intent aim audit is active")
-                .audit_protection = audit_protection;
+            let audit = slot.as_mut().expect("intent aim audit is active");
+            audit.audit_protection = audit_protection;
+            audit.audit_vertical_break = audit_vertical_break;
         });
         run()
     });
@@ -324,6 +327,7 @@ fn with_trials<T>(
         arms,
         audit_doubles,
         audit_protection: false,
+        audit_vertical_break: false,
         swings: Vec::new(),
     })));
     let result = run();
@@ -331,6 +335,17 @@ fn with_trials<T>(
         result,
         AUDIT.take().expect("intent aim audit is active").swings,
     )
+}
+
+fn scaled_vertical_break_displacement(
+    raw: PitchDisplacement,
+    location_bias_z: f64,
+    factor: f64,
+) -> PitchDisplacement {
+    PitchDisplacement {
+        vertical_offset_m: location_bias_z + (raw.vertical_offset_m - location_bias_z) * factor,
+        ..raw
+    }
 }
 
 impl GameState {
@@ -406,19 +421,19 @@ impl GameState {
                 unique.push((inputs, play));
                 plays.push(play);
             }
+            let mut live_aim_error = *swing_error;
+            live_aim_error.additional_z_m += super::intent_aim_offset_m(intent);
             let protection_plays = if audit.audit_protection
                 && self.inning_state.strike == 2
                 && intent == BattedBallIntent::ContactFirst
             {
-                let mut error = *swing_error;
-                error.additional_z_m += super::intent_aim_offset_m(intent);
                 let replay = |trial| {
                     self.replay_swing_variant(
                         active.id,
                         batter,
                         pitch,
                         &adapted,
-                        error,
+                        live_aim_error,
                         (Some(0.0), false, Some(trial)),
                     )
                 };
@@ -430,11 +445,34 @@ impl GameState {
             } else {
                 None
             };
+            let vertical_break_plays = if audit.audit_vertical_break {
+                let location_bias_z = calculate_location_bias(pitch.actual_location).spatial_bias_y;
+                let replay = |factor| {
+                    let raw = scaled_vertical_break_displacement(
+                        *raw_displacement,
+                        location_bias_z,
+                        factor,
+                    );
+                    let displacement = adapt_to_pitch(&raw, batter.bat_control, batting_factor);
+                    self.replay_swing_variant(
+                        active.id,
+                        batter,
+                        pitch,
+                        &displacement,
+                        live_aim_error,
+                        (None, false, None),
+                    )
+                };
+                Some([replay(0.0)?, replay(0.5)?])
+            } else {
+                None
+            };
             audit.swings.push(IntentAimSwing {
                 count_seq: self.count_seq,
                 intent,
                 plays,
                 protection_plays,
+                vertical_break_plays,
             });
             Ok(())
         })
@@ -443,7 +481,29 @@ impl GameState {
 
 #[cfg(test)]
 mod tests {
-    use super::timing_height_error_m;
+    use super::{PitchDisplacement, scaled_vertical_break_displacement, timing_height_error_m};
+
+    #[test]
+    fn scales_signed_vertical_break_while_preserving_location_bias() {
+        for break_z in [-0.06, 0.06] {
+            let bias_z = 0.02;
+            let raw = PitchDisplacement {
+                crossfire_multiplier: 1.2,
+                release_x_factor: 1.1,
+                horizontal_offset_m: 0.03,
+                vertical_offset_m: bias_z + break_z,
+                timing_offset_sec: -0.005,
+            };
+            for factor in [0.0, 0.5, 1.0] {
+                let trial = scaled_vertical_break_displacement(raw, bias_z, factor);
+                assert!((trial.vertical_offset_m - (bias_z + break_z * factor)).abs() < 1e-12);
+                assert_eq!(trial.crossfire_multiplier, raw.crossfire_multiplier);
+                assert_eq!(trial.release_x_factor, raw.release_x_factor);
+                assert_eq!(trial.horizontal_offset_m, raw.horizontal_offset_m);
+                assert_eq!(trial.timing_offset_sec, raw.timing_offset_sec);
+            }
+        }
+    }
 
     #[test]
     fn matched_paths_or_on_time_swings_add_no_height_error() {
