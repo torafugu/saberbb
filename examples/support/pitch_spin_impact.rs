@@ -86,8 +86,18 @@ impl Counts {
         &mut self,
         pitch: &PlayerGamePitching,
         break_z: f64,
-        play: SwingReplay,
+        swing: &IntentAimSwing,
     ) -> Result<()> {
+        let play = swing
+            .plays
+            .first()
+            .context("swing has no live replay arm")?
+            .batting;
+        if let Some([zero, half]) = swing.vertical_break_plays {
+            for (counts, trial) in self.break_replays.iter_mut().zip([zero, half, play]) {
+                counts.observe(play, trial);
+            }
+        }
         self.swings += 1;
         self.break_sum_m += break_z;
         let raw_backspin = pitch.ball.spin_rate * pitch.ball.spin_angle.to_radians().cos();
