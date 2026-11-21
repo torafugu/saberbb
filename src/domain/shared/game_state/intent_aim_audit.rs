@@ -1,7 +1,9 @@
 use super::{ActiveFielder, DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, GameError, GameState, SwingReplay};
 use crate::domain::{
     resolver::{
-        batting_resolver::{BattingFactor, SwingExecutionError, adapt_to_pitch},
+        batting_resolver::{
+            BattingFactor, ContactProtectionTrial, SwingExecutionError, adapt_to_pitch,
+        },
         fielding_physics::FieldPlayPlayResult,
         pitching_resolver::{PitchDisplacement, StrikeZoneDimensions},
     },
@@ -44,6 +46,7 @@ pub struct IntentAimSwing {
     pub count_seq: u16,
     pub intent: BattedBallIntent,
     pub plays: Vec<IntentAimPlay>,
+    pub protection_plays: Option<[SwingReplay; 3]>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -147,6 +150,7 @@ pub struct TwoStrikePitch {
 struct Audit {
     arms: Vec<Trial>,
     audit_doubles: bool,
+    audit_protection: bool,
     swings: Vec<IntentAimSwing>,
 }
 
@@ -204,6 +208,7 @@ pub fn with_intent_aim_audit<T>(
 /// Replay aim offsets with EV retention and record the live two-strike pitch decisions.
 pub fn with_contact_approach_audit<T>(
     arms: &[IntentAimOffsets],
+    audit_protection: bool,
     run: impl FnOnce() -> T,
 ) -> (T, Vec<IntentAimSwing>, Vec<TwoStrikePitch>) {
     struct Restore(Option<Vec<TwoStrikePitch>>);
@@ -213,7 +218,14 @@ pub fn with_contact_approach_audit<T>(
         }
     }
     let _restore = Restore(TWO_STRIKE_PITCHES.replace(Some(Vec::new())));
-    let (result, swings) = with_aim_trials(arms, true, run);
+    let (result, swings) = with_aim_trials(arms, true, || {
+        AUDIT.with_borrow_mut(|slot| {
+            slot.as_mut()
+                .expect("intent aim audit is active")
+                .audit_protection = audit_protection;
+        });
+        run()
+    });
     let pitches = TWO_STRIKE_PITCHES
         .take()
         .expect("two-strike pitch audit is active");
@@ -311,6 +323,7 @@ fn with_trials<T>(
     let _restore = Restore(AUDIT.replace(Some(Audit {
         arms,
         audit_doubles,
+        audit_protection: false,
         swings: Vec::new(),
     })));
     let result = run();
@@ -387,16 +400,41 @@ impl GameState {
                         pitch,
                         &displacement,
                         error,
-                        (inputs.length_loss, audit.audit_doubles),
+                        (inputs.length_loss, audit.audit_doubles, None),
                     )
                 })?;
                 unique.push((inputs, play));
                 plays.push(play);
             }
+            let protection_plays = if audit.audit_protection
+                && self.inning_state.strike == 2
+                && intent == BattedBallIntent::ContactFirst
+            {
+                let mut error = *swing_error;
+                error.additional_z_m += super::intent_aim_offset_m(intent);
+                let replay = |trial| {
+                    self.replay_swing_variant(
+                        active.id,
+                        batter,
+                        pitch,
+                        &adapted,
+                        error,
+                        (Some(0.0), false, Some(trial)),
+                    )
+                };
+                Some([
+                    replay(ContactProtectionTrial::EdgeCorrection)?,
+                    replay(ContactProtectionTrial::ReducedCenterCorrection)?,
+                    replay(ContactProtectionTrial::Combined)?,
+                ])
+            } else {
+                None
+            };
             audit.swings.push(IntentAimSwing {
                 count_seq: self.count_seq,
                 intent,
                 plays,
+                protection_plays,
             });
             Ok(())
         })

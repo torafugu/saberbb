@@ -2,7 +2,8 @@ use super::{GameError, GameState, pre_trial_exit_speed_ms, vertical_contact_poli
 use crate::domain::{
     resolver::{
         batting_resolver::{
-            SwingContactType, SwingExecutionError, calculate_batted_ball_with_length_loss,
+            ContactProtectionTrial, SwingContactType, SwingExecutionError,
+            apply_contact_protection_trial, calculate_batted_ball_with_length_loss,
             evaluate_swing_contact, replay_fence_flight,
         },
         fielding_physics::CatchType,
@@ -118,13 +119,20 @@ impl GameState {
         pitch: PitchedBall,
         displacement: &PitchDisplacement,
         mut error: SwingExecutionError,
-        (max_length_loss, audit_doubles): (Option<f64>, bool),
+        (max_length_loss, audit_doubles, protection): (
+            Option<f64>,
+            bool,
+            Option<ContactProtectionTrial>,
+        ),
     ) -> Result<SwingReplay, GameError> {
         let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
         let baseline_z_m = displacement.vertical_offset_m + error.additional_z_m;
         error.additional_z_m += vertical_contact_policy_offset_m(baseline_z_m, || {
             pre_trial_exit_speed_ms(batter, pitch.speed, displacement, &error)
         });
+        if let Some(trial) = protection {
+            apply_contact_protection_trial(batter, displacement, &mut error, trial);
+        }
         let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
         let (flight, exit_speed_retention) =
             if contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
@@ -220,7 +228,7 @@ impl GameState {
                     pitch,
                     displacement,
                     *swing_error,
-                    (None, false),
+                    (None, false, None),
                 )?);
             }
             audit.swings.push((self.count_seq, arms));
