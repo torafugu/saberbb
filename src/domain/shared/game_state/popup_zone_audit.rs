@@ -27,6 +27,24 @@ pub const POPUP_SCAN_VLA_DEG: f64 = 50.0;
 pub const POPUP_ZERO_SPEED_TOLERANCE_MS: f64 = 1e-9;
 pub const POPUP_SCAN_INFIELD_M: f64 = INFIELD_DISTANCE;
 pub const POPUP_FIXED_X_STEP_M: f64 = 0.002;
+pub const POPUP_HLA_RETENTION_PCT: [u8; 5] = [0, 25, 50, 75, 100];
+
+#[derive(Clone, Copy)]
+pub enum PopupHlaTrial {
+    Disabled,
+    Control,
+    Sweep,
+}
+
+impl PopupHlaTrial {
+    pub fn retention_percentages(self) -> &'static [u8] {
+        match self {
+            Self::Disabled => &[],
+            Self::Control => &POPUP_HLA_RETENTION_PCT[..1],
+            Self::Sweep => &POPUP_HLA_RETENTION_PCT,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PopupZoneLaunch {
@@ -46,7 +64,7 @@ pub struct PopupZonePlay {
     pub z_m: f64,
     pub outcome: Option<BattingResult>,
     pub launch: Option<PopupZoneLaunch>,
-    pub hla_control_launch: Option<PopupZoneLaunch>,
+    pub hla_trial_launches: [Option<PopupZoneLaunch>; POPUP_HLA_RETENTION_PCT.len() - 1],
 }
 
 pub struct PopupZoneSwing {
@@ -68,7 +86,7 @@ pub enum FixedHorizontalScan {
 
 struct Audit {
     fixed_horizontal: bool,
-    hla_control: bool,
+    hla_trial: PopupHlaTrial,
     swings: Vec<PopupZoneSwing>,
 }
 
@@ -77,19 +95,28 @@ thread_local! {
 }
 
 pub fn with_popup_zone_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
-    with_audit(false, false, run)
+    with_audit(false, PopupHlaTrial::Disabled, run)
 }
 
 pub fn with_fixed_horizontal_popup_audit<T>(
     hla_control: bool,
     run: impl FnOnce() -> T,
 ) -> (T, Vec<PopupZoneSwing>) {
-    with_audit(true, hla_control, run)
+    let trial = if hla_control {
+        PopupHlaTrial::Control
+    } else {
+        PopupHlaTrial::Disabled
+    };
+    with_audit(true, trial, run)
+}
+
+pub fn with_popup_hla_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
+    with_audit(true, PopupHlaTrial::Sweep, run)
 }
 
 fn with_audit<T>(
     fixed_horizontal: bool,
-    hla_control: bool,
+    hla_trial: PopupHlaTrial,
     run: impl FnOnce() -> T,
 ) -> (T, Vec<PopupZoneSwing>) {
     struct Restore(Option<Audit>);
@@ -100,7 +127,7 @@ fn with_audit<T>(
     }
     let _restore = Restore(AUDIT.replace(Some(Audit {
         fixed_horizontal,
-        hla_control,
+        hla_trial,
         swings: Vec::new(),
     })));
     let result = run();
@@ -180,13 +207,15 @@ fn is_foul_launch(
         || ball.is_foul()
 }
 
-fn hla_without_rebound(
+fn hla_with_rebound_retention(
     live_hla: f64,
     signed_thickness_m: f64,
     tilt_deg: f64,
     handedness: f64,
+    retention_pct: u8,
 ) -> f64 {
-    wrap_hla_deg(live_hla - contact_normal_hla_deg(signed_thickness_m, tilt_deg) * handedness)
+    let rebound = contact_normal_hla_deg(signed_thickness_m, tilt_deg) * handedness;
+    wrap_hla_deg(live_hla - rebound * (1.0 - f64::from(retention_pct) / 100.0))
 }
 
 fn classify_launch(replay: &Play, ball: BattedBall, hla_deg: f64) -> PopupZoneLaunch {
@@ -239,7 +268,7 @@ impl GameState {
             };
             let pitcher_id = self.current_pitcher()?.id;
             let sample = |error: SwingExecutionError,
-                          hla_control: bool|
+                          hla_trial: PopupHlaTrial|
              -> Result<PopupZonePlay, GameError> {
                 let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
                 let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
@@ -248,7 +277,7 @@ impl GameState {
                     z_m: contact.offset_z_m,
                     outcome: None,
                     launch: None,
-                    hla_control_launch: None,
+                    hla_trial_launches: [None; POPUP_HLA_RETENTION_PCT.len() - 1],
                 };
                 if contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
                     play.outcome = Some(if self.inning_state.strike + 1 >= super::MAX_STRIKE {
@@ -265,7 +294,8 @@ impl GameState {
                     &contact,
                     &self.stadium,
                 )?;
-                let control_rng = if hla_control
+                let retentions = hla_trial.retention_percentages();
+                let control_rng = if !retentions.is_empty()
                     && ball.launch_angle > POPUP_SCAN_VLA_DEG
                     && ball.launch_speed > POPUP_ZERO_SPEED_TOLERANCE_MS
                 {
@@ -284,40 +314,44 @@ impl GameState {
                 play.outcome = replay.batting_result;
                 play.launch = Some(classify_launch(&replay, ball, metrics.final_hla_deg));
                 if let Some(control_rng) = control_rng {
-                    let control_hla = hla_without_rebound(
-                        metrics.final_hla_deg,
-                        contact.signed_thickness_offset_m.unwrap_or_default(),
-                        error.actual_bat_angle_deg,
-                        batter.batting_side.handedness_sign(),
-                    );
-                    let control_ball = calculate_trajectory(
-                        ball.launch_speed,
-                        ball.launch_angle,
-                        control_hla,
-                        ball.spin_rate,
-                        ball.spin_angle,
-                        &self.stadium,
-                    )?;
-                    let mut control_metrics = metrics;
-                    control_metrics.final_hla_deg = control_hla;
-                    let control = self.replay_swing(
-                        pitcher_id,
-                        active.id,
-                        batter.batting_side,
-                        &contact,
-                        Some((control_ball, control_metrics)),
-                        control_rng,
-                    )?;
-                    play.hla_control_launch =
-                        Some(classify_launch(&control, control_ball, control_hla));
+                    for (output, &retention_pct) in
+                        play.hla_trial_launches.iter_mut().zip(retentions)
+                    {
+                        let control_hla = hla_with_rebound_retention(
+                            metrics.final_hla_deg,
+                            contact.signed_thickness_offset_m.unwrap_or_default(),
+                            error.actual_bat_angle_deg,
+                            batter.batting_side.handedness_sign(),
+                            retention_pct,
+                        );
+                        let control_ball = calculate_trajectory(
+                            ball.launch_speed,
+                            ball.launch_angle,
+                            control_hla,
+                            ball.spin_rate,
+                            ball.spin_angle,
+                            &self.stadium,
+                        )?;
+                        let mut control_metrics = metrics;
+                        control_metrics.final_hla_deg = control_hla;
+                        let control = self.replay_swing(
+                            pitcher_id,
+                            active.id,
+                            batter.batting_side,
+                            &contact,
+                            Some((control_ball, control_metrics)),
+                            control_rng.fork().ok_or(GameError::PairedContactRng)?,
+                        )?;
+                        *output = Some(classify_launch(&control, control_ball, control_hla));
+                    }
                 }
                 Ok(play)
             };
-            let baseline = sample(swing_error, false)?;
+            let baseline = sample(swing_error, PopupHlaTrial::Disabled)?;
             let mut grid = Vec::new();
             let fixed_horizontal = if audit.fixed_horizontal {
                 Some(fixed_horizontal_scan(baseline, swing_error, |error| {
-                    sample(error, audit.hla_control)
+                    sample(error, audit.hla_trial)
                 })?)
             } else {
                 grid.reserve(POPUP_SCAN_X_MM.len() * POPUP_SCAN_Z_MM.len());
@@ -330,7 +364,7 @@ impl GameState {
                                 f64::from(x_mm) / 1000.0,
                                 f64::from(z_mm) / 1000.0,
                             ),
-                            false,
+                            PopupHlaTrial::Disabled,
                         )?);
                     }
                 }
@@ -359,9 +393,16 @@ mod tests {
         for handedness in [-1.0, 1.0] {
             let live = wrap_hla_deg((face + rebound) * handedness);
             assert!(
-                (hla_without_rebound(live, -0.060, 30.0, handedness) - face * handedness).abs()
+                (hla_with_rebound_retention(live, -0.060, 30.0, handedness, 0) - face * handedness)
+                    .abs()
                     < 1e-12
             );
+            for retention in [25, 50, 75, 100] {
+                let expected =
+                    wrap_hla_deg((face + rebound * f64::from(retention) / 100.0) * handedness);
+                let trial = hla_with_rebound_retention(live, -0.060, 30.0, handedness, retention);
+                assert!(wrap_hla_deg(trial - expected).abs() < 1e-12);
+            }
         }
     }
 
@@ -401,7 +442,7 @@ mod tests {
             z_m: 0.02,
             outcome: None,
             launch: None,
-            hla_control_launch: None,
+            hla_trial_launches: [None; POPUP_HLA_RETENTION_PCT.len() - 1],
         };
         let error = SwingExecutionError {
             actual_bat_angle_deg: 30.0,
@@ -445,7 +486,7 @@ mod tests {
             z_m: -0.03,
             outcome: None,
             launch: None,
-            hla_control_launch: None,
+            hla_trial_launches: [None; POPUP_HLA_RETENTION_PCT.len() - 1],
         };
         let error = SwingExecutionError {
             actual_bat_angle_deg: 35.0,

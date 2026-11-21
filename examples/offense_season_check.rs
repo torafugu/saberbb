@@ -187,6 +187,9 @@ struct Args {
     /// Compare the same high-angle contact with and without the rebound contribution to HLA.
     #[arg(long, requires = "popup_fixed_horizontal")]
     popup_hla_control: bool,
+    /// Sweep the retained contact-normal contribution to HLA across 0, 25, 50, 75 and 100%.
+    #[arg(long, requires = "popup_fixed_horizontal", conflicts_with = "popup_hla_control")]
+    popup_hla_sweep: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,

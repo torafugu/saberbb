@@ -63,8 +63,9 @@ pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fiel
 mod popup_zone_audit;
 pub use popup_zone_audit::{
     FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
-    POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupZoneLaunch, PopupZonePlay,
-    PopupZoneSwing, with_fixed_horizontal_popup_audit, with_popup_zone_audit,
+    POPUP_HLA_RETENTION_PCT, POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS,
+    PopupHlaTrial, PopupZoneLaunch, PopupZonePlay,
+    PopupZoneSwing, with_fixed_horizontal_popup_audit, with_popup_hla_sweep_audit, with_popup_zone_audit,
 };
 mod swing_speed_audit;
 pub use swing_speed_audit::{
