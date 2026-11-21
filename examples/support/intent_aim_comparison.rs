@@ -50,6 +50,10 @@ use timing_vertical_alignment::TimingVerticalAlignment;
 mod timing_thickness_crossings;
 use timing_thickness_crossings::TimingThicknessCrossings;
 
+#[path = "high_vla_reachability.rs"]
+mod high_vla_reachability;
+use high_vla_reachability::{HIGH_VLA_DEG, HighVlaReachability};
+
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
     let alternative = IntentAimOffsets {
@@ -520,6 +524,7 @@ fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Val
     const FACTORS: [Option<f64>; 4] = [None, Some(1.0), Some(1.5), Some(2.0)];
     const THICKNESS_PAIRS: [(usize, usize); 2] = [(0, 1), (1, 3)];
     let mut alignment: [TimingVerticalAlignment; 3] = Default::default();
+    let mut high_vla: [HighVlaReachability; FACTORS.len()] = Default::default();
     let mut thickness_crossings: [TimingThicknessCrossings; THICKNESS_PAIRS.len()] =
         Default::default();
     let mut report = run_replays(
@@ -533,6 +538,9 @@ fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Val
             let (result, swings) = with_downward_timing_height_audit(&FACTORS, simulate);
             for swing in &swings {
                 let baseline = swing.plays[0].batting;
+                for (counts, play) in high_vla.iter_mut().zip(&swing.plays) {
+                    counts.observe(swing.intent, play.batting);
+                }
                 for (counts, play) in alignment.iter_mut().zip(&swing.plays[1..]) {
                     counts.observe(swing.intent, baseline, play.batting);
                 }
@@ -547,6 +555,18 @@ fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Val
             (result, swings)
         },
     )?;
+    report["high_vla_reachability"] = json!({
+        "vla_threshold_deg": HIGH_VLA_DEG,
+        "definition": "Hold horizontal position, bat angle and attack angle fixed and increase world Z (ball minus bat). Solve for Z strictly above the VLA boundary and inside both inclusive contact limits. Distances are lower bounds; exact equality at the angle boundary is insufficient. Blocked counts show why Z cannot reach a valid launch from its current value. HLA bands describe actual launches by replay outcome, and do not infer the ruling of hypothetical launches.",
+        "by_downward_timing_height_scale": FACTORS
+            .into_iter()
+            .zip(&high_vla)
+            .map(|(scale, counts)| json!({
+                "downward_timing_height_scale": scale,
+                "counts": counts.report(),
+            }))
+            .collect::<Vec<_>>(),
+    });
     report["paired_thickness_crossings"] = json!({
         "definition": "All replayed swings paired with the same horizontal timing coefficient. Each crossing compares the absolute bat-local thickness offset with the inclusive live limit. The length flag requires the length offset to stay inside its own limit at both settings. Contact changes within a crossing come from the replayed contact types. The total contact-to-whiff and whiff-to-contact counts also include pairs without a thickness crossing.",
         "retained_contact_definition": "Only pairs with SolidContact, WeakContact, or MarginalContact in both arms. Signed thickness is the projection of ball minus bat onto the local thickness axis. The VLA crossing uses all tracked launches, including fouls. The fair-above-threshold counts follow the replayed launch or ruling and include unresolved fair balls.",
@@ -924,6 +944,7 @@ mod tests {
                 launch_spin: None,
                 length_offset_terms: None,
                 signed_thickness_offset_m: None,
+                launch_geometry: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -996,6 +1017,7 @@ mod tests {
             launch_spin: None,
             length_offset_terms: None,
             signed_thickness_offset_m: None,
+            launch_geometry: None,
             exit_speed_retention: None,
             length_offset_m: 0.0,
             thickness_offset_m: 0.0,
@@ -1015,6 +1037,7 @@ mod tests {
                 launch_spin: None,
                 length_offset_terms: None,
                 signed_thickness_offset_m: None,
+                launch_geometry: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -1034,6 +1057,7 @@ mod tests {
                 launch_spin: None,
                 length_offset_terms: None,
                 signed_thickness_offset_m: None,
+                launch_geometry: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,

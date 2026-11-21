@@ -644,11 +644,29 @@ fn calculate_timing_angle_error(
     angular_velocity_rad_s * timing_error_s
 }
 
+const VERTICAL_COLLISION_RADIUS_M: f64 = 0.070; // Bat radius + ball radius
+const VERTICAL_DEFLECTION_SCALE: f64 = 0.60;
+
 /// Vertical deflection used by the live launch-angle calculation (degrees).
 pub fn calculate_vertical_contact_deflection(offset_z_m: f64) -> f64 {
-    const COLLISION_RADIUS_M: f64 = 0.070; // Bat radius + ball radius
-    let clamped_z = offset_z_m.clamp(-COLLISION_RADIUS_M, COLLISION_RADIUS_M);
-    (clamped_z / COLLISION_RADIUS_M).asin().to_degrees() * 0.60
+    let clamped_z = offset_z_m.clamp(-VERTICAL_COLLISION_RADIUS_M, VERTICAL_COLLISION_RADIUS_M);
+    (clamped_z / VERTICAL_COLLISION_RADIUS_M).asin().to_degrees() * VERTICAL_DEFLECTION_SCALE
+}
+
+/// Z must be strictly greater than this boundary to exceed the requested deflection.
+/// None means even maximum deflection cannot exceed it.
+pub fn vertical_offset_boundary_to_exceed_deflection(deflection_deg: f64) -> Option<f64> {
+    let max_deflection_deg = 90.0 * VERTICAL_DEFLECTION_SCALE;
+    if deflection_deg >= max_deflection_deg {
+        None
+    } else if deflection_deg < -max_deflection_deg {
+        Some(f64::NEG_INFINITY)
+    } else {
+        Some(
+            VERTICAL_COLLISION_RADIUS_M
+                * (deflection_deg / VERTICAL_DEFLECTION_SCALE).to_radians().sin(),
+        )
+    }
 }
 
 /// Draw the same face-angle terms used by a live contact, in radians.

@@ -156,6 +156,7 @@ mod tests {
             launch_spin: None,
             length_offset_terms: None,
             signed_thickness_offset_m: None,
+            launch_geometry: None,
             exit_speed_retention: None,
             length_offset_m: 0.0,
             thickness_offset_m: 0.0,

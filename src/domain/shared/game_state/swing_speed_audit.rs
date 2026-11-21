@@ -25,6 +25,7 @@ pub struct SwingReplay {
     pub flight: Option<(OutboundResult, f64, f64)>,
     pub launch_hla_deg: Option<f64>,
     pub contact_z_m: f64,
+    pub launch_geometry: Option<SwingReplayLaunchGeometry>,
     pub launch_spin: Option<(f64, f64)>,
     pub exit_speed_retention: Option<f64>,
     pub length_offset_m: f64,
@@ -33,6 +34,14 @@ pub struct SwingReplay {
     pub signed_thickness_offset_m: Option<f64>,
     pub outfield_direct_out: bool,
     pub double_fence: Option<DoubleFenceObservation>,
+}
+
+/// Fixed inputs for varying only the vertical position in a replay diagnostic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SwingReplayLaunchGeometry {
+    pub contact_x_m: f64,
+    pub bat_angle_deg: f64,
+    pub attack_angle_deg: f64,
 }
 
 /// Signed contributions along the bat's length, in meters.
@@ -223,6 +232,13 @@ impl GameState {
             signed_thickness_offset_m: contact.signed_thickness_offset_m,
             launch_hla_deg: flight.map(|(_, metrics)| metrics.final_hla_deg),
             contact_z_m: contact.offset_z_m,
+            launch_geometry: contact.actual_bat_angle_deg.map(|bat_angle_deg| {
+                SwingReplayLaunchGeometry {
+                    contact_x_m: contact.offset_x_m,
+                    bat_angle_deg,
+                    attack_angle_deg: contact.attack_angle_deg,
+                }
+            }),
             launch_spin: replay.ball.map(|ball| (ball.spin_rate, ball.spin_angle)),
             flight: replay
                 .ball
