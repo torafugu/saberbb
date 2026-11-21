@@ -33,6 +33,10 @@ use two_strike_approach::TwoStrikeApproach;
 mod contact_protection;
 use contact_protection::ContactProtection;
 
+#[path = "contact_launch_profile.rs"]
+mod contact_launch_profile;
+use contact_launch_profile::ContactLaunchProfile;
+
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
     let alternative = IntentAimOffsets {
@@ -599,12 +603,14 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
     let mut quality = ContactApproachQuality::default();
     let mut two_strike = TwoStrikeApproach::default();
     let mut protection = ContactProtection::default();
+    let approach_names = ["live", "contact_first", "line_drive"];
+    let mut launch_profiles: [ContactLaunchProfile; 3] = Default::default();
     let mut report = run_replays(
         args,
         games,
         "ContactFirst vs LineDrive",
         "approach",
-        &["live", "contact_first", "line_drive"],
+        &approach_names,
         "Every live swing is replayed with its original aim and with each approach's live vertical contact offset, before evaluating contact. Pitch, swing decision, batter, count, starting game state and pre-contact RNG are shared. Existing vertical contact policy, fielding and running are reapplied. Later pitches follow the live baseline. The all group combines all swings; contact_first and line_drive subgroups use the originally selected intent. Contact types use the adjusted contact classifier. A resolved fair swing has a non-foul flight and a non-foul recorded batting outcome; its hit rate includes home runs. Fair interrupted plays are kept in their own outcome stage.",
         |simulate| {
             let (result, swings, pitches) =
@@ -616,6 +622,9 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
                 Ok(result)
             });
             for swing in &swings {
+                for (profile, play) in launch_profiles.iter_mut().zip(&swing.plays) {
+                    profile.observe(play.batting);
+                }
                 let contact_first = swing.plays[1].batting;
                 let line_drive = swing.plays[2].batting;
                 quality.observe(contact_first, line_drive);
@@ -635,6 +644,14 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
     )?;
     report["contact_first_to_line_drive_outcome_stages"] = json!(transitions);
     report["paired_contact_quality"] = quality.report();
+    let approaches: BTreeMap<_, _> = approach_names
+        .into_iter()
+        .zip(launch_profiles.iter().map(ContactLaunchProfile::report))
+        .collect();
+    report["contact_launch_profiles"] = json!({
+        "definition": ContactLaunchProfile::DEFINITION,
+        "approaches": approaches,
+    });
     report["two_strike_by_location"] = two_strike.report();
     if args.two_strike_contact_protection {
         report["two_strike_contact_protection"] = protection.report();

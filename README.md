@@ -988,6 +988,16 @@ fair play. The resolved-fair hit rate includes home runs and uses
 recorded non-foul outcomes on non-foul flights. See `reports` for
 results by seed.
 
+`contact_approach_comparison.contact_launch_profiles.approaches` breaks
+down fouls and fair launch angles by adjusted contact type. It shows
+how frequent each contact type is among launches and how often its
+fair launches are below 40°, from 40° through 50°, or above 50°. The last
+band is an angle-based pop-up proxy. A launch ruled foul goes in the
+foul column regardless of angle. Fair trajectories without a recorded
+batting result contribute to the fair angle bins and are also counted
+under `fair_unresolved`. The optional two-strike protection report
+includes the same profile for the baseline, trial, and rescued swings.
+
 Use `contact_approach_comparison.paired_contact_quality` to compare the
 four pooled contact/miss combinations. In `contact_first_only_contact`,
 check how often ContactFirst produces a foul and how much EV it retains.

@@ -1,4 +1,4 @@
-use super::outcome_stage;
+use super::{contact_launch_profile::ContactLaunchProfile, outcome_stage};
 use saberbb::domain::{
     resolver::batting_resolver::SwingContactType, shared::game_state::SwingReplay,
 };
@@ -11,6 +11,7 @@ const TRIALS: [&str; 3] = ["edge_correction", "reduced_center_correction", "comb
 struct Outcomes {
     contact_types: BTreeMap<String, u64>,
     stages: BTreeMap<&'static str, u64>,
+    launch_profile: ContactLaunchProfile,
 }
 
 impl Outcomes {
@@ -20,10 +21,15 @@ impl Outcomes {
             .entry(play.contact_type.as_ref().to_owned())
             .or_default() += 1;
         *self.stages.entry(outcome_stage(play)).or_default() += 1;
+        self.launch_profile.observe(play);
     }
 
     fn report(&self) -> Value {
-        json!({"adjusted_contact_types": self.contact_types, "outcome_stages": self.stages})
+        json!({
+            "adjusted_contact_types": self.contact_types,
+            "outcome_stages": self.stages,
+            "contact_launch_profile": self.launch_profile.report(),
+        })
     }
 }
 
