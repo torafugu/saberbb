@@ -59,6 +59,8 @@ mod count_intent_comparison;
 mod fair_launch_audit;
 #[path = "support/intent_aim_comparison.rs"]
 mod intent_aim_comparison;
+#[path = "support/popup_zone.rs"]
+mod popup_zone;
 #[path = "support/moving_collision_audit.rs"]
 mod moving_collision_audit;
 #[path = "support/pickup_timing_audit.rs"]
@@ -176,6 +178,9 @@ struct Args {
         "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     pitch_bat_timing_comparison: bool,
+    /// Scan horizontal and vertical contact positions for fair infield popups.
+    #[arg(long, requires = "pitch_bat_timing_comparison", conflicts_with_all = ["downward_timing_error_comparison", "predicted_contact_correction_comparison"])]
+    popup_contact_zone: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,
@@ -1010,6 +1015,8 @@ fn run(args: Args) -> Result<()> {
     } else if args.vertical_bat_control_comparison {
         output["vertical_bat_control_comparison"] =
             intent_aim_comparison::run_vertical_bat_control(&args, &games)?;
+    } else if args.popup_contact_zone {
+        output["popup_contact_zone"] = popup_zone::run(&args, &games)?;
     } else if args.pitch_bat_timing_comparison {
         output["pitch_bat_timing_comparison"] =
             intent_aim_comparison::run_timing_geometry(&args, &games)?;
