@@ -1245,6 +1245,15 @@ point. Statcast uses its tracked closest approach. The report also
 counts swings entering or leaving the below-ball band and raw launch
 angles above 50°.
 
+Add `--downward-timing-error-comparison` to run a four-arm comparison
+at the live aim and attack angle. It uses the live control, normal
+signed timing height, and trials that amplify only the component below
+the ball by 1.5 or 2. The pitch, swing decision, and negative or zero
+timing height stay fixed across the three timing-height arms. The
+`vertical_alignment_by_swing_outcome` entries compare each trial to
+the same live control. Compare their `with_timing_height` rows at 1x,
+1.5x, and 2x to isolate the one-sided amplification.
+
 ### ContactFirst vertical bat control comparison
 
 Set `SABERBB_DB` to the roster and schedule database.

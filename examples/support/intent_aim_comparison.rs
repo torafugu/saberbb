@@ -8,8 +8,9 @@ use saberbb::domain::{
         game_state::{
             DoubleFenceObservation, IntentAimOffsets, IntentAimPlay, IntentAimSwing,
             PitchBatTimingTrial, SwingReplay, with_contact_approach_audit,
-            with_contact_first_speed_audit, with_contact_length_audit, with_intent_aim_audit,
-            with_intent_aim_trial, with_pitch_bat_timing_audit,
+            with_contact_first_speed_audit, with_contact_length_audit,
+            with_downward_timing_height_audit, with_intent_aim_audit, with_intent_aim_trial,
+            with_pitch_bat_timing_audit,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -511,7 +512,46 @@ pub(super) fn run_length(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     )
 }
 
+fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    const FACTORS: [Option<f64>; 4] = [None, Some(1.0), Some(1.5), Some(2.0)];
+    let mut alignment: [TimingVerticalAlignment; 3] = Default::default();
+    let mut report = run_replays(
+        args,
+        games,
+        "Downward timing height",
+        "downward_timing_height_scale",
+        &FACTORS,
+        "Keep the original pitch, swing decision, aim, attack angle, and pre-contact RNG. Null is the live control with timing height off. At 1x use the signed timing height from the local pitch and bat paths. At 1.5x and 2x multiply only positive ball-minus-bat timing height; negative and zero timing height are unchanged. Recalculate contact, flight, and ruling. Later pitches follow the live baseline.",
+        |simulate| {
+            let (result, swings) = with_downward_timing_height_audit(&FACTORS, simulate);
+            for swing in &swings {
+                let baseline = swing.plays[0].batting;
+                for (counts, play) in alignment.iter_mut().zip(&swing.plays[1..]) {
+                    counts.observe(swing.intent, baseline, play.batting);
+                }
+            }
+            (result, swings)
+        },
+    )?;
+    report["vertical_alignment_by_swing_outcome"] = json!(
+        FACTORS[1..]
+            .iter()
+            .zip(alignment.iter())
+            .map(|(scale, counts)| {
+                json!({
+                    "downward_timing_height_scale": scale,
+                    "alignment": counts.report(),
+                })
+            })
+            .collect::<Vec<_>>()
+    );
+    Ok(report)
+}
+
 pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    if args.downward_timing_error_comparison {
+        return run_downward_timing_height(args, games);
+    }
     let trials: [PitchBatTimingTrial; 6] = std::array::from_fn(|index| {
         let (contact_first_z_mm, contact_first_attack_deg) = [(0, 0), (8, 0), (0, 10)][index % 3];
         PitchBatTimingTrial {
