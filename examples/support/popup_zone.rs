@@ -2,11 +2,13 @@ use super::{Args, GameSchedule, derived_seed, simulate_game};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
+    resolver::batting_resolver::wrap_hla_deg,
     shared::game_state::{
-        FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M,
-        POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS,
-        PopupHlaTrial, PopupZoneLaunch, PopupZonePlay, PopupZoneSwing,
-        with_fixed_horizontal_popup_audit, with_popup_hla_sweep_audit, with_popup_zone_audit,
+        FixedHorizontalScan, LIVE_POPUP_HLA_RETENTION_PCT, POPUP_FIXED_X_STEP_M,
+        POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM,
+        POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupHlaTrial, PopupZoneLaunch,
+        PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit,
+        with_live_popup_hla_sweep_audit, with_popup_hla_sweep_audit, with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
 };
@@ -325,6 +327,134 @@ fn hla_outcome(launch: PopupZoneLaunch) -> usize {
     }
 }
 
+fn hla_transition_report<const N: usize>(
+    labels: [&'static str; N],
+    pairs: [[u64; N]; N],
+) -> BTreeMap<&'static str, BTreeMap<&'static str, u64>> {
+    labels
+        .into_iter()
+        .zip(pairs)
+        .map(|(from, row)| (from, labels.into_iter().zip(row).collect()))
+        .collect()
+}
+
+const LIVE_HLA_BAND_EDGES: [f64; 6] = [-90.0, -45.0, -15.0, 15.0, 45.0, 90.0];
+const LIVE_HLA_BANDS: [&str; 7] = [
+    "left_behind",
+    "left_outside_line",
+    "left",
+    "center",
+    "right",
+    "right_outside_line",
+    "right_behind",
+];
+
+#[derive(Default)]
+struct LiveHlaCounts {
+    territory_pairs: [[u64; 2]; 2],
+    high_pairs: [[u64; HLA_OUTCOMES.len()]; HLA_OUTCOMES.len()],
+    ordinary_hla: [u64; LIVE_HLA_BANDS.len()],
+    ordinary_fair_hla: [u64; LIVE_HLA_BANDS.len()],
+    abs_hla_change_sum: f64,
+}
+
+impl LiveHlaCounts {
+    fn observe(&mut self, baseline: PopupZoneLaunch, trial: PopupZoneLaunch) {
+        self.territory_pairs[usize::from(baseline.foul)][usize::from(trial.foul)] += 1;
+        self.abs_hla_change_sum += wrap_hla_deg(trial.hla_deg - baseline.hla_deg).abs();
+        if has_high_vla(baseline) {
+            self.high_pairs[hla_outcome(baseline)][hla_outcome(trial)] += 1;
+        } else {
+            let band = LIVE_HLA_BAND_EDGES.partition_point(|&edge| trial.hla_deg >= edge);
+            self.ordinary_hla[band] += 1;
+            self.ordinary_fair_hla[band] += u64::from(!trial.foul);
+        }
+    }
+
+    fn report(&self, retention_pct: u8) -> Value {
+        let [[fair_to_fair, fair_to_foul], [foul_to_fair, foul_to_foul]] = self.territory_pairs;
+        let fair = fair_to_fair + foul_to_fair;
+        let foul = fair_to_foul + foul_to_foul;
+        let total = fair + foul;
+        let [high_foul, popup, other_high_fair] = self.high_pairs;
+        let bands = |counts: [u64; LIVE_HLA_BANDS.len()]| {
+            LIVE_HLA_BANDS
+                .into_iter()
+                .zip(counts)
+                .collect::<BTreeMap<_, _>>()
+        };
+        json!({
+            "retained_rebound_pct": retention_pct,
+            "contacts": total,
+            "fair": fair,
+            "foul": foul,
+            "foul_pct": (total > 0).then(|| 100.0 * foul as f64 / total as f64),
+            "high_vla_contacts": self.high_pairs.iter().flatten().sum::<u64>(),
+            "high_vla_foul": high_foul[0] + popup[0] + other_high_fair[0],
+            "fair_infield_popups": high_foul[1] + popup[1] + other_high_fair[1],
+            "mean_abs_hla_change_deg": (total > 0).then(|| self.abs_hla_change_sum / total as f64),
+            "paired_territory": hla_transition_report(["fair", "foul"], self.territory_pairs),
+            "paired_high_vla_outcomes": hla_transition_report(HLA_OUTCOMES, self.high_pairs),
+            "vla_at_or_below_threshold_hla": bands(self.ordinary_hla),
+            "vla_at_or_below_threshold_fair_hla": bands(self.ordinary_fair_hla),
+        })
+    }
+}
+
+#[derive(Default)]
+struct LiveHlaGroup {
+    swings: u64,
+    misses: u64,
+    zero_speed_contacts: u64,
+    contacts_without_batting_result: u64,
+    trials: [LiveHlaCounts; LIVE_POPUP_HLA_RETENTION_PCT.len()],
+}
+
+impl LiveHlaGroup {
+    fn observe(&mut self, play: PopupZonePlay) -> Result<()> {
+        self.swings += 1;
+        let Some(baseline) = play.launch else {
+            self.misses += 1;
+            return Ok(());
+        };
+        self.contacts_without_batting_result += u64::from(play.outcome.is_none());
+        if baseline.exit_speed_ms <= POPUP_ZERO_SPEED_TOLERANCE_MS {
+            self.zero_speed_contacts += 1;
+            return Ok(());
+        }
+        for (arm, (counts, retention)) in self
+            .trials
+            .iter_mut()
+            .zip(LIVE_POPUP_HLA_RETENTION_PCT)
+            .enumerate()
+        {
+            let trial = if retention == 100 {
+                baseline
+            } else {
+                play.hla_trial_launches[arm].context("missing live HLA trial launch")?
+            };
+            ensure!(
+                trial.exit_speed_ms == baseline.exit_speed_ms && trial.vla_deg == baseline.vla_deg,
+                "live HLA trial changed exit speed or vertical angle"
+            );
+            counts.observe(baseline, trial);
+        }
+        Ok(())
+    }
+
+    fn report(&self) -> Value {
+        json!({
+            "swings": self.swings,
+            "misses": self.misses,
+            "zero_speed_contacts": self.zero_speed_contacts,
+            "contacts_without_batting_result": self.contacts_without_batting_result,
+            "hla_rebound_sweep": self.trials.iter().zip(LIVE_POPUP_HLA_RETENTION_PCT)
+                .map(|(counts, retention)| counts.report(retention))
+                .collect::<Vec<_>>(),
+        })
+    }
+}
+
 #[derive(Default)]
 struct HlaControlCounts {
     pairs: [[u64; HLA_OUTCOMES.len()]; HLA_OUTCOMES.len()],
@@ -384,19 +514,6 @@ impl HlaControlCounts {
     }
 
     fn report(&self) -> Value {
-        let pairs: BTreeMap<_, _> = HLA_OUTCOMES
-            .into_iter()
-            .zip(self.pairs)
-            .map(|(from, row)| {
-                (
-                    from,
-                    HLA_OUTCOMES
-                        .into_iter()
-                        .zip(row)
-                        .collect::<BTreeMap<_, _>>(),
-                )
-            })
-            .collect();
         let swings_by_outcome: BTreeMap<_, _> = self
             .swings_by_usual_scan_outcome
             .iter()
@@ -408,7 +525,7 @@ impl HlaControlCounts {
             })
             .collect();
         json!({
-            "paired_high_angle_positions": pairs,
+            "paired_high_angle_positions": hla_transition_report(HLA_OUTCOMES, self.pairs),
             "swings_with_any_control_popup": self.swings_with_popup,
             "swings_with_foul_to_popup_at_same_position": self.swings_with_paired_foul_to_popup,
             "swings_by_usual_scan_outcome": swings_by_outcome,
@@ -573,6 +690,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let mut fixed_all = FixedHorizontalGroup::default();
     let mut fixed_contact_first = FixedHorizontalGroup::default();
     let mut fixed_line_drive = FixedHorizontalGroup::default();
+    let mut live_all = LiveHlaGroup::default();
+    let mut live_contact_first = LiveHlaGroup::default();
+    let mut live_line_drive = LiveHlaGroup::default();
     for &seed in &args.seeds {
         for game in games {
             let simulate = || {
@@ -584,7 +704,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     false,
                 )
             };
-            let (result, swings) = if args.popup_hla_sweep {
+            let (result, swings) = if args.popup_live_hla_sweep {
+                with_live_popup_hla_sweep_audit(simulate)
+            } else if args.popup_hla_sweep {
                 with_popup_hla_sweep_audit(simulate)
             } else if args.popup_fixed_horizontal {
                 with_fixed_horizontal_popup_audit(args.popup_hla_control, simulate)
@@ -618,6 +740,25 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     game.id,
                     swing.count_seq
                 );
+                if args.popup_live_hla_sweep {
+                    if let (Some(launch), Some(row)) = (swing.baseline.launch, recorded) {
+                        ensure!(
+                            wrap_hla_deg(launch.hla_deg - row.final_hla_deg).abs() < 1e-8,
+                            "live HLA mismatch in game {}, count {}: replay {}, live {}",
+                            game.id,
+                            swing.count_seq,
+                            launch.hla_deg,
+                            row.final_hla_deg
+                        );
+                    }
+                    live_all.observe(swing.baseline)?;
+                    match swing.intent {
+                        BattedBallIntent::ContactFirst => &mut live_contact_first,
+                        BattedBallIntent::LineDrive => &mut live_line_drive,
+                    }
+                    .observe(swing.baseline)?;
+                    continue;
+                }
                 if args.popup_fixed_horizontal {
                     let scan = swing
                         .fixed_horizontal
@@ -642,10 +783,26 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             }
             ensure!(live.is_empty(), "unpaired live swings in game {}", game.id);
         }
-        eprintln!(
-            "Popup contact zone, seed {seed}: {} games complete",
-            games.len()
-        );
+        let label = if args.popup_live_hla_sweep {
+            "Live popup HLA sweep"
+        } else {
+            "Popup contact zone"
+        };
+        eprintln!("{label}, seed {seed}: {} games complete", games.len());
+    }
+    if args.popup_live_hla_sweep {
+        return Ok(json!({
+            "definition": "Replay each realized contact with the original pitch, world X/Z offsets, exit speed, vertical angle, spin and pre-fielding RNG. Scale only the signed contact-normal contribution to HLA. The 100% arm uses the ordinary play. A popup is a fair launch strictly above the VLA threshold with a projected fair infield first bounce or a clean air out by an infielder in fair territory. Territory uses the actual interception for a clean air out. Misses and zero-speed contacts are excluded from launch comparisons. A launch without a batting result (for example, after a runner is thrown out stealing) uses its trajectory for territory. Alternate arms do not advance game state.",
+            "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
+            "infield_radius_m": POPUP_SCAN_INFIELD_M,
+            "zero_speed_tolerance_ms": POPUP_ZERO_SPEED_TOLERANCE_MS,
+            "hla_band_definition": "Signed initial launch angle in field coordinates. Negative is left and positive is right. Bands are lower-inclusive, upper-exclusive, in the supplied order. Fair HLA bands are filtered by resolved territory, so initial direction and eventual territory can differ.",
+            "hla_band_edges_deg": LIVE_HLA_BAND_EDGES,
+            "hla_band_order": LIVE_HLA_BANDS,
+            "all": live_all.report(),
+            "contact_first": live_contact_first.report(),
+            "line_drive": live_line_drive.report(),
+        }));
     }
     if args.popup_fixed_horizontal {
         let mut report = json!({

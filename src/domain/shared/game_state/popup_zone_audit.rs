@@ -28,6 +28,7 @@ pub const POPUP_ZERO_SPEED_TOLERANCE_MS: f64 = 1e-9;
 pub const POPUP_SCAN_INFIELD_M: f64 = INFIELD_DISTANCE;
 pub const POPUP_FIXED_X_STEP_M: f64 = 0.002;
 pub const POPUP_HLA_RETENTION_PCT: [u8; 5] = [0, 25, 50, 75, 100];
+pub const LIVE_POPUP_HLA_RETENTION_PCT: [u8; 3] = [50, 75, 100];
 
 #[derive(Clone, Copy)]
 pub enum PopupHlaTrial {
@@ -84,9 +85,15 @@ pub enum FixedHorizontalScan {
     HighVlaSamples(Vec<PopupZonePlay>),
 }
 
+#[derive(Clone, Copy)]
+enum AuditMode {
+    Grid,
+    FixedHorizontal(PopupHlaTrial),
+    LiveHlaSweep,
+}
+
 struct Audit {
-    fixed_horizontal: bool,
-    hla_trial: PopupHlaTrial,
+    mode: AuditMode,
     swings: Vec<PopupZoneSwing>,
 }
 
@@ -95,7 +102,7 @@ thread_local! {
 }
 
 pub fn with_popup_zone_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
-    with_audit(false, PopupHlaTrial::Disabled, run)
+    with_audit(AuditMode::Grid, run)
 }
 
 pub fn with_fixed_horizontal_popup_audit<T>(
@@ -107,18 +114,18 @@ pub fn with_fixed_horizontal_popup_audit<T>(
     } else {
         PopupHlaTrial::Disabled
     };
-    with_audit(true, trial, run)
+    with_audit(AuditMode::FixedHorizontal(trial), run)
 }
 
 pub fn with_popup_hla_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
-    with_audit(true, PopupHlaTrial::Sweep, run)
+    with_audit(AuditMode::FixedHorizontal(PopupHlaTrial::Sweep), run)
 }
 
-fn with_audit<T>(
-    fixed_horizontal: bool,
-    hla_trial: PopupHlaTrial,
-    run: impl FnOnce() -> T,
-) -> (T, Vec<PopupZoneSwing>) {
+pub fn with_live_popup_hla_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
+    with_audit(AuditMode::LiveHlaSweep, run)
+}
+
+fn with_audit<T>(mode: AuditMode, run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
     struct Restore(Option<Audit>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -126,8 +133,7 @@ fn with_audit<T>(
         }
     }
     let _restore = Restore(AUDIT.replace(Some(Audit {
-        fixed_horizontal,
-        hla_trial,
+        mode,
         swings: Vec::new(),
     })));
     let result = run();
@@ -267,8 +273,9 @@ impl GameState {
                 return Ok(());
             };
             let pitcher_id = self.current_pitcher()?.id;
+            let live_only = matches!(audit.mode, AuditMode::LiveHlaSweep);
             let sample = |error: SwingExecutionError,
-                          hla_trial: PopupHlaTrial|
+                          retentions: &[u8]|
              -> Result<PopupZonePlay, GameError> {
                 let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
                 let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
@@ -294,9 +301,8 @@ impl GameState {
                     &contact,
                     &self.stadium,
                 )?;
-                let retentions = hla_trial.retention_percentages();
                 let control_rng = if !retentions.is_empty()
-                    && ball.launch_angle > POPUP_SCAN_VLA_DEG
+                    && (live_only || ball.launch_angle > POPUP_SCAN_VLA_DEG)
                     && ball.launch_speed > POPUP_ZERO_SPEED_TOLERANCE_MS
                 {
                     Some(rng.fork().ok_or(GameError::PairedContactRng)?)
@@ -314,8 +320,10 @@ impl GameState {
                 play.outcome = replay.batting_result;
                 play.launch = Some(classify_launch(&replay, ball, metrics.final_hla_deg));
                 if let Some(control_rng) = control_rng {
-                    for (output, &retention_pct) in
-                        play.hla_trial_launches.iter_mut().zip(retentions)
+                    for (output, &retention_pct) in play
+                        .hla_trial_launches
+                        .iter_mut()
+                        .zip(retentions.iter().filter(|&&pct| pct != 100))
                     {
                         let control_hla = hla_with_rebound_retention(
                             metrics.final_hla_deg,
@@ -347,28 +355,37 @@ impl GameState {
                 }
                 Ok(play)
             };
-            let baseline = sample(swing_error, PopupHlaTrial::Disabled)?;
-            let mut grid = Vec::new();
-            let fixed_horizontal = if audit.fixed_horizontal {
-                Some(fixed_horizontal_scan(baseline, swing_error, |error| {
-                    sample(error, audit.hla_trial)
-                })?)
+            let baseline_retentions = if live_only {
+                &LIVE_POPUP_HLA_RETENTION_PCT[..]
             } else {
-                grid.reserve(POPUP_SCAN_X_MM.len() * POPUP_SCAN_Z_MM.len());
-                for z_mm in POPUP_SCAN_Z_MM {
-                    for x_mm in POPUP_SCAN_X_MM {
-                        grid.push(sample(
-                            error_at_offset(
-                                baseline,
-                                swing_error,
-                                f64::from(x_mm) / 1000.0,
-                                f64::from(z_mm) / 1000.0,
-                            ),
-                            PopupHlaTrial::Disabled,
-                        )?);
-                    }
+                &[]
+            };
+            let baseline = sample(swing_error, baseline_retentions)?;
+            let mut grid = Vec::new();
+            let fixed_horizontal = match audit.mode {
+                AuditMode::LiveHlaSweep => None,
+                AuditMode::FixedHorizontal(trial) => {
+                    Some(fixed_horizontal_scan(baseline, swing_error, |error| {
+                        sample(error, trial.retention_percentages())
+                    })?)
                 }
-                None
+                AuditMode::Grid => {
+                    grid.reserve(POPUP_SCAN_X_MM.len() * POPUP_SCAN_Z_MM.len());
+                    for z_mm in POPUP_SCAN_Z_MM {
+                        for x_mm in POPUP_SCAN_X_MM {
+                            grid.push(sample(
+                                error_at_offset(
+                                    baseline,
+                                    swing_error,
+                                    f64::from(x_mm) / 1000.0,
+                                    f64::from(z_mm) / 1000.0,
+                                ),
+                                &[],
+                            )?);
+                        }
+                    }
+                    None
+                }
             };
             audit.swings.push(PopupZoneSwing {
                 count_seq: self.count_seq,
