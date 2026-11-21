@@ -9,6 +9,7 @@ use saberbb::domain::{
         game_stats::PlayerGamePitching,
     },
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -25,6 +26,46 @@ fn is_popup(vla: f64, spin: (f64, f64), pitch_backspin: f64, retention: f64) -> 
     BattedBall::trajectory_from_launch(vla, backspin.abs(), axis) == TrajectoryType::PopUp
 }
 
+const BREAK_SCALES: [f64; 3] = [0.0, 0.5, 1.0];
+
+#[derive(Default, Serialize)]
+struct BreakReplayCounts {
+    swings: u64,
+    launches: u64,
+    fair_launches: u64,
+    foul_launches: u64,
+    positive_contact_z_launches: u64,
+    contact_z_at_least_40_mm_launches: u64,
+    raw_vla_above_50_deg: u64,
+    fair_raw_vla_above_50_deg: u64,
+    gained_raw_vla_above_50_deg_vs_live: u64,
+    lost_raw_vla_above_50_deg_vs_live: u64,
+}
+
+fn above_50(play: SwingReplay) -> bool {
+    play.flight.is_some_and(|(_, _, angle)| angle > 50.0)
+}
+
+impl BreakReplayCounts {
+    fn observe(&mut self, live: SwingReplay, trial: SwingReplay) {
+        self.swings += 1;
+        let high = above_50(trial);
+        self.gained_raw_vla_above_50_deg_vs_live += u64::from(high && !above_50(live));
+        self.lost_raw_vla_above_50_deg_vs_live += u64::from(!high && above_50(live));
+        if trial.flight.is_none() {
+            return;
+        }
+        let fair = outcome_stage(trial) != "foul";
+        self.launches += 1;
+        self.fair_launches += u64::from(fair);
+        self.foul_launches += u64::from(!fair);
+        self.positive_contact_z_launches += u64::from(trial.contact_z_m > 0.0);
+        self.contact_z_at_least_40_mm_launches += u64::from(trial.contact_z_m >= 0.04);
+        self.raw_vla_above_50_deg += u64::from(high);
+        self.fair_raw_vla_above_50_deg += u64::from(high && fair);
+    }
+}
+
 #[derive(Default)]
 struct Counts {
     swings: u64,
@@ -37,6 +78,7 @@ struct Counts {
     effective_pitch_backspin_sum: f64,
     popups: [u64; RETENTION.len()],
     fair_popups: [u64; RETENTION.len()],
+    break_replays: [BreakReplayCounts; BREAK_SCALES.len()],
 }
 
 impl Counts {
@@ -44,8 +86,18 @@ impl Counts {
         &mut self,
         pitch: &PlayerGamePitching,
         break_z: f64,
-        play: SwingReplay,
+        swing: &IntentAimSwing,
     ) -> Result<()> {
+        let play = swing
+            .plays
+            .first()
+            .context("swing has no live replay arm")?
+            .batting;
+        if let Some([zero, half]) = swing.vertical_break_plays {
+            for (counts, trial) in self.break_replays.iter_mut().zip([zero, half, play]) {
+                counts.observe(play, trial);
+            }
+        }
         self.swings += 1;
         self.break_sum_m += break_z;
         let raw_backspin = pitch.ball.spin_rate * pitch.ball.spin_angle.to_radians().cos();
@@ -83,7 +135,7 @@ impl Counts {
                 })
             })
             .collect();
-        json!({
+        let mut report = json!({
             "swings": self.swings,
             "launches": self.launches,
             "baseline_fair_launches": self.fair_launches,
@@ -93,7 +145,17 @@ impl Counts {
             "mean_vertical_prediction_break_mm": mean(self.break_sum_m * 1000.0),
             "mean_effective_pitch_backspin_rpm": mean(self.effective_pitch_backspin_sum),
             "retention_sensitivity": sensitivity,
-        })
+        });
+        if self.break_replays[2].swings > 0 {
+            let arms: Vec<_> = BREAK_SCALES.iter().zip(&self.break_replays)
+                .map(|(scale, counts)| json!({"vertical_prediction_break_scale": scale, "counts": counts}))
+                .collect();
+            report["vertical_prediction_break_replay"] = json!({
+                "definition": "Same live swings with only the signed vertical prediction break scaled before bat control; pitch-location bias is preserved. Each trial recalculates contact, flight, and fair/foul. The 1x arm is the exact live replay. Groups use live pitch type or the original unscaled break.",
+                "arms": arms,
+            });
+        }
+        report
     }
 }
 
@@ -128,20 +190,15 @@ impl PitchSpinImpact {
             } else {
                 "within_5_mm_of_prediction"
             };
-            let play = swing
-                .plays
-                .first()
-                .context("swing has no live replay arm")?
-                .batting;
-            self.all.observe(pitch, break_z, play)?;
+            self.all.observe(pitch, break_z, swing)?;
             self.pitch_types
                 .entry(pitch.ball.pitch_type.as_ref().to_owned())
                 .or_default()
-                .observe(pitch, break_z, play)?;
+                .observe(pitch, break_z, swing)?;
             self.vertical_break
                 .entry(band)
                 .or_default()
-                .observe(pitch, break_z, play)?;
+                .observe(pitch, break_z, swing)?;
         }
         Ok(())
     }

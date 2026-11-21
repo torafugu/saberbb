@@ -212,6 +212,9 @@ struct Args {
     /// Test contact protection on existing two-strike ContactFirst swings.
     #[arg(long, requires = "contact_approach_comparison")]
     two_strike_contact_protection: bool,
+    /// Replay vertical pitch prediction error at 0x, 0.5x, and the live 1x.
+    #[arg(long, requires = "contact_approach_comparison")]
+    vertical_prediction_break_comparison: bool,
     #[arg(long, default_value_t = 5000)]
     max_pitches: u32,
     /// Include BIP quality, fielding/running timing groups and bounded example plays.

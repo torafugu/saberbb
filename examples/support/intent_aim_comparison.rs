@@ -618,8 +618,12 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
         &approach_names,
         "Every live swing is replayed with its original aim and with each approach's live vertical contact offset, before evaluating contact. Pitch, swing decision, batter, count, starting game state and pre-contact RNG are shared. Existing vertical contact policy, fielding and running are reapplied. Later pitches follow the live baseline. The all group combines all swings; contact_first and line_drive subgroups use the originally selected intent. Contact types use the adjusted contact classifier. A resolved fair swing has a non-foul flight and a non-foul recorded batting outcome; its hit rate includes home runs. Fair interrupted plays are kept in their own outcome stage.",
         |simulate| {
-            let (result, swings, pitches) =
-                with_contact_approach_audit(&offsets, args.two_strike_contact_protection, simulate);
+            let (result, swings, pitches) = with_contact_approach_audit(
+                &offsets,
+                args.two_strike_contact_protection,
+                args.vertical_prediction_break_comparison,
+                simulate,
+            );
             let result = result.and_then(|result| {
                 two_strike
                     .observe_game(pitches, &swings)
