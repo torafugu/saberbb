@@ -1,6 +1,8 @@
 use super::outcome_stage;
 use saberbb::domain::{
-    shared::game_state::SwingReplay, strategy::batting_strategy::BattedBallIntent,
+    resolver::batting_resolver::{CONTACT_LENGTH_LIMIT_M, CONTACT_THICKNESS_LIMIT_M},
+    shared::game_state::SwingReplay,
+    strategy::batting_strategy::BattedBallIntent,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -55,12 +57,82 @@ impl AlignmentCounts {
     }
 }
 
+const EXCESS_BANDS: [&str; 5] = [
+    "within_limit",
+    "over_0_to_5",
+    "over_5_to_10",
+    "over_10_to_20",
+    "over_20",
+];
+
+fn excess_index(offset: f64, limit: f64) -> usize {
+    let distance = offset.abs();
+    if distance <= limit {
+        0
+    } else if distance <= limit + 0.005 {
+        1
+    } else if distance <= limit + 0.010 {
+        2
+    } else if distance <= limit + 0.020 {
+        3
+    } else {
+        4
+    }
+}
+
+#[derive(Default)]
+struct WhiffGeometry {
+    // Rows measure length excess. Columns measure thickness excess.
+    excess: [[u64; EXCESS_BANDS.len()]; EXCESS_BANDS.len()],
+}
+
+impl WhiffGeometry {
+    fn observe(&mut self, play: SwingReplay) {
+        let length = excess_index(play.length_offset_m, CONTACT_LENGTH_LIMIT_M);
+        let thickness = excess_index(play.thickness_offset_m, CONTACT_THICKNESS_LIMIT_M);
+        self.excess[length][thickness] += 1;
+    }
+
+    fn report(&self) -> Value {
+        let within_limits = self.excess[0][0];
+        let thickness_only: u64 = self.excess[0][1..].iter().sum();
+        let length_only: u64 = self.excess[1..].iter().map(|row| row[0]).sum();
+        let both_axes: u64 = self.excess[1..].iter().flat_map(|row| &row[1..]).sum();
+        let joint: BTreeMap<_, _> = EXCESS_BANDS
+            .into_iter()
+            .zip(&self.excess)
+            .filter_map(|(length, row)| {
+                let by_thickness: BTreeMap<_, _> = EXCESS_BANDS
+                    .into_iter()
+                    .zip(row.iter().copied())
+                    .filter(|&(_, count)| count != 0)
+                    .collect();
+                (!by_thickness.is_empty()).then_some((length, by_thickness))
+            })
+            .collect();
+        json!({
+            "swings": within_limits + thickness_only + length_only + both_axes,
+            "misses_by_axis": {
+                "thickness_only": thickness_only,
+                "length_only": length_only,
+                "both_axes": both_axes,
+                "within_both_limits": within_limits,
+            },
+            "thickness_only_within_5_mm": self.excess[0][1],
+            "thickness_only_within_10_mm": self.excess[0][1] + self.excess[0][2],
+            "excess_by_length_and_thickness_mm": joint,
+        })
+    }
+}
+
 #[derive(Default)]
 struct PairedAlignment {
     off: BTreeMap<&'static str, AlignmentCounts>,
     on: BTreeMap<&'static str, AlignmentCounts>,
     entered_bat_below_ball: BTreeMap<&'static str, u64>,
     left_bat_below_ball: BTreeMap<&'static str, u64>,
+    whiff_geometry_off: WhiffGeometry,
+    whiff_geometry_on: WhiffGeometry,
 }
 
 impl PairedAlignment {
@@ -74,6 +146,12 @@ impl PairedAlignment {
             .or_default()
             .observe(before, off);
         self.on.entry(on_outcome).or_default().observe(after, on);
+        if before == 2 && off_outcome == "whiff" {
+            self.whiff_geometry_off.observe(off);
+        }
+        if after == 2 && on_outcome == "whiff" {
+            self.whiff_geometry_on.observe(on);
+        }
         match (before == 2, after == 2) {
             (false, true) => *self.entered_bat_below_ball.entry(on_outcome).or_default() += 1,
             (true, false) => *self.left_bat_below_ball.entry(off_outcome).or_default() += 1,
@@ -91,6 +169,10 @@ impl PairedAlignment {
         json!({
             "without_timing_height": reports(&self.off),
             "with_timing_height": reports(&self.on),
+            "below_ball_whiff_geometry": {
+                "without_timing_height": self.whiff_geometry_off.report(),
+                "with_timing_height": self.whiff_geometry_on.report(),
+            },
             "entered_bat_below_ball_by_trial_outcome": self.entered_bat_below_ball,
             "left_bat_below_ball_by_baseline_outcome": self.left_bat_below_ball,
         })
@@ -117,6 +199,11 @@ impl TimingVerticalAlignment {
         json!({
             "definition": "Same live swings with their original aim and attack angle, with timing height off or on. Uses the signed world-vertical ball-minus-bat offset at the modeled contact evaluation, including swings that miss. The +/- 50.8 mm band matches the Statcast cutoff; its closest-approach measurement is different. Fouls follow the launch or ruling. Fair flights without a final result are listed separately from resolved fair balls.",
             "lined_up_max_abs_offset_mm": VERTICAL_TOLERANCE_M * 1000.0,
+            "whiff_geometry_definition": "Only whiffs in the bat_below_ball band. Compare the magnitude of each bat-local offset with the corresponding live geometric limit. Excess bins include their upper edge. Rows in the joint table are length bands; columns are thickness bands. Empty cells are omitted.",
+            "whiff_geometry_limits_mm": {
+                "length": CONTACT_LENGTH_LIMIT_M * 1000.0,
+                "thickness": CONTACT_THICKNESS_LIMIT_M * 1000.0,
+            },
             "all": self.all.report(),
             "contact_first": self.contact_first.report(),
             "line_drive": self.line_drive.report(),
@@ -159,6 +246,50 @@ mod tests {
             contact_z_m: 0.053,
             ..miss
         };
+        let below = SwingReplay {
+            contact_z_m: 0.055,
+            ..miss
+        };
+        let thickness_only = SwingReplay {
+            length_offset_m: CONTACT_LENGTH_LIMIT_M,
+            thickness_offset_m: CONTACT_THICKNESS_LIMIT_M + 0.005,
+            ..below
+        };
+        let length_only = SwingReplay {
+            length_offset_m: CONTACT_LENGTH_LIMIT_M + 0.012,
+            thickness_offset_m: CONTACT_THICKNESS_LIMIT_M,
+            ..below
+        };
+        let both_axes = SwingReplay {
+            length_offset_m: CONTACT_LENGTH_LIMIT_M + 0.023,
+            thickness_offset_m: CONTACT_THICKNESS_LIMIT_M + 0.007,
+            ..below
+        };
+        let mut geometry = TimingVerticalAlignment::default();
+        geometry.observe(BattedBallIntent::ContactFirst, thickness_only, length_only);
+        geometry.observe(BattedBallIntent::ContactFirst, foul, both_axes);
+        geometry.observe(BattedBallIntent::LineDrive, miss, miss);
+        let geometry = geometry.report();
+        let metrics = &geometry["all"]["below_ball_whiff_geometry"];
+        assert_eq!(metrics["without_timing_height"]["swings"], 1);
+        assert_eq!(
+            metrics["without_timing_height"]["thickness_only_within_5_mm"],
+            1
+        );
+        assert_eq!(metrics["with_timing_height"]["swings"], 2);
+        assert_eq!(
+            metrics["with_timing_height"]["misses_by_axis"]["length_only"],
+            1
+        );
+        assert_eq!(
+            metrics["with_timing_height"]["misses_by_axis"]["both_axes"],
+            1
+        );
+        assert_eq!(
+            metrics["with_timing_height"]["excess_by_length_and_thickness_mm"]["over_20"]["over_5_to_10"],
+            1
+        );
+
         let mut summary = TimingVerticalAlignment::default();
         summary.observe(BattedBallIntent::ContactFirst, miss, foul);
         summary.observe(BattedBallIntent::LineDrive, foul, miss);
