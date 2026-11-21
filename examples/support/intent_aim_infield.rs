@@ -181,6 +181,7 @@ mod tests {
     fn same_swing_tracks_angle_location_and_ruling_changes() {
         let play = |angle, position, reach, result| IntentAimPlay {
             batting: SwingReplay {
+                exit_speed_retention: None,
                 outcome: Some(result),
                 flight: Some((OutboundResult::InField, 45.0, angle)),
             },
@@ -206,6 +207,7 @@ mod tests {
         );
         let whiff = IntentAimPlay {
             batting: SwingReplay {
+                exit_speed_retention: None,
                 outcome: Some(BattingResult::StrikeSwung),
                 flight: None,
             },

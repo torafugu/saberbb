@@ -1072,6 +1072,31 @@ for whiffs and fouls, and `doubles`, `triples` and `home_runs` for extra-base
 hits. Rates use all swings in the corresponding intent group. Per-seed
 results are available under `reports`.
 
+### Fixed-contact length retention comparison
+
+Set `SABERBB_DB` to the same roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --contact-length-comparison > contact_length_2026.json
+```
+
+The comparison replays the same realized contacts for both batting intents.
+The alternative curves multiply the current length-direction retention by an
+additional factor that equals 1 through 2 cm, decreases smoothly to 0.80
+or 0.65 at 10 cm and stays there farther out. The center, contact
+classification, bat speed, launch direction and spin are fixed.
+Only exit speed changes at launch. The replay then resolves flight,
+fielding and baserunning with the normal rules. Later pitches follow the
+live baseline.
+
+Under `contact_length_comparison.pooled`, compare
+`baseline_fair_retention_by_angle_deg` for the baseline fair-contact cohort.
+The bins have 5-percentage-point widths, with 100% included in the 95 bin.
+Retention is the product of the thickness and length terms. Compare
+`hard_fair_5_to_10_deg` (at least 45 m/s), `singles_5_to_10_deg` (all
+exit speeds), and `home_runs` in the same summary. Counts are available for
+each intent and for all swings combined. Per-seed results are under `reports`.
+
 ### Frozen-contact attack-angle ablation
 
 Run the live Rust trajectory calculation on saved positive-EV batting records,

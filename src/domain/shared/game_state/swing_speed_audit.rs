@@ -1,9 +1,10 @@
-use super::{
-    GameError, GameState, launch_swing, pre_trial_exit_speed_ms, vertical_contact_policy_offset_m,
-};
+use super::{GameError, GameState, pre_trial_exit_speed_ms, vertical_contact_policy_offset_m};
 use crate::domain::{
     resolver::{
-        batting_resolver::{SwingExecutionError, evaluate_swing_contact},
+        batting_resolver::{
+            SwingContactType, SwingExecutionError, calculate_batted_ball_with_length_loss,
+            evaluate_swing_contact,
+        },
         pitching_resolver::PitchDisplacement,
     },
     shared::{
@@ -18,6 +19,7 @@ use std::cell::RefCell;
 pub struct SwingReplay {
     pub outcome: Option<BattingResult>,
     pub flight: Option<(OutboundResult, f64, f64)>,
+    pub exit_speed_retention: Option<f64>,
 }
 
 struct Audit {
@@ -62,6 +64,7 @@ impl GameState {
         pitch: PitchedBall,
         displacement: &PitchDisplacement,
         mut error: SwingExecutionError,
+        max_length_loss: Option<f64>,
     ) -> Result<SwingReplay, GameError> {
         let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
         let baseline_z_m = displacement.vertical_offset_m + error.additional_z_m;
@@ -69,7 +72,20 @@ impl GameState {
             pre_trial_exit_speed_ms(batter, pitch.speed, displacement, &error)
         });
         let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
-        let flight = launch_swing(rng.as_mut(), batter, pitch, &contact, &self.stadium)?;
+        let (flight, exit_speed_retention) =
+            if contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
+                (None, None)
+            } else {
+                let (ball, metrics, retention) = calculate_batted_ball_with_length_loss(
+                    rng.as_mut(),
+                    batter,
+                    pitch,
+                    &contact,
+                    &self.stadium,
+                    max_length_loss.unwrap_or(0.0),
+                )?;
+                (Some((ball, metrics)), max_length_loss.map(|_| retention))
+            };
         let replay = self.replay_swing(
             self.current_pitcher()?.id,
             batter_id,
@@ -80,6 +96,7 @@ impl GameState {
         )?;
         Ok(SwingReplay {
             outcome: replay.batting_result,
+            exit_speed_retention,
             flight: replay
                 .ball
                 .map(|ball| (ball.outbound_result, ball.launch_speed, ball.launch_angle)),
@@ -117,6 +134,7 @@ impl GameState {
                     pitch,
                     displacement,
                     *swing_error,
+                    None,
                 )?);
             }
             audit.swings.push((self.count_seq, arms));

@@ -55,12 +55,13 @@ pub struct IntentAimPlay {
 enum Trial {
     Aim(IntentAimOffsets),
     ContactFirstSpeed(f64),
+    LengthLoss(f64),
 }
 
 impl Trial {
-    fn inputs(self, intent: BattedBallIntent) -> (f64, f64) {
+    fn inputs(self, intent: BattedBallIntent) -> (f64, f64, Option<f64>) {
         match self {
-            Self::Aim(offsets) => (offsets.offset_m(intent), 1.0),
+            Self::Aim(offsets) => (offsets.offset_m(intent), 1.0, None),
             Self::ContactFirstSpeed(factor) => (
                 super::intent_aim_offset_m(intent),
                 if intent == BattedBallIntent::ContactFirst {
@@ -68,7 +69,9 @@ impl Trial {
                 } else {
                     1.0
                 },
+                None,
             ),
+            Self::LengthLoss(loss) => (super::intent_aim_offset_m(intent), 1.0, Some(loss)),
         }
     }
 }
@@ -143,6 +146,14 @@ pub fn with_contact_first_speed_audit<T>(
     )
 }
 
+/// Replay both intents with the original contact geometry and alternate length attenuation.
+pub fn with_contact_length_audit<T>(
+    losses: &[f64],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(losses.iter().copied().map(Trial::LengthLoss).collect(), run)
+}
+
 fn with_trials<T>(arms: Vec<Trial>, run: impl FnOnce() -> T) -> (T, Vec<IntentAimSwing>) {
     struct Restore(Option<Audit>);
     impl Drop for Restore {
@@ -180,8 +191,8 @@ impl GameState {
             let mut unique = Vec::new();
             let mut plays = Vec::with_capacity(audit.arms.len());
             for arm in &audit.arms {
-                let (aim, factor) = arm.inputs(intent);
-                if let Some(&(_, play)) = unique.iter().find(|(seen, _)| *seen == (aim, factor)) {
+                let inputs @ (aim, factor, loss) = arm.inputs(intent);
+                if let Some(&(_, play)) = unique.iter().find(|(seen, _)| *seen == inputs) {
                     plays.push(play);
                     continue;
                 }
@@ -194,9 +205,16 @@ impl GameState {
                     ..*batter
                 };
                 let play = capture_infield(|| {
-                    self.replay_swing_variant(active.id, &trial_batter, pitch, displacement, error)
+                    self.replay_swing_variant(
+                        active.id,
+                        &trial_batter,
+                        pitch,
+                        displacement,
+                        error,
+                        loss,
+                    )
                 })?;
-                unique.push(((aim, factor), play));
+                unique.push((inputs, play));
                 plays.push(play);
             }
             audit.swings.push(IntentAimSwing {
