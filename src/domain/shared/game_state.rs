@@ -2362,6 +2362,7 @@ mod tests {
             error_type: None,
             catch_time_sec: 1.0,
             catch_z_m: 0.0,
+            catch_position: None,
             waiting_time_sec: 0.0,
             first_bounce_time: Some(0.5),
             pickup: None,

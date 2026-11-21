@@ -2317,6 +2317,7 @@ mod tests {
                     error_type,
                     catch_time_sec: 4.25,
                     catch_z_m: 1.75,
+                    catch_position: None,
                     waiting_time_sec: 0.35,
                     first_bounce_time,
                     pickup: None,

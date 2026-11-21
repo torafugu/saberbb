@@ -10,11 +10,12 @@ use crate::domain::{
         pitching_resolver::PitchDisplacement,
     },
     shared::{
-        ball::{FOUL_DEGREE, INFIELD_DISTANCE, OutboundResult, PitchedBall},
+        ball::{BattedBall, FOUL_DEGREE, INFIELD_DISTANCE, OutboundResult, PitchedBall},
         game::BattingResult,
         player::BatterInfo,
     },
     strategy::batting_strategy::BattedBallIntent,
+    util::PolarPosition,
 };
 use std::cell::RefCell;
 
@@ -33,6 +34,7 @@ pub struct PopupZoneLaunch {
     pub projected_infield_bounce: bool,
     pub projected_outfield_bounce: bool,
     pub clean_infielder_air_out: bool,
+    pub foul_infielder_air_out: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -152,6 +154,19 @@ fn error_at_offset(
     error
 }
 
+fn is_foul_launch(
+    ball: &BattedBall,
+    outcome: Option<BattingResult>,
+    air_out_position: Option<PolarPosition>,
+) -> bool {
+    if let Some(position) = air_out_position {
+        return position.angle.abs() >= FOUL_DEGREE;
+    }
+    outcome == Some(BattingResult::Foul)
+        || ball.outbound_result == OutboundResult::Foul
+        || ball.is_foul()
+}
+
 impl GameState {
     pub(super) fn record_popup_zone(
         &self,
@@ -202,28 +217,34 @@ impl GameState {
                     rng,
                 )?;
                 play.outcome = replay.batting_result;
+                let clean_air_out = replay
+                    .fielding
+                    .and_then(|fielding| fielding.catch_diagnostics)
+                    .filter(|catch| {
+                        replay.batting_result == Some(BattingResult::Out)
+                            && catch.catch_type == CatchType::DirectFly
+                            && catch.error_type.is_none()
+                    });
+                let foul = is_foul_launch(
+                    &ball,
+                    play.outcome,
+                    clean_air_out.and_then(|catch| catch.catch_position),
+                );
+                let infielder_air_out =
+                    clean_air_out.is_some_and(|catch| catch.fielder_position.is_infielder());
                 play.launch = Some(PopupZoneLaunch {
                     exit_speed_ms: ball.launch_speed,
                     vla_deg: ball.launch_angle,
                     hla_deg: metrics.final_hla_deg,
-                    foul: replay.batting_result == Some(BattingResult::Foul)
-                        || ball.outbound_result == OutboundResult::Foul
-                        || (replay.batting_result.is_none() && ball.is_foul()),
+                    foul,
                     projected_infield_bounce: ball.first_bounce_position.is_some_and(|point| {
                         point.distance < INFIELD_DISTANCE && point.angle.abs() < FOUL_DEGREE
                     }),
                     projected_outfield_bounce: ball.first_bounce_position.is_some_and(|point| {
                         point.distance >= INFIELD_DISTANCE && point.angle.abs() < FOUL_DEGREE
                     }),
-                    clean_infielder_air_out: replay.batting_result == Some(BattingResult::Out)
-                        && replay
-                            .fielding
-                            .and_then(|fielding| fielding.catch_diagnostics)
-                            .is_some_and(|catch| {
-                                catch.fielder_position.is_infielder()
-                                    && catch.catch_type == CatchType::DirectFly
-                                    && catch.error_type.is_none()
-                            }),
+                    clean_infielder_air_out: infielder_air_out && !foul,
+                    foul_infielder_air_out: infielder_air_out && foul,
                 });
                 Ok(play)
             };
@@ -260,6 +281,34 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn air_out_uses_interception_territory_even_if_the_ball_would_land_elsewhere() {
+        let mut ball = BattedBall {
+            final_position: PolarPosition::new(30.0, 15.0),
+            ..BattedBall::default()
+        };
+        assert!(is_foul_launch(
+            &ball,
+            Some(BattingResult::Out),
+            Some(PolarPosition::new(8.0, -145.0))
+        ));
+        assert!(is_foul_launch(
+            &ball,
+            Some(BattingResult::Out),
+            Some(PolarPosition::new(8.0, 45.0))
+        ));
+        ball.final_position = PolarPosition::new(30.0, 60.0);
+        assert!(!is_foul_launch(
+            &ball,
+            Some(BattingResult::Out),
+            Some(PolarPosition::new(8.0, 44.9))
+        ));
+        assert!(is_foul_launch(&ball, None, None));
+        ball.final_position = PolarPosition::new(30.0, 15.0);
+        assert!(is_foul_launch(&ball, Some(BattingResult::Foul), None));
+        assert!(!is_foul_launch(&ball, Some(BattingResult::Out), None));
+    }
 
     #[test]
     fn samples_only_high_angle_contact_interval_at_live_x() {

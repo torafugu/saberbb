@@ -97,6 +97,9 @@ pub struct FieldingCatchDiagnostics {
     pub error_type: Option<FieldError>,
     pub catch_time_sec: f64,
     pub catch_z_m: f64,
+    /// Position of the selected interception. Older diagnostics may omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catch_position: Option<PolarPosition>,
     pub waiting_time_sec: f64,
     pub first_bounce_time: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -220,6 +223,10 @@ impl<'a> FieldPlayPlayResult<'a> {
             error_type: selected.error_type,
             catch_time_sec: selected.catch_time_sec,
             catch_z_m: selected.catch_z_m,
+            catch_position: Some(PolarPosition::new(
+                selected.catch_distance_m,
+                selected.catch_spray_angle_deg,
+            )),
             waiting_time_sec: selected.waiting_time_sec,
             first_bounce_time: selected.ball.first_bounce_time,
             pickup: selected.pickup,
