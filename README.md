@@ -1254,6 +1254,14 @@ timing height stay fixed across the three timing-height arms. The
 the same live control. Compare their `with_timing_height` rows at 1x,
 1.5x, and 2x to isolate the one-sided amplification.
 
+Each alignment summary has a `below_ball_whiff_geometry` section for
+swings that missed while the bat was more than 50.8 mm below the ball
+reference. Misses are grouped by which bat-local limit they exceed
+(160 mm along the bat, 70 mm across it). Joint bins show excess beyond
+each limit, with upper edges at 5, 10, and 20 mm. Use
+`thickness_only_within_5_mm` and `thickness_only_within_10_mm` to count
+near misses with length still within the contact window.
+
 ### ContactFirst vertical bat control comparison
 
 Set `SABERBB_DB` to the roster and schedule database.

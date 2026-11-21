@@ -17,7 +17,9 @@ use std::f64::consts::PI;
 use strum_macros::{AsRefStr, EnumString};
 
 // 16cm from the sweet spot toward the end of the bat
-const MAX_LENGTH_OFFSET_M: f64 = 0.16;
+/// Absolute bat-local displacement limits used by the geometric contact check.
+pub const CONTACT_LENGTH_LIMIT_M: f64 = 0.16;
+pub const CONTACT_THICKNESS_LIMIT_M: f64 = 0.070;
 /// Trial setting: change to 1.0 for the unscaled control; recorded on every swing.
 pub const CONTACT_TIMING_POSITION_SCALE: f64 = 0.75;
 
@@ -353,7 +355,7 @@ pub fn project_contact_offsets(x: f64, z: f64, bat_angle_deg: f64) -> (f64, f64)
 
 /// Whether the projected bat-frame offsets are outside the live contact limits.
 pub fn contact_geometry_is_miss(length_m: f64, thickness_m: f64) -> bool {
-    length_m.abs() > MAX_LENGTH_OFFSET_M || thickness_m.abs() > 0.070
+    length_m.abs() > CONTACT_LENGTH_LIMIT_M || thickness_m.abs() > CONTACT_THICKNESS_LIMIT_M
 }
 
 /// Trial horizontal projection of ideal elastic reflection from a cylindrical bat.
@@ -561,7 +563,7 @@ pub(crate) fn evaluate_swing_contact_with_timing_scale(
     } = swing_contact_geometry(batter, offset, swing_execution_error, timing_position_scale);
     let length_offset_m = signed_length_offset_m.abs();
     let thickness_offset_m = signed_thickness_offset_m.abs();
-    let normalized_tip_offset = (length_offset_m / MAX_LENGTH_OFFSET_M).clamp(0.0, 1.0);
+    let normalized_tip_offset = (length_offset_m / CONTACT_LENGTH_LIMIT_M).clamp(0.0, 1.0);
     let outer_tip = outer_tip_factor(normalized_tip_offset);
 
     let marginal_base_prob = marginal_probability_from_tip_offset(normalized_tip_offset);
