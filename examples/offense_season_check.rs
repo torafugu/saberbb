@@ -190,6 +190,9 @@ struct Args {
     /// Sweep the retained contact-normal contribution to HLA across 0, 25, 50, 75 and 100%.
     #[arg(long, requires = "popup_fixed_horizontal", conflicts_with = "popup_hla_control")]
     popup_hla_sweep: bool,
+    /// Compare 50, 75, and 100% retained horizontal rebound at the realized contact.
+    #[arg(long, requires = "pitch_bat_timing_comparison", conflicts_with_all = ["popup_contact_zone", "downward_timing_error_comparison", "predicted_contact_correction_comparison"])]
+    popup_live_hla_sweep: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,
@@ -1024,6 +1027,8 @@ fn run(args: Args) -> Result<()> {
     } else if args.vertical_bat_control_comparison {
         output["vertical_bat_control_comparison"] =
             intent_aim_comparison::run_vertical_bat_control(&args, &games)?;
+    } else if args.popup_live_hla_sweep {
+        output["popup_live_hla_sweep"] = popup_zone::run(&args, &games)?;
     } else if args.popup_contact_zone {
         output["popup_contact_zone"] = popup_zone::run(&args, &games)?;
     } else if args.pitch_bat_timing_comparison {
