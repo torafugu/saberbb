@@ -60,6 +60,11 @@ pub use intent_aim_audit::{
 mod paired_contact;
 use paired_contact::PairedSwing;
 pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};
+mod popup_zone_audit;
+pub use popup_zone_audit::{
+    POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM,
+    PopupZonePlay, PopupZoneSwing, with_popup_zone_audit,
+};
 mod swing_speed_audit;
 pub use swing_speed_audit::{
     DoubleFenceObservation, SwingLengthOffsetTerms, SwingReplay, SwingReplay as SwingSpeedPlay,
@@ -1503,6 +1508,7 @@ impl GameState {
         if contact_policy_offset_m != 0.0 {
             swing_error.additional_z_m += contact_policy_offset_m;
         }
+        self.record_popup_zone(batter, *pitched_ball, &displacement, swing_error, intent)?;
         let contact =
             evaluate_swing_contact(self.rng.as_mut(), batter, &displacement, &swing_error);
         Ok((contact, paired_swing))
