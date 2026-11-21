@@ -55,6 +55,7 @@ pub use intent_aim_audit::{
     IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial, TwoStrikePitch,
     with_contact_approach_audit, with_contact_first_speed_audit, with_contact_length_audit,
     with_downward_timing_height_audit, with_intent_aim_audit, with_pitch_bat_timing_audit,
+    with_predicted_contact_correction_audit,
 };
 mod paired_contact;
 use paired_contact::PairedSwing;
@@ -1368,7 +1369,7 @@ impl GameState {
             let intent = batting_intent_decision.selected_intent;
             let (swing_contact, paired_swing) = self.evaluate_swing_contact(
                 &batter,
-                &pitched_ball,
+                (&pitched_ball, &expected_ball),
                 &pitch_displacement,
                 &batting_factor,
                 intent,
@@ -1460,7 +1461,7 @@ impl GameState {
     fn evaluate_swing_contact(
         &mut self,
         batter: &BatterInfo,
-        pitched_ball: &PitchedBall,
+        (pitched_ball, expected_ball): (&PitchedBall, &PitchedBall),
         pitch_displacement: &PitchDisplacement,
         batting_factor: &BattingFactor,
         intent: BattedBallIntent,
@@ -1476,7 +1477,7 @@ impl GameState {
         self.record_intent_aim_trials(
             intent,
             batter,
-            *pitched_ball,
+            (*pitched_ball, *expected_ball),
             pitch_displacement,
             batting_factor,
             &swing_error,

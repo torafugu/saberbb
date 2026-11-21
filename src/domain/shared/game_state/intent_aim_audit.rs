@@ -3,6 +3,7 @@ use crate::domain::{
     resolver::{
         batting_resolver::{
             BattingFactor, ContactProtectionTrial, SwingExecutionError, adapt_to_pitch,
+            vertical_contact_ranges_at_x,
         },
         fielding_physics::FieldPlayPlayResult,
         pitching_resolver::{PitchDisplacement, StrikeZoneDimensions, calculate_location_bias},
@@ -10,7 +11,9 @@ use crate::domain::{
     shared::{
         ball::{BattedBall, PitchedBall},
         infield_opportunity_audit::{IntentAimInfield, intent_aim_infield},
+        observation_update::{SENSOR_SIGMA_M, standard_noise, update_forecast},
         player::BatterInfo,
+        swing_prediction::collect_input,
     },
     strategy::batting_strategy::BattedBallIntent,
 };
@@ -48,6 +51,7 @@ pub struct IntentAimSwing {
     pub plays: Vec<IntentAimPlay>,
     pub protection_plays: Option<[SwingReplay; 3]>,
     pub vertical_break_plays: Option<[SwingReplay; 2]>,
+    pub predicted_contact_correction_m: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -66,6 +70,7 @@ enum Trial {
     LengthLoss(f64),
     TimingGeometry(PitchBatTimingTrial),
     DownwardTimingHeight(Option<f64>),
+    PredictedContactCorrection(bool),
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -85,6 +90,7 @@ struct ReplayInputs {
     use_path_mismatch: bool,
     vertical_bat_control_delta: f64,
     downward_timing_height_scale: f64,
+    predicted_contact_correction: bool,
 }
 
 impl Trial {
@@ -97,6 +103,7 @@ impl Trial {
             use_path_mismatch: false,
             vertical_bat_control_delta: 0.0,
             downward_timing_height_scale: 1.0,
+            predicted_contact_correction: false,
         };
         match self {
             Self::Aim {
@@ -121,6 +128,11 @@ impl Trial {
                 inputs.use_path_mismatch = trial.use_path_mismatch;
                 // Request the launch retention measurement with zero additional length loss.
                 inputs.length_loss = Some(0.0);
+            }
+            Self::PredictedContactCorrection(enabled) => {
+                inputs.use_path_mismatch = true;
+                inputs.length_loss = Some(0.0);
+                inputs.predicted_contact_correction = enabled;
             }
             Self::DownwardTimingHeight(scale) => {
                 inputs.use_path_mismatch = scale.is_some();
@@ -336,6 +348,70 @@ pub fn with_downward_timing_height_audit<T>(
     )
 }
 
+/// Compare the same original aim and 1x timing height with forecast-based Z correction off/on.
+pub fn with_predicted_contact_correction_audit<T>(
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    let arms = vec![
+        Trial::DownwardTimingHeight(None),
+        Trial::PredictedContactCorrection(false),
+        Trial::PredictedContactCorrection(true),
+    ];
+    with_trials(arms, false, run)
+}
+
+const PREDICTED_CONTACT_INTERIOR_M: f64 = 0.008;
+const PREDICTED_CONTACT_CORRECTION_CAP_M: f64 = 0.030;
+
+fn correction_from_predicted_offset(x: f64, z: f64, bat_angle_deg: f64) -> f64 {
+    let Some([(length_min, length_max), (thickness_min, thickness_max)]) =
+        vertical_contact_ranges_at_x(x, bat_angle_deg)
+    else {
+        return 0.0;
+    };
+    let min = length_min.max(thickness_min);
+    let max = length_max.min(thickness_max);
+    if min > max {
+        return 0.0;
+    }
+    let margin = PREDICTED_CONTACT_INTERIOR_M;
+    let target = if max - min <= 2.0 * margin {
+        min.midpoint(max)
+    } else {
+        z.clamp(min + margin, max - margin)
+    };
+    let cap = PREDICTED_CONTACT_CORRECTION_CAP_M;
+    cap * ((target - z) / cap).tanh()
+}
+
+fn predicted_contact_correction(
+    batter: &BatterInfo,
+    pitch: &PitchedBall,
+    prior: &PitchedBall,
+    game_id: u32,
+    count_seq: u16,
+    aim_m: f64,
+) -> Option<f64> {
+    let input = collect_input(batter, pitch, prior).ok()?;
+    let history = input.observation_history.as_deref()?;
+    let updated = update_forecast(
+        history,
+        SENSOR_SIGMA_M,
+        input.batting_eye,
+        standard_noise(game_id, count_seq),
+    )
+    .ok()?;
+    // Anchor the planned swing to the initial forecast; the observer supplies only
+    // the revised prediction and the frozen legacy replay supplies collision truth.
+    let x = updated.forecast.position_world_m[0] - input.forecast.position_world_m[0];
+    let z = updated.forecast.position_world_m[2] - input.forecast.position_world_m[2] + aim_m;
+    Some(correction_from_predicted_offset(
+        x,
+        z,
+        input.planned_bat_angle_deg,
+    ))
+}
+
 fn scale_downward_timing_height(height_m: f64, scale: f64) -> f64 {
     if height_m > 0.0 {
         height_m * scale
@@ -385,7 +461,7 @@ impl GameState {
         &self,
         intent: BattedBallIntent,
         batter: &BatterInfo,
-        pitch: PitchedBall,
+        (pitch, prior): (PitchedBall, PitchedBall),
         raw_displacement: &PitchDisplacement,
         batting_factor: &BattingFactor,
         swing_error: &SwingExecutionError,
@@ -400,6 +476,7 @@ impl GameState {
             let adapted = adapt_to_pitch(raw_displacement, batter.bat_control, batting_factor);
             let mut unique = Vec::new();
             let mut plays = Vec::with_capacity(audit.arms.len());
+            let mut predicted_contact_correction_m = None;
             for arm in &audit.arms {
                 let inputs = arm.inputs(intent);
                 if let Some(&(_, play)) = unique.iter().find(|(seen, _)| *seen == inputs) {
@@ -442,6 +519,16 @@ impl GameState {
                     error.additional_z_m +=
                         scale_downward_timing_height(height_m, inputs.downward_timing_height_scale);
                 }
+                if inputs.predicted_contact_correction {
+                    predicted_contact_correction_m = predicted_contact_correction(
+                        batter,
+                        &pitch,
+                        &prior,
+                        self.game_result.id,
+                        self.count_seq,
+                        inputs.aim_m,
+                    );
+                }
                 let play = capture_infield(|| {
                     self.replay_swing_variant(
                         active.id,
@@ -449,7 +536,14 @@ impl GameState {
                         pitch,
                         &displacement,
                         error,
-                        (inputs.length_loss, audit.audit_doubles, None),
+                        (
+                            inputs.length_loss,
+                            audit.audit_doubles,
+                            None,
+                            predicted_contact_correction_m
+                                .filter(|_| inputs.predicted_contact_correction)
+                                .unwrap_or_default(),
+                        ),
                     )
                 })?;
                 unique.push((inputs, play));
@@ -468,7 +562,7 @@ impl GameState {
                         pitch,
                         &adapted,
                         live_aim_error,
-                        (Some(0.0), false, Some(trial)),
+                        (Some(0.0), false, Some(trial), 0.0),
                     )
                 };
                 Some([
@@ -494,7 +588,7 @@ impl GameState {
                         pitch,
                         &displacement,
                         live_aim_error,
-                        (None, false, None),
+                        (None, false, None, 0.0),
                     )
                 };
                 Some([replay(0.0)?, replay(0.5)?])
@@ -507,6 +601,7 @@ impl GameState {
                 plays,
                 protection_plays,
                 vertical_break_plays,
+                predicted_contact_correction_m,
             });
             Ok(())
         })
@@ -519,6 +614,19 @@ mod tests {
         PitchDisplacement, scale_downward_timing_height, scaled_vertical_break_displacement,
         timing_height_error_m,
     };
+
+    #[test]
+    fn forecast_correction_preserves_safe_aim_and_saturates_toward_contact() {
+        use super::correction_from_predicted_offset as correction;
+        assert_eq!(correction(0.0, 0.02, 0.0), 0.0);
+        assert_eq!(correction(0.17, 0.09, 0.0), 0.0);
+        let near = correction(0.0, 0.065, 0.0);
+        let outside = correction(0.0, 0.080, 0.0);
+        let far = correction(0.0, 0.20, 0.0);
+        assert!(0.0 > near && near > outside && outside > far && far.abs() <= 0.030);
+        assert!((correction(0.0, -0.080, 0.0) + outside).abs() < 1e-12);
+        assert!(0.080 + outside < 0.070);
+    }
 
     #[test]
     fn scales_only_timing_height_below_the_ball() {
