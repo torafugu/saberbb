@@ -1010,6 +1010,24 @@ on the same swings within each zone. Whiff, foul, and SolidContact
 rates use all swings as the denominator. Foul and SolidContact
 can overlap.
 
+To test contact protection on the same two-strike ContactFirst swings,
+add `--two-strike-contact-protection`:
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --contact-approach-comparison --two-strike-contact-protection > contact_protection_2026.json
+```
+
+Read `contact_approach_comparison.two_strike_contact_protection`. The
+baseline uses the live ContactFirst swing. The three trials apply an
+edge correction of up to 12 mm, reduce correction close to the center
+by up to 14 mm, or combine both. These trial amplitudes apply to the
+realized bat-local thickness error after the existing aim and vertical
+policy. All trials reuse the same pitches and live swing decisions.
+The standard contact classifier measures the resulting geometry.
+Use the contact-type transition table for weak and marginal contacts,
+the rescued-whiff outcomes for foul and fair results, and the paired
+retention means for changes from solid to weak or marginal contact.
+
 ### Count-based batting intent comparison
 
 Set `SABERBB_DB` to the roster and schedule database.

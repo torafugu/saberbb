@@ -209,6 +209,9 @@ struct Args {
         "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     contact_approach_comparison: bool,
+    /// Test contact protection on existing two-strike ContactFirst swings.
+    #[arg(long, requires = "contact_approach_comparison")]
+    two_strike_contact_protection: bool,
     #[arg(long, default_value_t = 5000)]
     max_pitches: u32,
     /// Include BIP quality, fielding/running timing groups and bounded example plays.

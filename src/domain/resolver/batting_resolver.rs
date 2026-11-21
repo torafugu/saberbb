@@ -479,6 +479,45 @@ fn swing_contact_geometry(
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum ContactProtectionTrial {
+    EdgeCorrection,
+    ReducedCenterCorrection,
+    Combined,
+}
+
+/// Adjust the realized thickness error in the bat frame, after live aim is applied.
+pub(crate) fn apply_contact_protection_trial(
+    batter: &BatterInfo,
+    displacement: &PitchDisplacement,
+    error: &mut SwingExecutionError,
+    trial: ContactProtectionTrial,
+) {
+    let geometry = swing_contact_geometry(batter, displacement, error, CONTACT_GEOMETRY_SCALE.get());
+    let signed = geometry.signed_thickness_offset_m;
+    let thickness = signed.abs();
+    let center = if matches!(
+        trial,
+        ContactProtectionTrial::ReducedCenterCorrection | ContactProtectionTrial::Combined
+    ) {
+        0.014 * (thickness / 0.025).min((0.055 - thickness) / 0.030).max(0.0)
+    } else {
+        0.0
+    };
+    let edge = if matches!(
+        trial,
+        ContactProtectionTrial::EdgeCorrection | ContactProtectionTrial::Combined
+    ) {
+        0.012 * ((thickness - 0.055) / 0.015).min((0.090 - thickness) / 0.020).max(0.0)
+    } else {
+        0.0
+    };
+    let shift = (center - edge) * signed.signum();
+    let (sin, cos) = error.actual_bat_angle_deg.to_radians().sin_cos();
+    error.additional_x_m -= shift * sin;
+    error.additional_z_m += shift * cos;
+}
+
 /// Exit speed for the realized swing before a diagnostic offset, without drawing RNG.
 pub(crate) fn pre_trial_exit_speed_ms(
     batter: &BatterInfo,
@@ -1550,6 +1589,40 @@ mod tests {
             attack_angle: 28.0,
             bat_control: 0.8,
             consistency: 0.03,
+        }
+    }
+
+    #[test]
+    fn protection_changes_local_contact_geometry_without_changing_length() {
+        let batter = batter(RL::Right);
+        let angle: f64 = 30.0;
+        let (sin, cos) = angle.to_radians().sin_cos();
+        for sign in [-1.0, 1.0] {
+            for (thickness, before, after, expected) in [
+                (0.020, SwingContactType::SolidContact, SwingContactType::WeakContact, 0.0312),
+                (0.074, SwingContactType::SwungAndMiss, SwingContactType::MarginalContact, 0.0644),
+                (0.100, SwingContactType::SwungAndMiss, SwingContactType::SwungAndMiss, 0.100),
+            ] {
+                let displacement = PitchDisplacement {
+                    crossfire_multiplier: 1.0,
+                    release_x_factor: 1.0,
+                    horizontal_offset_m: 0.04 * cos - sign * thickness * sin,
+                    vertical_offset_m: 0.04 * sin + sign * thickness * cos,
+                    timing_offset_sec: 0.0,
+                };
+                let mut error = SwingExecutionError {
+                    actual_bat_angle_deg: angle,
+                    ..Default::default()
+                };
+                let control = evaluate_swing_contact(&mut FixedRng::new(0.5), &batter, &displacement, &error);
+                assert_eq!(control.original_contact_type, before);
+                apply_contact_protection_trial(&batter, &displacement, &mut error, ContactProtectionTrial::Combined);
+                let trial = evaluate_swing_contact(&mut FixedRng::new(0.5), &batter, &displacement, &error);
+                assert_eq!(trial.original_contact_type, after);
+                assert!((trial.length_offset_m - 0.04).abs() < 1e-12);
+                assert!((trial.thickness_offset_m - expected).abs() < 1e-12);
+                assert_eq!(error.actual_bat_angle_deg, angle);
+            }
         }
     }
 
