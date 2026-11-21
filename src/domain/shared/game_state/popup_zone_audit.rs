@@ -28,6 +28,7 @@ pub const POPUP_ZERO_SPEED_TOLERANCE_MS: f64 = 1e-9;
 pub const POPUP_SCAN_INFIELD_M: f64 = INFIELD_DISTANCE;
 pub const POPUP_FIXED_X_STEP_M: f64 = 0.002;
 pub const POPUP_HLA_RETENTION_PCT: [u8; 5] = [0, 25, 50, 75, 100];
+pub const LIVE_POPUP_Z_SHIFTS_MM: [u8; 5] = [0, 4, 8, 12, 20];
 pub const LIVE_POPUP_HLA_RETENTION_PCT: [u8; 3] = [50, 75, 100];
 
 #[derive(Clone, Copy)]
@@ -72,7 +73,7 @@ pub struct PopupZoneSwing {
     pub count_seq: u16,
     pub intent: BattedBallIntent,
     pub baseline: PopupZonePlay,
-    /// Z-major order, with X increasing within each row.
+    /// Z-major order for a grid, or ascending shifts for the live Z sweep.
     pub grid: Vec<PopupZonePlay>,
     pub fixed_horizontal: Option<FixedHorizontalScan>,
 }
@@ -90,6 +91,7 @@ enum AuditMode {
     Grid,
     FixedHorizontal(PopupHlaTrial),
     LiveHlaSweep,
+    LiveZSweep,
 }
 
 struct Audit {
@@ -123,6 +125,10 @@ pub fn with_popup_hla_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZo
 
 pub fn with_live_popup_hla_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
     with_audit(AuditMode::LiveHlaSweep, run)
+}
+
+pub fn with_live_popup_z_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
+    with_audit(AuditMode::LiveZSweep, run)
 }
 
 fn with_audit<T>(mode: AuditMode, run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
@@ -362,11 +368,25 @@ impl GameState {
             };
             let baseline = sample(swing_error, baseline_retentions)?;
             let mut grid = Vec::new();
+            if matches!(audit.mode, AuditMode::LiveZSweep) {
+                grid.push(baseline);
+                for &shift_mm in &LIVE_POPUP_Z_SHIFTS_MM[1..] {
+                    let z_m = baseline.z_m + f64::from(shift_mm) / 1000.0;
+                    grid.push(sample(
+                        error_at_offset(baseline, swing_error, baseline.x_m, z_m),
+                        &[],
+                    )?);
+                }
+            }
             let fixed_horizontal = match audit.mode {
                 AuditMode::LiveHlaSweep => None,
-                AuditMode::FixedHorizontal(trial) => {
+                AuditMode::LiveZSweep | AuditMode::FixedHorizontal(_) => {
+                    let retentions = match audit.mode {
+                        AuditMode::FixedHorizontal(trial) => trial.retention_percentages(),
+                        _ => &[],
+                    };
                     Some(fixed_horizontal_scan(baseline, swing_error, |error| {
-                        sample(error, trial.retention_percentages())
+                        sample(error, retentions)
                     })?)
                 }
                 AuditMode::Grid => {

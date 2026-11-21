@@ -4,11 +4,12 @@ use saberbb::domain::{
     random_provider::RealRng,
     resolver::batting_resolver::wrap_hla_deg,
     shared::game_state::{
-        FixedHorizontalScan, LIVE_POPUP_HLA_RETENTION_PCT, POPUP_FIXED_X_STEP_M,
-        POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM,
-        POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupHlaTrial, PopupZoneLaunch,
-        PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit,
-        with_live_popup_hla_sweep_audit, with_popup_hla_sweep_audit, with_popup_zone_audit,
+        FixedHorizontalScan, LIVE_POPUP_HLA_RETENTION_PCT, LIVE_POPUP_Z_SHIFTS_MM,
+        POPUP_FIXED_X_STEP_M, POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
+        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupHlaTrial,
+        PopupZoneLaunch, PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit,
+        with_live_popup_hla_sweep_audit, with_live_popup_z_sweep_audit, with_popup_hla_sweep_audit,
+        with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
 };
@@ -676,6 +677,99 @@ impl FixedHorizontalGroup {
     }
 }
 
+#[derive(Default)]
+struct ZShiftCounts {
+    retained_contacts: u64,
+    lost_contacts: u64,
+    gained_contacts: u64,
+    high_vla: u64,
+    high_vla_foul: u64,
+    popups: u64,
+    fair_launches: u64,
+}
+
+impl ZShiftCounts {
+    fn observe(&mut self, baseline: PopupZonePlay, trial: PopupZonePlay) {
+        let in_contact = baseline.launch.is_some();
+        self.retained_contacts += u64::from(in_contact && trial.launch.is_some());
+        self.lost_contacts += u64::from(in_contact && trial.launch.is_none());
+        self.gained_contacts += u64::from(!in_contact && trial.launch.is_some());
+        if let Some(launch) = trial.launch {
+            self.fair_launches +=
+                u64::from(!launch.foul && launch.exit_speed_ms > POPUP_ZERO_SPEED_TOLERANCE_MS);
+            self.high_vla += u64::from(has_high_vla(launch));
+            self.high_vla_foul += u64::from(has_high_vla(launch) && launch.foul);
+            self.popups += u64::from(is_popup_launch(launch));
+        }
+    }
+
+    fn report(&self, shift_mm: u8, swings: u64) -> Value {
+        let contacts = self.retained_contacts + self.gained_contacts;
+        json!({
+            "added_z_mm": shift_mm,
+            "contacts": contacts,
+            "whiffs": swings - contacts,
+            "contact_pct": (swings > 0).then(|| 100.0 * contacts as f64 / swings as f64),
+            "whiff_pct": (swings > 0).then(|| 100.0 * (swings - contacts) as f64 / swings as f64),
+            "retained_contacts": self.retained_contacts,
+            "lost_contacts": self.lost_contacts,
+            "gained_contacts": self.gained_contacts,
+            "fair_launches_with_nonzero_ev": self.fair_launches,
+            "high_vla_contacts": self.high_vla,
+            "high_vla_fouls": self.high_vla_foul,
+            "fair_infield_popups": self.popups,
+        })
+    }
+}
+
+#[derive(Default)]
+struct LiveZGroup {
+    reachability: FixedHorizontalGroup,
+    live_contacts_with_high_vla_reachable: u64,
+    first_high_vla_from_live_contact: Distances,
+    trials: [ZShiftCounts; LIVE_POPUP_Z_SHIFTS_MM.len()],
+}
+
+impl LiveZGroup {
+    fn observe(&mut self, swing: &PopupZoneSwing, scan: &FixedHorizontalScan) {
+        self.reachability
+            .observe(swing.baseline, scan, PopupHlaTrial::Disabled);
+        if swing.baseline.launch.is_some() {
+            let first_high = if swing.baseline.launch.is_some_and(has_high_vla) {
+                Some(swing.baseline)
+            } else if let FixedHorizontalScan::HighVlaSamples(samples) = scan {
+                samples
+                    .iter()
+                    .copied()
+                    .find(|play| play.launch.is_some_and(has_high_vla))
+            } else {
+                None
+            };
+            if let Some(play) = first_high {
+                self.live_contacts_with_high_vla_reachable += 1;
+                self.first_high_vla_from_live_contact
+                    .observe((play.z_m - swing.baseline.z_m).max(0.0) * 1000.0);
+            }
+        }
+        for (counts, trial) in self.trials.iter_mut().zip(&swing.grid) {
+            counts.observe(swing.baseline, *trial);
+        }
+    }
+
+    fn report(&self) -> Value {
+        let swings = self.reachability.all.swings;
+        json!({
+            "swings": swings,
+            "shifts": self.trials.iter().zip(LIVE_POPUP_Z_SHIFTS_MM)
+                .map(|(counts, shift)| counts.report(shift, swings))
+                .collect::<Vec<_>>(),
+            "live_contacts_with_high_vla_reachable": self.live_contacts_with_high_vla_reachable,
+            "additional_z_to_first_high_vla_from_live_contact": self.first_high_vla_from_live_contact.report(self.live_contacts_with_high_vla_reachable),
+            "reachability": self.reachability.report(PopupHlaTrial::Disabled),
+        })
+    }
+}
+
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let hla_trial = if args.popup_hla_sweep {
         PopupHlaTrial::Sweep
@@ -693,6 +787,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let mut live_all = LiveHlaGroup::default();
     let mut live_contact_first = LiveHlaGroup::default();
     let mut live_line_drive = LiveHlaGroup::default();
+    let mut z_all = LiveZGroup::default();
+    let mut z_contact_first = LiveZGroup::default();
+    let mut z_line_drive = LiveZGroup::default();
     for &seed in &args.seeds {
         for game in games {
             let simulate = || {
@@ -704,7 +801,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     false,
                 )
             };
-            let (result, swings) = if args.popup_live_hla_sweep {
+            let (result, swings) = if args.popup_live_z_sweep {
+                with_live_popup_z_sweep_audit(simulate)
+            } else if args.popup_live_hla_sweep {
                 with_live_popup_hla_sweep_audit(simulate)
             } else if args.popup_hla_sweep {
                 with_popup_hla_sweep_audit(simulate)
@@ -740,6 +839,23 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     game.id,
                     swing.count_seq
                 );
+                if args.popup_live_z_sweep {
+                    let scan = swing
+                        .fixed_horizontal
+                        .as_ref()
+                        .context("missing live Z reachability scan")?;
+                    ensure!(
+                        swing.grid.len() == LIVE_POPUP_Z_SHIFTS_MM.len(),
+                        "missing live Z replay"
+                    );
+                    z_all.observe(&swing, scan);
+                    match swing.intent {
+                        BattedBallIntent::ContactFirst => &mut z_contact_first,
+                        BattedBallIntent::LineDrive => &mut z_line_drive,
+                    }
+                    .observe(&swing, scan);
+                    continue;
+                }
                 if args.popup_live_hla_sweep {
                     if let (Some(launch), Some(row)) = (swing.baseline.launch, recorded) {
                         ensure!(
@@ -783,12 +899,27 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             }
             ensure!(live.is_empty(), "unpaired live swings in game {}", game.id);
         }
-        let label = if args.popup_live_hla_sweep {
+        let label = if args.popup_live_z_sweep {
+            "Live popup Z sweep"
+        } else if args.popup_live_hla_sweep {
             "Live popup HLA sweep"
         } else {
             "Popup contact zone"
         };
         eprintln!("{label}, seed {seed}: {} games complete", games.len());
+    }
+    if args.popup_live_z_sweep {
+        return Ok(json!({
+            "definition": "Replay the same swings with X and timing fixed, adding the reported Z in the ball-minus-bat coordinate (positive moves the bat down). Use the original pitch, swing angles and starting RNG state. Shifts recompute contact and launch using the standard model. Only the original play advances game state. Contact and whiff percentages use all swings, including swings without a recorded batting result. A high launch requires positive EV above the tolerance and VLA strictly above the threshold. A popup additionally requires a fair projected infield first bounce or a clean air out by an infielder in fair territory.",
+            "reachability_definition": "At fixed live X, scan from the live Z toward lower bat positions within the geometric contact interval and above the VLA threshold. Distances are to the first qualifying sampled position, with zero for an already high live contact. These are geometric opportunities; shifts between samples may be missed.",
+            "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
+            "infield_radius_m": POPUP_SCAN_INFIELD_M,
+            "zero_speed_tolerance_ms": POPUP_ZERO_SPEED_TOLERANCE_MS,
+            "maximum_z_sample_step_mm": POPUP_FIXED_X_STEP_M * 1000.0,
+            "all": z_all.report(),
+            "contact_first": z_contact_first.report(),
+            "line_drive": z_line_drive.report(),
+        }));
     }
     if args.popup_live_hla_sweep {
         return Ok(json!({
