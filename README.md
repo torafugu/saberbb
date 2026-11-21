@@ -1086,6 +1086,33 @@ for whiffs and fouls, and `doubles`, `triples` and `home_runs` for extra-base
 hits. Rates use all swings in the corresponding intent group. Per-seed
 results are available under `reports`.
 
+### Pitch and bat timing geometry comparison
+
+Set `SABERBB_DB` to the roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --pitch-bat-timing-comparison > pitch_bat_timing_2026.json
+```
+
+The six paired arms combine current ContactFirst aim, an 8 mm undercut,
+or a 10° steeper bat attack with either live geometry or an additional
+vertical displacement from signed timing error. The displacement uses
+the crossing of local straight-line paths in the vertical plane, with
+the incoming pitch velocity at the plate and the trial bat attack angle.
+Equal path slopes or zero timing error add no displacement. The existing
+horizontal timing term stays in place. LineDrive keeps its live aim and
+attack in every arm and receives the same timing geometry in the three
+arms that enable it. Replays do not affect subsequent pitches.
+
+In `pitch_bat_timing_comparison.pooled`, compare each `trial` with its
+counterpart at the other value of `use_path_mismatch`. Use the
+ContactFirst summary's whiff rate, `retention_at_least_80_pct_per_swing`,
+`retention_at_least_95_pct_per_swing`, `outfield_direct_outs_per_swing`
+and `home_runs_per_swing`. Retention uses the simulator's pre-offset EV,
+counts foul launches as well, and uses all swings as the rate denominator.
+An outfield direct out is a recorded batting out on a clean catch in the
+air by an outfielder. The same counts by seed are in `reports`.
+
 ### Fixed-contact length retention comparison
 
 Set `SABERBB_DB` to the same roster and schedule database.

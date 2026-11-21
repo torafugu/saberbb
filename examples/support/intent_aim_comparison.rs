@@ -6,9 +6,9 @@ use saberbb::domain::{
         ball::OutboundResult,
         game::{BattingResult, GameResult},
         game_state::{
-            IntentAimOffsets, IntentAimPlay, IntentAimSwing, SwingReplay,
+            IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial, SwingReplay,
             with_contact_first_speed_audit, with_contact_length_audit, with_intent_aim_audit,
-            with_intent_aim_trial,
+            with_intent_aim_trial, with_pitch_bat_timing_audit,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -127,6 +127,10 @@ struct SwingCounts {
     infield: InfieldCounts,
     baseline_fair_retention_by_angle: BTreeMap<&'static str, BTreeMap<u8, u64>>,
     hard_fair_5_to_10_deg: u64,
+    retention_launches: u64,
+    retention_at_least_80_pct: u64,
+    retention_at_least_95_pct: u64,
+    outfield_direct_outs: u64,
 }
 
 impl SwingCounts {
@@ -180,6 +184,12 @@ impl SwingCounts {
             .or_default() += 1;
         self.singles += u64::from(play.outcome == Some(BattingResult::Single));
         self.singles_5_to_10_deg += u64::from(target_single(play));
+        if let Some(retention) = play.exit_speed_retention {
+            self.retention_launches += 1;
+            self.retention_at_least_80_pct += u64::from(retention >= 0.80);
+            self.retention_at_least_95_pct += u64::from(retention >= 0.95);
+        }
+        self.outfield_direct_outs += u64::from(play.outfield_direct_out);
         self.doubles += u64::from(play.outcome == Some(BattingResult::Double));
         self.triples += u64::from(play.outcome == Some(BattingResult::Triple));
         self.home_runs += u64::from(play.outcome == Some(BattingResult::HomeRun));
@@ -233,6 +243,13 @@ impl SwingCounts {
             "doubles": self.doubles, "triples": self.triples,
             "home_runs": self.home_runs, "home_runs_per_swing": rate(self.home_runs),
             "hard_fair_5_to_10_deg": self.hard_fair_5_to_10_deg,
+            "outfield_direct_outs": self.outfield_direct_outs,
+            "outfield_direct_outs_per_swing": rate(self.outfield_direct_outs),
+            "retention_launches": self.retention_launches,
+            "retention_at_least_80_pct": self.retention_at_least_80_pct,
+            "retention_at_least_80_pct_per_swing": rate(self.retention_at_least_80_pct),
+            "retention_at_least_95_pct": self.retention_at_least_95_pct,
+            "retention_at_least_95_pct_per_swing": rate(self.retention_at_least_95_pct),
             "baseline_fair_retention_by_angle_deg": self.baseline_fair_retention_by_angle,
             "hard_low_singles": self.hard_low_singles, "hard_low_singles_per_swing": rate(self.hard_low_singles),
             "no_batting_result": self.no_batting_result,
@@ -363,16 +380,36 @@ pub(super) fn run_length(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     )
 }
 
-fn run_replays(
+pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    let trials: [PitchBatTimingTrial; 6] = std::array::from_fn(|index| {
+        let (contact_first_z_mm, contact_first_attack_deg) = [(0, 0), (8, 0), (0, 10)][index % 3];
+        PitchBatTimingTrial {
+            contact_first_z_mm,
+            contact_first_attack_deg,
+            use_path_mismatch: index >= 3,
+        }
+    });
+    run_replays(
+        args,
+        games,
+        "Pitch–bat timing geometry",
+        "trial",
+        &trials,
+        "Replay realized swings from the same pitch, intent, count, and RNG position. ContactFirst uses the current aim, an 8 mm undercut, or a 10 degree steeper attack. Each runs with and without the added timing height error from the local pitch and bat velocities in the vertical plane. The calculation uses signed adapted timing error, plate velocity, and the trial attack angle. LineDrive keeps its live aim and attack angle. Existing horizontal timing displacement and contact rules still apply. Strong contact counts include any launch that retains at least 80% or 95% of the modeled pre-offset EV, including fouls. Outfield direct outs require a recorded batting out and a clean air catch by an outfielder. Divide by all swings. Later pitches follow the live baseline.",
+        |simulate| with_pitch_bat_timing_audit(&trials, simulate),
+    )
+}
+
+fn run_replays<const N: usize, V: serde::Serialize>(
     args: &Args,
     games: &[GameSchedule],
     name: &str,
     parameter: &str,
-    values: &[f64; 3],
+    values: &[V; N],
     definition: &str,
     audit: impl Fn(&mut dyn FnMut() -> Result<GameResult>) -> (Result<GameResult>, Vec<IntentAimSwing>),
 ) -> Result<Value> {
-    let empty = || values.map(|_| PairedCounts::default());
+    let empty = || std::array::from_fn::<_, N, _>(|_| PairedCounts::default());
     let report = |counts: &[PairedCounts]| {
         values
             .iter()
@@ -525,6 +562,7 @@ mod tests {
         let replay = |outcome, flight| IntentAimPlay {
             batting: SwingReplay {
                 exit_speed_retention: None,
+                outfield_direct_out: false,
                 outcome,
                 flight,
             },
@@ -582,6 +620,7 @@ mod tests {
         };
         let single = replay(SwingReplay {
             exit_speed_retention: None,
+            outfield_direct_out: false,
             outcome: Some(BattingResult::Single),
             flight: Some((OutboundResult::InField, 45.0, 0.0)),
         });
@@ -590,6 +629,7 @@ mod tests {
             single,
             replay(SwingReplay {
                 exit_speed_retention: None,
+                outfield_direct_out: false,
                 outcome: Some(BattingResult::Foul),
                 flight: Some((OutboundResult::Foul, 48.0, 31.0)),
             }),
@@ -598,6 +638,7 @@ mod tests {
             single,
             replay(SwingReplay {
                 exit_speed_retention: None,
+                outfield_direct_out: false,
                 outcome: Some(BattingResult::HomeRun),
                 flight: Some((OutboundResult::HomeRun, 45.0, 30.0)),
             }),

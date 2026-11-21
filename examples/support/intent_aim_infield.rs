@@ -182,6 +182,7 @@ mod tests {
         let play = |angle, position, reach, result| IntentAimPlay {
             batting: SwingReplay {
                 exit_speed_retention: None,
+                outfield_direct_out: false,
                 outcome: Some(result),
                 flight: Some((OutboundResult::InField, 45.0, angle)),
             },
@@ -208,6 +209,7 @@ mod tests {
         let whiff = IntentAimPlay {
             batting: SwingReplay {
                 exit_speed_retention: None,
+                outfield_direct_out: false,
                 outcome: Some(BattingResult::StrikeSwung),
                 flight: None,
             },
