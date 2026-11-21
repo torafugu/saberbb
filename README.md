@@ -1134,6 +1134,16 @@ Compare pooled and per-seed ContactFirst results for the two +10° arms.
 and home runs from the +10° control to their outcomes with reduced
 vertical correction. The live baseline supplies the later pitches.
 
+To check whether extra doubles narrowly missed becoming home runs, read
+`double_fence_diagnostics` under each arm's `summary`. It includes
+official doubles awarded after clearing the fence on a bounce, doubles
+that hit the wall before or after bouncing, clean fielding before a
+projected wall hit, and doubles with no projected wall hit. Each category
+reports launch angles and the radial distance from the recorded bounce
+or pickup point to the fence on the same bearing when available. The
+airborne wall shortfall uses ball height at the first simulated wall
+event. An absent pickup or bounce is omitted from its histogram.
+
 ### Fixed-contact length retention comparison
 
 Set `SABERBB_DB` to the same roster and schedule database.

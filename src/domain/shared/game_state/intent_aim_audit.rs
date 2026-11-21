@@ -129,6 +129,7 @@ fn timing_height_error_m(
 
 struct Audit {
     arms: Vec<Trial>,
+    audit_doubles: bool,
     swings: Vec<IntentAimSwing>,
 }
 
@@ -179,7 +180,7 @@ pub fn with_intent_aim_audit<T>(
     arms: &[IntentAimOffsets],
     run: impl FnOnce() -> T,
 ) -> (T, Vec<IntentAimSwing>) {
-    with_trials(arms.iter().copied().map(Trial::Aim).collect(), run)
+    with_trials(arms.iter().copied().map(Trial::Aim).collect(), false, run)
 }
 
 /// Replay the same swing decisions with a speed multiplier on ContactFirst.
@@ -193,6 +194,7 @@ pub fn with_contact_first_speed_audit<T>(
             .copied()
             .map(Trial::ContactFirstSpeed)
             .collect(),
+        false,
         run,
     )
 }
@@ -202,21 +204,31 @@ pub fn with_contact_length_audit<T>(
     losses: &[f64],
     run: impl FnOnce() -> T,
 ) -> (T, Vec<IntentAimSwing>) {
-    with_trials(losses.iter().copied().map(Trial::LengthLoss).collect(), run)
+    with_trials(
+        losses.iter().copied().map(Trial::LengthLoss).collect(),
+        false,
+        run,
+    )
 }
 
 /// Replay ContactFirst aim and attack angle with and without pitch–bat timing geometry.
 pub fn with_pitch_bat_timing_audit<T>(
     trials: &[PitchBatTimingTrial],
+    audit_doubles: bool,
     run: impl FnOnce() -> T,
 ) -> (T, Vec<IntentAimSwing>) {
     with_trials(
         trials.iter().copied().map(Trial::TimingGeometry).collect(),
+        audit_doubles,
         run,
     )
 }
 
-fn with_trials<T>(arms: Vec<Trial>, run: impl FnOnce() -> T) -> (T, Vec<IntentAimSwing>) {
+fn with_trials<T>(
+    arms: Vec<Trial>,
+    audit_doubles: bool,
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
     struct Restore(Option<Audit>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -225,6 +237,7 @@ fn with_trials<T>(arms: Vec<Trial>, run: impl FnOnce() -> T) -> (T, Vec<IntentAi
     }
     let _restore = Restore(AUDIT.replace(Some(Audit {
         arms,
+        audit_doubles,
         swings: Vec::new(),
     })));
     let result = run();
@@ -301,7 +314,7 @@ impl GameState {
                         pitch,
                         &displacement,
                         error,
-                        inputs.length_loss,
+                        (inputs.length_loss, audit.audit_doubles),
                     )
                 })?;
                 unique.push((inputs, play));
