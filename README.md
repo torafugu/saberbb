@@ -1007,6 +1007,14 @@ ruling or trajectory, so they can differ from what the initial
 horizontal angle alone suggests. The horizontal bins use ±30°, ±45°,
 and ±90° as cutoffs. At ±45° the angle is in the outside band.
 
+`contact_approach_comparison.pitch_spin_impact` shows the live arm's
+contact-height and high-angle frequencies by pitch type and by
+vertical break relative to the predicted pitch. It also counts
+`PopUp` classifications with 0%, 10%, 20% (current), and 40% pitch
+spin transfer, holding launch angle, collision spin, and the baseline
+fair/foul rulings fixed. The sensitivity measures the classification
+effect. These fractions are trial values for comparison.
+
 Use `contact_approach_comparison.paired_contact_quality` to compare the
 four pooled contact/miss combinations. In `contact_first_only_contact`,
 check how often ContactFirst produces a foul and how much EV it retains.

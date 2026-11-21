@@ -37,6 +37,10 @@ use contact_protection::ContactProtection;
 mod contact_launch_profile;
 use contact_launch_profile::ContactLaunchProfile;
 
+#[path = "pitch_spin_impact.rs"]
+mod pitch_spin_impact;
+use pitch_spin_impact::PitchSpinImpact;
+
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
     let alternative = IntentAimOffsets {
@@ -603,6 +607,7 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
     let mut quality = ContactApproachQuality::default();
     let mut two_strike = TwoStrikeApproach::default();
     let mut protection = ContactProtection::default();
+    let mut pitch_spin = PitchSpinImpact::default();
     let approach_names = ["live", "contact_first", "line_drive"];
     let mut launch_profiles: [ContactLaunchProfile; 3] = Default::default();
     let mut report = run_replays(
@@ -619,6 +624,9 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
                 two_strike
                     .observe_game(pitches, &swings)
                     .with_context(|| format!("two-strike audit failed in game {}", result.id))?;
+                pitch_spin
+                    .observe_game(&result, &swings)
+                    .with_context(|| format!("pitch spin audit failed in game {}", result.id))?;
                 Ok(result)
             });
             for swing in &swings {
@@ -653,6 +661,7 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
         "approaches": approaches,
     });
     report["two_strike_by_location"] = two_strike.report();
+    report["pitch_spin_impact"] = pitch_spin.report();
     if args.two_strike_contact_protection {
         report["two_strike_contact_protection"] = protection.report();
     }
@@ -823,6 +832,8 @@ mod tests {
         let replay = |outcome, flight| IntentAimPlay {
             batting: SwingReplay {
                 launch_hla_deg: None,
+                contact_z_m: 0.0,
+                launch_spin: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -891,6 +902,8 @@ mod tests {
         };
         let single = replay(SwingReplay {
             launch_hla_deg: None,
+            contact_z_m: 0.0,
+            launch_spin: None,
             exit_speed_retention: None,
             length_offset_m: 0.0,
             thickness_offset_m: 0.0,
@@ -906,6 +919,8 @@ mod tests {
             single,
             replay(SwingReplay {
                 launch_hla_deg: None,
+                contact_z_m: 0.0,
+                launch_spin: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -921,6 +936,8 @@ mod tests {
             single,
             replay(SwingReplay {
                 launch_hla_deg: None,
+                contact_z_m: 0.0,
+                launch_spin: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,

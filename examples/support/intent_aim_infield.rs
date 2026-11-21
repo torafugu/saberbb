@@ -182,6 +182,8 @@ mod tests {
         let play = |angle, position, reach, result| IntentAimPlay {
             batting: SwingReplay {
                 launch_hla_deg: None,
+                contact_z_m: 0.0,
+                launch_spin: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -215,6 +217,8 @@ mod tests {
         let whiff = IntentAimPlay {
             batting: SwingReplay {
                 launch_hla_deg: None,
+                contact_z_m: 0.0,
+                launch_spin: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,

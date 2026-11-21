@@ -159,16 +159,20 @@ impl BattedBall {
 
     /// Determine final batted ball category by combining launch angle and spin
     pub fn trajectory(&self) -> TrajectoryType {
+        Self::trajectory_from_launch(self.launch_angle, self.spin_rate, self.spin_angle)
+    }
+
+    pub fn trajectory_from_launch(launch_angle: f64, spin_rate: f64, spin_angle: f64) -> TrajectoryType {
         // 1. Calculate trajectory correction from spin (lift/sink)
         // Backspin (0°) gives positive correction, topspin (180°) gives negative correction
-        let spin_angle_rad = self.spin_angle.to_radians();
+        let spin_angle_rad = spin_angle.to_radians();
         let backspin_factor = spin_angle_rad.cos(); // 0 deg => 1.0, 180 deg => -1.0
 
         // Lift/sink correction proportional to spin rate (approximately ±a few degrees)
-        let spin_lift_effect = (self.spin_rate / 2000.0) * backspin_factor * 3.5;
+        let spin_lift_effect = (spin_rate / 2000.0) * backspin_factor * 3.5;
 
         // Effective angle incorporating spin effect
-        let effective_angle = self.launch_angle + spin_lift_effect;
+        let effective_angle = launch_angle + spin_lift_effect;
 
         // 2. Category classification (applying spin correction to MLB Statcast standard thresholds)
         if effective_angle < 10.0 {
