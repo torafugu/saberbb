@@ -62,6 +62,7 @@ pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fiel
 mod swing_speed_audit;
 pub use swing_speed_audit::{
     DoubleFenceObservation, SwingLengthOffsetTerms, SwingReplay, SwingReplay as SwingSpeedPlay,
+    SwingReplayLaunchGeometry,
     with_swing_speed_audit,
 };
 

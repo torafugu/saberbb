@@ -133,6 +133,7 @@ mod tests {
             length_offset_m: length_m,
             length_offset_terms: None,
             signed_thickness_offset_m: None,
+            launch_geometry: None,
             thickness_offset_m: thickness_m,
             outfield_direct_out: false,
             double_fence: None,
