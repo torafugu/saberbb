@@ -95,7 +95,7 @@ fn sample_history(release: [f64; 3], velocity: [f64; 3], acceleration: [f64; 3],
 
 /// Simulation truth is sampled here at commit, then reduced to a position-only observation.
 /// Estimated velocity/acceleration come from the already sampled expected-ball prior.
-fn collect_input(batter: &BatterInfo, actual: &PitchedBall, prior: &PitchedBall)
+pub(crate) fn collect_input(batter: &BatterInfo, actual: &PitchedBall, prior: &PitchedBall)
     -> Result<SwingPredictionInput, &'static str>
 {
     let zone = StrikeZoneDimensions::default();

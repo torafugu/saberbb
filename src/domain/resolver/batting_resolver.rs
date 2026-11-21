@@ -353,6 +353,24 @@ pub fn project_contact_offsets(x: f64, z: f64, bat_angle_deg: f64) -> (f64, f64)
     (x * angle.cos() + z * angle.sin(), -x * angle.sin() + z * angle.cos())
 }
 
+/// World Z intervals allowed by the length and thickness limits, respectively, at fixed X.
+pub fn vertical_contact_ranges_at_x(x: f64, bat_angle_deg: f64) -> Option<[(f64, f64); 2]> {
+    let axis_range = |intercept: f64, slope: f64, limit: f64| {
+        if slope == 0.0 {
+            return (intercept.abs() <= limit).then_some((f64::NEG_INFINITY, f64::INFINITY));
+        }
+        let first = (-limit - intercept) / slope;
+        let second = (limit - intercept) / slope;
+        Some((first.min(second), first.max(second)))
+    };
+    let (length_at_zero, thickness_at_zero) = project_contact_offsets(x, 0.0, bat_angle_deg);
+    let (length_slope, thickness_slope) = project_contact_offsets(0.0, 1.0, bat_angle_deg);
+    Some([
+        axis_range(length_at_zero, length_slope, CONTACT_LENGTH_LIMIT_M)?,
+        axis_range(thickness_at_zero, thickness_slope, CONTACT_THICKNESS_LIMIT_M)?,
+    ])
+}
+
 /// Whether the projected bat-frame offsets are outside the live contact limits.
 pub fn contact_geometry_is_miss(length_m: f64, thickness_m: f64) -> bool {
     length_m.abs() > CONTACT_LENGTH_LIMIT_M || thickness_m.abs() > CONTACT_THICKNESS_LIMIT_M

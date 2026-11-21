@@ -1,8 +1,8 @@
 use super::outcome_stage;
 use saberbb::domain::{
     resolver::batting_resolver::{
-        CONTACT_LENGTH_LIMIT_M, CONTACT_THICKNESS_LIMIT_M, calculate_vertical_contact_deflection,
-        project_contact_offsets, vertical_offset_boundary_to_exceed_deflection,
+        calculate_vertical_contact_deflection, vertical_contact_ranges_at_x,
+        vertical_offset_boundary_to_exceed_deflection,
     },
     shared::game_state::{SwingReplay, SwingReplayLaunchGeometry},
     strategy::batting_strategy::BattedBallIntent,
@@ -11,15 +11,6 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub(super) const HIGH_VLA_DEG: f64 = 50.0;
-
-fn axis_contact_range(intercept: f64, slope: f64, limit: f64) -> Option<(f64, f64)> {
-    if slope == 0.0 {
-        return (intercept.abs() <= limit).then_some((f64::NEG_INFINITY, f64::INFINITY));
-    }
-    let first = (-limit - intercept) / slope;
-    let second = (limit - intercept) / slope;
-    Some((first.min(second), first.max(second)))
-}
 
 #[derive(Debug, PartialEq)]
 enum Reachability {
@@ -37,19 +28,9 @@ fn reachability(
     current_z_m: f64,
     boundary: f64,
 ) -> Reachability {
-    let (length_at_zero, thickness_at_zero) =
-        project_contact_offsets(geometry.contact_x_m, 0.0, geometry.bat_angle_deg);
-    let (length_slope, thickness_slope) = project_contact_offsets(0.0, 1.0, geometry.bat_angle_deg);
-    let Some((length_min, length_max)) =
-        axis_contact_range(length_at_zero, length_slope, CONTACT_LENGTH_LIMIT_M)
+    let Some([(length_min, length_max), (thickness_min, thickness_max)]) =
+        vertical_contact_ranges_at_x(geometry.contact_x_m, geometry.bat_angle_deg)
     else {
-        return Reachability::NoContactInterval;
-    };
-    let Some((thickness_min, thickness_max)) = axis_contact_range(
-        thickness_at_zero,
-        thickness_slope,
-        CONTACT_THICKNESS_LIMIT_M,
-    ) else {
         return Reachability::NoContactInterval;
     };
     let min = length_min.max(thickness_min);
@@ -254,7 +235,9 @@ impl HighVlaReachability {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use saberbb::domain::resolver::batting_resolver::contact_geometry_is_miss;
+    use saberbb::domain::resolver::batting_resolver::{
+        contact_geometry_is_miss, project_contact_offsets,
+    };
 
     #[test]
     fn solves_the_strict_launch_boundary_and_checks_both_contact_axes() {

@@ -156,10 +156,11 @@ impl GameState {
         pitch: PitchedBall,
         displacement: &PitchDisplacement,
         mut error: SwingExecutionError,
-        (max_length_loss, audit_doubles, protection): (
+        (max_length_loss, audit_doubles, protection, correction_m): (
             Option<f64>,
             bool,
             Option<ContactProtectionTrial>,
+            f64,
         ),
     ) -> Result<SwingReplay, GameError> {
         let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
@@ -169,6 +170,9 @@ impl GameState {
         });
         if let Some(trial) = protection {
             apply_contact_protection_trial(batter, displacement, &mut error, trial);
+        }
+        if correction_m != 0.0 {
+            error.additional_z_m += correction_m;
         }
         let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
         let (flight, exit_speed_retention) =
@@ -277,7 +281,7 @@ impl GameState {
                     pitch,
                     displacement,
                     *swing_error,
-                    (None, false, None),
+                    (None, false, None, 0.0),
                 )?);
             }
             audit.swings.push((self.count_seq, arms));

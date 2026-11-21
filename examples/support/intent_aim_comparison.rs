@@ -10,7 +10,7 @@ use saberbb::domain::{
             PitchBatTimingTrial, SwingReplay, with_contact_approach_audit,
             with_contact_first_speed_audit, with_contact_length_audit,
             with_downward_timing_height_audit, with_intent_aim_audit, with_intent_aim_trial,
-            with_pitch_bat_timing_audit,
+            with_pitch_bat_timing_audit, with_predicted_contact_correction_audit,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -53,6 +53,10 @@ use timing_thickness_crossings::TimingThicknessCrossings;
 #[path = "high_vla_reachability.rs"]
 mod high_vla_reachability;
 use high_vla_reachability::{HIGH_VLA_DEG, HighVlaReachability};
+
+#[path = "predicted_contact_correction.rs"]
+mod predicted_contact_correction;
+use predicted_contact_correction::PredictedContactCorrectionCounts;
 
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
@@ -598,9 +602,33 @@ fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Val
     Ok(report)
 }
 
+fn run_predicted_contact_correction(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    let mut counts = PredictedContactCorrectionCounts::default();
+    let mut report = run_replays(
+        args,
+        games,
+        "Predicted contact correction",
+        "predicted_contact_correction",
+        &["live_reference", "uncorrected", "corrected"],
+        "Keep a live reference with timing height off for replay validation. Replay the original aim, attack angle and horizontal timing with 1x timing height. The trial anchors the planned swing to the initial plate forecast and estimates the offset from a second forecast based on three noisy pre-plate observations. Correct only Z toward the closest point inside the estimated length/thickness contact range, using an 8 mm Z margin and a smooth 30 mm correction cap. If the estimate is unavailable, leave the replay uncorrected. The actual pitch decides contact in both arms; later pitches follow the live baseline.",
+        |simulate| {
+            let (result, swings) = with_predicted_contact_correction_audit(simulate);
+            for swing in &swings {
+                counts.observe(swing);
+            }
+            (result, swings)
+        },
+    )?;
+    report["paired_predicted_contact_correction"] = counts.report();
+    Ok(report)
+}
+
 pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     if args.downward_timing_error_comparison {
         return run_downward_timing_height(args, games);
+    }
+    if args.predicted_contact_correction_comparison {
+        return run_predicted_contact_correction(args, games);
     }
     let trials: [PitchBatTimingTrial; 6] = std::array::from_fn(|index| {
         let (contact_first_z_mm, contact_first_attack_deg) = [(0, 0), (8, 0), (0, 10)][index % 3];

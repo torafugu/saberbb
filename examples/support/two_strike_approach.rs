@@ -207,6 +207,7 @@ mod tests {
             plays: vec![play(foul), play(foul), play(miss)],
             protection_plays: None,
             vertical_break_plays: None,
+            predicted_contact_correction_m: None,
         };
         let mut counts = TwoStrikeApproach::default();
         counts
