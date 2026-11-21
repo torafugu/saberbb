@@ -4,7 +4,7 @@ use saberbb::domain::{
     random_provider::RealRng,
     shared::game_state::{
         FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
-        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, PopupZonePlay, PopupZoneSwing,
+        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, PopupZoneLaunch, PopupZonePlay, PopupZoneSwing,
         with_fixed_horizontal_popup_audit, with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -21,9 +21,17 @@ fn nearest_cell(offset_m: f64, centers_mm: &[i32]) -> Option<usize> {
     (index >= 0.0 && index < centers_mm.len() as f64).then_some(index as usize)
 }
 
+// At the inclusive thickness limit, EV is zero (or residual floating-point
+// noise). The computed launch angle then has no physical meaning.
+const ZERO_SPEED_TOLERANCE_MS: f64 = 1e-9;
+
+fn has_high_vla(launch: PopupZoneLaunch) -> bool {
+    launch.vla_deg > POPUP_SCAN_VLA_DEG && launch.exit_speed_ms > ZERO_SPEED_TOLERANCE_MS
+}
+
 fn is_popup(play: PopupZonePlay) -> bool {
     play.launch.is_some_and(|launch| {
-        launch.vla_deg > POPUP_SCAN_VLA_DEG
+        has_high_vla(launch)
             && !launch.foul
             && (launch.projected_infield_bounce || launch.clean_infielder_air_out)
     })
@@ -169,6 +177,8 @@ struct CellCounts {
     outcomes: BTreeMap<String, u64>,
     launches: LaunchCounts,
     high_foul: u64,
+    zero_speed_high_angle: u64,
+    high_foul_infielder_air_out: u64,
     high_fair: u64,
     projected_infield_bounce: u64,
     clean_infielder_air_out: u64,
@@ -189,8 +199,13 @@ impl CellCounts {
         if launch.vla_deg <= POPUP_SCAN_VLA_DEG {
             return;
         }
+        if !has_high_vla(launch) {
+            self.zero_speed_high_angle += 1;
+            return;
+        }
         if launch.foul {
             self.high_foul += 1;
+            self.high_foul_infielder_air_out += u64::from(launch.foul_infielder_air_out);
             return;
         }
         self.high_fair += 1;
@@ -208,6 +223,8 @@ impl CellCounts {
             "outcomes": self.outcomes,
             "launches": self.launches.report(),
             "vla_above_threshold_foul": self.high_foul,
+            "zero_speed_above_threshold": self.zero_speed_high_angle,
+            "high_foul_clean_infielder_air_out": self.high_foul_infielder_air_out,
             "vla_above_threshold_fair": self.high_fair,
             "high_fair_projected_infield_bounce": self.projected_infield_bounce,
             "high_fair_clean_infielder_air_out": self.clean_infielder_air_out,
@@ -302,6 +319,7 @@ struct FixedHorizontalCounts {
     swings: u64,
     already_popup: u64,
     new_popup: u64,
+    swings_with_high_foul_infielder_air_out: u64,
     offset_to_first_popup: Distances,
     limits_and_outcomes: BTreeMap<&'static str, u64>,
     new_popup_launches: LaunchCounts,
@@ -311,6 +329,13 @@ impl FixedHorizontalCounts {
     fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan) {
         use FixedHorizontalScan::*;
         self.swings += 1;
+        let is_high_foul_air_out = |play: &PopupZonePlay| {
+            play.launch
+                .is_some_and(|launch| has_high_vla(launch) && launch.foul_infielder_air_out)
+        };
+        let has_high_foul_air_out = is_high_foul_air_out(&baseline)
+            || matches!(scan, HighVlaSamples(plays) if plays.iter().any(is_high_foul_air_out));
+        self.swings_with_high_foul_infielder_air_out += u64::from(has_high_foul_air_out);
         let category = match scan {
             _ if is_popup(baseline) => {
                 self.already_popup += 1;
@@ -337,7 +362,7 @@ impl FixedHorizontalCounts {
                         plays
                             .iter()
                             .filter_map(|play| play.launch)
-                            .filter(|launch| launch.vla_deg > POPUP_SCAN_VLA_DEG)
+                            .filter(|&launch| has_high_vla(launch))
                     };
                     if high().any(|launch| !launch.foul && launch.projected_outfield_bounce) {
                         "high_fair_outfield_bounce_without_popup"
@@ -345,6 +370,11 @@ impl FixedHorizontalCounts {
                         "high_fair_other_without_popup"
                     } else if high().any(|launch| launch.foul) {
                         "high_foul_only"
+                    } else if plays.iter().filter_map(|play| play.launch).any(|launch| {
+                        launch.vla_deg > POPUP_SCAN_VLA_DEG
+                            && launch.exit_speed_ms <= ZERO_SPEED_TOLERANCE_MS
+                    }) {
+                        "zero_speed_high_angle_only"
                     } else {
                         "no_high_contact_at_sampled_positions"
                     }
@@ -359,6 +389,7 @@ impl FixedHorizontalCounts {
             "swings": self.swings,
             "already_popup": self.already_popup,
             "new_popup": self.new_popup,
+            "swings_with_high_foul_infielder_air_out": self.swings_with_high_foul_infielder_air_out,
             "additional_z_to_first_new_popup": self.offset_to_first_popup.report(self.new_popup),
             "first_new_popup_launches": self.new_popup_launches.report(),
             "limits_and_outcomes": self.limits_and_outcomes,
@@ -473,8 +504,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     }
     if args.popup_fixed_horizontal {
         return Ok(json!({
-            "definition": "Hold each swing's realized world X fixed. Increase Z (ball minus bat) from its live value. Intersect the legal length and thickness interval with the region above the VLA threshold, then replay the intersection at equally spaced points no more than the reported recovery step apart, including endpoints. A popup is a fair launch above the VLA threshold with a projected fair infield first bounce or a clean air out by an infielder. Outfield bounce means a projected fair first bounce at or beyond the infield radius. The outcome groups are exclusive: a new popup takes precedence, followed by high fair outfield bounce, other high fair, then high foul. Additional Z is measured to the first sampled popup; narrow intervals between samples can be missed. This is a geometric replay, independent of a batter's ability to move that far.",
+            "definition": "Hold each swing's realized world X fixed. Increase Z (ball minus bat) from its live value. Intersect the legal length and thickness interval with the region above the VLA threshold, then replay the intersection at equally spaced points no more than the reported recovery step apart, including endpoints. A popup is a fair launch above the VLA threshold with a projected fair infield first bounce or a clean air out by an infielder in fair territory. Air-out territory uses the actual interception. An angle on a zero-speed contact is excluded from high launches. The foul air-out counter includes any sampled position or the live position and can overlap outcome groups. Outfield bounce means a projected fair first bounce at or beyond the infield radius. The outcome groups are exclusive: a new popup takes precedence, followed by high fair outfield bounce, other high fair, then high foul. Additional Z is measured to the first sampled popup; narrow intervals between samples can be missed. This is a geometric replay, independent of a batter's ability to move that far.",
             "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
+            "zero_speed_tolerance_ms": ZERO_SPEED_TOLERANCE_MS,
             "infield_radius_m": POPUP_SCAN_INFIELD_M,
             "maximum_z_sample_step_mm": POPUP_FIXED_X_STEP_M * 1000.0,
             "all": fixed_all.report(),
@@ -483,9 +515,10 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         }));
     }
     Ok(json!({
-        "definition": "Replace final world X and Z offsets at contact while retaining the live pitch, swing angles, timing, speed and starting RNG state. Positive Z puts the bat below the ball. A popup is a fair launch strictly above the VLA threshold with a projected first bounce in fair territory inside the infield radius or a clean air out by an infielder. Both subcriteria are reported and can overlap. Live offsets are binned into the nearest grid center, with half-step outer boundaries and ties assigned upward. Forced grid cells use the same swings and represent geometric opportunities, not expected outcome frequencies.",
+        "definition": "Replace final world X and Z offsets at contact while retaining the live pitch, swing angles, timing, speed and starting RNG state. Positive Z puts the bat below the ball. A popup is a fair launch strictly above the VLA threshold with a projected first bounce in fair territory inside the infield radius or a clean air out by an infielder in fair territory. Air-out territory uses the actual interception. An angle on a zero-speed contact is excluded from high launches. Both subcriteria are reported and can overlap. Live offsets are binned into the nearest grid center, with half-step outer boundaries and ties assigned upward. Forced grid cells use the same swings and represent geometric opportunities, not expected outcome frequencies.",
         "nearest_grid_popup_definition": "For each swing, minimize Euclidean distance in world X/Z from the exact ordinary position to a grid replay that produced a fair infield popup. Ties use the first grid cell (increasing Z, then X). Signed displacements equal grid minus live. Include ordinary positions outside the grid and exclude swings with no popup on the scanned grid from distance distributions. Distances are to the tested grid, including when the live swing was already a popup.",
         "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
+        "zero_speed_tolerance_ms": ZERO_SPEED_TOLERANCE_MS,
         "infield_radius_m": POPUP_SCAN_INFIELD_M,
         "x_grid_mm": POPUP_SCAN_X_MM,
         "z_grid_mm": POPUP_SCAN_Z_MM,
@@ -500,8 +533,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn zero_speed_contacts_do_not_make_popups() {
+        let launch = PopupZoneLaunch {
+            exit_speed_ms: 0.0,
+            vla_deg: 60.0,
+            hla_deg: 175.0,
+            foul: false,
+            projected_infield_bounce: true,
+            projected_outfield_bounce: false,
+            clean_infielder_air_out: false,
+            foul_infielder_air_out: false,
+        };
+        let play = PopupZonePlay {
+            x_m: 0.0,
+            z_m: 0.08,
+            launch: Some(launch),
+            outcome: None,
+        };
+        assert!(!is_popup(play));
+        assert!(!has_high_vla(PopupZoneLaunch {
+            exit_speed_ms: 3e-29,
+            ..launch
+        }));
+        assert!(has_high_vla(PopupZoneLaunch {
+            exit_speed_ms: 0.001,
+            ..launch
+        }));
+        let mut cell = CellCounts::default();
+        cell.observe(play);
+        assert_eq!(cell.zero_speed_high_angle, 1);
+        assert_eq!(cell.high_fair, 0);
+        let mut fixed = FixedHorizontalCounts::default();
+        fixed.observe(
+            PopupZonePlay {
+                launch: None,
+                ..play
+            },
+            &FixedHorizontalScan::HighVlaSamples(vec![play]),
+        );
+        assert_eq!(
+            fixed.limits_and_outcomes.get("zero_speed_high_angle_only"),
+            Some(&1)
+        );
+    }
+
+    #[test]
     fn finds_nearest_popup_from_exact_position_and_skips_non_popups() {
-        use saberbb::domain::shared::game_state::PopupZoneLaunch;
         let live = PopupZonePlay {
             x_m: -0.24,
             z_m: 0.02,
@@ -519,6 +596,7 @@ mod tests {
                 projected_infield_bounce: true,
                 projected_outfield_bounce: false,
                 clean_infielder_air_out: false,
+                foul_infielder_air_out: false,
             }),
             ..live
         };
