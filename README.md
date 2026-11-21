@@ -964,6 +964,30 @@ third strikes, using the contact result before official scoring. The 0 mm
 condition reproduces the previous contact offset, and +20 mm matches the
 current standard.
 
+### Count-based batting intent comparison
+
+Set `SABERBB_DB` to the roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --count-intent-comparison > count_intent_2026.json
+```
+
+The two arms run full games from the same rosters, schedule and starting
+seeds. The experimental arm samples the batter's existing situational
+weights at zero or one strike when the manager leaves the choice to the
+batter. It multiplies the LineDrive weight by 1.5 before normalization
+as an experimental setting. Two strikes and explicit manager
+instructions use the current rule. The independent intent random stream
+does not consume gameplay random draws. Play outcomes can change later
+situations and counts.
+
+Read `count_intent_comparison.arms[*].total` for batting average, doubles
+and home runs per PA. The `by_strikes` entries are indexed 0, 1 and 2 by
+the pre-pitch strike count. They give intent rates per swing overall and
+when the manager delegates, plus a joint exit-speed (m/s) and vertical
+launch-angle (degrees) histogram for recorded fair launches. Individual
+seed results are under `reports`.
+
 ### ContactFirst and LineDrive aim comparison
 
 Set `SABERBB_DB` to the roster and schedule database, then run:
