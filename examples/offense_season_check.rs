@@ -184,6 +184,9 @@ struct Args {
     /// Hold each swing's horizontal offset fixed and scan the high-angle vertical contact interval.
     #[arg(long, requires = "popup_contact_zone")]
     popup_fixed_horizontal: bool,
+    /// Compare the same high-angle contact with and without the rebound contribution to HLA.
+    #[arg(long, requires = "popup_fixed_horizontal")]
+    popup_hla_control: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,

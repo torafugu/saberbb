@@ -1,10 +1,11 @@
-use super::{GameError, GameState};
+use super::{GameError, GameState, paired_contact::Play};
 use crate::domain::{
     resolver::{
         batting_resolver::{
             SwingContactType, SwingExecutionError, calculate_batted_ball_with_metrics,
-            evaluate_swing_contact, vertical_contact_ranges_at_x,
-            vertical_offset_boundary_to_exceed_deflection,
+            calculate_trajectory, contact_normal_hla_deg, evaluate_swing_contact,
+            vertical_contact_ranges_at_x, vertical_offset_boundary_to_exceed_deflection,
+            wrap_hla_deg,
         },
         fielding_physics::CatchType,
         pitching_resolver::PitchDisplacement,
@@ -22,6 +23,8 @@ use std::cell::RefCell;
 pub const POPUP_SCAN_X_MM: [i32; 9] = [-160, -120, -80, -40, 0, 40, 80, 120, 160];
 pub const POPUP_SCAN_Z_MM: [i32; 9] = [30, 40, 50, 60, 70, 80, 90, 100, 110];
 pub const POPUP_SCAN_VLA_DEG: f64 = 50.0;
+// At the inclusive thickness limit, the computed angle belongs to zero or residual numerical EV.
+pub const POPUP_ZERO_SPEED_TOLERANCE_MS: f64 = 1e-9;
 pub const POPUP_SCAN_INFIELD_M: f64 = INFIELD_DISTANCE;
 pub const POPUP_FIXED_X_STEP_M: f64 = 0.002;
 
@@ -43,6 +46,7 @@ pub struct PopupZonePlay {
     pub z_m: f64,
     pub outcome: Option<BattingResult>,
     pub launch: Option<PopupZoneLaunch>,
+    pub hla_control_launch: Option<PopupZoneLaunch>,
 }
 
 pub struct PopupZoneSwing {
@@ -64,6 +68,7 @@ pub enum FixedHorizontalScan {
 
 struct Audit {
     fixed_horizontal: bool,
+    hla_control: bool,
     swings: Vec<PopupZoneSwing>,
 }
 
@@ -72,14 +77,21 @@ thread_local! {
 }
 
 pub fn with_popup_zone_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
-    with_audit(false, run)
+    with_audit(false, false, run)
 }
 
-pub fn with_fixed_horizontal_popup_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
-    with_audit(true, run)
+pub fn with_fixed_horizontal_popup_audit<T>(
+    hla_control: bool,
+    run: impl FnOnce() -> T,
+) -> (T, Vec<PopupZoneSwing>) {
+    with_audit(true, hla_control, run)
 }
 
-fn with_audit<T>(fixed_horizontal: bool, run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
+fn with_audit<T>(
+    fixed_horizontal: bool,
+    hla_control: bool,
+    run: impl FnOnce() -> T,
+) -> (T, Vec<PopupZoneSwing>) {
     struct Restore(Option<Audit>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -88,6 +100,7 @@ fn with_audit<T>(fixed_horizontal: bool, run: impl FnOnce() -> T) -> (T, Vec<Pop
     }
     let _restore = Restore(AUDIT.replace(Some(Audit {
         fixed_horizontal,
+        hla_control,
         swings: Vec::new(),
     })));
     let result = run();
@@ -167,6 +180,47 @@ fn is_foul_launch(
         || ball.is_foul()
 }
 
+fn hla_without_rebound(
+    live_hla: f64,
+    signed_thickness_m: f64,
+    tilt_deg: f64,
+    handedness: f64,
+) -> f64 {
+    wrap_hla_deg(live_hla - contact_normal_hla_deg(signed_thickness_m, tilt_deg) * handedness)
+}
+
+fn classify_launch(replay: &Play, ball: BattedBall, hla_deg: f64) -> PopupZoneLaunch {
+    let clean_air_out = replay
+        .fielding
+        .and_then(|fielding| fielding.catch_diagnostics)
+        .filter(|catch| {
+            replay.batting_result == Some(BattingResult::Out)
+                && catch.catch_type == CatchType::DirectFly
+                && catch.error_type.is_none()
+        });
+    let foul = is_foul_launch(
+        &ball,
+        replay.batting_result,
+        clean_air_out.and_then(|catch| catch.catch_position),
+    );
+    let infielder_air_out =
+        clean_air_out.is_some_and(|catch| catch.fielder_position.is_infielder());
+    PopupZoneLaunch {
+        exit_speed_ms: ball.launch_speed,
+        vla_deg: ball.launch_angle,
+        hla_deg,
+        foul,
+        projected_infield_bounce: ball.first_bounce_position.is_some_and(|point| {
+            point.distance < INFIELD_DISTANCE && point.angle.abs() < FOUL_DEGREE
+        }),
+        projected_outfield_bounce: ball.first_bounce_position.is_some_and(|point| {
+            point.distance >= INFIELD_DISTANCE && point.angle.abs() < FOUL_DEGREE
+        }),
+        clean_infielder_air_out: infielder_air_out && !foul,
+        foul_infielder_air_out: infielder_air_out && foul,
+    }
+}
+
 impl GameState {
     pub(super) fn record_popup_zone(
         &self,
@@ -184,7 +238,9 @@ impl GameState {
                 return Ok(());
             };
             let pitcher_id = self.current_pitcher()?.id;
-            let sample = |error: SwingExecutionError| -> Result<PopupZonePlay, GameError> {
+            let sample = |error: SwingExecutionError,
+                          hla_control: bool|
+             -> Result<PopupZonePlay, GameError> {
                 let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
                 let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
                 let mut play = PopupZonePlay {
@@ -192,6 +248,7 @@ impl GameState {
                     z_m: contact.offset_z_m,
                     outcome: None,
                     launch: None,
+                    hla_control_launch: None,
                 };
                 if contact.adjusted_contact_type == SwingContactType::SwungAndMiss {
                     play.outcome = Some(if self.inning_state.strike + 1 >= super::MAX_STRIKE {
@@ -208,6 +265,14 @@ impl GameState {
                     &contact,
                     &self.stadium,
                 )?;
+                let control_rng = if hla_control
+                    && ball.launch_angle > POPUP_SCAN_VLA_DEG
+                    && ball.launch_speed > POPUP_ZERO_SPEED_TOLERANCE_MS
+                {
+                    Some(rng.fork().ok_or(GameError::PairedContactRng)?)
+                } else {
+                    None
+                };
                 let replay = self.replay_swing(
                     pitcher_id,
                     active.id,
@@ -217,51 +282,56 @@ impl GameState {
                     rng,
                 )?;
                 play.outcome = replay.batting_result;
-                let clean_air_out = replay
-                    .fielding
-                    .and_then(|fielding| fielding.catch_diagnostics)
-                    .filter(|catch| {
-                        replay.batting_result == Some(BattingResult::Out)
-                            && catch.catch_type == CatchType::DirectFly
-                            && catch.error_type.is_none()
-                    });
-                let foul = is_foul_launch(
-                    &ball,
-                    play.outcome,
-                    clean_air_out.and_then(|catch| catch.catch_position),
-                );
-                let infielder_air_out =
-                    clean_air_out.is_some_and(|catch| catch.fielder_position.is_infielder());
-                play.launch = Some(PopupZoneLaunch {
-                    exit_speed_ms: ball.launch_speed,
-                    vla_deg: ball.launch_angle,
-                    hla_deg: metrics.final_hla_deg,
-                    foul,
-                    projected_infield_bounce: ball.first_bounce_position.is_some_and(|point| {
-                        point.distance < INFIELD_DISTANCE && point.angle.abs() < FOUL_DEGREE
-                    }),
-                    projected_outfield_bounce: ball.first_bounce_position.is_some_and(|point| {
-                        point.distance >= INFIELD_DISTANCE && point.angle.abs() < FOUL_DEGREE
-                    }),
-                    clean_infielder_air_out: infielder_air_out && !foul,
-                    foul_infielder_air_out: infielder_air_out && foul,
-                });
+                play.launch = Some(classify_launch(&replay, ball, metrics.final_hla_deg));
+                if let Some(control_rng) = control_rng {
+                    let control_hla = hla_without_rebound(
+                        metrics.final_hla_deg,
+                        contact.signed_thickness_offset_m.unwrap_or_default(),
+                        error.actual_bat_angle_deg,
+                        batter.batting_side.handedness_sign(),
+                    );
+                    let control_ball = calculate_trajectory(
+                        ball.launch_speed,
+                        ball.launch_angle,
+                        control_hla,
+                        ball.spin_rate,
+                        ball.spin_angle,
+                        &self.stadium,
+                    )?;
+                    let mut control_metrics = metrics;
+                    control_metrics.final_hla_deg = control_hla;
+                    let control = self.replay_swing(
+                        pitcher_id,
+                        active.id,
+                        batter.batting_side,
+                        &contact,
+                        Some((control_ball, control_metrics)),
+                        control_rng,
+                    )?;
+                    play.hla_control_launch =
+                        Some(classify_launch(&control, control_ball, control_hla));
+                }
                 Ok(play)
             };
-            let baseline = sample(swing_error)?;
+            let baseline = sample(swing_error, false)?;
             let mut grid = Vec::new();
             let fixed_horizontal = if audit.fixed_horizontal {
-                Some(fixed_horizontal_scan(baseline, swing_error, sample)?)
+                Some(fixed_horizontal_scan(baseline, swing_error, |error| {
+                    sample(error, audit.hla_control)
+                })?)
             } else {
                 grid.reserve(POPUP_SCAN_X_MM.len() * POPUP_SCAN_Z_MM.len());
                 for z_mm in POPUP_SCAN_Z_MM {
                     for x_mm in POPUP_SCAN_X_MM {
-                        grid.push(sample(error_at_offset(
-                            baseline,
-                            swing_error,
-                            f64::from(x_mm) / 1000.0,
-                            f64::from(z_mm) / 1000.0,
-                        ))?);
+                        grid.push(sample(
+                            error_at_offset(
+                                baseline,
+                                swing_error,
+                                f64::from(x_mm) / 1000.0,
+                                f64::from(z_mm) / 1000.0,
+                            ),
+                            false,
+                        )?);
                     }
                 }
                 None
@@ -281,6 +351,19 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_only_signed_rebound_from_wrapped_horizontal_angle() {
+        let face = 48.0;
+        let rebound = contact_normal_hla_deg(-0.060, 30.0);
+        for handedness in [-1.0, 1.0] {
+            let live = wrap_hla_deg((face + rebound) * handedness);
+            assert!(
+                (hla_without_rebound(live, -0.060, 30.0, handedness) - face * handedness).abs()
+                    < 1e-12
+            );
+        }
+    }
 
     #[test]
     fn air_out_uses_interception_territory_even_if_the_ball_would_land_elsewhere() {
@@ -318,6 +401,7 @@ mod tests {
             z_m: 0.02,
             outcome: None,
             launch: None,
+            hla_control_launch: None,
         };
         let error = SwingExecutionError {
             actual_bat_angle_deg: 30.0,
@@ -361,6 +445,7 @@ mod tests {
             z_m: -0.03,
             outcome: None,
             launch: None,
+            hla_control_launch: None,
         };
         let error = SwingExecutionError {
             actual_bat_angle_deg: 35.0,
