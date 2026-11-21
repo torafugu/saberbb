@@ -157,6 +157,7 @@ mod tests {
             contact_z_m: 0.0,
             launch_spin: None,
             length_offset_terms: None,
+            signed_thickness_offset_m: None,
             exit_speed_retention: None,
             length_offset_m: 0.02,
             thickness_offset_m: 0.071,

@@ -549,6 +549,8 @@ fn run_downward_timing_height(args: &Args, games: &[GameSchedule]) -> Result<Val
     )?;
     report["paired_thickness_crossings"] = json!({
         "definition": "All replayed swings paired with the same horizontal timing coefficient. Each crossing compares the absolute bat-local thickness offset with the inclusive live limit. The length flag requires the length offset to stay inside its own limit at both settings. Contact changes within a crossing come from the replayed contact types. The total contact-to-whiff and whiff-to-contact counts also include pairs without a thickness crossing.",
+        "retained_contact_definition": "Only pairs with SolidContact, WeakContact, or MarginalContact in both arms. Signed thickness is the projection of ball minus bat onto the local thickness axis. The VLA crossing uses all tracked launches, including fouls. The fair-above-threshold counts follow the replayed launch or ruling and include unresolved fair balls.",
+        "retained_contact_vla_threshold_deg": TimingThicknessCrossings::RETAINED_CONTACT_VLA_THRESHOLD_DEG,
         "thickness_limit_mm": saberbb::domain::resolver::batting_resolver::CONTACT_THICKNESS_LIMIT_M * 1000.0,
         "length_limit_mm": saberbb::domain::resolver::batting_resolver::CONTACT_LENGTH_LIMIT_M * 1000.0,
         "comparisons": THICKNESS_PAIRS
@@ -921,6 +923,7 @@ mod tests {
                 contact_z_m: 0.0,
                 launch_spin: None,
                 length_offset_terms: None,
+                signed_thickness_offset_m: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -992,6 +995,7 @@ mod tests {
             contact_z_m: 0.0,
             launch_spin: None,
             length_offset_terms: None,
+            signed_thickness_offset_m: None,
             exit_speed_retention: None,
             length_offset_m: 0.0,
             thickness_offset_m: 0.0,
@@ -1010,6 +1014,7 @@ mod tests {
                 contact_z_m: 0.0,
                 launch_spin: None,
                 length_offset_terms: None,
+                signed_thickness_offset_m: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -1028,6 +1033,7 @@ mod tests {
                 contact_z_m: 0.0,
                 launch_spin: None,
                 length_offset_terms: None,
+                signed_thickness_offset_m: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,

@@ -30,6 +30,7 @@ pub struct SwingReplay {
     pub length_offset_m: f64,
     pub length_offset_terms: Option<SwingLengthOffsetTerms>,
     pub thickness_offset_m: f64,
+    pub signed_thickness_offset_m: Option<f64>,
     pub outfield_direct_out: bool,
     pub double_fence: Option<DoubleFenceObservation>,
 }
@@ -219,6 +220,7 @@ impl GameState {
             length_offset_m: contact.length_offset_m,
             length_offset_terms: SwingLengthOffsetTerms::from_contact(&contact),
             thickness_offset_m: contact.thickness_offset_m,
+            signed_thickness_offset_m: contact.signed_thickness_offset_m,
             launch_hla_deg: flight.map(|(_, metrics)| metrics.final_hla_deg),
             contact_z_m: contact.offset_z_m,
             launch_spin: replay.ball.map(|ball| (ball.spin_rate, ball.spin_angle)),
