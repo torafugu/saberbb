@@ -4,8 +4,8 @@ use saberbb::domain::{
     random_provider::RealRng,
     shared::game_state::{
         FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
-        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, PopupZoneLaunch, PopupZonePlay, PopupZoneSwing,
-        with_fixed_horizontal_popup_audit, with_popup_zone_audit,
+        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupZoneLaunch,
+        PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit, with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
 };
@@ -21,20 +21,18 @@ fn nearest_cell(offset_m: f64, centers_mm: &[i32]) -> Option<usize> {
     (index >= 0.0 && index < centers_mm.len() as f64).then_some(index as usize)
 }
 
-// At the inclusive thickness limit, EV is zero (or residual floating-point
-// noise). The computed launch angle then has no physical meaning.
-const ZERO_SPEED_TOLERANCE_MS: f64 = 1e-9;
-
 fn has_high_vla(launch: PopupZoneLaunch) -> bool {
-    launch.vla_deg > POPUP_SCAN_VLA_DEG && launch.exit_speed_ms > ZERO_SPEED_TOLERANCE_MS
+    launch.vla_deg > POPUP_SCAN_VLA_DEG && launch.exit_speed_ms > POPUP_ZERO_SPEED_TOLERANCE_MS
+}
+
+fn is_popup_launch(launch: PopupZoneLaunch) -> bool {
+    has_high_vla(launch)
+        && !launch.foul
+        && (launch.projected_infield_bounce || launch.clean_infielder_air_out)
 }
 
 fn is_popup(play: PopupZonePlay) -> bool {
-    play.launch.is_some_and(|launch| {
-        has_high_vla(launch)
-            && !launch.foul
-            && (launch.projected_infield_bounce || launch.clean_infielder_air_out)
-    })
+    play.launch.is_some_and(is_popup_launch)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -314,6 +312,79 @@ impl ZoneCounts {
     }
 }
 
+const HLA_OUTCOMES: [&str; 3] = ["high_foul", "fair_infield_popup", "other_high_fair"];
+
+fn hla_outcome(launch: PopupZoneLaunch) -> usize {
+    if launch.foul {
+        0
+    } else if is_popup_launch(launch) {
+        1
+    } else {
+        2
+    }
+}
+
+#[derive(Default)]
+struct HlaControlCounts {
+    pairs: [[u64; HLA_OUTCOMES.len()]; HLA_OUTCOMES.len()],
+    swings_with_popup: u64,
+    swings_with_paired_foul_to_popup: u64,
+    swings_by_usual_scan_outcome: BTreeMap<&'static str, [u64; 2]>,
+}
+
+impl HlaControlCounts {
+    fn observe(&mut self, usual_scan_outcome: &'static str, plays: &[PopupZonePlay]) {
+        let mut any_popup = false;
+        let mut paired_foul_to_popup = false;
+        for play in plays {
+            if let (Some(live), Some(control)) = (play.launch, play.hla_control_launch) {
+                let from = hla_outcome(live);
+                let to = hla_outcome(control);
+                self.pairs[from][to] += 1;
+                any_popup |= to == 1;
+                paired_foul_to_popup |= from == 0 && to == 1;
+            }
+        }
+        self.swings_with_popup += u64::from(any_popup);
+        self.swings_with_paired_foul_to_popup += u64::from(paired_foul_to_popup);
+        self.swings_by_usual_scan_outcome
+            .entry(usual_scan_outcome)
+            .or_default()[usize::from(any_popup)] += 1;
+    }
+
+    fn report(&self) -> Value {
+        let pairs: BTreeMap<_, _> = HLA_OUTCOMES
+            .into_iter()
+            .zip(self.pairs)
+            .map(|(from, row)| {
+                (
+                    from,
+                    HLA_OUTCOMES
+                        .into_iter()
+                        .zip(row)
+                        .collect::<BTreeMap<_, _>>(),
+                )
+            })
+            .collect();
+        let swings_by_outcome: BTreeMap<_, _> = self
+            .swings_by_usual_scan_outcome
+            .iter()
+            .map(|(&category, &[without, with])| {
+                (
+                    category,
+                    json!({"swings": without + with, "with_control_popup": with}),
+                )
+            })
+            .collect();
+        json!({
+            "paired_high_angle_positions": pairs,
+            "swings_with_any_control_popup": self.swings_with_popup,
+            "swings_with_foul_to_popup_at_same_position": self.swings_with_paired_foul_to_popup,
+            "swings_by_usual_scan_outcome": swings_by_outcome,
+        })
+    }
+}
+
 #[derive(Default)]
 struct FixedHorizontalCounts {
     swings: u64,
@@ -323,10 +394,11 @@ struct FixedHorizontalCounts {
     offset_to_first_popup: Distances,
     limits_and_outcomes: BTreeMap<&'static str, u64>,
     new_popup_launches: LaunchCounts,
+    hla_control: HlaControlCounts,
 }
 
 impl FixedHorizontalCounts {
-    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan) {
+    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan, hla_control: bool) {
         use FixedHorizontalScan::*;
         self.swings += 1;
         let is_high_foul_air_out = |play: &PopupZonePlay| {
@@ -372,7 +444,7 @@ impl FixedHorizontalCounts {
                         "high_foul_only"
                     } else if plays.iter().filter_map(|play| play.launch).any(|launch| {
                         launch.vla_deg > POPUP_SCAN_VLA_DEG
-                            && launch.exit_speed_ms <= ZERO_SPEED_TOLERANCE_MS
+                            && launch.exit_speed_ms <= POPUP_ZERO_SPEED_TOLERANCE_MS
                     }) {
                         "zero_speed_high_angle_only"
                     } else {
@@ -382,10 +454,17 @@ impl FixedHorizontalCounts {
             }
         };
         *self.limits_and_outcomes.entry(category).or_default() += 1;
+        if hla_control {
+            let plays: &[PopupZonePlay] = match scan {
+                HighVlaSamples(plays) => plays,
+                _ => &[],
+            };
+            self.hla_control.observe(category, plays);
+        }
     }
 
-    fn report(&self) -> Value {
-        json!({
+    fn report(&self, hla_control: bool) -> Value {
+        let mut report = json!({
             "swings": self.swings,
             "already_popup": self.already_popup,
             "new_popup": self.new_popup,
@@ -393,7 +472,11 @@ impl FixedHorizontalCounts {
             "additional_z_to_first_new_popup": self.offset_to_first_popup.report(self.new_popup),
             "first_new_popup_launches": self.new_popup_launches.report(),
             "limits_and_outcomes": self.limits_and_outcomes,
-        })
+        });
+        if hla_control {
+            report["hla_without_contact_normal"] = self.hla_control.report();
+        }
+        report
     }
 }
 
@@ -405,20 +488,20 @@ struct FixedHorizontalGroup {
 }
 
 impl FixedHorizontalGroup {
-    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan) {
-        self.all.observe(baseline, scan);
+    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan, hla_control: bool) {
+        self.all.observe(baseline, scan, hla_control);
         if baseline.launch.is_some() {
-            self.from_live_contact.observe(baseline, scan);
+            self.from_live_contact.observe(baseline, scan, hla_control);
         } else {
-            self.from_live_whiff.observe(baseline, scan);
+            self.from_live_whiff.observe(baseline, scan, hla_control);
         }
     }
 
-    fn report(&self) -> Value {
+    fn report(&self, hla_control: bool) -> Value {
         json!({
-            "all": self.all.report(),
-            "from_live_contact": self.from_live_contact.report(),
-            "from_live_whiff": self.from_live_whiff.report(),
+            "all": self.all.report(hla_control),
+            "from_live_contact": self.from_live_contact.report(hla_control),
+            "from_live_whiff": self.from_live_whiff.report(hla_control),
         })
     }
 }
@@ -442,7 +525,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 )
             };
             let (result, swings) = if args.popup_fixed_horizontal {
-                with_fixed_horizontal_popup_audit(simulate)
+                with_fixed_horizontal_popup_audit(args.popup_hla_control, simulate)
             } else {
                 with_popup_zone_audit(simulate)
             };
@@ -478,12 +561,12 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         .fixed_horizontal
                         .as_ref()
                         .context("missing fixed horizontal popup scan")?;
-                    fixed_all.observe(swing.baseline, scan);
+                    fixed_all.observe(swing.baseline, scan, args.popup_hla_control);
                     match swing.intent {
                         BattedBallIntent::ContactFirst => &mut fixed_contact_first,
                         BattedBallIntent::LineDrive => &mut fixed_line_drive,
                     }
-                    .observe(swing.baseline, scan);
+                    .observe(swing.baseline, scan, args.popup_hla_control);
                     continue;
                 }
                 ensure!(swing.grid.len() == CELLS, "popup zone grid size mismatch");
@@ -503,22 +586,28 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         );
     }
     if args.popup_fixed_horizontal {
-        return Ok(json!({
+        let mut report = json!({
             "definition": "Hold each swing's realized world X fixed. Increase Z (ball minus bat) from its live value. Intersect the legal length and thickness interval with the region above the VLA threshold, then replay the intersection at equally spaced points no more than the reported recovery step apart, including endpoints. A popup is a fair launch above the VLA threshold with a projected fair infield first bounce or a clean air out by an infielder in fair territory. Air-out territory uses the actual interception. An angle on a zero-speed contact is excluded from high launches. The foul air-out counter includes any sampled position or the live position and can overlap outcome groups. Outfield bounce means a projected fair first bounce at or beyond the infield radius. The outcome groups are exclusive: a new popup takes precedence, followed by high fair outfield bounce, other high fair, then high foul. Additional Z is measured to the first sampled popup; narrow intervals between samples can be missed. This is a geometric replay, independent of a batter's ability to move that far.",
             "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
-            "zero_speed_tolerance_ms": ZERO_SPEED_TOLERANCE_MS,
+            "zero_speed_tolerance_ms": POPUP_ZERO_SPEED_TOLERANCE_MS,
             "infield_radius_m": POPUP_SCAN_INFIELD_M,
             "maximum_z_sample_step_mm": POPUP_FIXED_X_STEP_M * 1000.0,
-            "all": fixed_all.report(),
-            "contact_first": fixed_contact_first.report(),
-            "line_drive": fixed_line_drive.report(),
-        }));
+            "all": fixed_all.report(args.popup_hla_control),
+            "contact_first": fixed_contact_first.report(args.popup_hla_control),
+            "line_drive": fixed_line_drive.report(args.popup_hla_control),
+        });
+        if args.popup_hla_control {
+            report["hla_control_definition"] = json!(
+                "At every scanned contact with nonzero EV and VLA above the threshold, remove only the signed contact-normal contribution to launch HLA. Keep the measured EV, VLA and spin and replay fielding with the same pre-fielding RNG state. Position transition counts use the same Z, while per-swing results allow any sampled Z."
+            );
+        }
+        return Ok(report);
     }
     Ok(json!({
         "definition": "Replace final world X and Z offsets at contact while retaining the live pitch, swing angles, timing, speed and starting RNG state. Positive Z puts the bat below the ball. A popup is a fair launch strictly above the VLA threshold with a projected first bounce in fair territory inside the infield radius or a clean air out by an infielder in fair territory. Air-out territory uses the actual interception. An angle on a zero-speed contact is excluded from high launches. Both subcriteria are reported and can overlap. Live offsets are binned into the nearest grid center, with half-step outer boundaries and ties assigned upward. Forced grid cells use the same swings and represent geometric opportunities, not expected outcome frequencies.",
         "nearest_grid_popup_definition": "For each swing, minimize Euclidean distance in world X/Z from the exact ordinary position to a grid replay that produced a fair infield popup. Ties use the first grid cell (increasing Z, then X). Signed displacements equal grid minus live. Include ordinary positions outside the grid and exclude swings with no popup on the scanned grid from distance distributions. Distances are to the tested grid, including when the live swing was already a popup.",
         "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
-        "zero_speed_tolerance_ms": ZERO_SPEED_TOLERANCE_MS,
+        "zero_speed_tolerance_ms": POPUP_ZERO_SPEED_TOLERANCE_MS,
         "infield_radius_m": POPUP_SCAN_INFIELD_M,
         "x_grid_mm": POPUP_SCAN_X_MM,
         "z_grid_mm": POPUP_SCAN_Z_MM,
@@ -531,6 +620,50 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_foul_to_popup_at_the_same_position_and_by_swing() {
+        let foul = PopupZoneLaunch {
+            exit_speed_ms: 28.0,
+            vla_deg: 60.0,
+            hla_deg: 75.0,
+            foul: true,
+            projected_infield_bounce: false,
+            projected_outfield_bounce: false,
+            clean_infielder_air_out: false,
+            foul_infielder_air_out: false,
+        };
+        let popup = PopupZoneLaunch {
+            hla_deg: 20.0,
+            foul: false,
+            projected_infield_bounce: true,
+            ..foul
+        };
+        let play = PopupZonePlay {
+            x_m: 0.0,
+            z_m: 0.08,
+            outcome: None,
+            launch: Some(foul),
+            hla_control_launch: Some(popup),
+        };
+        let mut result = FixedHorizontalCounts::default();
+        result.observe(
+            PopupZonePlay {
+                z_m: 0.0,
+                launch: None,
+                hla_control_launch: None,
+                ..play
+            },
+            &FixedHorizontalScan::HighVlaSamples(vec![play, play]),
+            true,
+        );
+        assert_eq!(result.hla_control.pairs[0][1], 2);
+        assert_eq!(result.hla_control.swings_with_paired_foul_to_popup, 1);
+        assert_eq!(
+            result.hla_control.swings_by_usual_scan_outcome["high_foul_only"],
+            [0, 1]
+        );
+    }
 
     #[test]
     fn zero_speed_contacts_do_not_make_popups() {
@@ -548,6 +681,7 @@ mod tests {
             x_m: 0.0,
             z_m: 0.08,
             launch: Some(launch),
+            hla_control_launch: None,
             outcome: None,
         };
         assert!(!is_popup(play));
@@ -570,6 +704,7 @@ mod tests {
                 ..play
             },
             &FixedHorizontalScan::HighVlaSamples(vec![play]),
+            false,
         );
         assert_eq!(
             fixed.limits_and_outcomes.get("zero_speed_high_angle_only"),
@@ -583,6 +718,7 @@ mod tests {
             x_m: -0.24,
             z_m: 0.02,
             launch: None,
+            hla_control_launch: None,
             outcome: None,
         };
         let popup = |x_m, z_m, foul| PopupZonePlay {
