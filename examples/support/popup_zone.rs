@@ -3,8 +3,9 @@ use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
     shared::game_state::{
-        POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, PopupZonePlay,
-        PopupZoneSwing, with_popup_zone_audit,
+        FixedHorizontalScan, POPUP_FIXED_X_STEP_M, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
+        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, PopupZonePlay, PopupZoneSwing,
+        with_fixed_horizontal_popup_audit, with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
 };
@@ -296,13 +297,111 @@ impl ZoneCounts {
     }
 }
 
+#[derive(Default)]
+struct FixedHorizontalCounts {
+    swings: u64,
+    already_popup: u64,
+    new_popup: u64,
+    offset_to_first_popup: Distances,
+    limits_and_outcomes: BTreeMap<&'static str, u64>,
+    new_popup_launches: LaunchCounts,
+}
+
+impl FixedHorizontalCounts {
+    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan) {
+        use FixedHorizontalScan::*;
+        self.swings += 1;
+        let category = match scan {
+            _ if is_popup(baseline) => {
+                self.already_popup += 1;
+                "already_popup"
+            }
+            NoContactAtOrBelowLiveBat => "no_contact_at_or_below_live_bat",
+            VerticalDeflectionCap => "vertical_deflection_cap",
+            ThicknessEndsBeforeHighVla => "thickness_ends_before_high_vla",
+            LengthEndsBeforeHighVla => "length_ends_before_high_vla",
+            HighVlaSamples(plays) => {
+                if let Some(play) = plays.iter().find(|&&play| is_popup(play)) {
+                    let launch = play.launch.expect("popup has a launch");
+                    self.new_popup += 1;
+                    self.offset_to_first_popup
+                        .observe((play.z_m - baseline.z_m) * 1000.0);
+                    self.new_popup_launches.observe(
+                        launch.exit_speed_ms,
+                        launch.vla_deg,
+                        launch.hla_deg,
+                    );
+                    "new_popup"
+                } else {
+                    let high = || {
+                        plays
+                            .iter()
+                            .filter_map(|play| play.launch)
+                            .filter(|launch| launch.vla_deg > POPUP_SCAN_VLA_DEG)
+                    };
+                    if high().any(|launch| !launch.foul && launch.projected_outfield_bounce) {
+                        "high_fair_outfield_bounce_without_popup"
+                    } else if high().any(|launch| !launch.foul) {
+                        "high_fair_other_without_popup"
+                    } else if high().any(|launch| launch.foul) {
+                        "high_foul_only"
+                    } else {
+                        "no_high_contact_at_sampled_positions"
+                    }
+                }
+            }
+        };
+        *self.limits_and_outcomes.entry(category).or_default() += 1;
+    }
+
+    fn report(&self) -> Value {
+        json!({
+            "swings": self.swings,
+            "already_popup": self.already_popup,
+            "new_popup": self.new_popup,
+            "additional_z_to_first_new_popup": self.offset_to_first_popup.report(self.new_popup),
+            "first_new_popup_launches": self.new_popup_launches.report(),
+            "limits_and_outcomes": self.limits_and_outcomes,
+        })
+    }
+}
+
+#[derive(Default)]
+struct FixedHorizontalGroup {
+    all: FixedHorizontalCounts,
+    from_live_contact: FixedHorizontalCounts,
+    from_live_whiff: FixedHorizontalCounts,
+}
+
+impl FixedHorizontalGroup {
+    fn observe(&mut self, baseline: PopupZonePlay, scan: &FixedHorizontalScan) {
+        self.all.observe(baseline, scan);
+        if baseline.launch.is_some() {
+            self.from_live_contact.observe(baseline, scan);
+        } else {
+            self.from_live_whiff.observe(baseline, scan);
+        }
+    }
+
+    fn report(&self) -> Value {
+        json!({
+            "all": self.all.report(),
+            "from_live_contact": self.from_live_contact.report(),
+            "from_live_whiff": self.from_live_whiff.report(),
+        })
+    }
+}
+
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let mut all = ZoneCounts::default();
     let mut contact_first = ZoneCounts::default();
     let mut line_drive = ZoneCounts::default();
+    let mut fixed_all = FixedHorizontalGroup::default();
+    let mut fixed_contact_first = FixedHorizontalGroup::default();
+    let mut fixed_line_drive = FixedHorizontalGroup::default();
     for &seed in &args.seeds {
         for game in games {
-            let (result, swings) = with_popup_zone_audit(|| {
+            let simulate = || {
                 simulate_game(
                     game.clone(),
                     Box::new(RealRng::from_seed(derived_seed(seed, game.id))),
@@ -310,7 +409,12 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     Some(args.max_pitches),
                     false,
                 )
-            });
+            };
+            let (result, swings) = if args.popup_fixed_horizontal {
+                with_fixed_horizontal_popup_audit(simulate)
+            } else {
+                with_popup_zone_audit(simulate)
+            };
             let result = result.with_context(|| {
                 format!("popup zone replay failed in game {}, seed {seed}", game.id)
             })?;
@@ -338,6 +442,19 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     game.id,
                     swing.count_seq
                 );
+                if args.popup_fixed_horizontal {
+                    let scan = swing
+                        .fixed_horizontal
+                        .as_ref()
+                        .context("missing fixed horizontal popup scan")?;
+                    fixed_all.observe(swing.baseline, scan);
+                    match swing.intent {
+                        BattedBallIntent::ContactFirst => &mut fixed_contact_first,
+                        BattedBallIntent::LineDrive => &mut fixed_line_drive,
+                    }
+                    .observe(swing.baseline, scan);
+                    continue;
+                }
                 ensure!(swing.grid.len() == CELLS, "popup zone grid size mismatch");
                 let nearest = nearest_popup(&swing);
                 all.observe(&swing, nearest);
@@ -353,6 +470,17 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             "Popup contact zone, seed {seed}: {} games complete",
             games.len()
         );
+    }
+    if args.popup_fixed_horizontal {
+        return Ok(json!({
+            "definition": "Hold each swing's realized world X fixed. Increase Z (ball minus bat) from its live value. Intersect the legal length and thickness interval with the region above the VLA threshold, then replay the intersection at equally spaced points no more than the reported recovery step apart, including endpoints. A popup is a fair launch above the VLA threshold with a projected fair infield first bounce or a clean air out by an infielder. Outfield bounce means a projected fair first bounce at or beyond the infield radius. The outcome groups are exclusive: a new popup takes precedence, followed by high fair outfield bounce, other high fair, then high foul. Additional Z is measured to the first sampled popup; narrow intervals between samples can be missed. This is a geometric replay, independent of a batter's ability to move that far.",
+            "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
+            "infield_radius_m": POPUP_SCAN_INFIELD_M,
+            "maximum_z_sample_step_mm": POPUP_FIXED_X_STEP_M * 1000.0,
+            "all": fixed_all.report(),
+            "contact_first": fixed_contact_first.report(),
+            "line_drive": fixed_line_drive.report(),
+        }));
     }
     Ok(json!({
         "definition": "Replace final world X and Z offsets at contact while retaining the live pitch, swing angles, timing, speed and starting RNG state. Positive Z puts the bat below the ball. A popup is a fair launch strictly above the VLA threshold with a projected first bounce in fair territory inside the infield radius or a clean air out by an infielder. Both subcriteria are reported and can overlap. Live offsets are binned into the nearest grid center, with half-step outer boundaries and ties assigned upward. Forced grid cells use the same swings and represent geometric opportunities, not expected outcome frequencies.",
@@ -389,6 +517,7 @@ mod tests {
                 hla_deg: 25.0,
                 foul,
                 projected_infield_bounce: true,
+                projected_outfield_bounce: false,
                 clean_infielder_air_out: false,
             }),
             ..live
@@ -398,6 +527,7 @@ mod tests {
             intent: BattedBallIntent::LineDrive,
             baseline: live,
             grid: vec![popup(-0.24, 0.02, true)],
+            fixed_horizontal: None,
         };
         assert!(nearest_popup(&swing).is_none());
         swing

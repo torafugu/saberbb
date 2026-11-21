@@ -181,6 +181,9 @@ struct Args {
     /// Scan horizontal and vertical contact positions for fair infield popups.
     #[arg(long, requires = "pitch_bat_timing_comparison", conflicts_with_all = ["downward_timing_error_comparison", "predicted_contact_correction_comparison"])]
     popup_contact_zone: bool,
+    /// Hold each swing's horizontal offset fixed and scan the high-angle vertical contact interval.
+    #[arg(long, requires = "popup_contact_zone")]
+    popup_fixed_horizontal: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,
