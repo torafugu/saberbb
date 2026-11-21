@@ -53,6 +53,8 @@ mod contact_direction_audit;
 mod contact_first_ev_comparison;
 #[path = "support/contact_first_ev_terms.rs"]
 mod contact_first_ev_terms;
+#[path = "support/count_intent_comparison.rs"]
+mod count_intent_comparison;
 #[path = "support/fair_launch_audit.rs"]
 mod fair_launch_audit;
 #[path = "support/intent_aim_comparison.rs"]
@@ -185,6 +187,17 @@ struct Args {
         "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     vertical_bat_control_comparison: bool,
+    /// Compare current intent selection with a weighted early-count approach in full games.
+    #[arg(long, conflicts_with_all = [
+        "vertical_bat_control_comparison", "pitch_bat_timing_comparison", "contact_length_comparison", "contact_first_swing_speed_comparison", "contact_first_ev_terms", "contact_first_ev_comparison", "intent_aim_comparison", "swing_speed_batter_id",
+        "line_drive_lift_comparison", "vertical_contact_sweep", "vertical_contact_comparison",
+        "vertical_contact_paired_fielding", "timing_geometry_sweep", "right_field_first_comparison",
+        "no_bounce_margin_comparison", "pre_fence_pickup_comparison", "bip_diagnostics",
+        "fair_launch_diagnostics", "contact_direction_diagnostics", "moving_collision_diagnostics",
+        "selected_intent_diagnostics", "timing_scale_diagnostics", "infield_opportunity_diagnostics",
+        "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    count_intent_comparison: bool,
     #[arg(long, default_value_t = 5000)]
     max_pitches: u32,
     /// Include BIP quality, fielding/running timing groups and bounded example plays.
@@ -966,7 +979,9 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.vertical_bat_control_comparison {
+    if args.count_intent_comparison {
+        output["count_intent_comparison"] = count_intent_comparison::run(&args, &games)?;
+    } else if args.vertical_bat_control_comparison {
         output["vertical_bat_control_comparison"] =
             intent_aim_comparison::run_vertical_bat_control(&args, &games)?;
     } else if args.pitch_bat_timing_comparison {

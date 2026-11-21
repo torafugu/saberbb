@@ -48,6 +48,8 @@ pub use contact_first_ev_audit::{
     ContactFirstEvPlay, ContactFirstEvSwing, ContactFirstLaunch, with_contact_first_ev_audit,
     with_contact_first_launch_audit,
 };
+mod count_intent_audit;
+pub use count_intent_audit::{CountIntentSwing, with_count_intent_audit};
 mod intent_aim_audit;
 pub use intent_aim_audit::{
     IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial,
@@ -1210,14 +1212,13 @@ impl GameState {
         let batter = active_batter.batter.clone();
         let batter_runner = active_batter.runner();
 
-        let batting_selection=if self.batting_strategy_settings.decision_source==crate::domain::strategy::batting_strategy::BattingDecisionSource::PlayerAndManager {
+        let mut batting_selection=if self.batting_strategy_settings.decision_source==crate::domain::strategy::batting_strategy::BattingDecisionSource::PlayerAndManager {
             let situation=super::batting_personnel::BattingSituation {balls:self.inning_state.ball,strikes:self.inning_state.strike,outs:self.inning_state.out,
                 runners:[Base::First,Base::Second,Base::Third].map(|base|self.inning_state.runners.has_runner_on(base))};
             let character=self.batter_characters.get(&batter_id).copied().ok_or_else(||GameError::BattingStrategy("missing player batting character".into()))?;
             let manager=if self.is_top(){self.away_manager.as_ref()}else{self.home_manager.as_ref()};
             Some(super::batting_personnel::select_batting_intent(batter_id,character,situation,manager).map_err(|s|GameError::BattingStrategy(s.into()))?)
         }else{None};
-        let batting_intent_decision=batting_selection.as_ref().map(|s|s.decision).unwrap_or_else(||self.batting_strategy_settings.decision(self.is_top(),batter_id));
 
         self.prepare_plate_appearance(batter_runner);
         self.inning_state.active_pitcher = Some(active_pitcher);
@@ -1341,6 +1342,11 @@ impl GameState {
         if swing_execution == SwingExecution::Take {
             self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
         } else {
+            if let Some(selection) = batting_selection.as_mut() {
+                count_intent_audit::select(decision_count_seq, selection);
+            }
+            let batting_intent_decision = batting_selection.as_ref().map(|s| s.decision)
+                .unwrap_or_else(|| self.batting_strategy_settings.decision(self.is_top(), batter_id));
             let intent = batting_intent_decision.selected_intent;
             let (swing_contact, paired_swing) = self.evaluate_swing_contact(
                 &batter,
