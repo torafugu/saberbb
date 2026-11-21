@@ -1,3 +1,7 @@
+#[path = "timing_retained_contact.rs"]
+mod timing_retained_contact;
+use timing_retained_contact::{HIGH_VLA_DEG, RetainedContact};
+
 use saberbb::domain::{
     resolver::batting_resolver::{
         CONTACT_LENGTH_LIMIT_M, CONTACT_THICKNESS_LIMIT_M, SwingContactType,
@@ -39,11 +43,13 @@ struct ThicknessComparison {
     outside_to_inside: Crossing,
     contact_to_whiff: u64,
     whiff_to_contact: u64,
+    retained_contact: RetainedContact,
 }
 
 impl ThicknessComparison {
     fn observe(&mut self, before: SwingReplay, after: SwingReplay) {
         self.swings += 1;
+        self.retained_contact.observe(before, after);
         self.absolute_change_in_thickness_magnitude_m +=
             (after.thickness_offset_m - before.thickness_offset_m).abs();
         self.absolute_change_in_length_magnitude_m +=
@@ -75,6 +81,7 @@ impl ThicknessComparison {
             "thickness_outside_to_inside": self.outside_to_inside.report(),
             "contact_to_whiff": self.contact_to_whiff,
             "whiff_to_contact": self.whiff_to_contact,
+            "retained_contact": self.retained_contact.report(),
         })
     }
 }
@@ -87,6 +94,7 @@ pub(super) struct TimingThicknessCrossings {
 }
 
 impl TimingThicknessCrossings {
+    pub(super) const RETAINED_CONTACT_VLA_THRESHOLD_DEG: f64 = HIGH_VLA_DEG;
     pub(super) fn observe(
         &mut self,
         intent: BattedBallIntent,
@@ -124,10 +132,61 @@ mod tests {
             exit_speed_retention: None,
             length_offset_m: length_m,
             length_offset_terms: None,
+            signed_thickness_offset_m: None,
             thickness_offset_m: thickness_m,
             outfield_direct_out: false,
             double_fence: None,
         }
+    }
+
+    #[test]
+    fn links_retained_contact_quality_and_signed_thickness_to_vla_crossings() {
+        use SwingContactType::{SolidContact, SwungAndMiss, WeakContact};
+        use saberbb::domain::shared::ball::OutboundResult;
+
+        let solid = SwingReplay {
+            flight: Some((OutboundResult::InField, 28.0, 50.0)),
+            signed_thickness_offset_m: Some(-0.020),
+            ..replay(0.020, 0.0, SolidContact)
+        };
+        let high_foul = SwingReplay {
+            flight: Some((OutboundResult::Foul, 18.0, 52.0)),
+            signed_thickness_offset_m: Some(0.035),
+            ..replay(0.035, 0.0, WeakContact)
+        };
+        let high_fair = SwingReplay {
+            flight: Some((OutboundResult::InField, 18.0, 52.0)),
+            ..high_foul
+        };
+        let missing = replay(0.020, 0.0, SolidContact);
+        let whiff = replay(0.080, 0.0, SwungAndMiss);
+        let mut counts = RetainedContact::default();
+        counts.observe(solid, high_foul);
+        counts.observe(high_fair, solid);
+        counts.observe(solid, missing);
+        counts.observe(whiff, high_fair);
+        let report = counts.report();
+        let all = &report["all"];
+        let groups = &report["by_vla_transition"];
+        assert_eq!(all["swings"], 3);
+        assert_eq!(all["signed_thickness"]["paired_offsets"], 2);
+        let entry = &groups["entered_above_threshold"];
+        assert_eq!(
+            entry["contact_type_transitions"]["SolidContact"]["WeakContact"],
+            1
+        );
+        assert_eq!(entry["fair_above_threshold_to"], 0);
+        let change = entry["signed_thickness"]["mean_change_mm"]
+            .as_f64()
+            .unwrap();
+        assert!((change - 55.0).abs() < 1e-10);
+        let exit = &groups["left_above_threshold"];
+        assert_eq!(
+            exit["contact_type_transitions"]["WeakContact"]["SolidContact"],
+            1
+        );
+        assert_eq!(exit["fair_above_threshold_from"], 1);
+        assert_eq!(groups["missing_launch_angle"]["swings"], 1);
     }
 
     #[test]
