@@ -165,9 +165,29 @@ impl DoubleFenceCounts {
     }
 }
 
+fn outcome_stage(play: SwingReplay) -> &'static str {
+    match play.flight {
+        None => "whiff",
+        Some((OutboundResult::Foul, _, _)) => "foul",
+        Some(_) => match play.outcome {
+            Some(BattingResult::Foul) => "foul",
+            Some(
+                BattingResult::Single
+                | BattingResult::Double
+                | BattingResult::Triple
+                | BattingResult::HomeRun,
+            ) => "fair_hit",
+            Some(_) => "fair_non_hit",
+            None => "fair_unresolved",
+        },
+    }
+}
+
 #[derive(Default)]
 struct SwingCounts {
     swings: u64,
+    contact_types: BTreeMap<String, u64>,
+    outcome_stages: BTreeMap<&'static str, u64>,
     bands: BTreeMap<&'static str, u64>,
     transitions: BTreeMap<&'static str, BTreeMap<&'static str, u64>>,
     low_single_transitions: BTreeMap<String, u64>,
@@ -232,6 +252,11 @@ impl SwingCounts {
         let source = swing_band(baseline);
         let band = swing_band(play);
         self.swings += 1;
+        *self
+            .contact_types
+            .entry(play.contact_type.as_ref().to_owned())
+            .or_default() += 1;
+        *self.outcome_stages.entry(outcome_stage(play)).or_default() += 1;
         *self.bands.entry(band).or_default() += 1;
         *self
             .transitions
@@ -293,8 +318,23 @@ impl SwingCounts {
                 (band, json!({"launches":count,"share_of_fair":share}))
             })
             .collect();
+        let fair_hits = self
+            .outcome_stages
+            .get("fair_hit")
+            .copied()
+            .unwrap_or_default();
+        let fair_non_hits = self
+            .outcome_stages
+            .get("fair_non_hit")
+            .copied()
+            .unwrap_or_default();
+        let resolved_fair = fair_hits + fair_non_hits;
         let mut report = json!({
             "swings": self.swings, "by_swing_band": bands,
+            "adjusted_contact_type_counts": self.contact_types,
+            "outcome_stages": self.outcome_stages,
+            "resolved_fair_swings": resolved_fair,
+            "hits_per_resolved_fair_swing": (resolved_fair > 0).then(|| fair_hits as f64 / resolved_fair as f64),
             "baseline_to_trial_swing_bands": self.transitions,
             "baseline_hard_low_single_destinations": self.low_single_transitions,
             "baseline_5_to_10_deg_single_destinations": self.target_single_destinations,
@@ -530,6 +570,45 @@ pub(super) fn run_vertical_bat_control(args: &Args, games: &[GameSchedule]) -> R
     Ok(report)
 }
 
+pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    let live = IntentAimOffsets::default();
+    let offsets = [
+        live,
+        IntentAimOffsets {
+            contact_first_mm: live.contact_first_mm,
+            line_drive_mm: live.contact_first_mm,
+        },
+        IntentAimOffsets {
+            contact_first_mm: live.line_drive_mm,
+            line_drive_mm: live.line_drive_mm,
+        },
+    ];
+    let mut transitions: BTreeMap<&str, BTreeMap<&str, u64>> = BTreeMap::new();
+    let mut report = run_replays(
+        args,
+        games,
+        "ContactFirst vs LineDrive",
+        "approach",
+        &["live", "contact_first", "line_drive"],
+        "Every live swing is replayed with its original aim and with each approach's live vertical contact offset, before evaluating contact. Pitch, swing decision, batter, count, starting game state and pre-contact RNG are shared. Existing vertical contact policy, fielding and running are reapplied. Later pitches follow the live baseline. The all group combines all swings; contact_first and line_drive subgroups use the originally selected intent. Contact types use the adjusted contact classifier. A resolved fair swing has a non-foul flight and a non-foul recorded batting outcome; its hit rate includes home runs. Fair interrupted plays are kept in their own outcome stage.",
+        |simulate| {
+            let (result, swings) = with_intent_aim_audit(&offsets, simulate);
+            for swing in &swings {
+                let source = outcome_stage(swing.plays[1].batting);
+                let destination = outcome_stage(swing.plays[2].batting);
+                *transitions
+                    .entry(source)
+                    .or_default()
+                    .entry(destination)
+                    .or_default() += 1;
+            }
+            (result, swings)
+        },
+    )?;
+    report["contact_first_to_line_drive_outcome_stages"] = json!(transitions);
+    Ok(report)
+}
+
 fn run_replays<const N: usize, V: serde::Serialize>(
     args: &Args,
     games: &[GameSchedule],
@@ -695,6 +774,8 @@ mod tests {
             batting: SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                contact_type:
+                    saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
                 double_fence: None,
                 outcome,
                 flight,
@@ -735,6 +816,10 @@ mod tests {
         assert!(!counts.target_single_destinations.contains_key("Single"));
         let report = counts.report();
         assert_eq!(report["fair_launches"], 2);
+        assert_eq!(report["resolved_fair_swings"], 2);
+        assert_eq!(report["hits_per_resolved_fair_swing"], 1.0);
+        assert_eq!(report["outcome_stages"]["foul"], 1);
+        assert_eq!(report["outcome_stages"]["whiff"], 1);
         assert_eq!(
             report["fair_launch_angle_distribution"]["10_to_20"]["share_of_fair"],
             0.5
@@ -754,6 +839,8 @@ mod tests {
         let single = replay(SwingReplay {
             exit_speed_retention: None,
             outfield_direct_out: false,
+            contact_type:
+                saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
             double_fence: None,
             outcome: Some(BattingResult::Single),
             flight: Some((OutboundResult::InField, 45.0, 0.0)),
@@ -764,6 +851,8 @@ mod tests {
             replay(SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                contact_type:
+                    saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
                 double_fence: None,
                 outcome: Some(BattingResult::Foul),
                 flight: Some((OutboundResult::Foul, 48.0, 31.0)),
@@ -774,6 +863,8 @@ mod tests {
             replay(SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                contact_type:
+                    saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
                 double_fence: None,
                 outcome: Some(BattingResult::HomeRun),
                 flight: Some((OutboundResult::HomeRun, 45.0, 30.0)),

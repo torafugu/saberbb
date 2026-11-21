@@ -183,6 +183,8 @@ mod tests {
             batting: SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                contact_type:
+                    saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
                 double_fence: None,
                 outcome: Some(result),
                 flight: Some((OutboundResult::InField, 45.0, angle)),
@@ -211,6 +213,8 @@ mod tests {
             batting: SwingReplay {
                 exit_speed_retention: None,
                 outfield_direct_out: false,
+                contact_type:
+                    saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
                 double_fence: None,
                 outcome: Some(BattingResult::StrikeSwung),
                 flight: None,
