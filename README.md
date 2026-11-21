@@ -1113,6 +1113,27 @@ counts foul launches as well, and uses all swings as the rate denominator.
 An outfield direct out is a recorded batting out on a clean catch in the
 air by an outfielder. The same counts by seed are in `reports`.
 
+### ContactFirst vertical bat control comparison
+
+Set `SABERBB_DB` to the roster and schedule database.
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --vertical-bat-control-comparison > vertical_bat_control_2026.json
+```
+
+The live control verifies the replay. The other three arms enable
+pitch–bat timing geometry with the current approach, with +10° of
+ContactFirst attack, or with +10° and a one-point reduction in the
+`bat_control` used for vertical pitch-offset correction. Horizontal and
+timing correction, the stored player skill, and the swing decision all
+use their live values. The reduced skill is an experimental dose chosen
+before contact; the resulting launch angle has no role in selecting it.
+
+Compare pooled and per-seed ContactFirst results for the two +10° arms.
+`plus_ten_extra_base_hit_destinations` follows all ContactFirst doubles
+and home runs from the +10° control to their outcomes with reduced
+vertical correction. The live baseline supplies the later pitches.
+
 ### Fixed-contact length retention comparison
 
 Set `SABERBB_DB` to the same roster and schedule database.

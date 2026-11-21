@@ -387,6 +387,7 @@ pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result
             contact_first_z_mm,
             contact_first_attack_deg,
             use_path_mismatch: index >= 3,
+            contact_first_vertical_bat_control_delta: 0.0,
         }
     });
     run_replays(
@@ -400,6 +401,68 @@ pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result
     )
 }
 
+pub(super) fn run_vertical_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    let trials = [
+        (0, false, 0.0),
+        (0, true, 0.0),
+        (10, true, 0.0),
+        (10, true, -1.0),
+    ]
+    .map(
+        |(
+            contact_first_attack_deg,
+            use_path_mismatch,
+            contact_first_vertical_bat_control_delta,
+        )| {
+            PitchBatTimingTrial {
+                contact_first_z_mm: 0,
+                contact_first_attack_deg,
+                use_path_mismatch,
+                contact_first_vertical_bat_control_delta,
+            }
+        },
+    );
+    let mut destinations: BTreeMap<&str, BTreeMap<String, u64>> = BTreeMap::new();
+    let mut report = run_replays(
+        args,
+        games,
+        "ContactFirst vertical bat control",
+        "trial",
+        &trials,
+        "Arm 0 verifies the live baseline. Compare arms 1–3 with the same pitch–bat timing geometry: current approach, ContactFirst attack +10 degrees, and attack +10 degrees with a 1-point bat_control reduction solely in the vertical pitch-offset correction. Stored bat_control, horizontal correction, timing correction, swing decision and later pitches follow the baseline. The destination table follows all control-arm doubles and home runs to their outcomes in the reduced-control arm.",
+        |simulate| {
+            let (result, swings) = with_pitch_bat_timing_audit(&trials, simulate);
+            for swing in &swings {
+                if swing.intent != BattedBallIntent::ContactFirst {
+                    continue;
+                }
+                let source = match swing.plays[2].batting.outcome {
+                    Some(BattingResult::Double) => "Double",
+                    Some(BattingResult::HomeRun) => "HomeRun",
+                    _ => continue,
+                };
+                let replay = &swing.plays[3].batting;
+                let destination = if replay.flight.is_none() {
+                    "Whiff"
+                } else {
+                    replay
+                        .outcome
+                        .as_ref()
+                        .map_or("NoBattingResult", AsRef::as_ref)
+                };
+                *destinations
+                    .entry(source)
+                    .or_default()
+                    .entry(destination.to_owned())
+                    .or_default() += 1;
+            }
+            (result, swings)
+        },
+    )?;
+    report["plus_ten_extra_base_hit_destinations"] = json!(destinations);
+    Ok(report)
+}
+
 fn run_replays<const N: usize, V: serde::Serialize>(
     args: &Args,
     games: &[GameSchedule],
@@ -407,7 +470,9 @@ fn run_replays<const N: usize, V: serde::Serialize>(
     parameter: &str,
     values: &[V; N],
     definition: &str,
-    audit: impl Fn(&mut dyn FnMut() -> Result<GameResult>) -> (Result<GameResult>, Vec<IntentAimSwing>),
+    mut audit: impl FnMut(
+        &mut dyn FnMut() -> Result<GameResult>,
+    ) -> (Result<GameResult>, Vec<IntentAimSwing>),
 ) -> Result<Value> {
     let empty = || std::array::from_fn::<_, N, _>(|_| PairedCounts::default());
     let report = |counts: &[PairedCounts]| {

@@ -1447,7 +1447,14 @@ impl GameState {
             &pitched_ball.actual_location,
         );
 
-        self.record_intent_aim_trials(intent, batter, *pitched_ball, &displacement, &swing_error)?;
+        self.record_intent_aim_trials(
+            intent,
+            batter,
+            *pitched_ball,
+            pitch_displacement,
+            batting_factor,
+            &swing_error,
+        )?;
         let vertical_contact_offset_m = intent_aim_offset_m(intent);
         if vertical_contact_offset_m != 0.0 {
             swing_error.additional_z_m += vertical_contact_offset_m;

@@ -1,7 +1,7 @@
 use super::{ActiveFielder, DEFAULT_LINE_DRIVE_LIFT_OFFSET_MM, GameError, GameState, SwingReplay};
 use crate::domain::{
     resolver::{
-        batting_resolver::SwingExecutionError,
+        batting_resolver::{BattingFactor, SwingExecutionError, adapt_to_pitch},
         fielding_physics::FieldPlayPlayResult,
         pitching_resolver::{PitchDisplacement, StrikeZoneDimensions},
     },
@@ -65,6 +65,7 @@ pub struct PitchBatTimingTrial {
     pub contact_first_z_mm: i32,
     pub contact_first_attack_deg: i32,
     pub use_path_mismatch: bool,
+    pub contact_first_vertical_bat_control_delta: f64,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -74,6 +75,7 @@ struct ReplayInputs {
     length_loss: Option<f64>,
     attack_delta_deg: f64,
     use_path_mismatch: bool,
+    vertical_bat_control_delta: f64,
 }
 
 impl Trial {
@@ -84,6 +86,7 @@ impl Trial {
             length_loss: None,
             attack_delta_deg: 0.0,
             use_path_mismatch: false,
+            vertical_bat_control_delta: 0.0,
         };
         match self {
             Self::Aim(offsets) => inputs.aim_m = offsets.offset_m(intent),
@@ -96,6 +99,8 @@ impl Trial {
                 if intent == BattedBallIntent::ContactFirst {
                     inputs.aim_m = f64::from(trial.contact_first_z_mm) / 1000.0;
                     inputs.attack_delta_deg = f64::from(trial.contact_first_attack_deg);
+                    inputs.vertical_bat_control_delta =
+                        trial.contact_first_vertical_bat_control_delta;
                 }
                 inputs.use_path_mismatch = trial.use_path_mismatch;
                 // Request the launch retention measurement with zero additional length loss.
@@ -235,7 +240,8 @@ impl GameState {
         intent: BattedBallIntent,
         batter: &BatterInfo,
         pitch: PitchedBall,
-        displacement: &PitchDisplacement,
+        raw_displacement: &PitchDisplacement,
+        batting_factor: &BattingFactor,
         swing_error: &SwingExecutionError,
     ) -> Result<(), GameError> {
         AUDIT.with_borrow_mut(|slot| {
@@ -245,6 +251,7 @@ impl GameState {
             let Some(active) = &self.inning_state.active_batter else {
                 return Ok(());
             };
+            let adapted = adapt_to_pitch(raw_displacement, batter.bat_control, batting_factor);
             let mut unique = Vec::new();
             let mut plays = Vec::with_capacity(audit.arms.len());
             for arm in &audit.arms {
@@ -252,6 +259,16 @@ impl GameState {
                 if let Some(&(_, play)) = unique.iter().find(|(seen, _)| *seen == inputs) {
                     plays.push(play);
                     continue;
+                }
+                // Keep the live horizontal and timing corrections, even in the reduced-control arm.
+                let mut displacement = adapted;
+                if inputs.vertical_bat_control_delta != 0.0 {
+                    displacement.vertical_offset_m = adapt_to_pitch(
+                        raw_displacement,
+                        batter.bat_control + inputs.vertical_bat_control_delta,
+                        batting_factor,
+                    )
+                    .vertical_offset_m;
                 }
                 let mut error = *swing_error;
                 if inputs.aim_m != 0.0 {
@@ -282,7 +299,7 @@ impl GameState {
                         active.id,
                         &trial_batter,
                         pitch,
-                        displacement,
+                        &displacement,
                         error,
                         inputs.length_loss,
                     )
