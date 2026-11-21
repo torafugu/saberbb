@@ -41,6 +41,10 @@ use contact_launch_profile::ContactLaunchProfile;
 mod pitch_spin_impact;
 use pitch_spin_impact::PitchSpinImpact;
 
+#[path = "timing_vertical_alignment.rs"]
+mod timing_vertical_alignment;
+use timing_vertical_alignment::TimingVerticalAlignment;
+
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
     let alternative = IntentAimOffsets {
@@ -517,15 +521,25 @@ pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result
             contact_first_vertical_bat_control_delta: 0.0,
         }
     });
-    run_replays(
+    // Arms 0 and 3 keep the live aim and attack angle for both intents.
+    let mut alignment = TimingVerticalAlignment::default();
+    let mut report = run_replays(
         args,
         games,
         "Pitch–bat timing geometry",
         "trial",
         &trials,
         "Replay realized swings from the same pitch, intent, count, and RNG position. ContactFirst uses the current aim, an 8 mm undercut, or a 10 degree steeper attack. Each runs with and without the added timing height error from the local pitch and bat velocities in the vertical plane. The calculation uses signed adapted timing error, plate velocity, and the trial attack angle. LineDrive keeps its live aim and attack angle. Existing horizontal timing displacement and contact rules still apply. Strong contact counts include any launch that retains at least 80% or 95% of the modeled pre-offset EV, including fouls. Outfield direct outs require a recorded batting out and a clean air catch by an outfielder. Divide by all swings. Later pitches follow the live baseline.",
-        |simulate| with_pitch_bat_timing_audit(&trials, false, simulate),
-    )
+        |simulate| {
+            let (result, swings) = with_pitch_bat_timing_audit(&trials, false, simulate);
+            for swing in &swings {
+                alignment.observe(swing.intent, swing.plays[0].batting, swing.plays[3].batting);
+            }
+            (result, swings)
+        },
+    )?;
+    report["vertical_alignment_by_swing_outcome"] = alignment.report();
+    Ok(report)
 }
 
 pub(super) fn run_vertical_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Value> {
