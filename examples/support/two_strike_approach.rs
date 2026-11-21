@@ -179,6 +179,7 @@ mod tests {
             outcome: Some(BattingResult::Foul),
             contact_type: SwingContactType::SolidContact,
             flight: Some((OutboundResult::Foul, 20.0, 15.0)),
+            launch_hla_deg: None,
             exit_speed_retention: None,
             length_offset_m: 0.02,
             thickness_offset_m: 0.01,

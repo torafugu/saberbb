@@ -822,6 +822,7 @@ mod tests {
     fn target_single_destinations_cover_all_speeds_and_keep_fouls_out_of_fair_angles() {
         let replay = |outcome, flight| IntentAimPlay {
             batting: SwingReplay {
+                launch_hla_deg: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -889,6 +890,7 @@ mod tests {
             infield: None,
         };
         let single = replay(SwingReplay {
+            launch_hla_deg: None,
             exit_speed_retention: None,
             length_offset_m: 0.0,
             thickness_offset_m: 0.0,
@@ -903,6 +905,7 @@ mod tests {
         counts.observe(
             single,
             replay(SwingReplay {
+                launch_hla_deg: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -917,6 +920,7 @@ mod tests {
         counts.observe(
             single,
             replay(SwingReplay {
+                launch_hla_deg: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,

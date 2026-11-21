@@ -23,6 +23,7 @@ pub struct SwingReplay {
     pub outcome: Option<BattingResult>,
     pub contact_type: SwingContactType,
     pub flight: Option<(OutboundResult, f64, f64)>,
+    pub launch_hla_deg: Option<f64>,
     pub exit_speed_retention: Option<f64>,
     pub length_offset_m: f64,
     pub thickness_offset_m: f64,
@@ -191,6 +192,7 @@ impl GameState {
             exit_speed_retention,
             length_offset_m: contact.length_offset_m,
             thickness_offset_m: contact.thickness_offset_m,
+            launch_hla_deg: flight.map(|(_, metrics)| metrics.final_hla_deg),
             flight: replay
                 .ball
                 .map(|ball| (ball.outbound_result, ball.launch_speed, ball.launch_angle)),

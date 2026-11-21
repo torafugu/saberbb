@@ -181,6 +181,7 @@ mod tests {
     fn same_swing_tracks_angle_location_and_ruling_changes() {
         let play = |angle, position, reach, result| IntentAimPlay {
             batting: SwingReplay {
+                launch_hla_deg: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,
@@ -213,6 +214,7 @@ mod tests {
         );
         let whiff = IntentAimPlay {
             batting: SwingReplay {
+                launch_hla_deg: None,
                 exit_speed_retention: None,
                 length_offset_m: 0.0,
                 thickness_offset_m: 0.0,

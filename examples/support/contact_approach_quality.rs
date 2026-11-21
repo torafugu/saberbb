@@ -153,6 +153,7 @@ mod tests {
             outcome: None,
             contact_type: SwingContactType::SwungAndMiss,
             flight: None,
+            launch_hla_deg: None,
             exit_speed_retention: None,
             length_offset_m: 0.02,
             thickness_offset_m: 0.071,
