@@ -51,6 +51,29 @@ fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     arms
 }
 
+const FAIR_ANGLE_BANDS: [&str; 5] = ["below_5", "5_to_10", "10_to_20", "20_to_40", "at_least_40"];
+
+fn fair_angle_band(angle: f64) -> &'static str {
+    FAIR_ANGLE_BANDS[if angle < 5.0 {
+        0
+    } else if angle < 10.0 {
+        1
+    } else if angle < 20.0 {
+        2
+    } else if angle < 40.0 {
+        3
+    } else {
+        4
+    }]
+}
+
+fn target_single(play: SwingReplay) -> bool {
+    play.outcome == Some(BattingResult::Single)
+        && play
+            .flight
+            .is_some_and(|(_, _, angle)| (5.0..10.0).contains(&angle))
+}
+
 const HARD_LOW: &str = "hard_fair_0_to_10_deg";
 const SWING_BANDS: &[&str] = &[
     "whiff",
@@ -92,6 +115,8 @@ struct SwingCounts {
     bands: BTreeMap<&'static str, u64>,
     transitions: BTreeMap<&'static str, BTreeMap<&'static str, u64>>,
     low_single_transitions: BTreeMap<String, u64>,
+    target_single_destinations: BTreeMap<String, BTreeMap<&'static str, u64>>,
+    fair_launch_angles: BTreeMap<&'static str, u64>,
     hard_low_singles: u64,
     singles_5_to_10_deg: u64,
     doubles: u64,
@@ -108,30 +133,37 @@ impl SwingCounts {
     fn observe(&mut self, baseline: IntentAimPlay, play: IntentAimPlay) {
         self.infield.observe(baseline, play);
         let (baseline, play) = (baseline.batting, play.batting);
-        if let Some((outbound, speed, angle)) = play.flight {
-            self.hard_fair_5_to_10_deg += u64::from(
-                outbound != OutboundResult::Foul && speed >= 45.0 && (5.0..10.0).contains(&angle),
-            );
+        let destination = match play.flight {
+            None => "no_launch",
+            Some((OutboundResult::Foul, _, _)) => "foul_flight",
+            Some((_, speed, angle)) => {
+                let angle_band = fair_angle_band(angle);
+                *self.fair_launch_angles.entry(angle_band).or_default() += 1;
+                self.hard_fair_5_to_10_deg +=
+                    u64::from(speed >= 45.0 && (5.0..10.0).contains(&angle));
+                angle_band
+            }
+        };
+        if target_single(baseline) {
+            let result = play
+                .outcome
+                .as_ref()
+                .map_or("NoBattingResult", AsRef::as_ref);
+            *self
+                .target_single_destinations
+                .entry(result.to_owned())
+                .or_default()
+                .entry(destination)
+                .or_default() += 1;
         }
         if let Some((outbound, _, angle)) = baseline.flight
             && outbound != OutboundResult::Foul
             && let Some(retention) = play.exit_speed_retention
         {
-            let angle_band = if angle < 5.0 {
-                "below_5"
-            } else if angle < 10.0 {
-                "5_to_10"
-            } else if angle < 20.0 {
-                "10_to_20"
-            } else if angle < 40.0 {
-                "20_to_40"
-            } else {
-                "at_least_40"
-            };
             let bin = ((retention * 20.0).floor() as u8).min(19) * 5;
             *self
                 .baseline_fair_retention_by_angle
-                .entry(angle_band)
+                .entry(fair_angle_band(angle))
                 .or_default()
                 .entry(bin)
                 .or_default() += 1;
@@ -147,12 +179,7 @@ impl SwingCounts {
             .entry(band)
             .or_default() += 1;
         self.singles += u64::from(play.outcome == Some(BattingResult::Single));
-        self.singles_5_to_10_deg += u64::from(
-            play.outcome == Some(BattingResult::Single)
-                && play
-                    .flight
-                    .is_some_and(|(_, _, angle)| (5.0..10.0).contains(&angle)),
-        );
+        self.singles_5_to_10_deg += u64::from(target_single(play));
         self.doubles += u64::from(play.outcome == Some(BattingResult::Double));
         self.triples += u64::from(play.outcome == Some(BattingResult::Triple));
         self.home_runs += u64::from(play.outcome == Some(BattingResult::HomeRun));
@@ -180,10 +207,26 @@ impl SwingCounts {
                 (band, json!({"swings":n,"per_swing":rate(n)}))
             })
             .collect();
+        let fair_launches: u64 = self.fair_launch_angles.values().sum();
+        let fair_angles: BTreeMap<_, _> = FAIR_ANGLE_BANDS
+            .iter()
+            .map(|&band| {
+                let count = self
+                    .fair_launch_angles
+                    .get(band)
+                    .copied()
+                    .unwrap_or_default();
+                let share = (fair_launches > 0).then(|| count as f64 / fair_launches as f64);
+                (band, json!({"launches":count,"share_of_fair":share}))
+            })
+            .collect();
         json!({
             "swings": self.swings, "by_swing_band": bands,
             "baseline_to_trial_swing_bands": self.transitions,
             "baseline_hard_low_single_destinations": self.low_single_transitions,
+            "baseline_5_to_10_deg_single_destinations": self.target_single_destinations,
+            "fair_launches": fair_launches,
+            "fair_launch_angle_distribution": fair_angles,
             "singles": self.singles, "singles_per_swing": rate(self.singles),
             "singles_5_to_10_deg": self.singles_5_to_10_deg,
             "singles_5_to_10_deg_per_swing": rate(self.singles_5_to_10_deg),
@@ -430,6 +473,8 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     Ok(json!({
         "definitions": {
             "paired_swings":"Every live baseline swing is replayed from the same pitch, selected intent, count, fielding and baserunning state, and pre-contact RNG position. Only the selected intent's world-vertical aim changes. The existing EV-dependent contact window is recomputed. The live baseline determines later swings.",
+            "fair_launch_angle_distribution":"All non-foul simulated flights before fielding, including any exit speed and interrupted plays. Shares use the arm's fair flights as denominator. Angle intervals include their lower bound and exclude their upper bound.",
+            "baseline_5_to_10_deg_single_destinations":"Every baseline official single at launch angle [5,10) degrees and any exit speed. Each arm counts its batting result first and then its fair angle band, foul flight, or no launch. A missing batting result is counted as NoBattingResult.",
             "bands":"Every swing has one band. Hard fair bands use non-foul flights at EV >=45 m/s and half-open angle ranges. Other fair includes downwards hard flights and slower fair flights. Rulings such as singles and home runs are counted separately. An interrupted fair play can lack a batting ruling.",
             "hard_5_to_15_deg_infield":"Fair InField flights at EV >=45 m/s and VLA [5,15) degrees. Fielding location uses the selected glove/pickup point and the engine's 50 m radius. Reach scans end at the estimated first 50 m crossing or known outfielder touch, whichever comes first. The scan uses live lane/distance filters, air risk and sampling, then relaxed filters and 10 ms sampling. These are clean opportunities. The first bounce is projected, including on air catches. Fielding selections before an interrupted baserunning play are included with NoBattingResult. Transitions include swings in the target population on either side.",
             "full_games":"All aim settings use the same schedule, source rosters and initial game seeds. Each arm advances its own games, so decisions and later situations may diverge. Singles and home runs are measured per PA.",
@@ -472,6 +517,60 @@ mod tests {
         assert!(
             Args::try_parse_from(["check", "--season", "2026", "--contact-first-aim-mm", "8"])
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn target_single_destinations_cover_all_speeds_and_keep_fouls_out_of_fair_angles() {
+        let replay = |outcome, flight| IntentAimPlay {
+            batting: SwingReplay {
+                exit_speed_retention: None,
+                outcome,
+                flight,
+            },
+            infield: None,
+        };
+        let single = replay(
+            Some(BattingResult::Single),
+            Some((OutboundResult::InField, 37.0, 5.0)),
+        );
+        let boundary = replay(
+            Some(BattingResult::Single),
+            Some((OutboundResult::InField, 50.0, 10.0)),
+        );
+        let mut counts = SwingCounts::default();
+        counts.observe(
+            single,
+            replay(
+                Some(BattingResult::Double),
+                Some((OutboundResult::InField, 46.0, 20.0)),
+            ),
+        );
+        counts.observe(
+            single,
+            replay(
+                Some(BattingResult::Foul),
+                Some((OutboundResult::Foul, 48.0, 9.0)),
+            ),
+        );
+        counts.observe(single, replay(None, None));
+        counts.observe(boundary, boundary);
+        assert_eq!(counts.target_single_destinations["Double"]["20_to_40"], 1);
+        assert_eq!(counts.target_single_destinations["Foul"]["foul_flight"], 1);
+        assert_eq!(
+            counts.target_single_destinations["NoBattingResult"]["no_launch"],
+            1
+        );
+        assert!(!counts.target_single_destinations.contains_key("Single"));
+        let report = counts.report();
+        assert_eq!(report["fair_launches"], 2);
+        assert_eq!(
+            report["fair_launch_angle_distribution"]["10_to_20"]["share_of_fair"],
+            0.5
+        );
+        assert_eq!(
+            report["fair_launch_angle_distribution"]["5_to_10"]["launches"],
+            0
         );
     }
 

@@ -986,6 +986,20 @@ new aim. Counts and rates for whiffs, fouls, and fair launch bands use all
 swings. `baseline_hard_low_single_destinations` shows the alternate launch
 band and official batting result for each original hard low-angle single.
 
+To isolate ContactFirst at 0 versus +8 mm with LineDrive held at +20 mm:
+
+```sh
+cargo run --locked --release --example offense_season_check -- --season 2026 --games 36 --intent-aim-comparison --contact-first-aim-mm 8 --line-drive-aim-mm 20 > contact_first_aim_2026.json
+```
+
+Compare `baseline.contact_first` and `contact_first_only.contact_first`
+inside `paired_swings.pooled`. The `fair_launch_angle_distribution`
+counts all non-foul flights by angle and reports their shares within that
+arm. The `baseline_5_to_10_deg_single_destinations` table keeps the same
+baseline singles at all exit speeds and groups each replay by batting
+result and trial angle band, foul flight or no launch. The paired
+`line_drive` reports provide a control.
+
 Read `hard_5_to_15_deg_infield` under each paired-swing intent to compare
 the four 2.5° angle bands for fair in-park balls at EV of at least 45 m/s.
 The report counts the actual selected fielder and handling location
