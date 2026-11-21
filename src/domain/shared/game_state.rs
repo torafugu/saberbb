@@ -52,7 +52,7 @@ mod count_intent_audit;
 pub use count_intent_audit::{CountIntentSwing, with_count_intent_audit};
 mod intent_aim_audit;
 pub use intent_aim_audit::{
-    IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial,
+    IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial, TwoStrikePitch,
     with_contact_approach_audit, with_contact_first_speed_audit, with_contact_length_audit,
     with_intent_aim_audit, with_pitch_bat_timing_audit,
 };
@@ -1339,14 +1339,30 @@ impl GameState {
             }
         }
 
+        if swing_decision.swung
+            && let Some(selection) = batting_selection.as_mut()
+        {
+            count_intent_audit::select(decision_count_seq, selection);
+        }
+        let batting_intent_decision = || {
+            batting_selection
+                .as_ref()
+                .map(|s| s.decision)
+                .unwrap_or_else(|| self.batting_strategy_settings.decision(self.is_top(), batter_id))
+        };
+        if swing_decision.count_status.is_strike_two() {
+            intent_aim_audit::record_two_strike_pitch(
+                decision_count_seq,
+                batting_factor.distance_from_zone_edge,
+                swing_decision.swung,
+                || batting_intent_decision().selected_intent,
+            );
+        }
+
         if swing_execution == SwingExecution::Take {
             self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
         } else {
-            if let Some(selection) = batting_selection.as_mut() {
-                count_intent_audit::select(decision_count_seq, selection);
-            }
-            let batting_intent_decision = batting_selection.as_ref().map(|s| s.decision)
-                .unwrap_or_else(|| self.batting_strategy_settings.decision(self.is_top(), batter_id));
+            let batting_intent_decision = batting_intent_decision();
             let intent = batting_intent_decision.selected_intent;
             let (swing_contact, paired_swing) = self.evaluate_swing_contact(
                 &batter,

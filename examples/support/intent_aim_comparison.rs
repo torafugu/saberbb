@@ -25,6 +25,10 @@ use intent_aim_infield::InfieldCounts;
 mod contact_approach_quality;
 use contact_approach_quality::ContactApproachQuality;
 
+#[path = "two_strike_approach.rs"]
+mod two_strike_approach;
+use two_strike_approach::TwoStrikeApproach;
+
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
     let alternative = IntentAimOffsets {
@@ -589,6 +593,7 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
     ];
     let mut transitions: BTreeMap<&str, BTreeMap<&str, u64>> = BTreeMap::new();
     let mut quality = ContactApproachQuality::default();
+    let mut two_strike = TwoStrikeApproach::default();
     let mut report = run_replays(
         args,
         games,
@@ -597,7 +602,13 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
         &["live", "contact_first", "line_drive"],
         "Every live swing is replayed with its original aim and with each approach's live vertical contact offset, before evaluating contact. Pitch, swing decision, batter, count, starting game state and pre-contact RNG are shared. Existing vertical contact policy, fielding and running are reapplied. Later pitches follow the live baseline. The all group combines all swings; contact_first and line_drive subgroups use the originally selected intent. Contact types use the adjusted contact classifier. A resolved fair swing has a non-foul flight and a non-foul recorded batting outcome; its hit rate includes home runs. Fair interrupted plays are kept in their own outcome stage.",
         |simulate| {
-            let (result, swings) = with_contact_approach_audit(&offsets, simulate);
+            let (result, swings, pitches) = with_contact_approach_audit(&offsets, simulate);
+            let result = result.and_then(|result| {
+                two_strike
+                    .observe_game(pitches, &swings)
+                    .with_context(|| format!("two-strike audit failed in game {}", result.id))?;
+                Ok(result)
+            });
             for swing in &swings {
                 let contact_first = swing.plays[1].batting;
                 let line_drive = swing.plays[2].batting;
@@ -615,6 +626,7 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
     )?;
     report["contact_first_to_line_drive_outcome_stages"] = json!(transitions);
     report["paired_contact_quality"] = quality.report();
+    report["two_strike_by_location"] = two_strike.report();
     Ok(report)
 }
 

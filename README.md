@@ -999,6 +999,17 @@ retention fraction is the modeled EV after the contact offsets divided
 by the modeled pre-offset EV, with zero additional length loss. Use
 `retention_launches` as the denominator for the 80% and 95% counts.
 
+`contact_approach_comparison.two_strike_by_location.by_zone` covers all
+pitches thrown with two strikes. The normalized distance from the
+strike-zone rectangle is zero in the zone, including its boundary.
+Distances above zero through 0.15 are grouped separately from farther
+outside pitches. Read `live` for pitch counts, including takes, and
+swing rates grouped by the plan computed before the swing decision.
+Read `paired_swings` to compare the contact outcomes of the two aims
+on the same swings within each zone. Whiff, foul, and SolidContact
+rates use all swings as the denominator. Foul and SolidContact
+can overlap.
+
 ### Count-based batting intent comparison
 
 Set `SABERBB_DB` to the roster and schedule database.

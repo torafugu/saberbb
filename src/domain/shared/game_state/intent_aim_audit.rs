@@ -136,6 +136,14 @@ fn timing_height_error_m(
         / (pitch_forward_speed + bat_forward)
 }
 
+#[derive(Clone, Copy)]
+pub struct TwoStrikePitch {
+    pub count_seq: u16,
+    pub intent: BattedBallIntent,
+    pub distance_from_zone_edge: f64,
+    pub swung: bool,
+}
+
 struct Audit {
     arms: Vec<Trial>,
     audit_doubles: bool,
@@ -143,6 +151,7 @@ struct Audit {
 }
 
 thread_local! {
+    static TWO_STRIKE_PITCHES: RefCell<Option<Vec<TwoStrikePitch>>> = const { RefCell::new(None) };
     static AUDIT: RefCell<Option<Audit>> = const { RefCell::new(None) };
     static INFIELD_CAPTURE: Cell<InfieldCapture> = const { Cell::new(InfieldCapture::Inactive) };
 }
@@ -192,12 +201,41 @@ pub fn with_intent_aim_audit<T>(
     with_aim_trials(arms, false, run)
 }
 
-/// Replay the supplied aim offsets and measure EV retention with zero additional length loss.
+/// Replay aim offsets with EV retention and record the live two-strike pitch decisions.
 pub fn with_contact_approach_audit<T>(
     arms: &[IntentAimOffsets],
     run: impl FnOnce() -> T,
-) -> (T, Vec<IntentAimSwing>) {
-    with_aim_trials(arms, true, run)
+) -> (T, Vec<IntentAimSwing>, Vec<TwoStrikePitch>) {
+    struct Restore(Option<Vec<TwoStrikePitch>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TWO_STRIKE_PITCHES.replace(self.0.take());
+        }
+    }
+    let _restore = Restore(TWO_STRIKE_PITCHES.replace(Some(Vec::new())));
+    let (result, swings) = with_aim_trials(arms, true, run);
+    let pitches = TWO_STRIKE_PITCHES
+        .take()
+        .expect("two-strike pitch audit is active");
+    (result, swings, pitches)
+}
+
+pub(super) fn record_two_strike_pitch(
+    count_seq: u16,
+    distance_from_zone_edge: f64,
+    swung: bool,
+    intent: impl FnOnce() -> BattedBallIntent,
+) {
+    TWO_STRIKE_PITCHES.with_borrow_mut(|slot| {
+        if let Some(pitches) = slot {
+            pitches.push(TwoStrikePitch {
+                count_seq,
+                intent: intent(),
+                distance_from_zone_edge,
+                swung,
+            });
+        }
+    });
 }
 
 fn with_aim_trials<T>(
