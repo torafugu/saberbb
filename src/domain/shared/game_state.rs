@@ -61,7 +61,8 @@ use paired_contact::PairedSwing;
 pub use paired_contact::{FenceAudit, PairedContactPlay, with_paired_contact_fielding};
 mod swing_speed_audit;
 pub use swing_speed_audit::{
-    DoubleFenceObservation, SwingReplay, SwingReplay as SwingSpeedPlay, with_swing_speed_audit,
+    DoubleFenceObservation, SwingLengthOffsetTerms, SwingReplay, SwingReplay as SwingSpeedPlay,
+    with_swing_speed_audit,
 };
 
 pub const MAX_OUT: u8 = 3;

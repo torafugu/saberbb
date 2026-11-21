@@ -2,7 +2,7 @@ use super::{GameError, GameState, pre_trial_exit_speed_ms, vertical_contact_poli
 use crate::domain::{
     resolver::{
         batting_resolver::{
-            ContactProtectionTrial, SwingContactType, SwingExecutionError,
+            ContactProtectionTrial, SwingContactResult, SwingContactType, SwingExecutionError,
             apply_contact_protection_trial, calculate_batted_ball_with_length_loss,
             evaluate_swing_contact, replay_fence_flight,
         },
@@ -28,9 +28,33 @@ pub struct SwingReplay {
     pub launch_spin: Option<(f64, f64)>,
     pub exit_speed_retention: Option<f64>,
     pub length_offset_m: f64,
+    pub length_offset_terms: Option<SwingLengthOffsetTerms>,
     pub thickness_offset_m: f64,
     pub outfield_direct_out: bool,
     pub double_fence: Option<DoubleFenceObservation>,
+}
+
+/// Signed contributions along the bat's length, in meters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SwingLengthOffsetTerms {
+    pub signed_total_m: f64,
+    pub horizontal_pitch_m: f64,
+    pub horizontal_execution_m: f64,
+    pub horizontal_timing_m: f64,
+    pub vertical_projection_m: f64,
+}
+
+impl SwingLengthOffsetTerms {
+    fn from_contact(contact: &SwingContactResult) -> Option<Self> {
+        let angle = contact.actual_bat_angle_deg?.to_radians();
+        Some(Self {
+            signed_total_m: contact.signed_length_offset_m?,
+            horizontal_pitch_m: contact.adapted_horizontal_offset_m * angle.cos(),
+            horizontal_execution_m: contact.swing_error_x_m * angle.cos(),
+            horizontal_timing_m: contact.timing_impact_x_m * angle.cos(),
+            vertical_projection_m: contact.offset_z_m * angle.sin(),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -193,6 +217,7 @@ impl GameState {
                     }),
             exit_speed_retention,
             length_offset_m: contact.length_offset_m,
+            length_offset_terms: SwingLengthOffsetTerms::from_contact(&contact),
             thickness_offset_m: contact.thickness_offset_m,
             launch_hla_deg: flight.map(|(_, metrics)| metrics.final_hla_deg),
             contact_z_m: contact.offset_z_m,
@@ -246,7 +271,32 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::resolver::batting_resolver::calculate_trajectory;
+    use crate::domain::resolver::batting_resolver::{
+        calculate_trajectory, project_contact_offsets,
+    };
+
+    #[test]
+    fn length_terms_reconstruct_signed_projection() {
+        let angle = 31.0;
+        let (signed_length_m, _) = project_contact_offsets(-0.265, 0.09, angle);
+        let contact = SwingContactResult {
+            signed_length_offset_m: Some(signed_length_m),
+            actual_bat_angle_deg: Some(angle),
+            adapted_horizontal_offset_m: 0.035,
+            swing_error_x_m: -0.02,
+            timing_impact_x_m: -0.28,
+            offset_z_m: 0.09,
+            ..SwingContactResult::default()
+        };
+        let terms = SwingLengthOffsetTerms::from_contact(&contact).unwrap();
+        let total = terms.horizontal_pitch_m
+            + terms.horizontal_execution_m
+            + terms.horizontal_timing_m
+            + terms.vertical_projection_m;
+        assert!((total - terms.signed_total_m).abs() < 1e-12);
+        assert!(terms.horizontal_timing_m < 0.0);
+        assert!(terms.vertical_projection_m > 0.0);
+    }
 
     #[test]
     fn distinguishes_airborne_wall_hit_from_earlier_fielding() {
