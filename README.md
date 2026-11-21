@@ -988,6 +988,17 @@ fair play. The resolved-fair hit rate includes home runs and uses
 recorded non-foul outcomes on non-foul flights. See `reports` for
 results by seed.
 
+Use `contact_approach_comparison.paired_contact_quality` to compare the
+four pooled contact/miss combinations. In `contact_first_only_contact`,
+check how often ContactFirst produces a foul and how much EV it retains.
+In `both_contact`, compare the two sets of bat-local offsets and the
+adjusted contact-type transitions. Offset means and histograms use all
+pairs in each cohort, including the projected offsets of misses. Foul
+rates use contacts, and retention uses launches, including fouls. The
+retention fraction is the modeled EV after the contact offsets divided
+by the modeled pre-offset EV, with zero additional length loss. Use
+`retention_launches` as the denominator for the 80% and 95% counts.
+
 ### Count-based batting intent comparison
 
 Set `SABERBB_DB` to the roster and schedule database.

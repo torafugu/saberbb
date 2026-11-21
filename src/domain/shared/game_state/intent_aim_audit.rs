@@ -54,7 +54,10 @@ pub struct IntentAimPlay {
 
 #[derive(Clone, Copy)]
 enum Trial {
-    Aim(IntentAimOffsets),
+    Aim {
+        offsets: IntentAimOffsets,
+        measure_retention: bool,
+    },
     ContactFirstSpeed(f64),
     LengthLoss(f64),
     TimingGeometry(PitchBatTimingTrial),
@@ -89,7 +92,13 @@ impl Trial {
             vertical_bat_control_delta: 0.0,
         };
         match self {
-            Self::Aim(offsets) => inputs.aim_m = offsets.offset_m(intent),
+            Self::Aim {
+                offsets,
+                measure_retention,
+            } => {
+                inputs.aim_m = offsets.offset_m(intent);
+                inputs.length_loss = measure_retention.then_some(0.0);
+            }
             Self::ContactFirstSpeed(factor) if intent == BattedBallIntent::ContactFirst => {
                 inputs.speed_factor = factor;
             }
@@ -180,7 +189,33 @@ pub fn with_intent_aim_audit<T>(
     arms: &[IntentAimOffsets],
     run: impl FnOnce() -> T,
 ) -> (T, Vec<IntentAimSwing>) {
-    with_trials(arms.iter().copied().map(Trial::Aim).collect(), false, run)
+    with_aim_trials(arms, false, run)
+}
+
+/// Replay the supplied aim offsets and measure EV retention with zero additional length loss.
+pub fn with_contact_approach_audit<T>(
+    arms: &[IntentAimOffsets],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_aim_trials(arms, true, run)
+}
+
+fn with_aim_trials<T>(
+    arms: &[IntentAimOffsets],
+    measure_retention: bool,
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(
+        arms.iter()
+            .copied()
+            .map(|offsets| Trial::Aim {
+                offsets,
+                measure_retention,
+            })
+            .collect(),
+        false,
+        run,
+    )
 }
 
 /// Replay the same swing decisions with a speed multiplier on ContactFirst.

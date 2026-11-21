@@ -23,6 +23,8 @@ pub struct SwingReplay {
     pub contact_type: SwingContactType,
     pub flight: Option<(OutboundResult, f64, f64)>,
     pub exit_speed_retention: Option<f64>,
+    pub length_offset_m: f64,
+    pub thickness_offset_m: f64,
     pub outfield_direct_out: bool,
     pub double_fence: Option<DoubleFenceObservation>,
 }
@@ -179,6 +181,8 @@ impl GameState {
                             && catch.error_type.is_none()
                     }),
             exit_speed_retention,
+            length_offset_m: contact.length_offset_m,
+            thickness_offset_m: contact.thickness_offset_m,
             flight: replay
                 .ball
                 .map(|ball| (ball.outbound_result, ball.launch_speed, ball.launch_angle)),

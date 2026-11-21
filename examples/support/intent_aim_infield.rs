@@ -182,6 +182,8 @@ mod tests {
         let play = |angle, position, reach, result| IntentAimPlay {
             batting: SwingReplay {
                 exit_speed_retention: None,
+                length_offset_m: 0.0,
+                thickness_offset_m: 0.0,
                 outfield_direct_out: false,
                 contact_type:
                     saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
@@ -212,6 +214,8 @@ mod tests {
         let whiff = IntentAimPlay {
             batting: SwingReplay {
                 exit_speed_retention: None,
+                length_offset_m: 0.0,
+                thickness_offset_m: 0.0,
                 outfield_direct_out: false,
                 contact_type:
                     saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
