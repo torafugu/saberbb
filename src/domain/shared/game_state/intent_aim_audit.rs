@@ -65,6 +65,7 @@ enum Trial {
     ContactFirstSpeed(f64),
     LengthLoss(f64),
     TimingGeometry(PitchBatTimingTrial),
+    DownwardTimingHeight(Option<f64>),
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -83,6 +84,7 @@ struct ReplayInputs {
     attack_delta_deg: f64,
     use_path_mismatch: bool,
     vertical_bat_control_delta: f64,
+    downward_timing_height_scale: f64,
 }
 
 impl Trial {
@@ -94,6 +96,7 @@ impl Trial {
             attack_delta_deg: 0.0,
             use_path_mismatch: false,
             vertical_bat_control_delta: 0.0,
+            downward_timing_height_scale: 1.0,
         };
         match self {
             Self::Aim {
@@ -117,6 +120,11 @@ impl Trial {
                 }
                 inputs.use_path_mismatch = trial.use_path_mismatch;
                 // Request the launch retention measurement with zero additional length loss.
+                inputs.length_loss = Some(0.0);
+            }
+            Self::DownwardTimingHeight(scale) => {
+                inputs.use_path_mismatch = scale.is_some();
+                inputs.downward_timing_height_scale = scale.unwrap_or(1.0);
                 inputs.length_loss = Some(0.0);
             }
         }
@@ -312,6 +320,30 @@ pub fn with_pitch_bat_timing_audit<T>(
     )
 }
 
+/// Keep both live aims and scale only timing-derived displacement below the ball.
+pub fn with_downward_timing_height_audit<T>(
+    scales: &[Option<f64>],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(
+        scales
+            .iter()
+            .copied()
+            .map(Trial::DownwardTimingHeight)
+            .collect(),
+        false,
+        run,
+    )
+}
+
+fn scale_downward_timing_height(height_m: f64, scale: f64) -> f64 {
+    if height_m > 0.0 {
+        height_m * scale
+    } else {
+        height_m
+    }
+}
+
 fn with_trials<T>(
     arms: Vec<Trial>,
     audit_doubles: bool,
@@ -400,13 +432,15 @@ impl GameState {
                         .velocity_at_plate(&StrikeZoneDimensions::default())
                         .filter(|v| v.is_finite() && v.y < 0.0)
                         .ok_or(GameError::InvalidPitchTimingGeometry)?;
-                    error.additional_z_m += timing_height_error_m(
+                    let height_m = timing_height_error_m(
                         displacement.timing_offset_sec,
                         -velocity.y,
                         velocity.z,
                         trial_batter.swing_speed,
                         error.actual_attack_angle_deg,
                     );
+                    error.additional_z_m +=
+                        scale_downward_timing_height(height_m, inputs.downward_timing_height_scale);
                 }
                 let play = capture_infield(|| {
                     self.replay_swing_variant(
@@ -481,7 +515,19 @@ impl GameState {
 
 #[cfg(test)]
 mod tests {
-    use super::{PitchDisplacement, scaled_vertical_break_displacement, timing_height_error_m};
+    use super::{
+        PitchDisplacement, scale_downward_timing_height, scaled_vertical_break_displacement,
+        timing_height_error_m,
+    };
+
+    #[test]
+    fn scales_only_timing_height_below_the_ball() {
+        assert_eq!(scale_downward_timing_height(0.04, 1.0), 0.04);
+        assert_eq!(scale_downward_timing_height(0.04, 1.5), 0.06);
+        assert_eq!(scale_downward_timing_height(0.04, 2.0), 0.08);
+        assert_eq!(scale_downward_timing_height(0.0, 2.0), 0.0);
+        assert_eq!(scale_downward_timing_height(-0.04, 2.0), -0.04);
+    }
 
     #[test]
     fn scales_signed_vertical_break_while_preserving_location_bias() {

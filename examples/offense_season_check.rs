@@ -176,6 +176,9 @@ struct Args {
         "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     pitch_bat_timing_comparison: bool,
+    /// Compare one-sided amplification of timing-derived bat height error.
+    #[arg(long, requires = "pitch_bat_timing_comparison")]
+    downward_timing_error_comparison: bool,
     /// Compare a steeper ContactFirst swing with reduced vertical correction.
     #[arg(long, conflicts_with_all = [
         "pitch_bat_timing_comparison", "contact_length_comparison", "contact_first_swing_speed_comparison", "contact_first_ev_terms", "contact_first_ev_comparison", "intent_aim_comparison", "swing_speed_batter_id",
