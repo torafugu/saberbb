@@ -7,9 +7,9 @@ use saberbb::domain::{
         game::{BattingResult, GameResult},
         game_state::{
             DoubleFenceObservation, IntentAimOffsets, IntentAimPlay, IntentAimSwing,
-            PitchBatTimingTrial, SwingReplay, with_contact_first_speed_audit,
-            with_contact_length_audit, with_intent_aim_audit, with_intent_aim_trial,
-            with_pitch_bat_timing_audit,
+            PitchBatTimingTrial, SwingReplay, with_contact_approach_audit,
+            with_contact_first_speed_audit, with_contact_length_audit, with_intent_aim_audit,
+            with_intent_aim_trial, with_pitch_bat_timing_audit,
         },
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
@@ -20,6 +20,10 @@ use std::collections::BTreeMap;
 #[path = "intent_aim_infield.rs"]
 mod intent_aim_infield;
 use intent_aim_infield::InfieldCounts;
+
+#[path = "contact_approach_quality.rs"]
+mod contact_approach_quality;
+use contact_approach_quality::ContactApproachQuality;
 
 fn arms(args: &Args) -> Vec<(&'static str, IntentAimOffsets)> {
     let baseline = IntentAimOffsets::default();
@@ -584,6 +588,7 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
         },
     ];
     let mut transitions: BTreeMap<&str, BTreeMap<&str, u64>> = BTreeMap::new();
+    let mut quality = ContactApproachQuality::default();
     let mut report = run_replays(
         args,
         games,
@@ -592,10 +597,13 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
         &["live", "contact_first", "line_drive"],
         "Every live swing is replayed with its original aim and with each approach's live vertical contact offset, before evaluating contact. Pitch, swing decision, batter, count, starting game state and pre-contact RNG are shared. Existing vertical contact policy, fielding and running are reapplied. Later pitches follow the live baseline. The all group combines all swings; contact_first and line_drive subgroups use the originally selected intent. Contact types use the adjusted contact classifier. A resolved fair swing has a non-foul flight and a non-foul recorded batting outcome; its hit rate includes home runs. Fair interrupted plays are kept in their own outcome stage.",
         |simulate| {
-            let (result, swings) = with_intent_aim_audit(&offsets, simulate);
+            let (result, swings) = with_contact_approach_audit(&offsets, simulate);
             for swing in &swings {
-                let source = outcome_stage(swing.plays[1].batting);
-                let destination = outcome_stage(swing.plays[2].batting);
+                let contact_first = swing.plays[1].batting;
+                let line_drive = swing.plays[2].batting;
+                quality.observe(contact_first, line_drive);
+                let source = outcome_stage(contact_first);
+                let destination = outcome_stage(line_drive);
                 *transitions
                     .entry(source)
                     .or_default()
@@ -606,6 +614,7 @@ pub(super) fn run_contact_approaches(args: &Args, games: &[GameSchedule]) -> Res
         },
     )?;
     report["contact_first_to_line_drive_outcome_stages"] = json!(transitions);
+    report["paired_contact_quality"] = quality.report();
     Ok(report)
 }
 
@@ -773,6 +782,8 @@ mod tests {
         let replay = |outcome, flight| IntentAimPlay {
             batting: SwingReplay {
                 exit_speed_retention: None,
+                length_offset_m: 0.0,
+                thickness_offset_m: 0.0,
                 outfield_direct_out: false,
                 contact_type:
                     saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
@@ -838,6 +849,8 @@ mod tests {
         };
         let single = replay(SwingReplay {
             exit_speed_retention: None,
+            length_offset_m: 0.0,
+            thickness_offset_m: 0.0,
             outfield_direct_out: false,
             contact_type:
                 saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
@@ -850,6 +863,8 @@ mod tests {
             single,
             replay(SwingReplay {
                 exit_speed_retention: None,
+                length_offset_m: 0.0,
+                thickness_offset_m: 0.0,
                 outfield_direct_out: false,
                 contact_type:
                     saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
@@ -862,6 +877,8 @@ mod tests {
             single,
             replay(SwingReplay {
                 exit_speed_retention: None,
+                length_offset_m: 0.0,
+                thickness_offset_m: 0.0,
                 outfield_direct_out: false,
                 contact_type:
                     saberbb::domain::resolver::batting_resolver::SwingContactType::SolidContact,
