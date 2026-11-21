@@ -845,6 +845,9 @@ impl SpinVector {
     }
 }
 
+/// Fraction of the incoming spin vector added to collision-generated spin.
+pub const PITCH_SPIN_RETENTION: f64 = 0.20;
+
 /// Combine collision spin and pitch spin to calculate the final batted ball spin
 fn combine_batted_spin(
     collision_spin_rate: f64,
@@ -856,9 +859,7 @@ fn combine_batted_spin(
     let collision_vec = SpinVector::from_polar(collision_spin_rate, collision_spin_angle);
 
     // 2. Convert residual pitch spin to vector
-    // Note: proportion of pitch spin transferred to batted ball at contact (approx. 15%~25%)
-    let retention_rate = 0.20;
-    let pitch_retained_rate = pitch_spin_rate * retention_rate;
+    let pitch_retained_rate = pitch_spin_rate * PITCH_SPIN_RETENTION;
 
     // Pitch spin vector
     let pitch_vec = SpinVector::from_polar(pitch_retained_rate, pitch_spin_angle);
