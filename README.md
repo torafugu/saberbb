@@ -998,6 +998,15 @@ batting result contribute to the fair angle bins and are also counted
 under `fair_unresolved`. The optional two-strike protection report
 includes the same profile for the baseline, trial, and rescued swings.
 
+Within each contact type and the overall row, `launches_by_vla_and_hla_deg`
+crosses the three raw vertical angle bands with signed horizontal launch
+angle from center field. It shows the center, both sides near the foul
+lines, and launches farther outside or back toward the stands. Every
+cell counts both fair and foul launches. Those outcomes use the actual
+ruling or trajectory, so they can differ from what the initial
+horizontal angle alone suggests. The horizontal bins use ±30°, ±45°,
+and ±90° as cutoffs. At ±45° the angle is in the outside band.
+
 Use `contact_approach_comparison.paired_contact_quality` to compare the
 four pooled contact/miss combinations. In `contact_first_only_contact`,
 check how often ContactFirst produces a foul and how much EV it retains.
