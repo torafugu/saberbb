@@ -36,7 +36,7 @@ impl UpperTail {
 }
 
 #[derive(Default, Serialize)]
-struct QualifiedDistribution {
+struct BattingAverageDistribution {
     below_200: u64,
     from_200_below_250: u64,
     from_250_through_300: u64,
@@ -45,7 +45,7 @@ struct QualifiedDistribution {
     at_least_500: u64,
 }
 
-impl QualifiedDistribution {
+impl BattingAverageDistribution {
     fn observe(&mut self, hits: u64, ab: u64) {
         // Compare exact batting averages so .250 and .300 are both included.
         let scaled_hits = 1000 * hits;
@@ -57,6 +57,40 @@ impl QualifiedDistribution {
             n if n < 500 * ab => self.from_400_below_500 += 1,
             _ => self.at_least_500 += 1,
         }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct PlateAppearanceBand {
+    batters: u64,
+    without_at_bats: u64,
+    batting_average_distribution: BattingAverageDistribution,
+}
+
+impl PlateAppearanceBand {
+    fn observe(&mut self, hits: u64, ab: u64) {
+        self.batters += 1;
+        if ab == 0 {
+            self.without_at_bats += 1;
+        } else {
+            self.batting_average_distribution.observe(hits, ab);
+        }
+    }
+}
+
+const PA_BANDS: [&str; 5] = [
+    "below_25_pct",
+    "25_to_below_50_pct",
+    "50_to_below_75_pct",
+    "75_to_below_100_pct",
+    "at_least_100_pct",
+];
+
+fn plate_appearance_band(pa: u64, required_pa: u64) -> usize {
+    if pa >= required_pa {
+        4
+    } else {
+        (4 * pa / required_pa) as usize
     }
 }
 
@@ -98,12 +132,18 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let angle_deg = f64::from(args.balance_line_drive_attack_deg.unwrap_or(2));
 
     let mut arms = Vec::new();
-    for (label, compress, delta_deg) in [
+    let trials = [
         ("current", false, 0.0),
         ("compression_only", true, 0.0),
         ("angle_only", false, angle_deg),
         ("combined", true, angle_deg),
-    ] {
+    ];
+    let case_count = if args.balance_current_only {
+        1
+    } else {
+        trials.len()
+    };
+    for (label, compress, delta_deg) in trials.into_iter().take(case_count) {
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
         for &seed in &args.seeds {
@@ -139,25 +179,36 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 })?;
                 accumulate(&mut total, &mut teams, &mut players, original, &result)?;
             }
-            let mut distribution = QualifiedDistribution::default();
-            let mut qualified_batters = 0;
-            for (id, counts) in players {
-                let team_games = teams[&roster[&id].0].games;
+            let mut pa_bands: [PlateAppearanceBand; PA_BANDS.len()] = Default::default();
+            let mut batter_rows = Vec::new();
+            for (id, counts) in players.into_iter().filter(|(_, counts)| counts.pa > 0) {
+                let (team_id, player) = roster[&id];
+                let team_games = teams[&team_id].games;
                 let required_pa = (31 * team_games + 5) / 10;
-                if counts.ab > 0 && counts.pa >= required_pa {
-                    qualified_batters += 1;
-                    distribution.observe(
-                        counts.single + counts.double + counts.triple + counts.hr,
-                        counts.ab,
-                    );
-                }
+                let band = plate_appearance_band(counts.pa, required_pa);
+                let hits = counts.single + counts.double + counts.triple + counts.hr;
+                pa_bands[band].observe(hits, counts.ab);
+                batter_rows.push(json!({
+                    "batter_id": id, "team_id": team_id,
+                    "first_name": player.info.first_name, "last_name": player.info.last_name,
+                    "team_games": team_games, "games_with_batting_record": counts.games,
+                    "pa": counts.pa, "ab": counts.ab, "hits": hits, "hr": counts.hr,
+                    "ba": (counts.ab > 0).then(|| hits as f64 / counts.ab as f64),
+                    "required_pa": required_pa, "pa_shortfall": required_pa.saturating_sub(counts.pa),
+                    "qualified": counts.ab > 0 && counts.pa >= required_pa,
+                }));
             }
+            let qualified = &pa_bands[4];
+            let distribution = &qualified.batting_average_distribution;
             let at_least_400 = distribution.from_400_below_500 + distribution.at_least_500;
             reports.push(json!({
                 "seed": seed.to_string(), "league": rates(&total),
                 "team_games": teams.iter().map(|(&id, c)| (id, c.games)).collect::<BTreeMap<_, _>>(),
-                "qualified_batters": qualified_batters, "qualified_at_least_400": at_least_400,
+                "qualified_batters": qualified.batters - qualified.without_at_bats,
+                "qualified_at_least_400": at_least_400,
                 "qualified_batting_average_distribution": distribution,
+                "batters": batter_rows,
+                "batting_average_by_pa": PA_BANDS.into_iter().zip(pa_bands).collect::<BTreeMap<_, _>>(),
             }));
             eprintln!(
                 "Batting balance {label}, seed {seed}: {} games complete",
@@ -171,7 +222,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         }));
     }
     Ok(json!({
-        "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The attack delta changes the live LineDrive execution angle only.",
+        "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The attack delta changes the live LineDrive execution angle only.",
         "compression": {
             "definition": "Find each attribute's nearest-rank 90th percentile among unique roster batters in the selected schedules. Keep values at or below it and halve the excess above it. Use the same thresholds across all arms and seeds.",
             "roster_batters": skills.len(), "retained_excess_fraction": 0.5,
@@ -196,8 +247,30 @@ mod tests {
     }
 
     #[test]
+    fn plate_appearance_bands_preserve_qualification_boundaries() {
+        for (pa, band) in [
+            (1, 0),
+            (109, 0),
+            (110, 1),
+            (219, 2),
+            (328, 3),
+            (436, 3),
+            (437, 4),
+            (438, 4),
+        ] {
+            assert_eq!(plate_appearance_band(pa, 437), band);
+        }
+        let mut band = PlateAppearanceBand::default();
+        band.observe(0, 0);
+        band.observe(1, 4);
+        assert_eq!(band.batters, 2);
+        assert_eq!(band.without_at_bats, 1);
+        assert_eq!(band.batting_average_distribution.from_250_through_300, 1);
+    }
+
+    #[test]
     fn batting_average_bands_include_the_requested_boundaries() {
-        let mut bands = QualifiedDistribution::default();
+        let mut bands = BattingAverageDistribution::default();
         for hits in [199, 200, 249, 250, 300, 301, 399, 400, 499, 500] {
             bands.observe(hits, 1000);
         }

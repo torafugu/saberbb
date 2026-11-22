@@ -118,6 +118,9 @@ struct Args {
         "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     batting_balance_comparison: bool,
+    /// Report plate appearances and batting averages for the current balance arm only.
+    #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
+    balance_current_only: bool,
     /// LineDrive-only attack increase in degrees; defaults to 2.
     #[arg(long, requires = "batting_balance_comparison", value_parser = clap::value_parser!(u8).range(2..=3))]
     balance_line_drive_attack_deg: Option<u8>,

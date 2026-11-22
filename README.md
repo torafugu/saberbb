@@ -597,6 +597,19 @@ LineDrive execution with the default timing geometry used by the live game.
 Qualification uses 3.1 PA per sampled team game, rounded per seed. The
 report includes batting average bands and rates per 100 plate appearances.
 
+To inspect which batting averages fall short of the plate appearance
+requirement, run the current arm by itself:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-current-only > batting_pa_distribution_2026.json
+```
+
+Each seed reports player rows with PA, AB, batting average, and PA shortfall.
+The same rows are cross-tabulated by batting-average band and percentage
+of each player's required PA. Players with PA and zero AB are counted
+separately within each PA band. The four-arm comparison also includes these
+reports for each arm.
+
 To investigate a season with high batting averages and few home runs:
 
 ```sh
