@@ -35,6 +35,33 @@ impl UpperTail {
     }
 }
 
+#[derive(Clone, Copy)]
+enum AbilityAdjustment {
+    Current,
+    CompressUpperTail,
+    Limits { mean_drop: f64, cap: Option<f64> },
+}
+
+impl AbilityAdjustment {
+    fn apply(self, value: f64, tail: &UpperTail) -> f64 {
+        match self {
+            Self::Current => value,
+            Self::CompressUpperTail => tail.compress(value),
+            Self::Limits { mean_drop, cap } => {
+                let shifted = value - mean_drop;
+                cap.map_or(shifted, |cap| shifted.min(cap))
+            }
+        }
+    }
+}
+
+fn ability_distribution(values: impl Iterator<Item = f64>, roster_size: usize) -> Value {
+    let (sum, upper) = values.fold((0.0_f64, f64::NEG_INFINITY), |(sum, upper), value| {
+        (sum + value / roster_size as f64, upper.max(value))
+    });
+    json!({"mean": sum, "max": upper})
+}
+
 #[derive(Default, Serialize)]
 struct BattingAverageDistribution {
     below_200: u64,
@@ -132,18 +159,55 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let angle_deg = f64::from(args.balance_line_drive_attack_deg.unwrap_or(2));
 
     let mut arms = Vec::new();
-    let trials = [
-        ("current", false, 0.0),
-        ("compression_only", true, 0.0),
-        ("angle_only", false, angle_deg),
-        ("combined", true, angle_deg),
-    ];
+    let mean_drop = args.balance_ability_mean_drop.unwrap_or(0.5);
+    let cap = args.balance_ability_cap.unwrap_or(1.0);
+    ensure!(
+        mean_drop.is_finite() && mean_drop > 0.0 && cap.is_finite(),
+        "ability mean drop must be positive and both settings must be finite"
+    );
+    use AbilityAdjustment::{CompressUpperTail, Current, Limits};
+    let trials = if args.balance_ability_limits {
+        [
+            ("current", Current, 0.0),
+            (
+                "mean_drop_only",
+                Limits {
+                    mean_drop,
+                    cap: None,
+                },
+                0.0,
+            ),
+            (
+                "cap_only",
+                Limits {
+                    mean_drop: 0.0,
+                    cap: Some(cap),
+                },
+                0.0,
+            ),
+            (
+                "mean_drop_and_cap",
+                Limits {
+                    mean_drop,
+                    cap: Some(cap),
+                },
+                0.0,
+            ),
+        ]
+    } else {
+        [
+            ("current", Current, 0.0),
+            ("compression_only", CompressUpperTail, 0.0),
+            ("angle_only", Current, angle_deg),
+            ("combined", CompressUpperTail, angle_deg),
+        ]
+    };
     let case_count = if args.balance_current_only {
         1
     } else {
         trials.len()
     };
-    for (label, compress, delta_deg) in trials.into_iter().take(case_count) {
+    for (label, adjustment, delta_deg) in trials.into_iter().take(case_count) {
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
         for &seed in &args.seeds {
@@ -152,7 +216,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             let mut players = BTreeMap::new();
             for original in games {
                 let mut game = original.clone();
-                if compress {
+                if !matches!(adjustment, Current) {
                     for player in game
                         .away_team
                         .players
@@ -160,8 +224,8 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         .chain(&mut game.home_team.players)
                     {
                         if let Some(batter) = &mut player.offense_skills.batter {
-                            batter.bat_control = bat_control.compress(batter.bat_control);
-                            batter.batting_eye = batting_eye.compress(batter.batting_eye);
+                            batter.bat_control = adjustment.apply(batter.bat_control, &bat_control);
+                            batter.batting_eye = adjustment.apply(batter.batting_eye, &batting_eye);
                         }
                     }
                 }
@@ -216,25 +280,70 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             );
             pooled.merge(total);
         }
-        arms.push(json!({
-            "arm": label, "compress_upper_tail": compress, "line_drive_attack_delta_deg": delta_deg,
-            "pooled_league": rates(&pooled), "reports": reports,
-        }));
+        let mut arm = json!({
+            "arm": label, "compress_upper_tail": matches!(adjustment, CompressUpperTail),
+            "line_drive_attack_delta_deg": delta_deg, "pooled_league": rates(&pooled), "reports": reports,
+        });
+        if args.balance_ability_limits {
+            arm["roster_abilities"] = json!({
+                "bat_control": ability_distribution(
+                    skills.iter().map(|b| adjustment.apply(b.bat_control, &bat_control)), skills.len(),
+                ),
+                "batting_eye": ability_distribution(
+                    skills.iter().map(|b| adjustment.apply(b.batting_eye, &batting_eye)), skills.len(),
+                ),
+            });
+        }
+        arms.push(arm);
     }
-    Ok(json!({
+    let mut output = json!({
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The attack delta changes the live LineDrive execution angle only.",
-        "compression": {
+        "arms": arms,
+    });
+    if args.balance_ability_limits {
+        output["ability_limits"] = json!({
+            "definition": "Apply the same shift and cap to both bat_control and batting_eye on a cloned roster. In the combined arm subtract the shift first, then cap the result. The standard lineup and batting logic are run using the trial abilities.",
+            "roster_batters": skills.len(), "mean_drop": mean_drop, "cap": cap,
+        });
+    } else {
+        output["compression"] = json!({
             "definition": "Find each attribute's nearest-rank 90th percentile among unique roster batters in the selected schedules. Keep values at or below it and halve the excess above it. Use the same thresholds across all arms and seeds.",
             "roster_batters": skills.len(), "retained_excess_fraction": 0.5,
             "bat_control": bat_control, "batting_eye": batting_eye,
-        },
-        "arms": arms,
-    }))
+        });
+    }
+    Ok(output)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ability_limits_shift_then_cap_without_raising_lower_values() {
+        let tail = UpperTail::from_values(vec![0.0, 1.5]);
+        let shifted = AbilityAdjustment::Limits {
+            mean_drop: 0.5,
+            cap: None,
+        };
+        let capped = AbilityAdjustment::Limits {
+            mean_drop: 0.0,
+            cap: Some(1.0),
+        };
+        let combined = AbilityAdjustment::Limits {
+            mean_drop: 0.5,
+            cap: Some(1.0),
+        };
+        assert_eq!(shifted.apply(2.0, &tail), 1.5);
+        assert_eq!(capped.apply(2.0, &tail), 1.0);
+        assert_eq!(capped.apply(-0.2, &tail), -0.2);
+        assert_eq!(combined.apply(2.0, &tail), 1.0);
+        assert_eq!(combined.apply(0.0, &tail), -0.5);
+        assert_eq!(
+            ability_distribution([0.0, 1.0].into_iter(), 2),
+            json!({"mean": 0.5, "max": 1.0})
+        );
+    }
 
     #[test]
     fn upper_tail_compression_preserves_the_threshold_and_values_below_it() {

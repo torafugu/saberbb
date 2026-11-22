@@ -597,6 +597,17 @@ LineDrive execution with the default timing geometry used by the live game.
 Qualification uses 3.1 PA per sampled team game, rounded per seed. The
 report includes batting average bands and rates per 100 plate appearances.
 
+To test lowering the two batting abilities, use the ability limits mode:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-ability-limits --balance-ability-mean-drop 0.5 --balance-ability-cap 1.0 > batting_ability_limits_2026.json
+```
+
+It compares the current model, subtracting 0.5, capping at 1.0, and
+subtracting then capping. Both settings apply to `bat_control` and
+`batting_eye`. Each arm reports the resulting roster means and maxima.
+The standard game logic builds lineups from the trial rosters.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 
