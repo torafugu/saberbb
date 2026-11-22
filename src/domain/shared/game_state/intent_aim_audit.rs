@@ -71,6 +71,7 @@ enum Trial {
     LengthLoss(f64),
     BatControl(f64),
     AttackAngle(f64),
+    LineDriveAttackTiming(LineDriveAttackTimingTrial),
     TimingGeometry(PitchBatTimingTrial),
     DownwardTimingHeight(Option<f64>),
     PredictedContactCorrection(bool),
@@ -82,6 +83,12 @@ pub struct PitchBatTimingTrial {
     pub contact_first_attack_deg: i32,
     pub use_path_mismatch: bool,
     pub contact_first_vertical_bat_control_delta: f64,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct LineDriveAttackTimingTrial {
+    pub attack_delta_deg: f64,
+    pub timing_height: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -125,6 +132,12 @@ impl Trial {
             Self::LengthLoss(loss) => inputs.length_loss = Some(loss),
             Self::BatControl(delta) => inputs.bat_control_delta = delta,
             Self::AttackAngle(delta) => inputs.attack_delta_deg = delta,
+            Self::LineDriveAttackTiming(trial) => {
+                if intent == BattedBallIntent::LineDrive {
+                    inputs.attack_delta_deg = trial.attack_delta_deg;
+                    inputs.use_path_mismatch = trial.timing_height;
+                }
+            }
             Self::TimingGeometry(trial) => {
                 if intent == BattedBallIntent::ContactFirst {
                     inputs.aim_m = f64::from(trial.contact_first_z_mm) / 1000.0;
@@ -333,6 +346,22 @@ pub fn with_attack_angle_audit<T>(
 ) -> (T, Vec<IntentAimSwing>) {
     with_trials(
         deltas_deg.iter().copied().map(Trial::AttackAngle).collect(),
+        false,
+        run,
+    )
+}
+
+/// Vary LineDrive attack angle and the vertical displacement caused by timing.
+pub fn with_line_drive_attack_timing_audit<T>(
+    trials: &[LineDriveAttackTimingTrial],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(
+        trials
+            .iter()
+            .copied()
+            .map(Trial::LineDriveAttackTiming)
+            .collect(),
         false,
         run,
     )
@@ -653,6 +682,30 @@ mod tests {
         PitchDisplacement, scale_downward_timing_height, scaled_vertical_break_displacement,
         timing_height_error_m,
     };
+
+    #[test]
+    fn line_drive_attack_timing_varies_only_the_existing_line_drive_intent() {
+        use super::{BattedBallIntent, LineDriveAttackTimingTrial, Trial};
+
+        for (attack_delta_deg, timing_height) in
+            [(0.0, false), (5.0, false), (0.0, true), (5.0, true)]
+        {
+            let trial = Trial::LineDriveAttackTiming(LineDriveAttackTimingTrial {
+                attack_delta_deg,
+                timing_height,
+            });
+            let contact_first = trial.inputs(BattedBallIntent::ContactFirst);
+            assert!(
+                contact_first == Trial::AttackAngle(0.0).inputs(BattedBallIntent::ContactFirst)
+            );
+
+            let line_drive = trial.inputs(BattedBallIntent::LineDrive);
+            let mut expected =
+                Trial::AttackAngle(attack_delta_deg).inputs(BattedBallIntent::LineDrive);
+            expected.use_path_mismatch = timing_height;
+            assert!(line_drive == expected);
+        }
+    }
 
     #[test]
     fn forecast_correction_preserves_safe_aim_and_saturates_toward_contact() {

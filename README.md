@@ -568,6 +568,19 @@ The report tracks which of the same baseline hard low-angle fair contacts
 retain EV ≥45 m/s. Omit the batter ID to report all sampled swings. That
 report also highlights the batter with the most sampled LineDrive swings.
 
+To compare a 5° increase for LineDrive with and without the timing-induced
+vertical contact displacement, add `--line-drive-attack-timing`:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --paired-attack-angle --line-drive-attack-timing > line_drive_attack_timing_2026.json
+```
+
+Compare the 0° and +5° arms within each timing setting. The report includes
+adjusted solid, weak and marginal contact counts, including foul contacts.
+The timing calculation uses the same signed error and local pitch and bat
+paths as the pitch–bat timing diagnostic. The original game and its selected
+swings supply the replay inputs.
+
 To investigate a season with high batting averages and few home runs:
 
 ```sh
