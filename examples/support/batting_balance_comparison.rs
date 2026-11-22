@@ -166,17 +166,23 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         "ability mean drop must be positive and both settings must be finite"
     );
     use AbilityAdjustment::{CompressUpperTail, Current, Limits};
-    let trials = if args.balance_ability_limits {
+    let mean_drop_with_angle =
+        args.balance_ability_limits && args.balance_line_drive_attack_deg.is_some();
+    let shifted = Limits {
+        mean_drop,
+        cap: None,
+    };
+    let trials = if mean_drop_with_angle {
         [
             ("current", Current, 0.0),
-            (
-                "mean_drop_only",
-                Limits {
-                    mean_drop,
-                    cap: None,
-                },
-                0.0,
-            ),
+            ("mean_drop_only", shifted, 0.0),
+            ("angle_only", Current, angle_deg),
+            ("mean_drop_and_angle", shifted, angle_deg),
+        ]
+    } else if args.balance_ability_limits {
+        [
+            ("current", Current, 0.0),
+            ("mean_drop_only", shifted, 0.0),
             (
                 "cap_only",
                 Limits {
@@ -300,7 +306,13 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The attack delta changes the live LineDrive execution angle only.",
         "arms": arms,
     });
-    if args.balance_ability_limits {
+    if mean_drop_with_angle {
+        output["mean_drop_with_angle"] = json!({
+            "definition": "Subtract the same amount from bat_control and batting_eye on a cloned roster in the mean-drop arms. Compare with the LineDrive execution angle increase alone and with both changes together. The standard lineup and batting logic are run using the trial abilities.",
+            "roster_batters": skills.len(), "mean_drop": mean_drop,
+            "line_drive_attack_delta_deg": angle_deg,
+        });
+    } else if args.balance_ability_limits {
         output["ability_limits"] = json!({
             "definition": "Apply the same shift and cap to both bat_control and batting_eye on a cloned roster. In the combined arm subtract the shift first, then cap the result. The standard lineup and batting logic are run using the trial abilities.",
             "roster_batters": skills.len(), "mean_drop": mean_drop, "cap": cap,
@@ -318,6 +330,28 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ability_shift_and_angle_can_be_combined_but_cannot_also_set_a_cap() {
+        use clap::Parser;
+        let mut args = vec![
+            "offense_season_check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-ability-limits",
+            "--balance-ability-mean-drop",
+            "0.5",
+            "--balance-line-drive-attack-deg",
+            "2",
+        ];
+        let parsed = Args::try_parse_from(&args).unwrap();
+        assert!(parsed.balance_ability_limits);
+        assert_eq!(parsed.balance_ability_mean_drop, Some(0.5));
+        assert_eq!(parsed.balance_line_drive_attack_deg, Some(2));
+        args.extend(["--balance-ability-cap", "1.0"]);
+        assert!(Args::try_parse_from(&args).is_err());
+    }
 
     #[test]
     fn ability_limits_shift_then_cap_without_raising_lower_values() {

@@ -121,14 +121,14 @@ struct Args {
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,
-    /// Compare ability decreases and caps with the current lineup and batting model.
-    #[arg(long, requires = "batting_balance_comparison", conflicts_with_all = ["balance_current_only", "balance_line_drive_attack_deg"])]
+    /// Compare ability decreases with a cap, or with an explicit LineDrive angle increase.
+    #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_current_only")]
     balance_ability_limits: bool,
     /// Subtract this amount from both batting abilities; defaults to 0.5.
     #[arg(long, requires = "balance_ability_limits")]
     balance_ability_mean_drop: Option<f64>,
     /// Cap both batting abilities at this value; defaults to 1.0.
-    #[arg(long, requires = "balance_ability_limits", allow_negative_numbers = true)]
+    #[arg(long, requires = "balance_ability_limits", conflicts_with = "balance_line_drive_attack_deg", allow_negative_numbers = true)]
     balance_ability_cap: Option<f64>,
     /// LineDrive-only attack increase in degrees; defaults to 2.
     #[arg(long, requires = "batting_balance_comparison", value_parser = clap::value_parser!(u8).range(2..=3))]
