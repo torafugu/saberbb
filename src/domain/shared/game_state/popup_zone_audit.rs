@@ -73,6 +73,8 @@ pub struct PopupZoneSwing {
     pub count_seq: u16,
     pub intent: BattedBallIntent,
     pub baseline: PopupZonePlay,
+    pub actual_bat_angle_deg: f64,
+    pub actual_attack_angle_deg: f64,
     /// Z-major order for a grid, or ascending shifts for the live Z sweep.
     pub grid: Vec<PopupZonePlay>,
     pub fixed_horizontal: Option<FixedHorizontalScan>,
@@ -411,6 +413,8 @@ impl GameState {
                 count_seq: self.count_seq,
                 intent,
                 baseline,
+                actual_bat_angle_deg: swing_error.actual_bat_angle_deg,
+                actual_attack_angle_deg: swing_error.actual_attack_angle_deg,
                 grid,
                 fixed_horizontal,
             });

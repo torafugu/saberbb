@@ -2,7 +2,10 @@ use super::{Args, GameSchedule, derived_seed, simulate_game};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
-    resolver::batting_resolver::wrap_hla_deg,
+    resolver::batting_resolver::{
+        calculate_vertical_contact_deflection, vertical_contact_ranges_at_x,
+        vertical_offset_boundary_to_exceed_deflection, wrap_hla_deg,
+    },
     shared::game_state::{
         FixedHorizontalScan, LIVE_POPUP_HLA_RETENTION_PCT, LIVE_POPUP_Z_SHIFTS_MM,
         POPUP_FIXED_X_STEP_M, POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
@@ -734,22 +737,14 @@ impl LiveZGroup {
     fn observe(&mut self, swing: &PopupZoneSwing, scan: &FixedHorizontalScan) {
         self.reachability
             .observe(swing.baseline, scan, PopupHlaTrial::Disabled);
-        if swing.baseline.launch.is_some() {
-            let first_high = if swing.baseline.launch.is_some_and(has_high_vla) {
-                Some(swing.baseline)
-            } else if let FixedHorizontalScan::HighVlaSamples(samples) = scan {
-                samples
-                    .iter()
-                    .copied()
-                    .find(|play| play.launch.is_some_and(has_high_vla))
-            } else {
-                None
-            };
-            if let Some(play) = first_high {
-                self.live_contacts_with_high_vla_reachable += 1;
-                self.first_high_vla_from_live_contact
-                    .observe((play.z_m - swing.baseline.z_m).max(0.0) * 1000.0);
-            }
+        if let Some(play) = swing
+            .baseline
+            .launch
+            .and_then(|_| first_high_vla(swing.baseline, scan))
+        {
+            self.live_contacts_with_high_vla_reachable += 1;
+            self.first_high_vla_from_live_contact
+                .observe((play.z_m - swing.baseline.z_m).max(0.0) * 1000.0);
         }
         for (counts, trial) in self.trials.iter_mut().zip(&swing.grid) {
             counts.observe(swing.baseline, *trial);
@@ -770,6 +765,90 @@ impl LiveZGroup {
     }
 }
 
+fn first_high_vla(baseline: PopupZonePlay, scan: &FixedHorizontalScan) -> Option<PopupZonePlay> {
+    if baseline.launch.is_some_and(has_high_vla) {
+        return Some(baseline);
+    }
+    let FixedHorizontalScan::HighVlaSamples(samples) = scan else {
+        return None;
+    };
+    samples
+        .iter()
+        .copied()
+        .find(|play| play.launch.is_some_and(has_high_vla))
+}
+
+fn live_z_geometry_row(
+    seed: u64,
+    game_id: u32,
+    swing: &PopupZoneSwing,
+    scan: &FixedHorizontalScan,
+) -> Value {
+    let live = swing.baseline;
+    let attack = swing.actual_attack_angle_deg;
+    let ranges = vertical_contact_ranges_at_x(live.x_m, swing.actual_bat_angle_deg);
+    let downward_interval = ranges.and_then(
+        |[(length_min, length_max), (thickness_min, thickness_max)]| {
+            let start = live.z_m.max(length_min).max(thickness_min);
+            let end = length_max.min(thickness_max);
+            (start <= end).then_some((start, end))
+        },
+    );
+    let threshold = vertical_offset_boundary_to_exceed_deflection(POPUP_SCAN_VLA_DEG - attack);
+    let finite_mm = |z: f64| z.is_finite().then_some(z * 1000.0);
+    let high = first_high_vla(live, scan);
+    let first_popup = if is_popup(live) {
+        Some(live)
+    } else if let FixedHorizontalScan::HighVlaSamples(samples) = scan {
+        samples.iter().copied().find(|&play| is_popup(play))
+    } else {
+        None
+    };
+    let scan_status = match scan {
+        FixedHorizontalScan::NoContactAtOrBelowLiveBat => "no_downward_contact_interval",
+        FixedHorizontalScan::VerticalDeflectionCap => "vertical_deflection_cap",
+        FixedHorizontalScan::ThicknessEndsBeforeHighVla => "thickness_limit_before_threshold",
+        FixedHorizontalScan::LengthEndsBeforeHighVla => "length_limit_before_threshold",
+        FixedHorizontalScan::HighVlaSamples(_) if high.is_some() => "high_vla_found",
+        FixedHorizontalScan::HighVlaSamples(_) => "no_nonzero_high_vla_at_samples",
+    };
+    json!({
+        "seed": seed,
+        "game_id": game_id,
+        "count_seq": swing.count_seq,
+        "intent": match swing.intent {
+            BattedBallIntent::ContactFirst => "contact_first",
+            BattedBallIntent::LineDrive => "line_drive",
+        },
+        "live_contact": live.launch.is_some(),
+        "live_x_mm": live.x_m * 1000.0,
+        "live_z_mm": live.z_m * 1000.0,
+        "bat_angle_deg": swing.actual_bat_angle_deg,
+        "attack_angle_deg": attack,
+        "live_vla_deg": live.launch.map(|launch| launch.vla_deg),
+        "live_offset_deflection_deg": calculate_vertical_contact_deflection(live.z_m),
+        "required_deflection_deg": POPUP_SCAN_VLA_DEG - attack,
+        "threshold_kind": match threshold {
+            None => "beyond_deflection_cap",
+            Some(z) if z.is_finite() => "finite",
+            Some(_) => "all_z",
+        },
+        "strict_vla_threshold_z_mm": threshold.and_then(finite_mm),
+        "signed_z_gap_to_threshold_mm": threshold.and_then(|z| finite_mm(z - live.z_m)),
+        "length_limit_z_max_mm": ranges.and_then(|ranges| finite_mm(ranges[0].1)),
+        "thickness_limit_z_max_mm": ranges.and_then(|ranges| finite_mm(ranges[1].1)),
+        "downward_contact_start_z_mm": downward_interval.map(|(start, _)| start * 1000.0),
+        "downward_contact_end_z_mm": downward_interval.map(|(_, end)| end * 1000.0),
+        "signed_contact_end_minus_threshold_mm": downward_interval.zip(threshold)
+            .and_then(|((_, end), threshold)| finite_mm(end - threshold)),
+        "geometric_max_downward_vla_deg": downward_interval
+            .map(|(_, end)| attack + calculate_vertical_contact_deflection(end)),
+        "first_sample_with_high_vla_z_mm": high.map(|play| play.z_m * 1000.0),
+        "first_sample_with_popup_z_mm": first_popup.map(|play| play.z_m * 1000.0),
+        "scan_status": scan_status,
+    })
+}
+
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let hla_trial = if args.popup_hla_sweep {
         PopupHlaTrial::Sweep
@@ -787,6 +866,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let mut live_all = LiveHlaGroup::default();
     let mut live_contact_first = LiveHlaGroup::default();
     let mut live_line_drive = LiveHlaGroup::default();
+    let mut z_geometry_rows = Vec::new();
     let mut z_all = LiveZGroup::default();
     let mut z_contact_first = LiveZGroup::default();
     let mut z_line_drive = LiveZGroup::default();
@@ -848,6 +928,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         swing.grid.len() == LIVE_POPUP_Z_SHIFTS_MM.len(),
                         "missing live Z replay"
                     );
+                    if args.popup_live_z_geometry {
+                        z_geometry_rows.push(live_z_geometry_row(seed, game.id, &swing, scan));
+                    }
                     z_all.observe(&swing, scan);
                     match swing.intent {
                         BattedBallIntent::ContactFirst => &mut z_contact_first,
@@ -909,7 +992,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         eprintln!("{label}, seed {seed}: {} games complete", games.len());
     }
     if args.popup_live_z_sweep {
-        return Ok(json!({
+        let mut report = json!({
             "definition": "Replay the same swings with X and timing fixed, adding the reported Z in the ball-minus-bat coordinate (positive moves the bat down). Use the original pitch, swing angles and starting RNG state. Shifts recompute contact and launch using the standard model. Only the original play advances game state. Contact and whiff percentages use all swings, including swings without a recorded batting result. A high launch requires positive EV above the tolerance and VLA strictly above the threshold. A popup additionally requires a fair projected infield first bounce or a clean air out by an infielder in fair territory.",
             "reachability_definition": "At fixed live X, scan from the live Z toward lower bat positions within the geometric contact interval and above the VLA threshold. Distances are to the first qualifying sampled position, with zero for an already high live contact. These are geometric opportunities; shifts between samples may be missed.",
             "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
@@ -919,7 +1002,14 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             "all": z_all.report(),
             "contact_first": z_contact_first.report(),
             "line_drive": z_line_drive.report(),
-        }));
+        });
+        if args.popup_live_z_geometry {
+            report["geometry"] = json!({
+                "definition": "One row per seed, game and pitch count for swings accepted by the audit, including misses. Z is ball minus bat. The contact bounds use the live world X and bat tilt. A strict angle boundary requires Z greater than the finite threshold. Signed threshold gap is threshold minus live Z. Signed contact margin is the downward contact end minus the threshold. The geometric maximum is evaluated at the contact end and may occur at zero EV. Sampled high launches and popups require nonzero EV. Null limits or distances have no finite value or qualifying sample.",
+                "rows": z_geometry_rows,
+            });
+        }
+        return Ok(report);
     }
     if args.popup_live_hla_sweep {
         return Ok(json!({
@@ -1097,6 +1187,8 @@ mod tests {
             count_seq: 1,
             intent: BattedBallIntent::LineDrive,
             baseline: live,
+            actual_bat_angle_deg: 30.0,
+            actual_attack_angle_deg: 15.0,
             grid: vec![popup(-0.24, 0.02, true)],
             fixed_horizontal: None,
         };
