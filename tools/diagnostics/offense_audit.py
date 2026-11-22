@@ -17,7 +17,7 @@ PA_SQL = ','.join("'" + value + "'" for value in PA_RESULTS)
 
 
 def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batter_line=None,
-          league_batting=False, hard_contact=False, pitcher_matchups=False):
+          league_batting=False, hard_contact=False, pitcher_matchups=False, babip_contact_mix=False):
     """Never create, rebuild, or modify the supplied database or its caches."""
     uri = Path(path).expanduser().resolve().as_uri() + '?mode=ro'
     with sqlite3.connect(uri, uri=True, timeout=30) as conn:
@@ -28,8 +28,13 @@ def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batt
             raise ValueError('--hard-contact requires --league-batting')
         if pitcher_matchups and not league_batting:
             raise ValueError('--pitcher-matchups requires --league-batting')
+        if babip_contact_mix and not league_batting:
+            raise ValueError('--babip-contact-mix requires --league-batting')
         if league_batting:
-            report = league_batting_audit(conn, season, limit, pitcher_matchups=pitcher_matchups)
+            report = league_batting_audit(
+                conn, season, limit, pitcher_matchups=pitcher_matchups,
+                babip_contact_mix=babip_contact_mix,
+            )
             if hard_contact:
                 top_ids = {line['player']['id'] for line in report['top_qualified']}
                 report['hard_contact'] = hard_contact_audit(conn, report['scope']['season'], top_ids)
@@ -158,7 +163,7 @@ def rate(numerator, denominator):
     return numerator / denominator if denominator else None
 
 
-def league_batting_audit(conn, season, limit, *, pitcher_matchups=False):
+def league_batting_audit(conn, season, limit, *, pitcher_matchups=False, babip_contact_mix=False):
     if season is None:
         season = conn.execute(f'SELECT MAX(season) FROM game g WHERE {COMPLETED_REGULAR_SQL}').fetchone()[0]
     games = conn.execute(f'''
@@ -176,6 +181,7 @@ def league_batting_audit(conn, season, limit, *, pitcher_matchups=False):
     power = Counter()
     games_with_logs = set()
     matchups = defaultdict(Counter)
+    babip_cells = defaultdict(Counter)
     pitcher_column = 'b.pitcher_id,' if pitcher_matchups else ''
     for play in conn.execute(f'''
         SELECT b.game_id, b.batter_id, {pitcher_column} b.result, b.launch_speed, b.launch_angle, b.outbound_result,
@@ -203,6 +209,9 @@ def league_batting_audit(conn, season, limit, *, pitcher_matchups=False):
         if result in IN_PLAY_RESULTS:
             kind = VLA_TYPES[bisect_right(VLA_TYPE_EDGES, vla)] if measured else 'Unknown'
             batted_balls[pid][kind, result] += 1
+            if babip_contact_mix and measured and observed_number(ev) and observed_number(vla):
+                cell = bisect_right(BABIP_EV_EDGES, ev), bisect_right(BABIP_VLA_EDGES, vla)
+                babip_cells[pid][cell, result in NON_HR_HITS] += 1
         if result in FAIR_RESULTS and measured:
             grid[bisect_right(EV_EDGES, ev), bisect_right(VLA_EDGES, vla)][result] += 1
             if in_power_window(ev, vla):
@@ -272,7 +281,74 @@ def league_batting_audit(conn, season, limit, *, pitcher_matchups=False):
         report['pitcher_matchups'] = pitcher_matchup_report(
             conn, season, len(games), team_games, players, qualified, matchups,
         )
+    if babip_contact_mix:
+        report['babip_contact_mix'] = babip_contact_mix_report(qualified, babip_cells)
     return report
+
+
+BABIP_EV_EDGES = (30, 40, 45, 47.5, 50)
+BABIP_VLA_EDGES = (-10, 0, 5, 7, 10, 15, 25, 50)
+BABIP_MIN_REFERENCE_BALLS = 20
+
+
+def babip_contact_mix_report(qualified, cells_by_batter):
+    league = Counter()
+    for cells in cells_by_batter.values():
+        league.update(cells)
+    return dict(
+        definition='Compare measured non-HR balls in play in the same exit-speed and vertical-angle bands. '
+                   'The reference includes all other batters, including non-qualified batters, and excludes '
+                   'the target batter. Metrics on shared bands use only bands with at least the stated '
+                   'number of reference balls. Opponent, horizontal angle, and running speed can still differ.',
+        decomposition='On shared bands, observed BABIP minus the reference BABIP equals the contact-mix '
+                      'difference plus the within-band difference. Expected BABIP applies other batters’ '
+                      'hit rates in each band to the target batter’s distribution of balls.',
+        min_reference_balls_per_band=BABIP_MIN_REFERENCE_BALLS,
+        exit_speed_edges_ms=BABIP_EV_EDGES,
+        launch_angle_edges_deg=BABIP_VLA_EDGES,
+        qualified_batters=[
+            babip_contact_mix_line(line, cells_by_batter.get(line['player']['id'], Counter()), league)
+            for line in qualified
+        ],
+    )
+
+
+def babip_contact_mix_line(line, cells, league):
+    reference = league - cells
+    reference_balls = reference_hits = balls = hits = 0
+    expected_hits = 0.0
+    details = []
+    for cell in sorted({cell for cell, _ in cells}):
+        target_hits = cells[cell, True]
+        target_balls = cells[cell, False] + target_hits
+        other_hits = reference[cell, True]
+        other_balls = reference[cell, False] + other_hits
+        eligible = other_balls >= BABIP_MIN_REFERENCE_BALLS
+        other_rate = rate(other_hits, other_balls)
+        if eligible:
+            balls += target_balls
+            hits += target_hits
+            reference_balls += other_balls
+            reference_hits += other_hits
+            expected_hits += target_balls * other_rate
+        details.append(dict(
+            exit_speed_ms=bands(BABIP_EV_EDGES, cell[0]), launch_angle_deg=bands(BABIP_VLA_EDGES, cell[1]),
+            balls=target_balls, hits=target_hits, other_balls=other_balls, other_hits=other_hits,
+            used_in_comparison=eligible,
+        ))
+    observed = rate(hits, balls)
+    expected = rate(expected_hits, balls)
+    reference_rate = rate(reference_hits, reference_balls)
+    return dict(
+        player=line['player'], pa=line['pa'], ba=line['ba'], season_babip=line['babip'],
+        season_balls_in_play=line['balls_in_play'], measured_balls_in_play=cells.total(),
+        compared_balls_in_play=balls, share_of_season_balls_compared=rate(balls, line['balls_in_play']),
+        compared_observed_babip=observed, expected_babip_at_target_mix=expected,
+        other_babip_on_shared_bands=reference_rate,
+        contact_mix_difference=expected - reference_rate if balls else None,
+        within_band_difference=observed - expected if balls else None,
+        bands=details,
+    )
 
 
 PITCHER_COHORTS = ('qualified_era_under_2', 'qualified_era_2_to_under_4', 'qualified_era_at_least_4',
@@ -880,6 +956,8 @@ def main():
                         help='With --league-batting, diagnose low-angle fielding and vertical contact at EV >=45 m/s')
     parser.add_argument('--pitcher-matchups', action='store_true',
                         help='With --league-batting, split batting by opposing pitcher cohort and report league pitching workload')
+    parser.add_argument('--babip-contact-mix', action='store_true',
+                        help='With --league-batting, compare each qualified batter with others in the same EV/VLA bands')
     parser.add_argument('--top', type=int, default=10)
     target = parser.add_mutually_exclusive_group()
     target.add_argument('--batter-id', type=int, help='Compare this batter with the --top current teammates by PA')
@@ -898,11 +976,13 @@ def main():
         parser.error('--hard-contact requires --league-batting')
     if options.pitcher_matchups and not options.league_batting:
         parser.error('--pitcher-matchups requires --league-batting')
+    if options.babip_contact_mix and not options.league_batting:
+        parser.error('--babip-contact-mix requires --league-batting')
     try:
         report = audit(db_from_env(), options.season, options.top, options.extra_base,
                        batter_id=options.batter_id, batter_line=options.batter_line,
                        league_batting=options.league_batting, hard_contact=options.hard_contact,
-                       pitcher_matchups=options.pitcher_matchups)
+                       pitcher_matchups=options.pitcher_matchups, babip_contact_mix=options.babip_contact_mix)
     except (ValueError, sqlite3.Error) as exc:
         parser.exit(1, f'offense audit failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))

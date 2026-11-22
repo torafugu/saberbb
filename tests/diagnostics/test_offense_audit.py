@@ -226,6 +226,26 @@ class OffenseAuditTest(unittest.TestCase):
             self.assertEqual(sum(matchup['qualified_batting_avg_distribution'].values()), 2)
             self.assertEqual(path.read_bytes(), before)
 
+    def test_babip_contact_mix_uses_shared_bands_and_excludes_target_from_reference(self):
+        from collections import Counter
+        first, second, sparse = (4, 4), (4, 5), (5, 5)
+        target = Counter({(first, True): 15, (first, False): 5,
+                          (second, True): 3, (second, False): 7, (sparse, True): 1})
+        other = Counter({(first, True): 10, (first, False): 10,
+                         (second, True): 12, (second, False): 28, (sparse, True): 2})
+        line = dict(player={'id': 1}, pa=40, ba=.500, babip=.600, balls_in_play=32)
+        row = offense_audit.babip_contact_mix_report([line], {1: target, 2: other})['qualified_batters'][0]
+        self.assertEqual((row['measured_balls_in_play'], row['compared_balls_in_play']), (31, 30))
+        self.assertEqual(row['compared_observed_babip'], 18 / 30)
+        self.assertEqual(row['expected_babip_at_target_mix'], 13 / 30)
+        self.assertEqual(row['other_babip_on_shared_bands'], 22 / 60)
+        self.assertAlmostEqual(row['contact_mix_difference'] + row['within_band_difference'],
+                               18 / 30 - 22 / 60)
+        self.assertFalse(row['bands'][-1]['used_in_comparison'])
+        unmatched = offense_audit.babip_contact_mix_report([line], {1: target})['qualified_batters'][0]
+        self.assertIsNone(unmatched['within_band_difference'])
+        json.dumps(unmatched, allow_nan=False)
+
     def test_hard_contact_uses_shared_geometry_and_observed_first_base_clocks(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'test.db'
