@@ -64,8 +64,9 @@ mod popup_zone_audit;
 pub use popup_zone_audit::{
     FixedHorizontalScan, LIVE_POPUP_HLA_RETENTION_PCT, LIVE_POPUP_Z_SHIFTS_MM, POPUP_FIXED_X_STEP_M,
     POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG, POPUP_SCAN_X_MM,
-    POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupHlaTrial, PopupZoneLaunch, PopupZonePlay,
-    PopupZoneSwing, with_fixed_horizontal_popup_audit, with_live_popup_hla_sweep_audit,
+    POPUP_SCAN_Z_MM, POPUP_VLA_TRIALS, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupHlaTrial, PopupVlaTrial,
+    PopupZoneLaunch, PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit,
+    with_live_popup_hla_sweep_audit, with_live_popup_vla_deflection_audit,
     with_live_popup_z_sweep_audit, with_popup_hla_sweep_audit, with_popup_zone_audit,
 };
 mod swing_speed_audit;

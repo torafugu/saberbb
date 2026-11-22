@@ -2,8 +2,9 @@ use super::{GameError, GameState, paired_contact::Play};
 use crate::domain::{
     resolver::{
         batting_resolver::{
-            SwingContactType, SwingExecutionError, calculate_batted_ball_with_metrics,
-            calculate_trajectory, contact_normal_hla_deg, evaluate_swing_contact,
+            SwingContactType, SwingExecutionError, VERTICAL_COLLISION_RADIUS_M,
+            calculate_batted_ball_with_metrics, calculate_trajectory,
+            calculate_vertical_contact_deflection, contact_normal_hla_deg, evaluate_swing_contact,
             vertical_contact_ranges_at_x, vertical_offset_boundary_to_exceed_deflection,
             wrap_hla_deg,
         },
@@ -30,6 +31,33 @@ pub const POPUP_FIXED_X_STEP_M: f64 = 0.002;
 pub const POPUP_HLA_RETENTION_PCT: [u8; 5] = [0, 25, 50, 75, 100];
 pub const LIVE_POPUP_Z_SHIFTS_MM: [u8; 5] = [0, 4, 8, 12, 20];
 pub const LIVE_POPUP_HLA_RETENTION_PCT: [u8; 3] = [50, 75, 100];
+
+#[derive(Clone, Copy)]
+pub enum PopupVlaTrial {
+    UniformGain,
+    EdgeGain,
+}
+
+pub const POPUP_VLA_TRIALS: [PopupVlaTrial; 2] =
+    [PopupVlaTrial::UniformGain, PopupVlaTrial::EdgeGain];
+
+impl PopupVlaTrial {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::UniformGain => "uniform_offset_gain_1_5",
+            Self::EdgeGain => "edge_offset_gain_1_5",
+        }
+    }
+
+    fn deflection_deg(self, z_m: f64) -> f64 {
+        let edge_fraction = (z_m / VERTICAL_COLLISION_RADIUS_M).abs().min(1.0);
+        let gain = match self {
+            Self::UniformGain => 1.5,
+            Self::EdgeGain => 1.0 + 0.5 * edge_fraction.powi(2),
+        };
+        calculate_vertical_contact_deflection(z_m * gain)
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum PopupHlaTrial {
@@ -75,6 +103,7 @@ pub struct PopupZoneSwing {
     pub baseline: PopupZonePlay,
     pub actual_bat_angle_deg: f64,
     pub actual_attack_angle_deg: f64,
+    pub vla_trial_launches: [Option<PopupZoneLaunch>; POPUP_VLA_TRIALS.len()],
     /// Z-major order for a grid, or ascending shifts for the live Z sweep.
     pub grid: Vec<PopupZonePlay>,
     pub fixed_horizontal: Option<FixedHorizontalScan>,
@@ -94,6 +123,7 @@ enum AuditMode {
     FixedHorizontal(PopupHlaTrial),
     LiveHlaSweep,
     LiveZSweep,
+    LiveVlaDeflection,
 }
 
 struct Audit {
@@ -131,6 +161,12 @@ pub fn with_live_popup_hla_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<Po
 
 pub fn with_live_popup_z_sweep_audit<T>(run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
     with_audit(AuditMode::LiveZSweep, run)
+}
+
+pub fn with_live_popup_vla_deflection_audit<T>(
+    run: impl FnOnce() -> T,
+) -> (T, Vec<PopupZoneSwing>) {
+    with_audit(AuditMode::LiveVlaDeflection, run)
 }
 
 fn with_audit<T>(mode: AuditMode, run: impl FnOnce() -> T) -> (T, Vec<PopupZoneSwing>) {
@@ -282,8 +318,10 @@ impl GameState {
             };
             let pitcher_id = self.current_pitcher()?.id;
             let live_only = matches!(audit.mode, AuditMode::LiveHlaSweep);
-            let sample = |error: SwingExecutionError,
-                          retentions: &[u8]|
+            let vla_comparison = matches!(audit.mode, AuditMode::LiveVlaDeflection);
+            let mut vla_trial_launches = [None; POPUP_VLA_TRIALS.len()];
+            let mut sample = |error: SwingExecutionError,
+                              retentions: &[u8]|
              -> Result<PopupZonePlay, GameError> {
                 let mut rng = self.rng.fork().ok_or(GameError::PairedContactRng)?;
                 let contact = evaluate_swing_contact(rng.as_mut(), batter, displacement, &error);
@@ -309,9 +347,10 @@ impl GameState {
                     &contact,
                     &self.stadium,
                 )?;
-                let control_rng = if !retentions.is_empty()
-                    && (live_only || ball.launch_angle > POPUP_SCAN_VLA_DEG)
-                    && ball.launch_speed > POPUP_ZERO_SPEED_TOLERANCE_MS
+                let control_rng = if ball.launch_speed > POPUP_ZERO_SPEED_TOLERANCE_MS
+                    && (vla_comparison
+                        || (!retentions.is_empty()
+                            && (live_only || ball.launch_angle > POPUP_SCAN_VLA_DEG)))
                 {
                     Some(rng.fork().ok_or(GameError::PairedContactRng)?)
                 } else {
@@ -360,6 +399,33 @@ impl GameState {
                         )?;
                         *output = Some(classify_launch(&control, control_ball, control_hla));
                     }
+                    if vla_comparison {
+                        for (output, trial) in vla_trial_launches.iter_mut().zip(POPUP_VLA_TRIALS) {
+                            let vla =
+                                contact.attack_angle_deg + trial.deflection_deg(contact.offset_z_m);
+                            let trial_ball = calculate_trajectory(
+                                ball.launch_speed,
+                                vla,
+                                metrics.final_hla_deg,
+                                ball.spin_rate,
+                                ball.spin_angle,
+                                &self.stadium,
+                            )?;
+                            let trial_replay = self.replay_swing(
+                                pitcher_id,
+                                active.id,
+                                batter.batting_side,
+                                &contact,
+                                Some((trial_ball, metrics)),
+                                control_rng.fork().ok_or(GameError::PairedContactRng)?,
+                            )?;
+                            *output = Some(classify_launch(
+                                &trial_replay,
+                                trial_ball,
+                                metrics.final_hla_deg,
+                            ));
+                        }
+                    }
                 }
                 Ok(play)
             };
@@ -381,7 +447,7 @@ impl GameState {
                 }
             }
             let fixed_horizontal = match audit.mode {
-                AuditMode::LiveHlaSweep => None,
+                AuditMode::LiveHlaSweep | AuditMode::LiveVlaDeflection => None,
                 AuditMode::LiveZSweep | AuditMode::FixedHorizontal(_) => {
                     let retentions = match audit.mode {
                         AuditMode::FixedHorizontal(trial) => trial.retention_percentages(),
@@ -415,6 +481,7 @@ impl GameState {
                 baseline,
                 actual_bat_angle_deg: swing_error.actual_bat_angle_deg,
                 actual_attack_angle_deg: swing_error.actual_attack_angle_deg,
+                vla_trial_launches,
                 grid,
                 fixed_horizontal,
             });
@@ -426,6 +493,24 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vla_offset_gains_preserve_center_symmetry_and_deflection_cap() {
+        let offset = 0.025;
+        let baseline = calculate_vertical_contact_deflection(offset);
+        let uniform = PopupVlaTrial::UniformGain;
+        let edge = PopupVlaTrial::EdgeGain;
+        assert!(baseline < edge.deflection_deg(offset));
+        assert!(edge.deflection_deg(offset) < uniform.deflection_deg(offset));
+        for trial in POPUP_VLA_TRIALS {
+            assert_eq!(trial.deflection_deg(0.0), 0.0);
+            assert_eq!(trial.deflection_deg(-offset), -trial.deflection_deg(offset));
+            assert_eq!(
+                trial.deflection_deg(VERTICAL_COLLISION_RADIUS_M),
+                calculate_vertical_contact_deflection(VERTICAL_COLLISION_RADIUS_M)
+            );
+        }
+    }
 
     #[test]
     fn removes_only_signed_rebound_from_wrapped_horizontal_angle() {
