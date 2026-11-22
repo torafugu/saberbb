@@ -102,6 +102,9 @@ struct Args {
         "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     batting_ability_batter_id: Option<i64>,
+    /// Compare only batting_eye, keeping the other batting abilities fixed.
+    #[arg(long, requires = "batting_ability_batter_id")]
+    batting_eye_only: bool,
     /// Alternate swing speeds in m/s, comma separated. Defaults to 33.72,34.5,35.5.
     #[arg(long, value_delimiter = ',', requires = "swing_speed_batter_id")]
     swing_speed_ms: Vec<f64>,

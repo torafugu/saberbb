@@ -1,4 +1,4 @@
-use super::{Args, Counts, GameSchedule, derived_seed, simulate_game};
+use super::{Args, Counts, GameSchedule, bip_audit::band, derived_seed, simulate_game};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
@@ -15,6 +15,7 @@ enum Trial {
     Baseline,
     BatControl(f64),
     SwingSpeed(f64),
+    BattingEye(f64),
 }
 
 impl Trial {
@@ -23,6 +24,7 @@ impl Trial {
             Self::Baseline => "baseline",
             Self::BatControl(_) => "bat_control",
             Self::SwingSpeed(_) => "swing_speed_ms",
+            Self::BattingEye(_) => "batting_eye",
         }
     }
 
@@ -31,6 +33,7 @@ impl Trial {
             Self::Baseline => {}
             Self::BatControl(delta) => batter.bat_control += delta,
             Self::SwingSpeed(delta) => batter.swing_speed += delta,
+            Self::BattingEye(delta) => batter.batting_eye += delta,
         }
     }
 }
@@ -59,6 +62,32 @@ impl BattingLine {
     }
 }
 
+#[derive(Default, serde::Serialize)]
+struct LaunchProfile {
+    measured_fair_contacts: u64,
+    missing_fair_launch_measurements: u64,
+    exit_speed_bands_ms: BTreeMap<String, u64>,
+    launch_angle_bands_deg: BTreeMap<String, u64>,
+}
+
+impl LaunchProfile {
+    fn observe(&mut self, ev: f64, angle: f64) {
+        if !ev.is_finite() || ev <= 0.0 || !angle.is_finite() {
+            self.missing_fair_launch_measurements += 1;
+            return;
+        }
+        self.measured_fair_contacts += 1;
+        *self
+            .exit_speed_bands_ms
+            .entry(band(ev, &[30.0, 40.0, 45.0, 50.0]))
+            .or_default() += 1;
+        *self
+            .launch_angle_bands_deg
+            .entry(band(angle, &[0.0, 7.0, 10.0, 25.0, 50.0]))
+            .or_default() += 1;
+    }
+}
+
 pub(super) fn run(args: &Args, games: &[GameSchedule], batter_id: i64) -> Result<Value> {
     let baseline = games
         .iter()
@@ -67,22 +96,28 @@ pub(super) fn run(args: &Args, games: &[GameSchedule], batter_id: i64) -> Result
         .with_context(|| format!("batter {batter_id} is not on the scheduled roster"))?
         .batter()?;
     let mut reports = Vec::new();
-    let trials = std::iter::once(Trial::Baseline)
-        .chain(STEPS.map(Trial::BatControl))
-        .chain(STEPS.map(Trial::SwingSpeed));
+    let mut trials = vec![Trial::Baseline];
+    if args.batting_eye_only {
+        trials.extend(STEPS.map(Trial::BattingEye));
+    } else {
+        trials.extend(STEPS.map(Trial::BatControl));
+        trials.extend(STEPS.map(Trial::SwingSpeed));
+    }
     for trial in trials {
         let mut skill = baseline;
         trial.apply(&mut skill);
         ensure!(
             skill.swing_speed.is_finite()
                 && skill.swing_speed > 0.0
-                && skill.bat_control.is_finite(),
+                && skill.bat_control.is_finite()
+                && (!args.batting_eye_only || skill.batting_eye.is_finite()),
             "invalid batter ability in {}",
             trial.label()
         );
         let mut total = BattingLine::default();
         let mut by_pitcher = BTreeMap::<i64, BattingLine>::new();
         let mut games_with_pa = 0;
+        let mut launch_profile = LaunchProfile::default();
         for &seed in &args.seeds {
             for original in games {
                 let mut game = original.clone();
@@ -111,7 +146,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule], batter_id: i64) -> Result
                     .iter()
                     .filter(|row| row.batter_id == batter_id)
                 {
-                    let hard_low = matches!(
+                    let ball_in_play = matches!(
                         row.result,
                         BattingResult::Single
                             | BattingResult::Double
@@ -119,8 +154,15 @@ pub(super) fn run(args: &Args, games: &[GameSchedule], batter_id: i64) -> Result
                             | BattingResult::Out
                             | BattingResult::FieldersChoice
                             | BattingResult::DoublePlay
-                    ) && row.ball.launch_speed >= 45.0
+                    );
+                    let hard_low = ball_in_play
+                        && row.ball.launch_speed >= 45.0
                         && (7.0..10.0).contains(&row.ball.launch_angle);
+                    if args.batting_eye_only
+                        && (ball_in_play || row.result == BattingResult::HomeRun)
+                    {
+                        launch_profile.observe(row.ball.launch_speed, row.ball.launch_angle);
+                    }
                     for line in [&mut total, by_pitcher.entry(row.pitcher_id).or_default()] {
                         line.counts.batting(row.result);
                         line.hard_low_contacts += u64::from(hard_low);
@@ -132,18 +174,28 @@ pub(super) fn run(args: &Args, games: &[GameSchedule], batter_id: i64) -> Result
             }
         }
         eprintln!(
-            "Batting ability {}, control {:.2}, speed {:.2}: {games_with_pa} games with target PA",
+            "Batting ability {}, eye {:.2}, control {:.2}, speed {:.2}: {games_with_pa} games with target PA",
             trial.label(),
+            skill.batting_eye,
             skill.bat_control,
             skill.swing_speed
         );
-        reports.push(json!({
+        let mut report = json!({
             "changed_ability": trial.label(), "bat_control": skill.bat_control,
             "swing_speed_ms": skill.swing_speed, "games_with_target_pa": games_with_pa,
             "total": total.report(),
             "by_pitcher": by_pitcher.iter().filter(|(_, line)| line.counts.pa > 0)
                 .map(|(id, line)| (id, line.report())).collect::<BTreeMap<_, _>>(),
-        }));
+        });
+        if args.batting_eye_only {
+            report["batting_eye"] = json!(skill.batting_eye);
+            report["walks"] = json!(total.counts.walks);
+            report["walks_per_pa"] = json!(
+                (total.counts.pa > 0).then(|| total.counts.walks as f64 / total.counts.pa as f64)
+            );
+            report["launch_profile"] = json!(launch_profile);
+        }
+        reports.push(report);
     }
     ensure!(
         reports[0]["total"]["pa"].as_u64().is_some_and(|pa| pa > 0),
@@ -151,7 +203,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule], batter_id: i64) -> Result
     );
     Ok(json!({
         "batter_id": batter_id,
-        "definition": "Change one ability on a single roster batter per trial. Reuse the scheduled opponents, parks and per-game starting seeds. Games use the independent-game diagnostic without season fatigue or in-game pitching changes. Swing-speed changes may also change the batting order. Later pitch choices and random draws can diverge after a changed play; by_pitcher reports realized opposition and sample sizes. PA, AB and BABIP follow the standard offense replay definitions. Hard low contacts are non-HR balls in play at EV >=45 m/s and VLA [7,10).",
+        "definition": "Change one ability on a single roster batter per trial. Reuse the scheduled opponents, parks and per-game starting seeds. Games use the independent-game diagnostic without season fatigue or in-game pitching changes. Swing-speed changes may also change the batting order. Later pitch choices and random draws can diverge after a changed play; by_pitcher reports realized opposition and sample sizes. PA, AB and BABIP follow the standard offense replay definitions. Hard low contacts are non-HR balls in play at EV >=45 m/s and VLA [7,10). The optional launch profile includes measured balls in play and home runs.",
         "trials": reports,
     }))
 }
