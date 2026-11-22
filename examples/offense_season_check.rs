@@ -196,6 +196,9 @@ struct Args {
     /// Sweep downward bat displacement at each realized swing and measure high-VLA reachability.
     #[arg(long, requires = "pitch_bat_timing_comparison", conflicts_with_all = ["popup_contact_zone", "popup_live_hla_sweep", "downward_timing_error_comparison", "predicted_contact_correction_comparison"])]
     popup_live_z_sweep: bool,
+    /// Include the vertical contact limits and high-VLA threshold for every replayed swing.
+    #[arg(long, requires = "popup_live_z_sweep")]
+    popup_live_z_geometry: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,
