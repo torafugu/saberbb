@@ -662,7 +662,7 @@ fn calculate_timing_angle_error(
     angular_velocity_rad_s * timing_error_s
 }
 
-const VERTICAL_COLLISION_RADIUS_M: f64 = 0.070; // Bat radius + ball radius
+pub(crate) const VERTICAL_COLLISION_RADIUS_M: f64 = 0.070; // Bat radius + ball radius
 const VERTICAL_DEFLECTION_SCALE: f64 = 0.60;
 
 /// Vertical deflection used by the live launch-angle calculation (degrees).

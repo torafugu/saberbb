@@ -199,6 +199,9 @@ struct Args {
     /// Include the vertical contact limits and high-VLA threshold for every replayed swing.
     #[arg(long, requires = "popup_live_z_sweep")]
     popup_live_z_geometry: bool,
+    /// Compare vertical collision deflection curves at the same realized contacts.
+    #[arg(long, requires = "pitch_bat_timing_comparison", conflicts_with_all = ["popup_contact_zone", "popup_live_z_sweep", "popup_live_hla_sweep", "downward_timing_error_comparison", "predicted_contact_correction_comparison"])]
+    popup_vla_deflection_comparison: bool,
     /// Compare one-sided amplification of timing-derived bat height error.
     #[arg(long, requires = "pitch_bat_timing_comparison")]
     downward_timing_error_comparison: bool,
@@ -1033,6 +1036,8 @@ fn run(args: Args) -> Result<()> {
     } else if args.vertical_bat_control_comparison {
         output["vertical_bat_control_comparison"] =
             intent_aim_comparison::run_vertical_bat_control(&args, &games)?;
+    } else if args.popup_vla_deflection_comparison {
+        output["popup_vla_deflection_comparison"] = popup_zone::run(&args, &games)?;
     } else if args.popup_live_z_sweep {
         output["popup_live_z_sweep"] = popup_zone::run(&args, &games)?;
     } else if args.popup_live_hla_sweep {

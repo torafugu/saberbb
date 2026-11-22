@@ -9,10 +9,11 @@ use saberbb::domain::{
     shared::game_state::{
         FixedHorizontalScan, LIVE_POPUP_HLA_RETENTION_PCT, LIVE_POPUP_Z_SHIFTS_MM,
         POPUP_FIXED_X_STEP_M, POPUP_HLA_RETENTION_PCT, POPUP_SCAN_INFIELD_M, POPUP_SCAN_VLA_DEG,
-        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_ZERO_SPEED_TOLERANCE_MS, PopupHlaTrial,
-        PopupZoneLaunch, PopupZonePlay, PopupZoneSwing, with_fixed_horizontal_popup_audit,
-        with_live_popup_hla_sweep_audit, with_live_popup_z_sweep_audit, with_popup_hla_sweep_audit,
-        with_popup_zone_audit,
+        POPUP_SCAN_X_MM, POPUP_SCAN_Z_MM, POPUP_VLA_TRIALS, POPUP_ZERO_SPEED_TOLERANCE_MS,
+        PopupHlaTrial, PopupZoneLaunch, PopupZonePlay, PopupZoneSwing,
+        with_fixed_horizontal_popup_audit, with_live_popup_hla_sweep_audit,
+        with_live_popup_vla_deflection_audit, with_live_popup_z_sweep_audit,
+        with_popup_hla_sweep_audit, with_popup_zone_audit,
     },
     strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings},
 };
@@ -331,7 +332,7 @@ fn hla_outcome(launch: PopupZoneLaunch) -> usize {
     }
 }
 
-fn hla_transition_report<const N: usize>(
+fn transition_report<const N: usize>(
     labels: [&'static str; N],
     pairs: [[u64; N]; N],
 ) -> BTreeMap<&'static str, BTreeMap<&'static str, u64>> {
@@ -397,8 +398,8 @@ impl LiveHlaCounts {
             "high_vla_foul": high_foul[0] + popup[0] + other_high_fair[0],
             "fair_infield_popups": high_foul[1] + popup[1] + other_high_fair[1],
             "mean_abs_hla_change_deg": (total > 0).then(|| self.abs_hla_change_sum / total as f64),
-            "paired_territory": hla_transition_report(["fair", "foul"], self.territory_pairs),
-            "paired_high_vla_outcomes": hla_transition_report(HLA_OUTCOMES, self.high_pairs),
+            "paired_territory": transition_report(["fair", "foul"], self.territory_pairs),
+            "paired_high_vla_outcomes": transition_report(HLA_OUTCOMES, self.high_pairs),
             "vla_at_or_below_threshold_hla": bands(self.ordinary_hla),
             "vla_at_or_below_threshold_fair_hla": bands(self.ordinary_fair_hla),
         })
@@ -529,7 +530,7 @@ impl HlaControlCounts {
             })
             .collect();
         json!({
-            "paired_high_angle_positions": hla_transition_report(HLA_OUTCOMES, self.pairs),
+            "paired_high_angle_positions": transition_report(HLA_OUTCOMES, self.pairs),
             "swings_with_any_control_popup": self.swings_with_popup,
             "swings_with_foul_to_popup_at_same_position": self.swings_with_paired_foul_to_popup,
             "swings_by_usual_scan_outcome": swings_by_outcome,
@@ -849,6 +850,105 @@ fn live_z_geometry_row(
     })
 }
 
+const VLA_BANDS: [&str; 4] = ["below_10", "10_to_below_25", "25_through_50", "above_50"];
+const VLA_EV_BANDS: [&str; 4] = [
+    "below_20",
+    "20_to_below_30",
+    "30_to_below_40",
+    "40_and_above",
+];
+
+fn vla_band(vla_deg: f64) -> usize {
+    usize::from(vla_deg >= 10.0)
+        + usize::from(vla_deg >= 25.0)
+        + usize::from(vla_deg > POPUP_SCAN_VLA_DEG)
+}
+
+#[derive(Default)]
+struct DeflectionCounts {
+    angle_transitions: [[u64; VLA_BANDS.len()]; VLA_BANDS.len()],
+    high_by_ev: [u64; VLA_EV_BANDS.len()],
+    popup_by_ev: [u64; VLA_EV_BANDS.len()],
+    high_fouls: u64,
+}
+
+impl DeflectionCounts {
+    fn observe(&mut self, live: PopupZoneLaunch, trial: PopupZoneLaunch) {
+        self.angle_transitions[vla_band(live.vla_deg)][vla_band(trial.vla_deg)] += 1;
+        if has_high_vla(trial) {
+            let band = [20.0, 30.0, 40.0].partition_point(|&edge| trial.exit_speed_ms >= edge);
+            self.high_by_ev[band] += 1;
+            self.high_fouls += u64::from(trial.foul);
+            self.popup_by_ev[band] += u64::from(is_popup_launch(trial));
+        }
+    }
+
+    fn report(&self) -> Value {
+        let mut angle_counts = [0; VLA_BANDS.len()];
+        for row in &self.angle_transitions {
+            for (total, count) in angle_counts.iter_mut().zip(row) {
+                *total += count;
+            }
+        }
+        json!({
+            "vla_band_counts": VLA_BANDS.into_iter().zip(angle_counts).collect::<BTreeMap<_, _>>(),
+            "vla_band_transitions_from_live": transition_report(VLA_BANDS, self.angle_transitions),
+            "high_vla_contacts": angle_counts[3],
+            "high_vla_fouls": self.high_fouls,
+            "fair_infield_popups": self.popup_by_ev.iter().sum::<u64>(),
+            "high_vla_by_ev_ms": VLA_EV_BANDS.into_iter().zip(self.high_by_ev).collect::<BTreeMap<_, _>>(),
+            "fair_infield_popups_by_ev_ms": VLA_EV_BANDS.into_iter().zip(self.popup_by_ev).collect::<BTreeMap<_, _>>(),
+        })
+    }
+}
+
+#[derive(Default)]
+struct DeflectionGroup {
+    swings: u64,
+    contacts: u64,
+    zero_speed_contacts: u64,
+    live: DeflectionCounts,
+    trials: [DeflectionCounts; POPUP_VLA_TRIALS.len()],
+}
+
+impl DeflectionGroup {
+    fn observe(&mut self, swing: &PopupZoneSwing) -> Result<()> {
+        self.swings += 1;
+        let Some(live) = swing.baseline.launch else {
+            return Ok(());
+        };
+        self.contacts += 1;
+        if live.exit_speed_ms <= POPUP_ZERO_SPEED_TOLERANCE_MS {
+            self.zero_speed_contacts += 1;
+            return Ok(());
+        }
+        self.live.observe(live, live);
+        for (counts, trial) in self.trials.iter_mut().zip(swing.vla_trial_launches) {
+            let trial = trial.context("missing VLA deflection replay")?;
+            ensure!(
+                trial.exit_speed_ms == live.exit_speed_ms && trial.hla_deg == live.hla_deg,
+                "VLA deflection replay changed exit speed or horizontal angle"
+            );
+            counts.observe(live, trial);
+        }
+        Ok(())
+    }
+
+    fn report(&self) -> Value {
+        let mut models = BTreeMap::from([("live", self.live.report())]);
+        for (model, counts) in POPUP_VLA_TRIALS.into_iter().zip(&self.trials) {
+            models.insert(model.label(), counts.report());
+        }
+        json!({
+            "swings": self.swings,
+            "contacts": self.contacts,
+            "whiffs": self.swings - self.contacts,
+            "zero_speed_contacts": self.zero_speed_contacts,
+            "models": models,
+        })
+    }
+}
+
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let hla_trial = if args.popup_hla_sweep {
         PopupHlaTrial::Sweep
@@ -866,6 +966,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let mut live_all = LiveHlaGroup::default();
     let mut live_contact_first = LiveHlaGroup::default();
     let mut live_line_drive = LiveHlaGroup::default();
+    let mut deflection_all = DeflectionGroup::default();
+    let mut deflection_contact_first = DeflectionGroup::default();
+    let mut deflection_line_drive = DeflectionGroup::default();
     let mut z_geometry_rows = Vec::new();
     let mut z_all = LiveZGroup::default();
     let mut z_contact_first = LiveZGroup::default();
@@ -881,7 +984,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     false,
                 )
             };
-            let (result, swings) = if args.popup_live_z_sweep {
+            let (result, swings) = if args.popup_vla_deflection_comparison {
+                with_live_popup_vla_deflection_audit(simulate)
+            } else if args.popup_live_z_sweep {
                 with_live_popup_z_sweep_audit(simulate)
             } else if args.popup_live_hla_sweep {
                 with_live_popup_hla_sweep_audit(simulate)
@@ -919,6 +1024,15 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     game.id,
                     swing.count_seq
                 );
+                if args.popup_vla_deflection_comparison {
+                    deflection_all.observe(&swing)?;
+                    match swing.intent {
+                        BattedBallIntent::ContactFirst => &mut deflection_contact_first,
+                        BattedBallIntent::LineDrive => &mut deflection_line_drive,
+                    }
+                    .observe(&swing)?;
+                    continue;
+                }
                 if args.popup_live_z_sweep {
                     let scan = swing
                         .fixed_horizontal
@@ -982,7 +1096,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             }
             ensure!(live.is_empty(), "unpaired live swings in game {}", game.id);
         }
-        let label = if args.popup_live_z_sweep {
+        let label = if args.popup_vla_deflection_comparison {
+            "Popup VLA deflection comparison"
+        } else if args.popup_live_z_sweep {
             "Live popup Z sweep"
         } else if args.popup_live_hla_sweep {
             "Live popup HLA sweep"
@@ -990,6 +1106,23 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             "Popup contact zone"
         };
         eprintln!("{label}, seed {seed}: {} games complete", games.len());
+    }
+    if args.popup_vla_deflection_comparison {
+        return Ok(json!({
+            "definition": "Replay each realized contact with the same contact decision, pitch, X/Z, attack angle, exit speed, HLA, launch spin inputs and pre-fielding RNG. Only VLA changes. Apply the live deflection function to the model's effective world Z, keeping the live function's clamp. Only the live play advances game state. Angle and EV counts exclude contacts at or below the zero-speed tolerance. Angle bands are numerical ranges, independent of the fielding result.",
+            "model_definitions": {
+                "live": "Use realized Z.",
+                "uniform_offset_gain_1_5": "Use 1.5 times realized Z as the input to the deflection function.",
+                "edge_offset_gain_1_5": "Use Z * (1 + 0.5 * min(abs(Z) / collision radius, 1)^2) as the input to the deflection function."
+            },
+            "vla_threshold_deg": POPUP_SCAN_VLA_DEG,
+            "zero_speed_tolerance_ms": POPUP_ZERO_SPEED_TOLERANCE_MS,
+            "infield_radius_m": POPUP_SCAN_INFIELD_M,
+            "popup_definition": "A nonzero-speed launch above the VLA threshold with a projected fair infield first bounce or a clean air out by an infielder in fair territory.",
+            "all": deflection_all.report(),
+            "contact_first": deflection_contact_first.report(),
+            "line_drive": deflection_line_drive.report(),
+        }));
     }
     if args.popup_live_z_sweep {
         let mut report = json!({
@@ -1189,6 +1322,7 @@ mod tests {
             baseline: live,
             actual_bat_angle_deg: 30.0,
             actual_attack_angle_deg: 15.0,
+            vla_trial_launches: [None; POPUP_VLA_TRIALS.len()],
             grid: vec![popup(-0.24, 0.02, true)],
             fixed_horizontal: None,
         };
