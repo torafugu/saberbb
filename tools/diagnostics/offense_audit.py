@@ -17,7 +17,7 @@ PA_SQL = ','.join("'" + value + "'" for value in PA_RESULTS)
 
 
 def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batter_line=None,
-          league_batting=False, hard_contact=False):
+          league_batting=False, hard_contact=False, pitcher_matchups=False):
     """Never create, rebuild, or modify the supplied database or its caches."""
     uri = Path(path).expanduser().resolve().as_uri() + '?mode=ro'
     with sqlite3.connect(uri, uri=True, timeout=30) as conn:
@@ -26,8 +26,10 @@ def audit(path, season=None, limit=10, extra_base=False, *, batter_id=None, batt
         conn.execute('BEGIN')  # Keep all report sections on one consistent read snapshot.
         if hard_contact and not league_batting:
             raise ValueError('--hard-contact requires --league-batting')
+        if pitcher_matchups and not league_batting:
+            raise ValueError('--pitcher-matchups requires --league-batting')
         if league_batting:
-            report = league_batting_audit(conn, season, limit)
+            report = league_batting_audit(conn, season, limit, pitcher_matchups=pitcher_matchups)
             if hard_contact:
                 top_ids = {line['player']['id'] for line in report['top_qualified']}
                 report['hard_contact'] = hard_contact_audit(conn, report['scope']['season'], top_ids)
@@ -156,7 +158,7 @@ def rate(numerator, denominator):
     return numerator / denominator if denominator else None
 
 
-def league_batting_audit(conn, season, limit):
+def league_batting_audit(conn, season, limit, *, pitcher_matchups=False):
     if season is None:
         season = conn.execute(f'SELECT MAX(season) FROM game g WHERE {COMPLETED_REGULAR_SQL}').fetchone()[0]
     games = conn.execute(f'''
@@ -173,8 +175,10 @@ def league_batting_audit(conn, season, limit):
     grid = defaultdict(Counter)
     power = Counter()
     games_with_logs = set()
+    matchups = defaultdict(Counter)
+    pitcher_column = 'b.pitcher_id,' if pitcher_matchups else ''
     for play in conn.execute(f'''
-        SELECT b.game_id, b.batter_id, b.result, b.launch_speed, b.launch_angle, b.outbound_result,
+        SELECT b.game_id, b.batter_id, {pitcher_column} b.result, b.launch_speed, b.launch_angle, b.outbound_result,
                b.first_bounce_time, b.fence_impact_time, f.time_to_field,
                CASE WHEN b.result='Out' AND (
                    SELECT r.event FROM player_game_running r
@@ -190,6 +194,10 @@ def league_batting_audit(conn, season, limit):
         pid, result = play['batter_id'], play['result']
         batters[pid][result] += 1
         batters[pid]['sf'] += play['sacrifice_fly']
+        if pitcher_matchups:
+            counts = matchups[pid, play['pitcher_id']]
+            counts[result] += 1
+            counts['sf'] += play['sacrifice_fly']
         ev, vla = play['launch_speed'], play['launch_angle']
         measured = ev is not None and ev > 0 and vla is not None and play['outbound_result'] in FAIR_TRAJECTORIES
         if result in IN_PLAY_RESULTS:
@@ -231,7 +239,7 @@ def league_batting_audit(conn, season, limit):
         top_balls.update(batted_balls[pid])
 
     fair_contacts = sum(counts.total() for counts in grid.values())
-    return dict(
+    report = dict(
         scope=dict(season=season, completed_regular_games=len(games), games_with_terminal_batting_logs=len(games_with_logs)),
         definitions=dict(
             qualification='3.1 PA per completed regular-season game of the current team, rounded to the nearest whole PA (halves up), matching GUI.',
@@ -260,26 +268,139 @@ def league_batting_audit(conn, season, limit):
         league_ev_vla=ev_vla_grid(grid),
     )
 
+    if pitcher_matchups:
+        report['pitcher_matchups'] = pitcher_matchup_report(
+            conn, season, len(games), team_games, players, qualified, matchups,
+        )
+    return report
 
-def league_batting_line(counts, batted_balls):
+
+PITCHER_COHORTS = ('qualified_era_under_2', 'qualified_era_2_to_under_4', 'qualified_era_at_least_4',
+                   'unqualified', 'unknown')
+
+
+def pitcher_matchup_report(conn, season, completed_games, team_games, players, qualified, matchups):
+    cache_games = conn.execute(f"""
+        SELECT COUNT(DISTINCT c.game_id)
+        FROM game_pitching_stat_cache c JOIN game g ON g.id=c.game_id
+        WHERE g.season=? AND {COMPLETED_REGULAR_SQL}
+    """, (season,)).fetchone()[0]
+    if not cache_games:
+        raise ValueError(f'no cached pitching lines for completed regular-season games in {season}')
+    pitcher_groups = {}
+    pitching = {group: Counter() for group in (*PITCHER_COHORTS, 'league', 'qualified')}
+    qualified_pitchers = []
+    for row in conn.execute(f"""
+        SELECT c.player_id, SUM(c.outs) AS outs, SUM(c.runs) AS runs,
+               SUM(c.earned_runs) AS earned_runs, SUM(c.unclassified_runs) AS unclassified_runs
+        FROM game_pitching_stat_cache c JOIN game g ON g.id=c.game_id
+        WHERE g.season=? AND {COMPLETED_REGULAR_SQL}
+        GROUP BY c.player_id
+    """, (season,)):
+        pid = row['player_id']
+        team = team_games[players.get(pid, {}).get('team_id')]
+        line = Counter({key: row[key] for key in ('outs', 'runs', 'earned_runs', 'unclassified_runs')})
+        line['pitchers'] = 1
+        if not team:
+            group = 'unknown'
+        elif line['outs'] < 3 * team:
+            group = 'unqualified'
+        else:
+            era_runs = 27 * line['earned_runs']
+            if era_runs < 2 * line['outs']:
+                group = 'qualified_era_under_2'
+            elif era_runs < 4 * line['outs']:
+                group = 'qualified_era_2_to_under_4'
+            else:
+                group = 'qualified_era_at_least_4'
+            pitching['qualified'].update(line)
+            qualified_pitchers.append(dict(player=players[pid], team_games=team, **pitching_matchup_line(line)))
+        pitcher_groups[pid] = group
+        pitching[group].update(line)
+        pitching['league'].update(line)
+
+    by_batter = defaultdict(Counter)
+    league_batting = defaultdict(Counter)
+    for (pid, pitcher_id), counts in matchups.items():
+        group = pitcher_groups.get(pitcher_id, 'unknown')
+        by_batter[pid, group].update(counts)
+        league_batting[group].update(counts)
+    league_outs = pitching['league']['outs']
+    qualified_pitchers.sort(key=lambda row: (row['era'], row['player']['id']))
+    return dict(
+        definitions=dict(
+            pitcher_qualification='At least one inning (three outs) per completed regular-season game of the current team, matching the GUI.',
+            pitcher_cohorts='Use the season pitching cache and unrounded ERA for qualified tiers. Unknown means the current team has no games in scope or the opposing pitcher has no season pitching line.',
+            interpretation='Observed terminal batting results against the recorded pitcher. Season ERA includes these same matchups. Neither player selection nor game context is controlled.',
+            innings='Innings are reported as integer outs. Cohort RA9 uses all charged runs; ERA uses cached earned runs.',
+            coverage='Partial pitching cache coverage can change qualification and ERA. Batting splits include all terminal batting logs, with unmatched opponents in the unknown cohort.',
+        ),
+        completed_games_with_pitching_cache=cache_games,
+        pitching_cache_covers_all_completed_games=cache_games == completed_games,
+        pitching_by_cohort={
+            group: dict(**pitching_matchup_line(line), share_of_league_outs=rate(line['outs'], league_outs))
+            for group, line in pitching.items()
+        },
+        qualified_pitchers=qualified_pitchers,
+        league_batting_by_pitcher_cohort={
+            group: matchup_batting_line(league_batting[group]) for group in PITCHER_COHORTS
+        },
+        qualified_batter_matchups=[
+            dict(player=line['player'], pa=line['pa'], ba=line['ba'], strikeouts_per_ab=line['strikeouts_per_ab'],
+                 babip=line['babip'], hr=line['hr'],
+                 by_pitcher_cohort={
+                     group: matchup_batting_line(by_batter[line['player']['id'], group])
+                     for group in PITCHER_COHORTS
+                 })
+            for line in qualified
+        ],
+        qualified_batting_avg_distribution={
+            'below_200': sum(line['ba'] < .200 for line in qualified),
+            '200_to_under_250': sum(.200 <= line['ba'] < .250 for line in qualified),
+            '250_through_300': sum(.250 <= line['ba'] <= .300 for line in qualified),
+            'over_300_to_under_400': sum(.300 < line['ba'] < .400 for line in qualified),
+            '400_to_under_500': sum(.400 <= line['ba'] < .500 for line in qualified),
+            'at_least_500': sum(line['ba'] >= .500 for line in qualified),
+        },
+    )
+
+
+def pitching_matchup_line(counts):
+    return dict(
+        **{key: counts[key] for key in ('pitchers', 'outs', 'runs', 'earned_runs', 'unclassified_runs')},
+        era=rate(27 * counts['earned_runs'], counts['outs']),
+        ra9=rate(27 * counts['runs'], counts['outs']),
+    )
+
+
+def batting_outcome_rates(counts):
     ab = sum(counts[result] for result in AB_RESULTS) - counts['sf']
     non_hr_hits = sum(counts[result] for result in NON_HR_HITS)
     hr, k = counts['HomeRun'], counts['Strikeout']
     hits = non_hr_hits + hr
     bip = ab - k - hr + counts['sf']
+    return dict(
+        pa=sum(counts[result] for result in PA_RESULTS),
+        ab=ab, hits=hits, ba=rate(hits, ab), strikeouts=k, strikeouts_per_ab=rate(k, ab),
+        singles=counts['Single'], doubles=counts['Double'], triples=counts['Triple'], hr=hr,
+        sacrifice_flies=counts['sf'], balls_in_play=bip, babip=rate(non_hr_hits, bip),
+    )
+
+
+def matchup_batting_line(counts):
+    line = batting_outcome_rates(counts)
+    return dict(**line, walks=counts['Walk'], walks_per_pa=rate(counts['Walk'], line['pa']),
+                hr_per_pa=rate(line['hr'], line['pa']))
+
+
+def league_batting_line(counts, batted_balls):
     by_type = {}
     for kind in (*VLA_TYPES, 'Unknown'):
         results = {result: batted_balls[kind, result] for result in IN_PLAY_RESULTS}
         balls = sum(results.values())
         type_hits = sum(results[result] for result in NON_HR_HITS)
         by_type[kind] = dict(balls=balls, hits=type_hits, hit_rate=rate(type_hits, balls), outcomes=results)
-    return dict(
-        pa=sum(counts[result] for result in PA_RESULTS),
-        ab=ab, hits=hits, ba=rate(hits, ab), strikeouts=k, strikeouts_per_ab=rate(k, ab),
-        singles=counts['Single'], doubles=counts['Double'], triples=counts['Triple'], hr=hr,
-        sacrifice_flies=counts['sf'], balls_in_play=bip, babip=rate(non_hr_hits, bip),
-        bip_by_launch_angle=by_type,
-    )
+    return dict(**batting_outcome_rates(counts), bip_by_launch_angle=by_type)
 
 
 HARD_EV_EDGES = (45, 47.5, 50)
@@ -757,6 +878,8 @@ def main():
     parser.add_argument('--extra-base', action='store_true', help='Include saved fair-contact and extra-base conversion diagnostics')
     parser.add_argument('--hard-contact', action='store_true',
                         help='With --league-batting, diagnose low-angle fielding and vertical contact at EV >=45 m/s')
+    parser.add_argument('--pitcher-matchups', action='store_true',
+                        help='With --league-batting, split batting by opposing pitcher cohort and report league pitching workload')
     parser.add_argument('--top', type=int, default=10)
     target = parser.add_mutually_exclusive_group()
     target.add_argument('--batter-id', type=int, help='Compare this batter with the --top current teammates by PA')
@@ -773,10 +896,13 @@ def main():
         parser.error('--extra-base and --league-batting are independent reports; choose one')
     if options.hard_contact and not options.league_batting:
         parser.error('--hard-contact requires --league-batting')
+    if options.pitcher_matchups and not options.league_batting:
+        parser.error('--pitcher-matchups requires --league-batting')
     try:
         report = audit(db_from_env(), options.season, options.top, options.extra_base,
                        batter_id=options.batter_id, batter_line=options.batter_line,
-                       league_batting=options.league_batting, hard_contact=options.hard_contact)
+                       league_batting=options.league_batting, hard_contact=options.hard_contact,
+                       pitcher_matchups=options.pitcher_matchups)
     except (ValueError, sqlite3.Error) as exc:
         parser.exit(1, f'offense audit failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))

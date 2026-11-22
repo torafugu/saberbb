@@ -558,6 +558,21 @@ the wall in the air. Wall impacts with missing fielding time are counted
 separately within the wall-impact total. The report requires ordinary saved
 game logs and reads them without replaying games.
 
+Add `--pitcher-matchups` to count qualified batters by batting-average band and
+compare each qualified batter against the recorded opposing pitchers.
+
+```sh
+python3 tools/diagnostics/offense_audit.py --league-batting --pitcher-matchups --season 2026 > pitcher_matchups_2026.json
+```
+
+The comparison uses the saved season pitching cache. Qualified pitchers have at
+least one inning per completed team game and are split at unrounded ERAs of 2
+and 4. Each group reports its share of league outs, ERA and runs allowed per
+nine innings. Batting splits include PA, batting average, K/AB, BB/PA, BABIP and
+HR/PA. Pitching tiers use the same season's results, so the splits describe
+recorded matchups. Check cache coverage and sample sizes before comparing rates.
+
+
 To investigate hard low-angle singles and the vertical contact that creates
 hard fly balls, use the same database and qualification settings:
 

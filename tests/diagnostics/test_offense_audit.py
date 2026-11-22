@@ -160,6 +160,19 @@ class OffenseAuditTest(unittest.TestCase):
                 ''')
                 conn.executemany('INSERT INTO player_game_batting VALUES (2,?,30,\'Single\',25,10,\'InField\',1,NULL)',
                                  ((seq,) for seq in range(7, 12)))
+                conn.executescript("""
+                    ALTER TABLE player_game_batting ADD pitcher_id;
+                    UPDATE player_game_batting SET pitcher_id=60 WHERE game_id=1;
+                    UPDATE player_game_batting SET pitcher_id=70 WHERE game_id=2;
+                    UPDATE player_game_batting SET pitcher_id=71 WHERE game_id=2 AND count_seq IN (2,3);
+                    UPDATE player_game_batting SET pitcher_id=999 WHERE game_id=2 AND count_seq=4;
+                    INSERT INTO player_info VALUES
+                        (60,2,'P','Elite'),(70,3,'P','Short'),(71,3,'P','Middle'),(72,1,'P','High');
+                    CREATE TABLE game_pitching_stat_cache(game_id,player_id,outs,runs,earned_runs,unclassified_runs);
+                    INSERT INTO game_pitching_stat_cache VALUES
+                        (1,60,18,3,1,2),(2,70,2,2,2,0),(2,71,9,1,1,0),(1,72,3,1,1,0),(2,72,3,1,1,0),
+                        (3,60,0,90,90,0),(4,60,0,90,90,0);
+                """)
             before = path.read_bytes()
             env = dict(os.environ, SABERBB_DB=str(path))
             proc = subprocess.run([sys.executable, offense_audit.__file__, '--league-batting', '--top', '2'],
@@ -191,6 +204,26 @@ class OffenseAuditTest(unittest.TestCase):
             self.assertEqual(power['home_runs_per_window_contact'], 1/3)
             self.assertEqual(sum(cell['fair_contacts'] for cell in report['league_ev_vla']),
                              power['measured_fair_contacts'])
+            self.assertEqual(path.read_bytes(), before)
+
+            matchup = offense_audit.audit(path, league_batting=True, pitcher_matchups=True)['pitcher_matchups']
+            self.assertTrue(matchup['pitching_cache_covers_all_completed_games'])
+            pitching = matchup['pitching_by_cohort']
+            self.assertEqual(pitching['qualified']['outs'], 33)
+            self.assertEqual(pitching['unqualified']['outs'], 2)
+            self.assertEqual(pitching['league']['outs'], 35)
+            self.assertEqual(pitching['qualified_era_under_2']['era'], 1.5)
+            self.assertEqual(pitching['qualified_era_under_2']['ra9'], 4.5)
+            self.assertEqual(pitching['qualified_era_2_to_under_4']['outs'], 9)
+            self.assertEqual(pitching['qualified_era_at_least_4']['outs'], 6)
+            batter = matchup['qualified_batter_matchups'][0]['by_pitcher_cohort']
+            self.assertEqual((batter['qualified_era_under_2']['pa'], batter['qualified_era_under_2']['ab']), (4, 2))
+            self.assertEqual(batter['qualified_era_under_2']['walks'], 1)
+            self.assertEqual(batter['unqualified']['hr'], 1)
+            self.assertEqual(batter['qualified_era_2_to_under_4']['doubles'], 1)
+            self.assertEqual(sum(row['pa'] for row in matchup['league_batting_by_pitcher_cohort'].values()), 17)
+            self.assertEqual(matchup['league_batting_by_pitcher_cohort']['unknown']['pa'], 1)
+            self.assertEqual(sum(matchup['qualified_batting_avg_distribution'].values()), 2)
             self.assertEqual(path.read_bytes(), before)
 
     def test_hard_contact_uses_shared_geometry_and_observed_first_base_clocks(self):
