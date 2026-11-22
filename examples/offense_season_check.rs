@@ -69,6 +69,8 @@ mod pickup_timing_audit;
 mod selected_intent_audit;
 #[path = "support/swing_speed_comparison.rs"]
 mod swing_speed_comparison;
+#[path = "support/batting_ability_sweep.rs"]
+mod batting_ability_sweep;
 #[path = "support/throw_origin_audit.rs"]
 mod throw_origin_audit;
 #[path = "support/vertical_contact_game_sweep.rs"]
@@ -87,6 +89,19 @@ struct Args {
         "no_bounce_margin_comparison", "pre_fence_pickup_comparison"
     ])]
     swing_speed_batter_id: Option<i64>,
+    /// Replay a batter's team games with stepwise bat-control and swing-speed changes.
+    #[arg(long, conflicts_with_all = [
+        "swing_speed_batter_id", "pitch_bat_timing_comparison", "contact_approach_comparison",
+        "count_intent_comparison", "vertical_bat_control_comparison", "contact_first_swing_speed_comparison",
+        "contact_first_ev_terms", "contact_first_ev_comparison", "intent_aim_comparison",
+        "contact_length_comparison", "line_drive_lift_comparison", "vertical_contact_sweep",
+        "vertical_contact_comparison", "vertical_contact_paired_fielding", "timing_geometry_sweep",
+        "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison",
+        "bip_diagnostics", "fair_launch_diagnostics", "contact_direction_diagnostics",
+        "moving_collision_diagnostics", "selected_intent_diagnostics", "timing_scale_diagnostics",
+        "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    batting_ability_batter_id: Option<i64>,
     /// Alternate swing speeds in m/s, comma separated. Defaults to 33.72,34.5,35.5.
     #[arg(long, value_delimiter = ',', requires = "swing_speed_batter_id")]
     swing_speed_ms: Vec<f64>,
@@ -806,7 +821,7 @@ fn schedules(
     let mut rows = query.query(rusqlite::params![
         args.season,
         args.games.map(|v| v as i64).unwrap_or(-1),
-        args.swing_speed_batter_id
+        args.swing_speed_batter_id.or(args.batting_ability_batter_id)
     ])?;
     let mut teams = BTreeMap::<u16, Team>::new();
     let mut games = Vec::new();
@@ -1028,7 +1043,9 @@ fn run(args: Args) -> Result<()> {
             "Three policies on the same baseline-matched swings: zero shift, +4 mm inside the baseline contact Z window [10,30) mm, and +2 mm within that window when baseline exit speed is below 47.5 m/s with +4 mm otherwise. For a baseline geometric miss there is no exit speed, so the third policy keeps the +4 mm window shift. Exit-speed and angle bands in each policy's outcome use the resulting flight. Counts are trajectories before fielding or baserunning."
         );
     }
-    if args.contact_approach_comparison {
+    if let Some(batter_id) = args.batting_ability_batter_id {
+        output["batting_ability_sweep"] = batting_ability_sweep::run(&args, &games, batter_id)?;
+    } else if args.contact_approach_comparison {
         output["contact_approach_comparison"] =
             intent_aim_comparison::run_contact_approaches(&args, &games)?;
     } else if args.count_intent_comparison {
