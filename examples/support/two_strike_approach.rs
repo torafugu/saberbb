@@ -202,6 +202,7 @@ mod tests {
             infield: None,
         };
         let swing = IntentAimSwing {
+            batter_id: 1,
             count_seq: 2,
             intent: contact,
             plays: vec![play(foul), play(foul), play(miss)],

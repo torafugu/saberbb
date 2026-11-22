@@ -319,21 +319,19 @@ pub fn calculate_swing_execution_error(
     batter: &BatterInfo,
     actual_location: &BallLocation,
 ) -> SwingExecutionError {
+    // Keep the historical draw so this change does not shift the downstream RNG stream.
+    let _legacy_attack_angle_sample = rng.normal_factor_std_5_percent();
+    swing_execution_geometry(batter, actual_location)
+}
+
+pub(crate) fn swing_execution_geometry(
+    batter: &BatterInfo,
+    actual_location: &BallLocation,
+) -> SwingExecutionError {
     let ideal_angle = calculate_bat_angle(actual_location);
     let delta_angle_deg = calculate_execution_angle_error_deg(batter, actual_location);
-
-    // 2. Convert angle error (deg) to spatial meter error (Δx, Δz)
-    let delta_rad = delta_angle_deg.to_radians();
-    const BAT_BARREL_LENGTH_M: f64 = 0.70; // Distance from grip to sweet spot
-
-    let additional_z_m = BAT_BARREL_LENGTH_M * delta_rad.sin();
-    let additional_x_m = BAT_BARREL_LENGTH_M * (1.0 - delta_rad.cos());
-
-    // 3. Calculate actual bat angle and attack angle the batter swung
+    // Batter type shapes preferences and decisions without a physical angle bonus.
     let actual_bat_angle_deg = ideal_angle + delta_angle_deg;
-    // Keep the historical draw so this change does not shift the downstream RNG stream.
-    // Batter type shapes preferences/decisions, not an unconditional physical angle bonus.
-    let _legacy_attack_angle_sample = rng.normal_factor_std_5_percent();
     let actual_attack_angle_deg =
         calculate_dynamic_attack_angle(batter.attack_angle, actual_bat_angle_deg);
 

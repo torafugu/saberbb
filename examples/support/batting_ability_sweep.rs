@@ -112,6 +112,10 @@ fn non_hr_ball_in_play(result: BattingResult) -> bool {
     )
 }
 
+pub(super) fn is_power_window(ev: f64, vla: f64) -> bool {
+    ev.is_finite() && ev >= 40.0 && (20.0..50.0).contains(&vla)
+}
+
 #[derive(Default)]
 struct ContactMix {
     non_hr_bip: BTreeMap<ContactBand, u64>,
@@ -125,7 +129,7 @@ impl ContactMix {
             return;
         };
         self.measured_fair_contacts += 1;
-        self.power_window_contacts += u64::from(ev >= 40.0 && (20.0..50.0).contains(&vla));
+        self.power_window_contacts += u64::from(is_power_window(ev, vla));
         if ball_in_play {
             *self.non_hr_bip.entry(cell).or_default() += 1;
         }
