@@ -540,6 +540,22 @@ New batters retain their sampled swing speed up to 35.0 m/s. Above that
 point, the generator smoothly compresses samples toward 35.5 m/s. Stored
 player speeds are used as-is in games. The report opens `SABERBB_DB` read-only.
 
+To measure bat control during swing execution, replay the same live swings
+with bat control shifted by -2, -1, +1, and +2 relative to each player's
+saved value. The zero-delta arm is checked against the live game. To report
+only one batter, add `--paired-bat-control-batter-id` and their ID.
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --paired-bat-control --paired-bat-control-batter-id 7440 > bat_control_7440_2026.json
+```
+
+The report gives misses, fair contacts, home runs and the number of fair
+balls with exit speed at least 40 m/s and vertical launch angle in [20°, 50°).
+Compare that last count per 100 swings and use the paired gains and losses
+to see how many individual swings moved into or out of the window. Results
+are shown for all swings and by intent. The scheduled games and actual
+swing decisions follow the baseline roster.
+
 To investigate a season with high batting averages and few home runs:
 
 ```sh

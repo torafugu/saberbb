@@ -1,4 +1,7 @@
-use super::{Args, Counts, GameSchedule, accumulate, derived_seed, simulate_game};
+use super::{
+    Args, Counts, GameSchedule, accumulate, batting_ability_sweep::is_power_window, derived_seed,
+    simulate_game,
+};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
@@ -7,7 +10,7 @@ use saberbb::domain::{
         game::{BattingResult, GameResult},
         game_state::{
             DoubleFenceObservation, IntentAimOffsets, IntentAimPlay, IntentAimSwing,
-            PitchBatTimingTrial, SwingReplay, with_contact_approach_audit,
+            PitchBatTimingTrial, SwingReplay, with_bat_control_audit, with_contact_approach_audit,
             with_contact_first_speed_audit, with_contact_length_audit,
             with_downward_timing_height_audit, with_intent_aim_audit, with_intent_aim_trial,
             with_pitch_bat_timing_audit, with_predicted_contact_correction_audit,
@@ -433,6 +436,25 @@ fn observe_paired(
     pooled: &mut [PairedCounts],
     seed_counts: &mut [PairedCounts],
 ) -> Result<()> {
+    visit_paired(result, swings, pooled.len(), |swing| {
+        let baseline = swing.plays[0];
+        for ((total, seed), play) in pooled
+            .iter_mut()
+            .zip(seed_counts.iter_mut())
+            .zip(swing.plays)
+        {
+            total.observe(swing.intent, baseline, play);
+            seed.observe(swing.intent, baseline, play);
+        }
+    })
+}
+
+fn visit_paired(
+    result: &GameResult,
+    swings: Vec<IntentAimSwing>,
+    arm_count: usize,
+    mut observe: impl FnMut(IntentAimSwing),
+) -> Result<()> {
     let mut live: BTreeMap<_, _> = result
         .player_battings
         .iter()
@@ -445,7 +467,7 @@ fn observe_paired(
         .collect();
     for swing in swings {
         ensure!(
-            swing.plays.len() == pooled.len(),
+            swing.plays.len() == arm_count,
             "paired swing arm count mismatch"
         );
         let baseline = swing.plays[0];
@@ -461,14 +483,7 @@ fn observe_paired(
             result.id,
             swing.count_seq
         );
-        for ((total, seed), play) in pooled
-            .iter_mut()
-            .zip(seed_counts.iter_mut())
-            .zip(swing.plays)
-        {
-            total.observe(swing.intent, baseline, play);
-            seed.observe(swing.intent, baseline, play);
-        }
+        observe(swing);
     }
     ensure!(
         live.is_empty(),
@@ -661,6 +676,117 @@ pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result
     )?;
     report["vertical_alignment_by_swing_outcome"] = alignment.report();
     Ok(report)
+}
+
+#[derive(Default, serde::Serialize)]
+struct BatControlCounts {
+    swings: u64,
+    whiffs: u64,
+    fair_contacts: u64,
+    hard_fair_contacts: u64,
+    power_window_contacts: u64,
+    power_window_gained: u64,
+    power_window_lost: u64,
+    home_runs: u64,
+}
+
+fn fair_launch(play: SwingReplay) -> Option<(f64, f64)> {
+    let (outbound, ev, vla) = play.flight?;
+    (outbound != OutboundResult::Foul && play.outcome != Some(BattingResult::Foul))
+        .then_some((ev, vla))
+}
+
+impl BatControlCounts {
+    fn observe(&mut self, baseline: SwingReplay, play: SwingReplay) {
+        let launch = fair_launch(play);
+        let candidate = launch.is_some_and(|(ev, vla)| is_power_window(ev, vla));
+        let original = fair_launch(baseline).is_some_and(|(ev, vla)| is_power_window(ev, vla));
+        self.swings += 1;
+        self.whiffs += u64::from(play.flight.is_none());
+        self.fair_contacts += u64::from(launch.is_some());
+        self.hard_fair_contacts += u64::from(launch.is_some_and(|(ev, _)| ev >= 45.0));
+        self.power_window_contacts += u64::from(candidate);
+        self.power_window_gained += u64::from(candidate && !original);
+        self.power_window_lost += u64::from(original && !candidate);
+        self.home_runs += u64::from(play.outcome == Some(BattingResult::HomeRun));
+    }
+
+    fn report(&self) -> Value {
+        let mut report = json!(self);
+        report["power_window_per_100_swings"] = (self.swings != 0)
+            .then(|| 100.0 * self.power_window_contacts as f64 / self.swings as f64)
+            .into();
+        report
+    }
+}
+
+pub(super) fn run_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    const DELTAS: [f64; 5] = [0.0, -2.0, -1.0, 1.0, 2.0];
+    let mut pooled: [[BatControlCounts; 3]; DELTAS.len()] = Default::default();
+    let mut reports = Vec::new();
+    let report = |counts: &[[BatControlCounts; 3]; DELTAS.len()]| {
+        DELTAS
+            .iter()
+            .zip(counts)
+            .map(|(delta, [all, contact_first, line_drive])| {
+                json!({
+                    "bat_control_delta": delta, "all": all.report(),
+                    "contact_first": contact_first.report(), "line_drive": line_drive.report(),
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    for &seed in &args.seeds {
+        let mut per_seed: [[BatControlCounts; 3]; DELTAS.len()] = Default::default();
+        for game in games {
+            let (result, swings) = with_bat_control_audit(&DELTAS, || {
+                simulate_game(
+                    game.clone(),
+                    Box::new(RealRng::from_seed(derived_seed(seed, game.id))),
+                    BattingStrategySettings::player_driven(),
+                    Some(args.max_pitches),
+                    false,
+                )
+            });
+            let result = result.with_context(|| {
+                format!("bat control replay failed in game {}, seed {seed}", game.id)
+            })?;
+            visit_paired(&result, swings, DELTAS.len(), |swing| {
+                if args
+                    .paired_bat_control_batter_id
+                    .is_some_and(|id| swing.batter_id != id)
+                {
+                    return;
+                }
+                let baseline = swing.plays[0].batting;
+                let group = match swing.intent {
+                    BattedBallIntent::ContactFirst => 1,
+                    BattedBallIntent::LineDrive => 2,
+                };
+                for ((total, seed), play) in pooled.iter_mut().zip(&mut per_seed).zip(swing.plays) {
+                    for counts in [total, seed] {
+                        counts[0].observe(baseline, play.batting);
+                        counts[group].observe(baseline, play.batting);
+                    }
+                }
+            })?;
+        }
+        eprintln!(
+            "Paired bat control, seed {seed}: {} games complete",
+            games.len()
+        );
+        reports.push(json!({"seed": seed.to_string(), "arms": report(&per_seed)}));
+    }
+    ensure!(
+        pooled[0][0].swings > 0,
+        "no live swings for the requested bat control audit"
+    );
+    Ok(json!({
+        "batter_id": args.paired_bat_control_batter_id,
+        "definition": "Apply each delta to the live batter's bat_control and recompute position, timing and bat-angle geometry on the same realized swings, pitches, intents and starting RNG states. Live game state and future pitches follow the baseline. The power window counts fair contacts with EV >=40 m/s and VLA [20,50), including home runs. Gains and losses count individual swings entering or leaving that window versus the zero-delta replay. Hard fair contacts use EV >=45 m/s.",
+        "pooled": report(&pooled),
+        "reports": reports,
+    }))
 }
 
 pub(super) fn run_vertical_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Value> {

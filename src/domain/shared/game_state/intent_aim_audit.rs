@@ -3,7 +3,7 @@ use crate::domain::{
     resolver::{
         batting_resolver::{
             BattingFactor, ContactProtectionTrial, SwingExecutionError, adapt_to_pitch,
-            vertical_contact_ranges_at_x,
+            swing_execution_geometry, vertical_contact_ranges_at_x,
         },
         fielding_physics::FieldPlayPlayResult,
         pitching_resolver::{PitchDisplacement, StrikeZoneDimensions, calculate_location_bias},
@@ -46,6 +46,7 @@ impl IntentAimOffsets {
 }
 
 pub struct IntentAimSwing {
+    pub batter_id: i64,
     pub count_seq: u16,
     pub intent: BattedBallIntent,
     pub plays: Vec<IntentAimPlay>,
@@ -68,6 +69,7 @@ enum Trial {
     },
     ContactFirstSpeed(f64),
     LengthLoss(f64),
+    BatControl(f64),
     TimingGeometry(PitchBatTimingTrial),
     DownwardTimingHeight(Option<f64>),
     PredictedContactCorrection(bool),
@@ -89,6 +91,7 @@ struct ReplayInputs {
     attack_delta_deg: f64,
     use_path_mismatch: bool,
     vertical_bat_control_delta: f64,
+    bat_control_delta: f64,
     downward_timing_height_scale: f64,
     predicted_contact_correction: bool,
 }
@@ -102,6 +105,7 @@ impl Trial {
             attack_delta_deg: 0.0,
             use_path_mismatch: false,
             vertical_bat_control_delta: 0.0,
+            bat_control_delta: 0.0,
             downward_timing_height_scale: 1.0,
             predicted_contact_correction: false,
         };
@@ -118,6 +122,7 @@ impl Trial {
             }
             Self::ContactFirstSpeed(_) => {}
             Self::LengthLoss(loss) => inputs.length_loss = Some(loss),
+            Self::BatControl(delta) => inputs.bat_control_delta = delta,
             Self::TimingGeometry(trial) => {
                 if intent == BattedBallIntent::ContactFirst {
                     inputs.aim_m = f64::from(trial.contact_first_z_mm) / 1000.0;
@@ -307,6 +312,18 @@ pub fn with_contact_first_speed_audit<T>(
     )
 }
 
+/// Replay the execution of each live swing with only bat control changed.
+pub fn with_bat_control_audit<T>(
+    deltas: &[f64],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(
+        deltas.iter().copied().map(Trial::BatControl).collect(),
+        false,
+        run,
+    )
+}
+
 /// Replay both intents with the original contact geometry and alternate length attenuation.
 pub fn with_contact_length_audit<T>(
     losses: &[f64],
@@ -483,8 +500,20 @@ impl GameState {
                     plays.push(play);
                     continue;
                 }
+                let trial_batter = BatterInfo {
+                    swing_speed: batter.swing_speed * inputs.speed_factor,
+                    bat_control: batter.bat_control + inputs.bat_control_delta,
+                    ..*batter
+                };
+                let (mut displacement, mut error) = if inputs.bat_control_delta == 0.0 {
+                    (adapted, *swing_error)
+                } else {
+                    (
+                        adapt_to_pitch(raw_displacement, trial_batter.bat_control, batting_factor),
+                        swing_execution_geometry(&trial_batter, &pitch.actual_location),
+                    )
+                };
                 // Keep the live horizontal and timing corrections, even in the reduced-control arm.
-                let mut displacement = adapted;
                 if inputs.vertical_bat_control_delta != 0.0 {
                     displacement.vertical_offset_m = adapt_to_pitch(
                         raw_displacement,
@@ -493,17 +522,12 @@ impl GameState {
                     )
                     .vertical_offset_m;
                 }
-                let mut error = *swing_error;
                 if inputs.aim_m != 0.0 {
                     error.additional_z_m += inputs.aim_m;
                 }
                 if inputs.attack_delta_deg != 0.0 {
                     error.actual_attack_angle_deg += inputs.attack_delta_deg;
                 }
-                let trial_batter = BatterInfo {
-                    swing_speed: batter.swing_speed * inputs.speed_factor,
-                    ..*batter
-                };
                 if inputs.use_path_mismatch {
                     let velocity = pitch
                         .velocity_at_plate(&StrikeZoneDimensions::default())
@@ -596,6 +620,7 @@ impl GameState {
                 None
             };
             audit.swings.push(IntentAimSwing {
+                batter_id: active.id,
                 count_seq: self.count_seq,
                 intent,
                 plays,
