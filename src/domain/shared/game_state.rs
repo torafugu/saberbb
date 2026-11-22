@@ -233,6 +233,22 @@ pub fn with_intent_aim_trial<T>(
     (result, LINE_DRIVE_LIFT.get().unwrap().1)
 }
 
+thread_local! {
+    static LINE_DRIVE_ATTACK_DELTA_DEG: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+}
+
+/// Scope a LineDrive-only attack angle change to a synchronous game diagnostic.
+pub fn with_line_drive_attack_angle_trial<T>(delta_deg: f64, run: impl FnOnce() -> T) -> T {
+    struct Restore(f64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LINE_DRIVE_ATTACK_DELTA_DEG.set(self.0);
+        }
+    }
+    let _restore = Restore(LINE_DRIVE_ATTACK_DELTA_DEG.replace(delta_deg));
+    run()
+}
+
 fn intent_aim_offset_m(intent: BattedBallIntent) -> f64 {
     LINE_DRIVE_LIFT
         .get()
@@ -1483,6 +1499,11 @@ impl GameState {
             batter,
             &pitched_ball.actual_location,
         );
+
+        let attack_delta_deg = LINE_DRIVE_ATTACK_DELTA_DEG.get();
+        if intent == BattedBallIntent::LineDrive && attack_delta_deg != 0.0 {
+            swing_error.actual_attack_angle_deg += attack_delta_deg;
+        }
 
         self.record_intent_aim_trials(
             intent,
