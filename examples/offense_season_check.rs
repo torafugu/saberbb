@@ -136,6 +136,9 @@ struct Args {
     /// Limit the paired attack-angle report to one batter and their team's games.
     #[arg(long, requires = "paired_attack_angle")]
     paired_attack_angle_batter_id: Option<i64>,
+    /// Compare LineDrive at 0/+5 degrees with and without vertical timing error.
+    #[arg(long, requires = "paired_attack_angle")]
+    line_drive_attack_timing: bool,
     /// Compare only batting_eye, keeping the other batting abilities fixed.
     #[arg(long, requires = "batting_ability_batter_id")]
     batting_eye_only: bool,
