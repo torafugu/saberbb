@@ -70,6 +70,7 @@ enum Trial {
     ContactFirstSpeed(f64),
     LengthLoss(f64),
     BatControl(f64),
+    AttackAngle(f64),
     TimingGeometry(PitchBatTimingTrial),
     DownwardTimingHeight(Option<f64>),
     PredictedContactCorrection(bool),
@@ -123,6 +124,7 @@ impl Trial {
             Self::ContactFirstSpeed(_) => {}
             Self::LengthLoss(loss) => inputs.length_loss = Some(loss),
             Self::BatControl(delta) => inputs.bat_control_delta = delta,
+            Self::AttackAngle(delta) => inputs.attack_delta_deg = delta,
             Self::TimingGeometry(trial) => {
                 if intent == BattedBallIntent::ContactFirst {
                     inputs.aim_m = f64::from(trial.contact_first_z_mm) / 1000.0;
@@ -319,6 +321,18 @@ pub fn with_bat_control_audit<T>(
 ) -> (T, Vec<IntentAimSwing>) {
     with_trials(
         deltas.iter().copied().map(Trial::BatControl).collect(),
+        false,
+        run,
+    )
+}
+
+/// Shift the attack angle of both live swing intents by each supplied delta.
+pub fn with_attack_angle_audit<T>(
+    deltas_deg: &[f64],
+    run: impl FnOnce() -> T,
+) -> (T, Vec<IntentAimSwing>) {
+    with_trials(
+        deltas_deg.iter().copied().map(Trial::AttackAngle).collect(),
         false,
         run,
     )
