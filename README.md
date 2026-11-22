@@ -581,6 +581,22 @@ The timing calculation uses the same signed error and local pitch and bat
 paths as the pitch–bat timing diagnostic. The original game and its selected
 swings supply the replay inputs.
 
+To compare batting balance across regular-season games, leave `--games`
+unset for the full schedule and run the four-arm comparison at +2° or +3°:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-line-drive-attack-deg 2 > batting_balance_plus2_2026.json
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-line-drive-attack-deg 3 > batting_balance_plus3_2026.json
+```
+
+The four arms are the current model, upper-tail compression only, the
+LineDrive angle increase only, and both changes. Compression halves the
+excess above the observed 90th percentile of each of `bat_control` and
+`batting_eye` in the sampled rosters. The angle change applies during
+LineDrive execution with the default timing geometry used by the live game.
+Qualification uses 3.1 PA per sampled team game, rounded per seed. The
+report includes batting average bands and rates per 100 plate appearances.
+
 To investigate a season with high batting averages and few home runs:
 
 ```sh

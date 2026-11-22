@@ -45,6 +45,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf};
 
+#[path = "support/batting_balance_comparison.rs"]
+mod batting_balance_comparison;
 #[path = "support/bip_audit.rs"]
 mod bip_audit;
 #[path = "support/contact_direction_audit.rs"]
@@ -102,6 +104,23 @@ struct Args {
         "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     batting_ability_batter_id: Option<i64>,
+    /// Compare upper-tail batting ability compression and a small LineDrive angle increase.
+    #[arg(long, conflicts_with_all = [
+        "swing_speed_batter_id", "batting_ability_batter_id", "paired_bat_control",
+        "paired_attack_angle", "pitch_bat_timing_comparison", "contact_approach_comparison",
+        "count_intent_comparison", "vertical_bat_control_comparison", "contact_first_swing_speed_comparison",
+        "contact_first_ev_terms", "contact_first_ev_comparison", "intent_aim_comparison",
+        "contact_length_comparison", "line_drive_lift_comparison", "vertical_contact_sweep",
+        "vertical_contact_comparison", "vertical_contact_paired_fielding", "timing_geometry_sweep",
+        "right_field_first_comparison", "no_bounce_margin_comparison", "pre_fence_pickup_comparison",
+        "bip_diagnostics", "fair_launch_diagnostics", "contact_direction_diagnostics",
+        "moving_collision_diagnostics", "selected_intent_diagnostics", "timing_scale_diagnostics",
+        "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
+    ])]
+    batting_balance_comparison: bool,
+    /// LineDrive-only attack increase in degrees; defaults to 2.
+    #[arg(long, requires = "batting_balance_comparison", value_parser = clap::value_parser!(u8).range(2..=3))]
+    balance_line_drive_attack_deg: Option<u8>,
     /// Replay live swings with bat control shifted by -2, -1, +1 and +2.
     #[arg(long, conflicts_with_all = [
         "swing_speed_batter_id", "batting_ability_batter_id", "pitch_bat_timing_comparison",
@@ -857,6 +876,7 @@ fn schedules(
         JOIN stadium st ON st.id=g.stadium_id JOIN league l ON l.id=a.league_id
         WHERE g.season=?1 AND (?3 IS NULL OR
             (SELECT team_id FROM player_info WHERE id=?3) IN (g.away_team_id,g.home_team_id))
+        AND (NOT ?4 OR g.game_type='Regular')
         ORDER BY g.round_seq,g.seq,g.id LIMIT ?2")?;
     let mut rows = query.query(rusqlite::params![
         args.season,
@@ -864,7 +884,8 @@ fn schedules(
         args.swing_speed_batter_id
             .or(args.batting_ability_batter_id)
             .or(args.paired_bat_control_batter_id)
-            .or(args.paired_attack_angle_batter_id)
+            .or(args.paired_attack_angle_batter_id),
+        args.batting_balance_comparison
     ])?;
     let mut teams = BTreeMap::<u16, Team>::new();
     let mut games = Vec::new();
@@ -1088,6 +1109,8 @@ fn run(args: Args) -> Result<()> {
     }
     if let Some(batter_id) = args.batting_ability_batter_id {
         output["batting_ability_sweep"] = batting_ability_sweep::run(&args, &games, batter_id)?;
+    } else if args.batting_balance_comparison {
+        output["batting_balance_comparison"] = batting_balance_comparison::run(&args, &games)?;
     } else if args.paired_bat_control {
         output["paired_bat_control"] = intent_aim_comparison::run_bat_control(&args, &games)?;
     } else if args.paired_attack_angle {
