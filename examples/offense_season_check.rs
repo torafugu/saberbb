@@ -119,6 +119,23 @@ struct Args {
     /// Limit the paired bat-control report to one batter and their team's games.
     #[arg(long, requires = "paired_bat_control")]
     paired_bat_control_batter_id: Option<i64>,
+    /// Replay live swings with attack angle shifted by -5, +5 and +10 degrees.
+    #[arg(long, conflicts_with_all = [
+        "paired_bat_control", "swing_speed_batter_id", "batting_ability_batter_id", "pitch_bat_timing_comparison",
+        "contact_approach_comparison", "count_intent_comparison", "vertical_bat_control_comparison",
+        "contact_first_swing_speed_comparison", "contact_first_ev_terms", "contact_first_ev_comparison",
+        "intent_aim_comparison", "contact_length_comparison", "line_drive_lift_comparison",
+        "vertical_contact_sweep", "vertical_contact_comparison", "vertical_contact_paired_fielding",
+        "timing_geometry_sweep", "right_field_first_comparison", "no_bounce_margin_comparison",
+        "pre_fence_pickup_comparison", "bip_diagnostics", "fair_launch_diagnostics",
+        "contact_direction_diagnostics", "moving_collision_diagnostics", "selected_intent_diagnostics",
+        "timing_scale_diagnostics", "infield_opportunity_diagnostics", "outfield_advance_diagnostics",
+        "no_bounce_catch_diagnostics"
+    ])]
+    paired_attack_angle: bool,
+    /// Limit the paired attack-angle report to one batter and their team's games.
+    #[arg(long, requires = "paired_attack_angle")]
+    paired_attack_angle_batter_id: Option<i64>,
     /// Compare only batting_eye, keeping the other batting abilities fixed.
     #[arg(long, requires = "batting_ability_batter_id")]
     batting_eye_only: bool,
@@ -844,6 +861,7 @@ fn schedules(
         args.swing_speed_batter_id
             .or(args.batting_ability_batter_id)
             .or(args.paired_bat_control_batter_id)
+            .or(args.paired_attack_angle_batter_id)
     ])?;
     let mut teams = BTreeMap::<u16, Team>::new();
     let mut games = Vec::new();
@@ -1069,6 +1087,8 @@ fn run(args: Args) -> Result<()> {
         output["batting_ability_sweep"] = batting_ability_sweep::run(&args, &games, batter_id)?;
     } else if args.paired_bat_control {
         output["paired_bat_control"] = intent_aim_comparison::run_bat_control(&args, &games)?;
+    } else if args.paired_attack_angle {
+        output["paired_attack_angle"] = intent_aim_comparison::run_attack_angle(&args, &games)?;
     } else if args.contact_approach_comparison {
         output["contact_approach_comparison"] =
             intent_aim_comparison::run_contact_approaches(&args, &games)?;

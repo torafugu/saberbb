@@ -556,6 +556,18 @@ to see how many individual swings moved into or out of the window. Results
 are shown for all swings and by intent. The scheduled games and actual
 swing decisions follow the baseline roster.
 
+To replay how attack angle changes launch outcomes, set `SABERBB_DB` and run:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 36 --paired-attack-angle --paired-attack-angle-batter-id 7440 > attack_angle_7440_2026.json
+```
+
+The four arms apply 0°, −5°, +5°, and +10° to the live attack angle.
+The report tracks which of the same baseline hard low-angle fair contacts
+(EV ≥45 m/s, VLA [5°, 15°)) move into the power window and whether they
+retain EV ≥45 m/s. Omit the batter ID to report all sampled swings. That
+report also highlights the batter with the most sampled LineDrive swings.
+
 To investigate a season with high batting averages and few home runs:
 
 ```sh

@@ -10,8 +10,8 @@ use saberbb::domain::{
         game::{BattingResult, GameResult},
         game_state::{
             DoubleFenceObservation, IntentAimOffsets, IntentAimPlay, IntentAimSwing,
-            PitchBatTimingTrial, SwingReplay, with_bat_control_audit, with_contact_approach_audit,
-            with_contact_first_speed_audit, with_contact_length_audit,
+            PitchBatTimingTrial, SwingReplay, with_attack_angle_audit, with_bat_control_audit,
+            with_contact_approach_audit, with_contact_first_speed_audit, with_contact_length_audit,
             with_downward_timing_height_audit, with_intent_aim_audit, with_intent_aim_trial,
             with_pitch_bat_timing_audit, with_predicted_contact_correction_audit,
         },
@@ -679,7 +679,7 @@ pub(super) fn run_timing_geometry(args: &Args, games: &[GameSchedule]) -> Result
 }
 
 #[derive(Default, serde::Serialize)]
-struct BatControlCounts {
+struct PairedAttributeCounts {
     swings: u64,
     whiffs: u64,
     fair_contacts: u64,
@@ -688,6 +688,18 @@ struct BatControlCounts {
     power_window_gained: u64,
     power_window_lost: u64,
     home_runs: u64,
+    #[serde(skip)]
+    hard_low_destinations: HardLowDestinations,
+}
+
+#[derive(Default, serde::Serialize)]
+struct HardLowDestinations {
+    power_window_hard: u64,
+    power_window_below_45_ms: u64,
+    other_hard_fair: u64,
+    softer_fair: u64,
+    foul: u64,
+    whiff: u64,
 }
 
 fn fair_launch(play: SwingReplay) -> Option<(f64, f64)> {
@@ -696,11 +708,12 @@ fn fair_launch(play: SwingReplay) -> Option<(f64, f64)> {
         .then_some((ev, vla))
 }
 
-impl BatControlCounts {
+impl PairedAttributeCounts {
     fn observe(&mut self, baseline: SwingReplay, play: SwingReplay) {
         let launch = fair_launch(play);
         let candidate = launch.is_some_and(|(ev, vla)| is_power_window(ev, vla));
-        let original = fair_launch(baseline).is_some_and(|(ev, vla)| is_power_window(ev, vla));
+        let baseline_launch = fair_launch(baseline);
+        let original = baseline_launch.is_some_and(|(ev, vla)| is_power_window(ev, vla));
         self.swings += 1;
         self.whiffs += u64::from(play.flight.is_none());
         self.fair_contacts += u64::from(launch.is_some());
@@ -709,10 +722,24 @@ impl BatControlCounts {
         self.power_window_gained += u64::from(candidate && !original);
         self.power_window_lost += u64::from(original && !candidate);
         self.home_runs += u64::from(play.outcome == Some(BattingResult::HomeRun));
+        if baseline_launch.is_some_and(|(ev, vla)| ev >= 45.0 && (5.0..15.0).contains(&vla)) {
+            let destinations = &mut self.hard_low_destinations;
+            match launch {
+                Some((ev, _)) if candidate && ev >= 45.0 => destinations.power_window_hard += 1,
+                Some(_) if candidate => destinations.power_window_below_45_ms += 1,
+                Some((ev, _)) if ev >= 45.0 => destinations.other_hard_fair += 1,
+                Some(_) => destinations.softer_fair += 1,
+                None if play.flight.is_some() => destinations.foul += 1,
+                None => destinations.whiff += 1,
+            }
+        }
     }
 
-    fn report(&self) -> Value {
+    fn report(&self, include_destinations: bool) -> Value {
         let mut report = json!(self);
+        if include_destinations {
+            report["baseline_hard_low_destinations"] = json!(self.hard_low_destinations);
+        }
         report["power_window_per_100_swings"] = (self.swings != 0)
             .then(|| 100.0 * self.power_window_contacts as f64 / self.swings as f64)
             .into();
@@ -721,25 +748,64 @@ impl BatControlCounts {
 }
 
 pub(super) fn run_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Value> {
-    const DELTAS: [f64; 5] = [0.0, -2.0, -1.0, 1.0, 2.0];
-    let mut pooled: [[BatControlCounts; 3]; DELTAS.len()] = Default::default();
+    run_paired_attribute(
+        args,
+        games,
+        args.paired_bat_control_batter_id,
+        &[0.0, -2.0, -1.0, 1.0, 2.0],
+        "bat_control_delta",
+        false,
+        |deltas, run| with_bat_control_audit(deltas, run),
+    )
+}
+
+pub(super) fn run_attack_angle(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    run_paired_attribute(
+        args,
+        games,
+        args.paired_attack_angle_batter_id,
+        &[0.0, -5.0, 5.0, 10.0],
+        "attack_angle_delta_deg",
+        true,
+        |deltas, run| with_attack_angle_audit(deltas, run),
+    )
+}
+
+fn run_paired_attribute<const N: usize>(
+    args: &Args,
+    games: &[GameSchedule],
+    batter_id: Option<i64>,
+    deltas: &[f64; N],
+    delta_key: &str,
+    attack_angle: bool,
+    mut audit: impl FnMut(
+        &[f64],
+        &mut dyn FnMut() -> Result<GameResult>,
+    ) -> (Result<GameResult>, Vec<IntentAimSwing>),
+) -> Result<Value>
+where
+    [[PairedAttributeCounts; 3]; N]: Default,
+{
+    let mut pooled: [[PairedAttributeCounts; 3]; N] = Default::default();
+    let mut by_batter = BTreeMap::<i64, [[PairedAttributeCounts; 3]; N]>::new();
     let mut reports = Vec::new();
-    let report = |counts: &[[BatControlCounts; 3]; DELTAS.len()]| {
-        DELTAS
+    let report = |counts: &[[PairedAttributeCounts; 3]; N]| {
+        deltas
             .iter()
             .zip(counts)
             .map(|(delta, [all, contact_first, line_drive])| {
                 json!({
-                    "bat_control_delta": delta, "all": all.report(),
-                    "contact_first": contact_first.report(), "line_drive": line_drive.report(),
+                    (delta_key): delta, "all": all.report(attack_angle),
+                    "contact_first": contact_first.report(attack_angle),
+                    "line_drive": line_drive.report(attack_angle),
                 })
             })
             .collect::<Vec<_>>()
     };
     for &seed in &args.seeds {
-        let mut per_seed: [[BatControlCounts; 3]; DELTAS.len()] = Default::default();
+        let mut per_seed: [[PairedAttributeCounts; 3]; N] = Default::default();
         for game in games {
-            let (result, swings) = with_bat_control_audit(&DELTAS, || {
+            let (result, swings) = audit(deltas, &mut || {
                 simulate_game(
                     game.clone(),
                     Box::new(RealRng::from_seed(derived_seed(seed, game.id))),
@@ -749,13 +815,10 @@ pub(super) fn run_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Val
                 )
             });
             let result = result.with_context(|| {
-                format!("bat control replay failed in game {}, seed {seed}", game.id)
+                format!("{delta_key} replay failed in game {}, seed {seed}", game.id)
             })?;
-            visit_paired(&result, swings, DELTAS.len(), |swing| {
-                if args
-                    .paired_bat_control_batter_id
-                    .is_some_and(|id| swing.batter_id != id)
-                {
+            visit_paired(&result, swings, N, |swing| {
+                if batter_id.is_some_and(|id| swing.batter_id != id) {
                     return;
                 }
                 let baseline = swing.plays[0].batting;
@@ -763,30 +826,44 @@ pub(super) fn run_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Val
                     BattedBallIntent::ContactFirst => 1,
                     BattedBallIntent::LineDrive => 2,
                 };
-                for ((total, seed), play) in pooled.iter_mut().zip(&mut per_seed).zip(swing.plays) {
-                    for counts in [total, seed] {
+                let mut batter = (attack_angle && batter_id.is_none())
+                    .then(|| by_batter.entry(swing.batter_id).or_default());
+                for (index, play) in swing.plays.into_iter().enumerate() {
+                    let batter = batter.as_deref_mut().map(|counts| &mut counts[index]);
+                    for counts in [Some(&mut pooled[index]), Some(&mut per_seed[index]), batter]
+                        .into_iter()
+                        .flatten()
+                    {
                         counts[0].observe(baseline, play.batting);
                         counts[group].observe(baseline, play.batting);
                     }
                 }
             })?;
         }
-        eprintln!(
-            "Paired bat control, seed {seed}: {} games complete",
-            games.len()
-        );
+        eprintln!("{delta_key}, seed {seed}: {} games complete", games.len());
         reports.push(json!({"seed": seed.to_string(), "arms": report(&per_seed)}));
     }
-    ensure!(
-        pooled[0][0].swings > 0,
-        "no live swings for the requested bat control audit"
-    );
-    Ok(json!({
-        "batter_id": args.paired_bat_control_batter_id,
-        "definition": "Apply each delta to the live batter's bat_control and recompute position, timing and bat-angle geometry on the same realized swings, pitches, intents and starting RNG states. Live game state and future pitches follow the baseline. The power window counts fair contacts with EV >=40 m/s and VLA [20,50), including home runs. Gains and losses count individual swings entering or leaving that window versus the zero-delta replay. Hard fair contacts use EV >=45 m/s.",
+    ensure!(pooled[0][0].swings > 0, "no live swings for {delta_key}");
+    let definition = if attack_angle {
+        "Shift the batter's attack angle after the live swing decision, using identical realized pitches, intents, and starting RNG states. The existing contact geometry and bat speed stay fixed, and the continuing game uses the baseline. The power window counts fair contacts with EV >=40 m/s and VLA [20,50), including home runs. Gains and losses compare individual swings with the zero-delta replay. Hard fair contacts use EV >=45 m/s. Baseline hard-low destinations follow the very same baseline fair swings with EV >=45 m/s and VLA [5,15)."
+    } else {
+        "Apply each delta to the live batter's bat_control and recompute position, timing and bat-angle geometry on the same realized swings, pitches, intents and starting RNG states. Live game state and future pitches follow the baseline. The power window counts fair contacts with EV >=40 m/s and VLA [20,50), including home runs. Gains and losses count individual swings entering or leaving that window versus the zero-delta replay. Hard fair contacts use EV >=45 m/s."
+    };
+    let mut output = json!({
+        "batter_id": batter_id,
+        "definition": definition,
         "pooled": report(&pooled),
         "reports": reports,
-    }))
+    });
+    if attack_angle && batter_id.is_none() {
+        output["line_drive_comparison_batter"] = by_batter
+            .iter()
+            .filter(|(_, counts)| counts[0][2].swings > 0)
+            .max_by_key(|(id, counts)| (counts[0][2].swings, std::cmp::Reverse(**id)))
+            .map(|(id, counts)| json!({"batter_id": id, "arms": report(counts)}))
+            .unwrap_or(Value::Null);
+    }
+    Ok(output)
 }
 
 pub(super) fn run_vertical_bat_control(args: &Args, games: &[GameSchedule]) -> Result<Value> {

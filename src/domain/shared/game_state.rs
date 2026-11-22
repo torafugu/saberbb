@@ -53,9 +53,9 @@ pub use count_intent_audit::{CountIntentSwing, with_count_intent_audit};
 mod intent_aim_audit;
 pub use intent_aim_audit::{
     IntentAimOffsets, IntentAimPlay, IntentAimSwing, PitchBatTimingTrial, TwoStrikePitch,
-    with_bat_control_audit, with_contact_approach_audit, with_contact_first_speed_audit,
-    with_contact_length_audit, with_downward_timing_height_audit, with_intent_aim_audit,
-    with_pitch_bat_timing_audit, with_predicted_contact_correction_audit,
+    with_attack_angle_audit, with_bat_control_audit, with_contact_approach_audit,
+    with_contact_first_speed_audit, with_contact_length_audit, with_downward_timing_height_audit,
+    with_intent_aim_audit, with_pitch_bat_timing_audit, with_predicted_contact_correction_audit,
 };
 mod paired_contact;
 use paired_contact::PairedSwing;
