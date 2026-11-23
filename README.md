@@ -701,6 +701,18 @@ seeds in which the leader reaches 20 home runs. It also reports both the
 per-seed and pooled rates of whiffs per swing. This mode runs full games
 without the fixed-contact trajectory replay.
 
+To test a small angle and power increase on top of the live swing-speed bonus:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --batting-balance-comparison --balance-swing-attributes --balance-angle-power-tuning > angle_power_tuning_2026.json
+```
+
+All four arms use the live swing-speed bonus. Compare the baseline, +1° to
+roster `attack_angle`, +0.25 to `swing_power`, and both increases together.
+Each seed reports the home-run leader, the number of hitters with at least
+10 home runs, and league batting outcomes, including doubles and batting
+average. The roster changes exist only for the replay.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 
