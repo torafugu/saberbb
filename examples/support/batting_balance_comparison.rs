@@ -184,13 +184,6 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         ("swing_power_plus_0_25", 0.0, 0.25),
         ("angle_and_power", 1.0, 0.25),
     ];
-    // Each pair switches on the bat-control and batting-eye reduction.
-    const BATTING_ABILITY_TRIALS: [(&str, bool, bool); 4] = [
-        ("live_speed_baseline", false, false),
-        ("lower_bat_control", true, false),
-        ("lower_batting_eye", false, true),
-        ("lower_control_and_eye", true, true),
-    ];
     let swing_attributes = args.balance_swing_attributes;
     let live_batting_abilities = args.balance_live_batting_abilities;
     let angle_power_tuning = args.balance_angle_power_tuning;
@@ -245,8 +238,23 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let attack_angle_sweep = args.balance_attack_angle_sweep;
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
+    // Each pair specifies the amount to subtract from bat control and batting eye.
+    let batting_ability_trials: &[(&str, f64, f64)] = if args.balance_batting_eye_sweep {
+        &[
+            ("live_speed_baseline", 0.0, 0.0),
+            ("batting_eye_minus_0_15", 0.0, 0.15),
+            ("batting_eye_minus_0_25", 0.0, 0.25),
+        ]
+    } else {
+        &[
+            ("live_speed_baseline", 0.0, 0.0),
+            ("lower_bat_control", mean_drop, 0.0),
+            ("lower_batting_eye", 0.0, mean_drop),
+            ("lower_control_and_eye", mean_drop, mean_drop),
+        ]
+    };
     let trials = if live_batting_abilities {
-        BATTING_ABILITY_TRIALS
+        batting_ability_trials
             .iter()
             .map(|&(label, _, _)| (label, Current, (0.0, 0.0), true))
             .collect()
@@ -336,14 +344,27 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated),
     ) in trials.into_iter().take(case_count).enumerate()
     {
-        let (control_adjustment, eye_adjustment) = if live_batting_abilities {
-            let (_, lower_control, lower_eye) = BATTING_ABILITY_TRIALS[arm_index];
+        let (control_drop, eye_drop, control_adjustment, eye_adjustment) = if live_batting_abilities
+        {
+            let (_, control_drop, eye_drop) = batting_ability_trials[arm_index];
+            let reduce = |mean_drop| {
+                if mean_drop == 0.0 {
+                    Current
+                } else {
+                    Limits {
+                        mean_drop,
+                        cap: None,
+                    }
+                }
+            };
             (
-                if lower_control { shifted } else { Current },
-                if lower_eye { shifted } else { Current },
+                control_drop,
+                eye_drop,
+                reduce(control_drop),
+                reduce(eye_drop),
             )
         } else {
-            (adjustment, adjustment)
+            (0.0, 0.0, adjustment, adjustment)
         };
         let (power_delta, speed_delta) = if live_batting_abilities {
             (0.0, GAME_SWING_SPEED_BONUS_MS)
@@ -559,16 +580,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 json!((pooled_swings > 0).then(|| pooled_whiffs as f64 / pooled_swings as f64));
         }
         if live_batting_abilities {
-            arm["bat_control_delta"] = json!(if matches!(control_adjustment, Current) {
-                0.0
-            } else {
-                -mean_drop
-            });
-            arm["batting_eye_delta"] = json!(if matches!(eye_adjustment, Current) {
-                0.0
-            } else {
-                -mean_drop
-            });
+            arm["bat_control_delta"] = json!(0.0 - control_drop);
+            arm["batting_eye_delta"] = json!(0.0 - eye_drop);
         }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
@@ -600,7 +613,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         if live_batting_abilities {
             settings["home_run_target"] = json!(HOME_RUN_TARGET);
             settings["live_speed_bonus_ms"] = json!(GAME_SWING_SPEED_BONUS_MS);
-            settings["batting_ability_drop"] = json!(mean_drop);
+            if args.balance_batting_eye_sweep {
+                settings["batting_eye_sweep_deltas"] = json!(
+                    batting_ability_trials
+                        .iter()
+                        .map(|&(_, _, drop)| 0.0 - drop)
+                        .collect::<Vec<_>>()
+                );
+            } else {
+                settings["batting_ability_drop"] = json!(mean_drop);
+            }
             settings["baseline_hr_leaders"] = json!(
                 "Per seed, fix the baseline's first 10 batters with at least one home run in descending HR order, breaking ties by player ID. Compare this same group's PA and HR/100 PA in every arm."
             );
