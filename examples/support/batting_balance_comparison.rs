@@ -1,4 +1,7 @@
-use super::{Args, Counts, GameSchedule, accumulate, derived_seed, simulate_game};
+use super::{
+    Args, Counts, FairBallOutcomes, GameResult, GameSchedule, accumulate, derived_seed,
+    fair_launch_audit::HIGH_EV_MIN_MS, simulate_game,
+};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
     random_provider::RealRng,
@@ -134,6 +137,29 @@ fn rates(counts: &Counts) -> Value {
     summary
 }
 
+#[derive(Default, Serialize)]
+struct AttackAngleLaunchBands {
+    vla_7_to_under_15: FairBallOutcomes,
+    vla_30_to_under_40: FairBallOutcomes,
+}
+
+impl AttackAngleLaunchBands {
+    fn observe_game(&mut self, game: &GameResult) {
+        for batting in &game.player_battings {
+            let ev = batting.ball.launch_speed;
+            if !ev.is_finite() || ev < HIGH_EV_MIN_MS {
+                continue;
+            }
+            let angle = batting.ball.launch_angle;
+            if (7.0..15.0).contains(&angle) {
+                self.vla_7_to_under_15.observe(batting.result);
+            } else if (30.0..40.0).contains(&angle) {
+                self.vla_30_to_under_40.observe(batting.result);
+            }
+        }
+    }
+}
+
 pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let roster: BTreeMap<_, _> = games
         .iter()
@@ -177,7 +203,15 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         cap: None,
     };
     let model_calibration = args.balance_model_calibration;
-    let trials = if model_calibration {
+    let attack_angle_sweep = args.balance_attack_angle_sweep;
+    let trials = if attack_angle_sweep {
+        [
+            ("current", Current, 0.0, true),
+            ("line_drive_plus_3", Current, 3.0, true),
+            ("line_drive_plus_6", Current, 6.0, true),
+            ("line_drive_plus_9", Current, 9.0, true),
+        ]
+    } else if model_calibration {
         [
             ("current", Current, 0.0, false),
             ("generation_angle_only", Current, 2.0, false),
@@ -237,6 +271,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         let mut reports = Vec::new();
         for &seed in &args.seeds {
             let mut total = Counts::default();
+            let mut launch_bands = attack_angle_sweep.then(AttackAngleLaunchBands::default);
             let mut teams = BTreeMap::new();
             let mut players = BTreeMap::new();
             for original in games {
@@ -266,18 +301,24 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         false,
                     )
                 };
+                let run = || with_line_drive_attack_angle_trial(line_drive_delta_deg, run);
                 let result = if calibrated {
                     with_calibrated_batting(run)
                 } else {
-                    with_line_drive_attack_angle_trial(line_drive_delta_deg, run)
+                    run()
                 }
                 .with_context(|| {
                     format!("batting balance {label}, seed {seed}, game {}", original.id)
                 })?;
+                if let Some(bands) = &mut launch_bands {
+                    bands.observe_game(&result);
+                }
                 accumulate(&mut total, &mut teams, &mut players, original, &result)?;
             }
             let mut pa_bands: [PlateAppearanceBand; PA_BANDS.len()] = Default::default();
             let mut batter_rows = Vec::new();
+            let mut max_home_runs = 0;
+            let mut max_qualified_ba: Option<f64> = None;
             for (id, counts) in players.into_iter().filter(|(_, counts)| counts.pa > 0) {
                 let (team_id, player) = roster[&id];
                 let team_games = teams[&team_id].games;
@@ -285,20 +326,26 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 let band = plate_appearance_band(counts.pa, required_pa);
                 let hits = counts.single + counts.double + counts.triple + counts.hr;
                 pa_bands[band].observe(hits, counts.ab);
+                let ba = (counts.ab > 0).then(|| hits as f64 / counts.ab as f64);
+                let qualified = ba.is_some() && counts.pa >= required_pa;
+                max_home_runs = max_home_runs.max(counts.hr);
+                if let Some(ba) = ba.filter(|_| qualified) {
+                    max_qualified_ba = Some(max_qualified_ba.map_or(ba, |best| best.max(ba)));
+                }
                 batter_rows.push(json!({
                     "batter_id": id, "team_id": team_id,
                     "first_name": player.info.first_name, "last_name": player.info.last_name,
                     "team_games": team_games, "games_with_batting_record": counts.games,
                     "pa": counts.pa, "ab": counts.ab, "hits": hits, "hr": counts.hr,
-                    "ba": (counts.ab > 0).then(|| hits as f64 / counts.ab as f64),
+                    "ba": ba,
                     "required_pa": required_pa, "pa_shortfall": required_pa.saturating_sub(counts.pa),
-                    "qualified": counts.ab > 0 && counts.pa >= required_pa,
+                    "qualified": qualified,
                 }));
             }
             let qualified = &pa_bands[4];
             let distribution = &qualified.batting_average_distribution;
             let at_least_400 = distribution.from_400_below_500 + distribution.at_least_500;
-            reports.push(json!({
+            let mut report = json!({
                 "seed": seed.to_string(), "league": rates(&total),
                 "team_games": teams.iter().map(|(&id, c)| (id, c.games)).collect::<BTreeMap<_, _>>(),
                 "qualified_batters": qualified.batters - qualified.without_at_bats,
@@ -306,7 +353,13 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 "qualified_batting_average_distribution": distribution,
                 "batters": batter_rows,
                 "batting_average_by_pa": PA_BANDS.into_iter().zip(pa_bands).collect::<BTreeMap<_, _>>(),
-            }));
+            });
+            if let Some(bands) = launch_bands {
+                report["max_home_runs"] = json!(max_home_runs);
+                report["max_qualified_ba"] = json!(max_qualified_ba);
+                report["hard_fair_launch_bands"] = json!(bands);
+            }
+            reports.push(report);
             eprintln!(
                 "Batting balance {label}, seed {seed}: {} games complete",
                 games.len()
@@ -337,7 +390,12 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The attack delta changes the live LineDrive execution angle only.",
         "arms": arms,
     });
-    if model_calibration {
+    if attack_angle_sweep {
+        output["attack_angle_sweep"] = json!({
+            "definition": "All arms use the regular-game batting response coefficients. Only the LineDrive execution angle changes. The launch bands count terminal fair outcomes across all intents, including home runs. Replays use the diagnostic batting totals, which count sacrifice-fly outs as at-bats.",
+            "min_exit_speed_ms": HIGH_EV_MIN_MS,
+        });
+    } else if model_calibration {
         output["model_calibration"] = json!({
             "definition": "The current arm uses the legacy model and saved roster angles. The angle arms add 2 degrees to each input roster angle to approximate shifting the generation distribution, retaining individual differences and applying to both intents. The model arms move the midpoint of the bat-control displacement correction and batting-eye timing response from zero to 0.5.",
             "bat_control_correction_midpoint": BAT_CONTROL_CORRECTION_MIDPOINT,
