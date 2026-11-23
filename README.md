@@ -547,8 +547,9 @@ from the configured generator before and after upper-tail compression.
 New batters retain their sampled swing speed up to 35.0 m/s. Above that
 point, the generator smoothly compresses samples toward 35.5 m/s.
 Normal game processing and analysis add 2.0 m/s to the loaded roster's
-`swing_speed` before lineup selection. This applies to newly played games
-and leaves stored player speeds intact. The report opens `SABERBB_DB` read-only.
+`swing_speed` and subtract 0.25 from `batting_eye` before lineup selection.
+These adjustments apply to newly played games and use the stored roster as
+input each time. The report opens `SABERBB_DB` read-only.
 
 To measure bat control during swing execution, replay the same live swings
 with bat control shifted by -2, -1, +1, and +2 relative to each player's
@@ -733,7 +734,8 @@ cargo run --release --example offense_season_check -- --season 2026 --games 360 
 
 Use the same source database and seeds as the ability comparison. The
 three arms are the live-speed baseline, `batting_eye` −0.15, and
-`batting_eye` −0.25. All use the saved `bat_control` values.
+`batting_eye` −0.25. All use the saved `bat_control` values. The −0.25
+arm matches the batting-eye adjustment used by normal game processing.
 
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
