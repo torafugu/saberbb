@@ -287,14 +287,62 @@ pub fn calculate_dynamic_attack_angle(attack_angle_deg: f64, bat_angle_deg: f64)
     attack_angle_deg + (angle_delta * BAT_ANGLE_ATTACK_COUPLING)
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwingExecutionModel {
+    #[default]
+    Legacy,
+    Gaussian,
+    Mixture,
+}
+
+thread_local! {
+    static SWING_EXECUTION_MODEL: std::cell::Cell<SwingExecutionModel> =
+        const { std::cell::Cell::new(SwingExecutionModel::Legacy) };
+}
+
+/// Select the execution model for a synchronous simulation or fixed-pitch trial.
+pub fn with_swing_execution_model<T>(model: SwingExecutionModel, run: impl FnOnce() -> T) -> T {
+    struct Restore(SwingExecutionModel);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SWING_EXECUTION_MODEL.set(self.0);
+        }
+    }
+    let _restore = Restore(SWING_EXECUTION_MODEL.replace(model));
+    run()
+}
+
+fn swing_execution_scale(bat_control: f64) -> f64 {
+    let residual = 1.0 - sigmoid(bat_control - BAT_CONTROL_CORRECTION_MIDPOINT);
+    // Keep an execution floor even when the batter can correct most prediction errors.
+    0.55_f64.hypot(1.25 * residual)
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct SwingExecutionError {
+    pub additional_timing_sec: f64,
     pub additional_x_m: f64,
     pub additional_z_m: f64,
     pub ideal_bat_angle_deg: f64,
     pub actual_bat_angle_deg: f64,
     pub ideal_attack_angle_deg: f64,
     pub actual_attack_angle_deg: f64,
+}
+
+impl SwingExecutionError {
+    pub(crate) fn with_rescaled_offsets(
+        mut self,
+        source: Self,
+        original: &BatterInfo,
+        trial: &BatterInfo,
+    ) -> Self {
+        let ratio =
+            swing_execution_scale(trial.bat_control) / swing_execution_scale(original.bat_control);
+        self.additional_timing_sec = source.additional_timing_sec * ratio;
+        self.additional_x_m = source.additional_x_m * ratio;
+        self.additional_z_m = source.additional_z_m * ratio;
+        self
+    }
 }
 
 // Deterministic angular execution error at the supplied perceived/actual course. No RNG.
@@ -320,9 +368,36 @@ pub fn calculate_swing_execution_error(
     batter: &BatterInfo,
     actual_location: &BallLocation,
 ) -> SwingExecutionError {
-    // Keep the historical draw so this change does not shift the downstream RNG stream.
+    // The legacy model keeps its historical RNG consumption.
     let _legacy_attack_angle_sample = rng.normal_factor_std_5_percent();
-    swing_execution_geometry(batter, actual_location)
+    let mut error = swing_execution_geometry(batter, actual_location);
+    let model = SWING_EXECUTION_MODEL.get();
+    if model == SwingExecutionModel::Legacy {
+        return error;
+    }
+
+    // Share the width across axes for a given swing. Normalize the mixture to the
+    // same variance as the Gaussian so the comparison isolates the shape.
+    const WIDE_SWING_RATE: f64 = 0.10;
+    const WIDE_SWING_MULTIPLIER: f64 = 2.25;
+    // Both stochastic models draw the same samples for a fixed seed.
+    let wide_swing = rng.random_bool(WIDE_SWING_RATE);
+    let width = if model == SwingExecutionModel::Mixture {
+        let variance = 1.0 + WIDE_SWING_RATE * (WIDE_SWING_MULTIPLIER.powi(2) - 1.0);
+        let multiplier = if wide_swing {
+            WIDE_SWING_MULTIPLIER
+        } else {
+            1.0
+        };
+        multiplier / variance.sqrt()
+    } else {
+        1.0
+    };
+    let scale = swing_execution_scale(batter.bat_control) * width;
+    error.additional_timing_sec = scale * rng.normal_std(0.002);
+    error.additional_x_m = scale * rng.normal_std(0.015);
+    error.additional_z_m = scale * rng.normal_std(0.020);
+    error
 }
 
 pub(crate) fn swing_execution_geometry(
@@ -337,6 +412,7 @@ pub(crate) fn swing_execution_geometry(
         calculate_dynamic_attack_angle(batter.attack_angle, actual_bat_angle_deg);
 
     SwingExecutionError {
+        additional_timing_sec: 0.0,
         additional_x_m: 0.0,
         additional_z_m: 0.0,
         ideal_bat_angle_deg: ideal_angle,
@@ -407,6 +483,8 @@ pub struct SwingContactResult {
     pub swing_error_x_m: f64,
     #[serde(default)]
     pub swing_error_z_m: f64,
+    #[serde(default)]
+    pub execution_timing_offset_sec: f64,
     pub timing_offset_sec: f64,
     pub timing_impact_x_m: f64,
     pub offset_x_m: f64,
@@ -469,6 +547,7 @@ pub fn evaluate_swing_contact(
 }
 
 struct SwingContactGeometry {
+    timing_offset_sec: f64,
     timing_impact_x_m: f64,
     offset_x_m: f64,
     offset_z_m: f64,
@@ -483,13 +562,15 @@ fn swing_contact_geometry(
     timing_position_scale: f64,
 ) -> SwingContactGeometry {
     assert!(timing_position_scale.is_finite() && timing_position_scale > 0.0);
-    // Scale displacement only. Keep timing_offset_sec unchanged for face-angle generation.
-    let timing_impact_x_m = batter.swing_speed * offset.timing_offset_sec * timing_position_scale;
+    // Scale the geometric displacement, while the face-angle calculation uses the actual timing.
+    let timing_offset_sec = offset.timing_offset_sec + error.additional_timing_sec;
+    let timing_impact_x_m = batter.swing_speed * timing_offset_sec * timing_position_scale;
     let offset_x_m = offset.horizontal_offset_m + error.additional_x_m + timing_impact_x_m;
     let offset_z_m = offset.vertical_offset_m + error.additional_z_m;
     let (signed_length_offset_m, signed_thickness_offset_m) =
         project_contact_offsets(offset_x_m, offset_z_m, error.actual_bat_angle_deg);
     SwingContactGeometry {
+        timing_offset_sec,
         timing_impact_x_m,
         offset_x_m,
         offset_z_m,
@@ -551,7 +632,7 @@ pub(crate) fn pre_trial_exit_speed_ms(
         return None;
     }
     // The game keeps the reference depth scale for launch speed during geometry trials.
-    let depth = batter.swing_speed * offset.timing_offset_sec * CONTACT_TIMING_POSITION_SCALE;
+    let depth = batter.swing_speed * geometry.timing_offset_sec * CONTACT_TIMING_POSITION_SCALE;
     let speed = launch_speed_terms(
         pitch_speed_ms,
         batter.swing_speed,
@@ -572,6 +653,7 @@ pub(crate) fn evaluate_swing_contact_with_timing_scale(
     timing_position_scale: f64,
 ) -> SwingContactResult {
     let SwingContactGeometry {
+        timing_offset_sec,
         timing_impact_x_m,
         offset_x_m,
         offset_z_m,
@@ -629,7 +711,8 @@ pub(crate) fn evaluate_swing_contact_with_timing_scale(
         adapted_vertical_offset_m: offset.vertical_offset_m,
         swing_error_x_m: swing_execution_error.additional_x_m,
         swing_error_z_m: swing_execution_error.additional_z_m,
-        timing_offset_sec: offset.timing_offset_sec,
+        execution_timing_offset_sec: swing_execution_error.additional_timing_sec,
+        timing_offset_sec,
         timing_impact_x_m: timing_impact_x_m,
         offset_x_m: offset_x_m,
         offset_z_m: offset_z_m,
@@ -1557,6 +1640,25 @@ mod tests {
             reference.normal_factor_std_5_percent();
             assert_eq!(rng.random(),reference.random(),"legacy RNG consumption changed");
         }
+    }
+
+    #[test]
+    fn execution_timing_reaches_contact_without_overwriting_pitch_prediction_error() {
+        let batter = batter(RL::Right);
+        let offset = PitchDisplacement {
+            timing_offset_sec: -0.001,
+            ..Default::default()
+        };
+        let error = SwingExecutionError {
+            additional_timing_sec: 0.003,
+            ..Default::default()
+        };
+        let contact = evaluate_swing_contact(&mut FixedRng::new(0.5), &batter, &offset, &error);
+        let metrics = PlayerGameBattingMetrics::from_contact(&contact);
+        assert!((metrics.timing_error - 0.002).abs() < 1e-12);
+        assert!((metrics.adapted_timing_offset_sec.unwrap() + 0.001).abs() < 1e-12);
+        let expected_x = 0.002 * batter.swing_speed * CONTACT_TIMING_POSITION_SCALE;
+        assert!((contact.offset_x_m - expected_x).abs() < 1e-12);
     }
 
     #[test]

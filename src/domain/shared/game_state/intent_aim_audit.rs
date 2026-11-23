@@ -553,7 +553,8 @@ impl GameState {
                 } else {
                     (
                         adapt_to_pitch(raw_displacement, trial_batter.bat_control, batting_factor),
-                        swing_execution_geometry(&trial_batter, &pitch.actual_location),
+                        swing_execution_geometry(&trial_batter, &pitch.actual_location)
+                            .with_rescaled_offsets(*swing_error, batter, &trial_batter),
                     )
                 };
                 // Keep the live horizontal and timing corrections, even in the reduced-control arm.
@@ -577,7 +578,7 @@ impl GameState {
                         .filter(|v| v.is_finite() && v.y < 0.0)
                         .ok_or(GameError::InvalidPitchTimingGeometry)?;
                     let height_m = timing_height_error_m(
-                        displacement.timing_offset_sec,
+                        displacement.timing_offset_sec + error.additional_timing_sec,
                         -velocity.y,
                         velocity.z,
                         trial_batter.swing_speed,
