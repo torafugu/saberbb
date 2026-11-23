@@ -1,8 +1,10 @@
+use super::swing_attribute_flight::{FrozenFlightAudit, POWER_DELTA, SPEED_DELTA_MS};
 use super::{
     Args, Counts, FairBallOutcomes, GameResult, GameSchedule, accumulate, derived_seed,
     fair_launch_audit::HIGH_EV_MIN_MS, simulate_game,
 };
 use anyhow::{Context, Result, ensure};
+use rusqlite::Connection;
 use saberbb::domain::{
     random_provider::RealRng,
     resolver::batting_calibration::{
@@ -10,6 +12,12 @@ use saberbb::domain::{
     },
     shared::game_state::with_line_drive_attack_angle_trial,
     strategy::batting_strategy::BattingStrategySettings,
+};
+use saberbb::{
+    domain::{
+        game_service::simulate_game_with_pitching, resolver::batting_resolver::SwingContactType,
+    },
+    repositories::game_repository::SqlGameRepository,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -160,7 +168,13 @@ impl AttackAngleLaunchBands {
     }
 }
 
-pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
+pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    let swing_attributes = args.balance_swing_attributes;
+    let pregame = if swing_attributes {
+        SqlGameRepository::replay_pregame(conn, games)?
+    } else {
+        Vec::new()
+    };
     let roster: BTreeMap<_, _> = games
         .iter()
         .flat_map(|game| [&game.away_team, &game.home_team])
@@ -206,36 +220,42 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     let attack_angle_sweep = args.balance_attack_angle_sweep;
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
-    let trials = if split_attack_angle {
-        [
+    let trials = if swing_attributes {
+        vec![
+            ("current", Current, (0.0, 0.0), true),
+            ("swing_power_plus_1", Current, (0.0, 0.0), true),
+            ("swing_speed_plus_1_ms", Current, (0.0, 0.0), true),
+        ]
+    } else if split_attack_angle {
+        vec![
             ("current", Current, (0.0, 0.0), true),
             ("line_drive_plus_6", Current, (0.0, 6.0), true),
             ("roster_plus_3_line_drive_plus_3", Current, (3.0, 3.0), true),
             ("roster_plus_6", Current, (6.0, 0.0), true),
         ]
     } else if attack_angle_sweep {
-        [
+        vec![
             ("current", Current, (0.0, 0.0), true),
             ("line_drive_plus_3", Current, (0.0, 3.0), true),
             ("line_drive_plus_6", Current, (0.0, 6.0), true),
             ("line_drive_plus_9", Current, (0.0, 9.0), true),
         ]
     } else if model_calibration {
-        [
+        vec![
             ("current", Current, (0.0, 0.0), false),
             ("generation_angle_only", Current, (2.0, 0.0), false),
             ("model_only", Current, (0.0, 0.0), true),
             ("generation_angle_and_model", Current, (2.0, 0.0), true),
         ]
     } else if mean_drop_with_angle {
-        [
+        vec![
             ("current", Current, (0.0, 0.0), false),
             ("mean_drop_only", shifted, (0.0, 0.0), false),
             ("angle_only", Current, (0.0, angle_deg), false),
             ("mean_drop_and_angle", shifted, (0.0, angle_deg), false),
         ]
     } else if args.balance_ability_limits {
-        [
+        vec![
             ("current", Current, (0.0, 0.0), false),
             ("mean_drop_only", shifted, (0.0, 0.0), false),
             (
@@ -258,7 +278,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             ),
         ]
     } else {
-        [
+        vec![
             ("current", Current, (0.0, 0.0), false),
             ("compression_only", CompressUpperTail, (0.0, 0.0), false),
             ("angle_only", Current, (0.0, angle_deg), false),
@@ -270,9 +290,16 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     } else {
         trials.len()
     };
-    for (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated) in
-        trials.into_iter().take(case_count)
+    for (
+        arm_index,
+        (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated),
+    ) in trials.into_iter().take(case_count).enumerate()
     {
+        let (power_delta, speed_delta) = match (swing_attributes, arm_index) {
+            (true, 1) => (POWER_DELTA, 0.0),
+            (true, 2) => (0.0, SPEED_DELTA_MS),
+            _ => (0.0, 0.0),
+        };
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
         for &seed in &args.seeds {
@@ -280,9 +307,16 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             let mut launch_bands = attack_angle_sweep.then(AttackAngleLaunchBands::default);
             let mut teams = BTreeMap::new();
             let mut players = BTreeMap::new();
-            for original in games {
+            let mut frozen_flight =
+                (swing_attributes && arm_index == 0).then(FrozenFlightAudit::default);
+            let (mut swings, mut whiffs) = (0_u64, 0_u64);
+            for (index, original) in games.iter().enumerate() {
                 let mut game = original.clone();
-                if !matches!(adjustment, Current) || roster_angle_delta_deg != 0.0 {
+                if !matches!(adjustment, Current)
+                    || roster_angle_delta_deg != 0.0
+                    || power_delta != 0.0
+                    || speed_delta != 0.0
+                {
                     for player in game
                         .away_team
                         .players
@@ -292,6 +326,10 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         if let Some(batter) = &mut player.offense_skills.batter {
                             batter.bat_control = adjustment.apply(batter.bat_control, &bat_control);
                             batter.batting_eye = adjustment.apply(batter.batting_eye, &batting_eye);
+                            if swing_attributes {
+                                batter.swing_power += power_delta;
+                                batter.swing_speed += speed_delta;
+                            }
                             if roster_angle_delta_deg != 0.0 {
                                 batter.attack_angle += roster_angle_delta_deg;
                             }
@@ -299,9 +337,21 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     }
                 }
                 let run = || {
+                    let rng = Box::new(RealRng::from_seed(derived_seed(seed, original.id)));
+                    if let Some(history) = pregame.get(index) {
+                        return simulate_game_with_pitching(
+                            game,
+                            rng,
+                            &history.pitcher_loads,
+                            &history.pitching_stats,
+                            Some(&history.position_fatigue),
+                            Some(args.max_pitches),
+                            false,
+                        );
+                    }
                     simulate_game(
                         game,
-                        Box::new(RealRng::from_seed(derived_seed(seed, original.id))),
+                        rng,
                         BattingStrategySettings::player_driven(),
                         Some(args.max_pitches),
                         false,
@@ -318,6 +368,22 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 })?;
                 if let Some(bands) = &mut launch_bands {
                     bands.observe_game(&result);
+                }
+                if let Some(audit) = &mut frozen_flight {
+                    audit.observe_game(original, &result);
+                }
+                if swing_attributes {
+                    for batting in &result.player_battings {
+                        if batting
+                            .swing_decision
+                            .is_some_and(|decision| decision.swung)
+                        {
+                            swings += 1;
+                            whiffs += u64::from(
+                                batting.adjusted_contact_type == SwingContactType::SwungAndMiss,
+                            );
+                        }
+                    }
                 }
                 accumulate(&mut total, &mut teams, &mut players, original, &result)?;
             }
@@ -360,10 +426,20 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 "batters": batter_rows,
                 "batting_average_by_pa": PA_BANDS.into_iter().zip(pa_bands).collect::<BTreeMap<_, _>>(),
             });
-            if let Some(bands) = launch_bands {
+            if attack_angle_sweep || swing_attributes {
                 report["max_home_runs"] = json!(max_home_runs);
                 report["max_qualified_ba"] = json!(max_qualified_ba);
+            }
+            if let Some(bands) = launch_bands {
                 report["hard_fair_launch_bands"] = json!(bands);
+            }
+            if swing_attributes {
+                report["swings"] = json!(swings);
+                report["whiffs"] = json!(whiffs);
+                report["whiff_rate"] = json!((swings > 0).then(|| whiffs as f64 / swings as f64));
+                if let Some(audit) = frozen_flight {
+                    report["frozen_flight"] = json!(audit);
+                }
             }
             reports.push(report);
             eprintln!(
@@ -376,6 +452,10 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             "arm": label, "compress_upper_tail": matches!(adjustment, CompressUpperTail),
             "line_drive_attack_delta_deg": line_drive_delta_deg, "pooled_league": rates(&pooled), "reports": reports,
         });
+        if swing_attributes {
+            arm["swing_power_delta"] = json!(power_delta);
+            arm["swing_speed_delta_ms"] = json!(speed_delta);
+        }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
                 "bat_control": ability_distribution(
@@ -396,7 +476,16 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if attack_angle_sweep {
+    if swing_attributes {
+        output["swing_attributes"] = json!({
+            "game_replay": "Uses the regular-game lineup and pitching policies with frozen pregame workload and pitching statistics from the source database. Trial games do not update that history. Ability deltas apply to cloned rosters and can affect lineup selections.",
+            "frozen_flight": "Replays the control arm's original fair contacts with both contact geometry and launch direction and spin fixed. Only exit speed changes. Counts include only contacts whose baseline and both alternatives replayed; home runs here are trajectory outcomes.",
+            "power_delta": POWER_DELTA,
+            "speed_delta_ms": SPEED_DELTA_MS,
+            "pitcher_workload_games_with_nonzero_load": pregame.iter().filter(|h| h.pitcher_loads.values().any(|&x| x > 0.0)).count(),
+            "position_workload_games_with_nonzero_load": pregame.iter().filter(|h| h.position_fatigue.values().any(|&x| x > 0.0)).count(),
+        });
+    } else if attack_angle_sweep {
         output["attack_angle_sweep"] = json!({
             "definition": "All arms use the regular-game batting response coefficients. The launch bands count terminal fair outcomes across all intents, including home runs. Replays use the diagnostic batting totals, which count sacrifice-fly outs as at-bats.",
             "min_exit_speed_ms": HIGH_EV_MIN_MS,

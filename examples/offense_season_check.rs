@@ -69,6 +69,8 @@ mod moving_collision_audit;
 mod pickup_timing_audit;
 #[path = "support/selected_intent_audit.rs"]
 mod selected_intent_audit;
+#[path = "support/swing_attribute_flight.rs"]
+mod swing_attribute_flight;
 #[path = "support/swing_speed_comparison.rs"]
 mod swing_speed_comparison;
 #[path = "support/batting_ability_sweep.rs"]
@@ -130,6 +132,12 @@ struct Args {
     /// Distribute a +6° LineDrive lift between roster angle and intent-specific lift.
     #[arg(long, requires = "balance_attack_angle_sweep")]
     balance_split_attack_angle: bool,
+    /// Compare +1 swing_power and +1 m/s swing_speed with frozen flights and regular-game policies.
+    #[arg(long, requires = "batting_balance_comparison", conflicts_with_all = [
+        "balance_model_calibration", "balance_current_only", "balance_ability_limits",
+        "balance_line_drive_attack_deg", "balance_attack_angle_sweep"
+    ])]
+    balance_swing_attributes: bool,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,
@@ -1134,7 +1142,7 @@ fn run(args: Args) -> Result<()> {
     if let Some(batter_id) = args.batting_ability_batter_id {
         output["batting_ability_sweep"] = batting_ability_sweep::run(&args, &games, batter_id)?;
     } else if args.batting_balance_comparison {
-        output["batting_balance_comparison"] = batting_balance_comparison::run(&args, &games)?;
+        output["batting_balance_comparison"] = batting_balance_comparison::run(&conn, &args, &games)?;
     } else if args.paired_bat_control {
         output["paired_bat_control"] = intent_aim_comparison::run_bat_control(&args, &games)?;
     } else if args.paired_attack_angle {

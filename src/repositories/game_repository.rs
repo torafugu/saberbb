@@ -141,10 +141,34 @@ pub struct SqlGameRepository {
     db_client: DbClient,
 }
 
+pub struct ReplayPregame {
+    pub pitcher_loads: BTreeMap<i64, f64>,
+    pub position_fatigue: BTreeMap<i64, f64>,
+    pub pitching_stats: SeasonPitchingStats,
+}
+
 impl SqlGameRepository {
     /// Read-only access for full-game diagnostic simulations.
     pub fn read_only(path: &std::path::Path) -> Result<Self> {
         Ok(Self { db_client:DbClient {db:SqlDb::read_only(path)?} })
+    }
+
+    /// Load frozen pregame inputs from the diagnostic's read-only snapshot.
+    pub fn replay_pregame(
+        conn: &rusqlite::Connection,
+        games: &[GameSchedule],
+    ) -> Result<Vec<ReplayPregame>> {
+        anyhow::ensure!(
+            super::stat_cache::is_ready(conn)?,
+            "saved pitching statistics need a current cache; build it with --rebuild-stats before rerunning the swing-attribute comparison"
+        );
+        games.iter().map(|game| {
+            Ok(ReplayPregame {
+                pitcher_loads: super::pitcher_workload::load_before_game(conn, game)?,
+                position_fatigue: super::position_player_workload::load_before_game(conn, game)?,
+                pitching_stats: super::pitching_stat_cache::load_season_before_game(conn, game)?,
+            })
+        }).collect()
     }
 
     pub fn new() -> Result<Self> {
