@@ -1,3 +1,4 @@
+use super::batting_calibration::{BAT_CONTROL_CORRECTION_MIDPOINT, uncorrected_fraction};
 use crate::domain::shared::flight_drag::{self, FlightDragModel};
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::pitching_resolver::PitchDisplacement;
@@ -244,8 +245,8 @@ pub fn adapt_to_pitch(
     bat_control: f64,
     batting_factor: &BattingFactor,
 ) -> PitchDisplacement {
-    let total_modifier =
-        (((1.0 - sigmoid(bat_control)) + batting_factor.total_modifier) / 2.0).clamp(0.1, 1.2);
+    let residual = uncorrected_fraction(bat_control, BAT_CONTROL_CORRECTION_MIDPOINT);
+    let total_modifier = ((residual + batting_factor.total_modifier) / 2.0).clamp(0.1, 1.2);
     // 1. Absorb spatial offset with contact skill (e.g. reduce 0.10m offset to 0.05m)
     let adapted_x = offset.horizontal_offset_m * total_modifier;
     let adapted_z = offset.vertical_offset_m * total_modifier;

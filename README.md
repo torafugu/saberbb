@@ -97,12 +97,13 @@ cargo run -- --process 10
 cargo run --features desktop -- --gui
 ```
 
-Regular game processing and analysis apply a game-time adjustment of −0.5
-to each batter's `bat_control` and `batting_eye`, and add +2° to the execution
-angle for `LineDrive` swings. The adjustment uses the saved roster as input
-for each game. Saved abilities and generation settings are unchanged.
-The independent offense comparison still lets you replay the original
-baseline and each experimental arm.
+Regular game processing and analysis use a 0.5 response midpoint for bat
+control's pitch-displacement correction and batting eye's timing prediction.
+Lineups and pitching strategy use saved player abilities. New database setup
+seeds the attack-angle generation mean at 5.5°. For an existing database,
+apply [the generation parameter update](migrations/upgrades/update_attack_angle_generation_mean.sql)
+to upgrade its stock 3.5° setting for future players. Existing player angles
+are kept.
 
 The default database file is created at the platform-specific config path for
 `jp.cosmi.saberbb`. Override `database_path` in the generated config file if you
@@ -624,6 +625,19 @@ cargo run --release --example offense_season_check -- --season 2026 --batting-ba
 
 The four arms are current, mean decrease only, angle increase only, and
 both changes. The cap option conflicts with this angle combination.
+
+To compare the recalibrated batting model and a 2° increase in saved
+attack angles across both batting intents, run:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-model-calibration > batting_model_calibration_2026.json
+```
+
+The four arms compare the legacy model, the angle increase, the calibrated
+model, and both changes. The angle arms shift the diagnostic roster's
+existing values to reproduce a shift in the generation mean without
+resampling players. Use a roster generated under the old angle distribution
+to test the 3.5° to 5.5° change.
 
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:

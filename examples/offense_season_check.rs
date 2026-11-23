@@ -118,6 +118,9 @@ struct Args {
         "infield_opportunity_diagnostics", "outfield_advance_diagnostics", "no_bounce_catch_diagnostics"
     ])]
     batting_balance_comparison: bool,
+    /// Compare the recalibrated batting model and higher generated attack angles.
+    #[arg(long, requires = "batting_balance_comparison", conflicts_with_all = ["balance_current_only", "balance_ability_limits", "balance_line_drive_attack_deg"])]
+    balance_model_calibration: bool,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,

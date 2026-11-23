@@ -178,7 +178,7 @@ VALUES
         'player',
         'batter_info',
         'attack_angle',
-        3.5,
+        5.5,
         2.0,
         0.3,
         1.0,

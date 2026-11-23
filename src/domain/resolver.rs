@@ -1,3 +1,4 @@
+pub mod batting_calibration;
 pub mod batting_resolver;
 pub mod fielding_config;
 pub mod fielding_physics;

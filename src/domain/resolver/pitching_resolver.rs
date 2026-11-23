@@ -1,3 +1,4 @@
+use super::batting_calibration::{BATTING_EYE_TIMING_MIDPOINT, uncorrected_fraction};
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::{BallLocation, BallMovement, BallZone, PitchedBall};
 use crate::domain::shared::player::PitcherInfo;
@@ -275,9 +276,11 @@ fn calculate_timing_offset(
     let actual_release_point = pitched_ball.release_point.y * rng.normal_factor_std_1_percent();
     let actual_flight_time = calculate_flight_time(pitched_ball.speed, actual_release_point);
 
+    let residual = uncorrected_fraction(batting_eye, BATTING_EYE_TIMING_MIDPOINT);
+
     // 2. Predicted flight time the batter calculates in their mind
     let release_point_seen_from_batter = actual_release_point
-        * (1.0 + rng.normal_random(0.0, 0.01, 0.0, 1.0, 0.0) * (1.0 - sigmoid(batting_eye)));
+        * (1.0 + rng.normal_random(0.0, 0.01, 0.0, 1.0, 0.0) * residual);
     let expected_flight_time =
         calculate_flight_time(expected_ball.speed, release_point_seen_from_batter);
 
@@ -289,7 +292,7 @@ fn calculate_timing_offset(
     // actual_time > expected_time (ball arrives slower) = batter swung too early (Early)
     // actual_time < expected_time (ball arrives faster) = batter swung late (Late)
     let delta_t_sec =
-        (expected_flight_time - actual_flight_time) * (1.0 - sigmoid(batting_eye)) * speed_factor;
+        (expected_flight_time - actual_flight_time) * residual * speed_factor;
 
     delta_t_sec
 }
