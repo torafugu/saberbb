@@ -77,7 +77,7 @@ fn rebuild_in_transaction(conn:&Connection)->Result<()> {
     super::team_stat_cache::rebuild(conn)?;
     conn.execute("UPDATE stat_cache_state SET version=?1,ready=1 WHERE id=1",[CACHE_VERSION])?;Ok(())
 }
-fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
+pub(super) fn is_ready(conn: &Connection) -> rusqlite::Result<bool> {
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='stat_cache_state')",
         [], |row| row.get(0),

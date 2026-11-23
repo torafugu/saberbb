@@ -665,6 +665,28 @@ raise the ContactFirst execution angle by +3° and +6° respectively. Each
 trial uses a cloned roster and independent games with seeded lineup selection.
 Compare home runs per 100 PA and the HR leader total within each seed.
 
+To compare the two swing attributes with the same regular-season schedules:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --batting-balance-comparison --balance-swing-attributes > swing_attributes_2026.json
+```
+
+The three arms use the saved roster, a +1 shift to `swing_power`, and a
++1 m/s shift to `swing_speed`, respectively, on cloned rosters. They use
+the regular-game lineup, pitching and substitution policies. Pregame workload
+and pitching statistics come from the source database and are fixed across
+arms, so use the database with the completed season or rounds of interest.
+Simulated games do not advance those histories. The source is read-only.
+If the tool reports a stale statistics cache, rebuild it with the normal app's
+`--rebuild-stats` command before retrying.
+
+Each control-seed report also replays its fair balls at the two revised
+exit speeds with contact offsets, launch angles and spin held fixed. Compare
+gained and lost home-run trajectories, including gains from original
+doubles, on the common paired population. The original exit-speed and
+launch-angle bands identify where those changes occur. In the full-game arms,
+compare HR per 100 PA, the home-run leader total and misses per actual swing.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 

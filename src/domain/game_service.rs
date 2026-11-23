@@ -50,6 +50,7 @@ impl<R: GameRoundRepository> GameService<R> {
                 &loads,
                 &season_stats,
                 Some(&position_fatigue),
+                None,
                 record_contact_states,
             )?;
             if let Err(e) = self.repo.update_game_result(&result) {
@@ -85,12 +86,14 @@ pub fn simulate_game(
     )
 }
 
-fn simulate_game_with_pitching(
+/// Play with the regular-game staff and position-player policies and supplied pregame history.
+pub fn simulate_game_with_pitching(
     schedule: GameSchedule,
     rng: Box<dyn RandomProvider>,
     loads: &BTreeMap<i64, f64>,
     season_stats: &SeasonPitchingStats,
     position_fatigue: Option<&BTreeMap<i64, f64>>,
+    pitch_budget: Option<u32>,
     record_contact_states: bool,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
@@ -109,7 +112,7 @@ fn simulate_game_with_pitching(
         play_game(
             state,
             BattingStrategySettings::player_driven(),
-            None,
+            pitch_budget,
             record_contact_states,
             Some([away, home]),
             position_fatigue.map(|entering| {
@@ -472,6 +475,7 @@ mod tests {
             &loads,
             &season_stats,
             None,
+            None,
             false,
         )
         .unwrap();
@@ -597,6 +601,7 @@ mod tests {
             Box::new(RealRng::from_seed(9)),
             &loads,
             &season,
+            None,
             None,
             false,
         )
