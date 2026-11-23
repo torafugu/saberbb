@@ -15,6 +15,8 @@ use crate::t;
 use anyhow::{Context, Result};
 use tracing::info;
 
+const GAME_SWING_SPEED_BONUS_MS: f64 = 1.5;
+
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,
 }
@@ -38,12 +40,22 @@ impl<R: GameRoundRepository> GameService<R> {
             .context(t!("error", "function" => "load_game_schedules_to_process"))?;
 
         // TODO: Check postponement
-        for game_schedule in game_schedules {
+        for mut game_schedule in game_schedules {
             info!("new game started");
 
             let loads = self.repo.load_pitcher_workload(&game_schedule)?;
             let season_stats = self.repo.load_pitcher_season_stats(&game_schedule)?;
             let position_fatigue = self.repo.load_position_player_fatigue(&game_schedule)?;
+            for player in game_schedule
+                .away_team
+                .players
+                .iter_mut()
+                .chain(&mut game_schedule.home_team.players)
+            {
+                if let Some(batter) = &mut player.offense_skills.batter {
+                    batter.swing_speed += GAME_SWING_SPEED_BONUS_MS;
+                }
+            }
             let result = simulate_game_with_pitching(
                 game_schedule,
                 Box::new(RealRng::new()),
@@ -794,6 +806,18 @@ mod tests {
         );
         assert!(!saved.innings.is_empty());
         assert!(saved.player_contact_states.is_empty());
+        let mut recorded_speeds = saved
+            .player_battings
+            .iter()
+            .map(|batting| batting.bat_speed)
+            .filter(|&speed| speed > 0.0)
+            .peekable();
+        assert!(recorded_speeds.peek().is_some());
+        assert!(recorded_speeds.all(|speed| speed == 33.5));
+        assert_eq!(
+            service.repo.schedules[0].away_team.players[1].batter().unwrap().swing_speed,
+            32.0
+        );
     }
 
     #[test]
