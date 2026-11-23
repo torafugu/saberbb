@@ -725,6 +725,16 @@ average distribution, strikeouts, walks, and the number of 10-HR batters.
 The baseline's home-run leaders are tracked across arms within each seed
 to compare their playing time and home runs per 100 PA.
 
+For a finer batting-eye comparison at the live swing-speed bonus:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --batting-balance-comparison --balance-swing-attributes --balance-live-batting-abilities --balance-batting-eye-sweep > batting_eye_sweep_2026.json
+```
+
+Use the same source database and seeds as the ability comparison. The
+three arms are the live-speed baseline, `batting_eye` −0.15, and
+`batting_eye` −0.25. All use the saved `bat_control` values.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 
