@@ -138,6 +138,9 @@ struct Args {
         "balance_line_drive_attack_deg", "balance_attack_angle_sweep"
     ])]
     balance_swing_attributes: bool,
+    /// Sweep swing speed at 0, +1.0, +1.5 and +2.0 m/s.
+    #[arg(long, requires = "balance_swing_attributes")]
+    balance_swing_speed_sweep: bool,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,

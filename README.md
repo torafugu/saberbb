@@ -687,6 +687,18 @@ doubles, on the common paired population. The original exit-speed and
 launch-angle bands identify where those changes occur. In the full-game arms,
 compare HR per 100 PA, the home-run leader total and misses per actual swing.
 
+Once swing speed is the candidate, compare 0, +1.0, +1.5 and +2.0 m/s
+with the same source database, schedule and seeds:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --batting-balance-comparison --balance-swing-attributes --balance-swing-speed-sweep > swing_speed_sweep_2026.json
+```
+
+The speed sweep reports each seed's home-run leader total and the number of
+seeds in which the leader reaches 20 home runs. It also reports both the
+per-seed and pooled rates of whiffs per swing. This mode runs full games
+without the fixed-contact trajectory replay.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 

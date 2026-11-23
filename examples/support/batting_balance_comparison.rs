@@ -169,7 +169,15 @@ impl AttackAngleLaunchBands {
 }
 
 pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Result<Value> {
+    const HOME_RUN_TARGET: u64 = 20;
+    const SPEED_SWEEP: [(&str, f64); 4] = [
+        ("current", 0.0),
+        ("swing_speed_plus_1_ms", SPEED_DELTA_MS),
+        ("swing_speed_plus_1_5_ms", 1.5),
+        ("swing_speed_plus_2_ms", 2.0),
+    ];
     let swing_attributes = args.balance_swing_attributes;
+    let speed_sweep = args.balance_swing_speed_sweep;
     let pregame = if swing_attributes {
         SqlGameRepository::replay_pregame(conn, games)?
     } else {
@@ -220,7 +228,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let attack_angle_sweep = args.balance_attack_angle_sweep;
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
-    let trials = if swing_attributes {
+    let trials = if speed_sweep {
+        SPEED_SWEEP
+            .iter()
+            .map(|&(label, _)| (label, Current, (0.0, 0.0), true))
+            .collect()
+    } else if swing_attributes {
         vec![
             ("current", Current, (0.0, 0.0), true),
             ("swing_power_plus_1", Current, (0.0, 0.0), true),
@@ -295,20 +308,22 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated),
     ) in trials.into_iter().take(case_count).enumerate()
     {
-        let (power_delta, speed_delta) = match (swing_attributes, arm_index) {
-            (true, 1) => (POWER_DELTA, 0.0),
-            (true, 2) => (0.0, SPEED_DELTA_MS),
+        let (power_delta, speed_delta) = match (swing_attributes, speed_sweep, arm_index) {
+            (_, true, index) => (0.0, SPEED_SWEEP[index].1),
+            (true, false, 1) => (POWER_DELTA, 0.0),
+            (true, false, 2) => (0.0, SPEED_DELTA_MS),
             _ => (0.0, 0.0),
         };
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
+        let (mut seeds_reaching_target, mut pooled_swings, mut pooled_whiffs) = (0, 0_u64, 0_u64);
         for &seed in &args.seeds {
             let mut total = Counts::default();
             let mut launch_bands = attack_angle_sweep.then(AttackAngleLaunchBands::default);
             let mut teams = BTreeMap::new();
             let mut players = BTreeMap::new();
-            let mut frozen_flight =
-                (swing_attributes && arm_index == 0).then(FrozenFlightAudit::default);
+            let mut frozen_flight = (swing_attributes && !speed_sweep && arm_index == 0)
+                .then(FrozenFlightAudit::default);
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
                 let mut game = original.clone();
@@ -441,6 +456,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     report["frozen_flight"] = json!(audit);
                 }
             }
+            if speed_sweep {
+                seeds_reaching_target += u64::from(max_home_runs >= HOME_RUN_TARGET);
+                pooled_swings += swings;
+                pooled_whiffs += whiffs;
+            }
             reports.push(report);
             eprintln!(
                 "Batting balance {label}, seed {seed}: {} games complete",
@@ -455,6 +475,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         if swing_attributes {
             arm["swing_power_delta"] = json!(power_delta);
             arm["swing_speed_delta_ms"] = json!(speed_delta);
+        }
+        if speed_sweep {
+            arm["seeds_reaching_hr_target"] = json!(seeds_reaching_target);
+            arm["pooled_whiff_rate"] =
+                json!((pooled_swings > 0).then(|| pooled_whiffs as f64 / pooled_swings as f64));
         }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
@@ -479,12 +504,20 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     if swing_attributes {
         output["swing_attributes"] = json!({
             "game_replay": "Uses the regular-game lineup and pitching policies with frozen pregame workload and pitching statistics from the source database. Trial games do not update that history. Ability deltas apply to cloned rosters and can affect lineup selections.",
-            "frozen_flight": "Replays the control arm's original fair contacts with both contact geometry and launch direction and spin fixed. Only exit speed changes. Counts include only contacts whose baseline and both alternatives replayed; home runs here are trajectory outcomes.",
-            "power_delta": POWER_DELTA,
-            "speed_delta_ms": SPEED_DELTA_MS,
             "pitcher_workload_games_with_nonzero_load": pregame.iter().filter(|h| h.pitcher_loads.values().any(|&x| x > 0.0)).count(),
             "position_workload_games_with_nonzero_load": pregame.iter().filter(|h| h.position_fatigue.values().any(|&x| x > 0.0)).count(),
         });
+        let settings = &mut output["swing_attributes"];
+        if speed_sweep {
+            settings["home_run_target"] = json!(HOME_RUN_TARGET);
+            settings["speed_sweep_deltas_ms"] = json!(SPEED_SWEEP.map(|(_, delta)| delta));
+        } else {
+            settings["frozen_flight"] = json!(
+                "Replays the control arm's original fair contacts with both contact geometry and launch direction and spin fixed. Only exit speed changes. Counts include only contacts whose baseline and both alternatives replayed; home runs here are trajectory outcomes."
+            );
+            settings["power_delta"] = json!(POWER_DELTA);
+            settings["speed_delta_ms"] = json!(SPEED_DELTA_MS);
+        }
     } else if attack_angle_sweep {
         output["attack_angle_sweep"] = json!({
             "definition": "All arms use the regular-game batting response coefficients. The launch bands count terminal fair outcomes across all intents, including home runs. Replays use the diagnostic batting totals, which count sacrifice-fly outs as at-bats.",
