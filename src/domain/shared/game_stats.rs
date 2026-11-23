@@ -183,7 +183,9 @@ impl PlayerGameBattingMetrics {
             actual_bat_angle_deg: contact.actual_bat_angle_deg,
             adapted_horizontal_offset_m: Some(contact.adapted_horizontal_offset_m),
             adapted_vertical_offset_m: Some(contact.adapted_vertical_offset_m),
-            adapted_timing_offset_sec: Some(contact.timing_offset_sec),
+            adapted_timing_offset_sec: Some(
+                contact.timing_offset_sec - contact.execution_timing_offset_sec,
+            ),
             timing_impact_x_m: Some(contact.timing_impact_x_m),
             swing_error_x_m: Some(contact.swing_error_x_m),
             swing_error_z_m: Some(contact.swing_error_z_m),

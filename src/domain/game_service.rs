@@ -2,6 +2,7 @@ use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_calibration::with_calibrated_batting;
+use crate::domain::resolver::batting_resolver::{SwingExecutionModel, with_swing_execution_model};
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
 use crate::domain::shared::player::Position;
 use crate::domain::shared::stats::SeasonPitchingStats;
@@ -122,21 +123,33 @@ pub fn simulate_game_with_pitching(
         [away.starter(), home.starter()],
         position_fatigue,
     )?;
+    let execution_model = match std::env::var("SABERBB_SWING_EXECUTION") {
+        Err(std::env::VarError::NotPresent) => SwingExecutionModel::Legacy,
+        Ok(value) => match value.as_str() {
+            "legacy" => SwingExecutionModel::Legacy,
+            "gaussian" => SwingExecutionModel::Gaussian,
+            "mixture" => SwingExecutionModel::Mixture,
+            _ => anyhow::bail!("SABERBB_SWING_EXECUTION must be legacy, gaussian, or mixture"),
+        },
+        Err(err) => return Err(err).context("Reading SABERBB_SWING_EXECUTION"),
+    };
     with_calibrated_batting(|| {
-        play_game(
-            state,
-            BattingStrategySettings::player_driven(),
-            pitch_budget,
-            record_contact_states,
-            Some([away, home]),
-            position_fatigue.map(|entering| {
-                [&schedule.away_team, &schedule.home_team].map(|team| PositionPlayers {
-                    team,
-                    entering,
-                    pending: None,
-                })
-            }),
-        )
+        with_swing_execution_model(execution_model, || {
+            play_game(
+                state,
+                BattingStrategySettings::player_driven(),
+                pitch_budget,
+                record_contact_states,
+                Some([away, home]),
+                position_fatigue.map(|entering| {
+                    [&schedule.away_team, &schedule.home_team].map(|team| PositionPlayers {
+                        team,
+                        entering,
+                        pending: None,
+                    })
+                }),
+            )
+        })
     })
 }
 
