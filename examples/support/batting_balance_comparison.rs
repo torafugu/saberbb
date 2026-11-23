@@ -184,7 +184,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         ("swing_power_plus_0_25", 0.0, 0.25),
         ("angle_and_power", 1.0, 0.25),
     ];
+    // Each pair switches on the bat-control and batting-eye reduction.
+    const BATTING_ABILITY_TRIALS: [(&str, bool, bool); 4] = [
+        ("live_speed_baseline", false, false),
+        ("lower_bat_control", true, false),
+        ("lower_batting_eye", false, true),
+        ("lower_control_and_eye", true, true),
+    ];
     let swing_attributes = args.balance_swing_attributes;
+    let live_batting_abilities = args.balance_live_batting_abilities;
     let angle_power_tuning = args.balance_angle_power_tuning;
     let speed_sweep = args.balance_swing_speed_sweep;
     let pregame = if swing_attributes {
@@ -237,7 +245,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let attack_angle_sweep = args.balance_attack_angle_sweep;
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
-    let trials = if angle_power_tuning {
+    let trials = if live_batting_abilities {
+        BATTING_ABILITY_TRIALS
+            .iter()
+            .map(|&(label, _, _)| (label, Current, (0.0, 0.0), true))
+            .collect()
+    } else if angle_power_tuning {
         ANGLE_POWER_TRIALS
             .iter()
             .map(|&(label, angle, _)| (label, Current, (angle, 0.0), true))
@@ -317,12 +330,24 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     } else {
         trials.len()
     };
+    let mut baseline_hr_leaders = BTreeMap::<u64, Vec<i64>>::new();
     for (
         arm_index,
         (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated),
     ) in trials.into_iter().take(case_count).enumerate()
     {
-        let (power_delta, speed_delta) = if angle_power_tuning {
+        let (control_adjustment, eye_adjustment) = if live_batting_abilities {
+            let (_, lower_control, lower_eye) = BATTING_ABILITY_TRIALS[arm_index];
+            (
+                if lower_control { shifted } else { Current },
+                if lower_eye { shifted } else { Current },
+            )
+        } else {
+            (adjustment, adjustment)
+        };
+        let (power_delta, speed_delta) = if live_batting_abilities {
+            (0.0, GAME_SWING_SPEED_BONUS_MS)
+        } else if angle_power_tuning {
             (ANGLE_POWER_TRIALS[arm_index].2, GAME_SWING_SPEED_BONUS_MS)
         } else {
             match (swing_attributes, speed_sweep, arm_index) {
@@ -340,13 +365,17 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             let mut launch_bands = attack_angle_sweep.then(AttackAngleLaunchBands::default);
             let mut teams = BTreeMap::new();
             let mut players = BTreeMap::new();
-            let mut frozen_flight =
-                (swing_attributes && !speed_sweep && !angle_power_tuning && arm_index == 0)
-                    .then(FrozenFlightAudit::default);
+            let mut frozen_flight = (swing_attributes
+                && !speed_sweep
+                && !angle_power_tuning
+                && !live_batting_abilities
+                && arm_index == 0)
+                .then(FrozenFlightAudit::default);
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
                 let mut game = original.clone();
-                if !matches!(adjustment, Current)
+                if !matches!(control_adjustment, Current)
+                    || !matches!(eye_adjustment, Current)
                     || roster_angle_delta_deg != 0.0
                     || power_delta != 0.0
                     || speed_delta != 0.0
@@ -358,8 +387,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         .chain(&mut game.home_team.players)
                     {
                         if let Some(batter) = &mut player.offense_skills.batter {
-                            batter.bat_control = adjustment.apply(batter.bat_control, &bat_control);
-                            batter.batting_eye = adjustment.apply(batter.batting_eye, &batting_eye);
+                            batter.bat_control =
+                                control_adjustment.apply(batter.bat_control, &bat_control);
+                            batter.batting_eye =
+                                eye_adjustment.apply(batter.batting_eye, &batting_eye);
                             if swing_attributes {
                                 batter.swing_power += power_delta;
                                 batter.swing_speed += speed_delta;
@@ -421,6 +452,25 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 }
                 accumulate(&mut total, &mut teams, &mut players, original, &result)?;
             }
+            let baseline_hr_group = live_batting_abilities.then(|| {
+                let ids = baseline_hr_leaders.entry(seed).or_insert_with(|| {
+                    let mut leaders: Vec<_> =
+                        players.iter().filter(|(_, counts)| counts.hr > 0).collect();
+                    leaders
+                        .sort_unstable_by_key(|&(&id, counts)| (std::cmp::Reverse(counts.hr), id));
+                    leaders.into_iter().take(10).map(|(&id, _)| id).collect()
+                });
+                let (pa, hr) = ids
+                    .iter()
+                    .filter_map(|id| players.get(id))
+                    .fold((0, 0), |(pa, hr), counts| (pa + counts.pa, hr + counts.hr));
+                json!({
+                    "batter_ids": ids,
+                    "pa": pa,
+                    "hr": hr,
+                    "hr_per_100_pa": (pa > 0).then(|| 100.0 * hr as f64 / pa as f64),
+                })
+            });
             let mut pa_bands: [PlateAppearanceBand; PA_BANDS.len()] = Default::default();
             let mut batter_rows = Vec::new();
             let mut max_home_runs = 0;
@@ -477,10 +527,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     report["frozen_flight"] = json!(audit);
                 }
             }
-            if angle_power_tuning {
+            if let Some(group) = baseline_hr_group {
+                report["baseline_hr_leaders"] = group;
+            }
+            if angle_power_tuning || live_batting_abilities {
                 report["batters_with_at_least_10_hr"] = json!(batters_with_at_least_10_hr);
             }
-            if speed_sweep || angle_power_tuning {
+            if speed_sweep || angle_power_tuning || live_batting_abilities {
                 seeds_reaching_target += u64::from(max_home_runs >= HOME_RUN_TARGET);
                 pooled_swings += swings;
                 pooled_whiffs += whiffs;
@@ -500,10 +553,22 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             arm["swing_power_delta"] = json!(power_delta);
             arm["swing_speed_delta_ms"] = json!(speed_delta);
         }
-        if speed_sweep || angle_power_tuning {
+        if speed_sweep || angle_power_tuning || live_batting_abilities {
             arm["seeds_reaching_hr_target"] = json!(seeds_reaching_target);
             arm["pooled_whiff_rate"] =
                 json!((pooled_swings > 0).then(|| pooled_whiffs as f64 / pooled_swings as f64));
+        }
+        if live_batting_abilities {
+            arm["bat_control_delta"] = json!(if matches!(control_adjustment, Current) {
+                0.0
+            } else {
+                -mean_drop
+            });
+            arm["batting_eye_delta"] = json!(if matches!(eye_adjustment, Current) {
+                0.0
+            } else {
+                -mean_drop
+            });
         }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
@@ -532,7 +597,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "position_workload_games_with_nonzero_load": pregame.iter().filter(|h| h.position_fatigue.values().any(|&x| x > 0.0)).count(),
         });
         let settings = &mut output["swing_attributes"];
-        if angle_power_tuning {
+        if live_batting_abilities {
+            settings["home_run_target"] = json!(HOME_RUN_TARGET);
+            settings["live_speed_bonus_ms"] = json!(GAME_SWING_SPEED_BONUS_MS);
+            settings["batting_ability_drop"] = json!(mean_drop);
+            settings["baseline_hr_leaders"] = json!(
+                "Per seed, fix the baseline's first 10 batters with at least one home run in descending HR order, breaking ties by player ID. Compare this same group's PA and HR/100 PA in every arm."
+            );
+        } else if angle_power_tuning {
             settings["home_run_target"] = json!(HOME_RUN_TARGET);
             settings["live_speed_bonus_ms"] = json!(GAME_SWING_SPEED_BONUS_MS);
             settings["angle_power_tuning"] = json!(
