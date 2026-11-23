@@ -15,7 +15,7 @@ use crate::t;
 use anyhow::{Context, Result};
 use tracing::info;
 
-const GAME_SWING_SPEED_BONUS_MS: f64 = 1.5;
+const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
 
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,
@@ -813,7 +813,7 @@ mod tests {
             .filter(|&speed| speed > 0.0)
             .peekable();
         assert!(recorded_speeds.peek().is_some());
-        assert!(recorded_speeds.all(|speed| speed == 33.5));
+        assert!(recorded_speeds.all(|speed| speed == 34.0));
         assert_eq!(
             service.repo.schedules[0].away_team.players[1].batter().unwrap().swing_speed,
             32.0
