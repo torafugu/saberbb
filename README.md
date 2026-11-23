@@ -652,6 +652,19 @@ outcomes at exit speeds of at least 45 m/s in the 7–15° and 30–40° launch
 bands, alongside the home-run leader's total, the highest qualified batting
 average and the number of qualified batters at .400 or higher.
 
+Use a split sweep to compare the same +6° LineDrive lift with different
+offsets to the roster's base attack angle:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --batting-balance-comparison --balance-attack-angle-sweep --balance-split-attack-angle > attack_angle_split_2026.json
+```
+
+The three alternatives apply +6° to LineDrive only, +3° to base attack angle
+and +3° to LineDrive, or +6° to base attack angle alone. The latter two also
+raise the ContactFirst execution angle by +3° and +6° respectively. Each
+trial uses a cloned roster and independent games with seeded lineup selection.
+Compare home runs per 100 PA and the HR leader total within each seed.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 

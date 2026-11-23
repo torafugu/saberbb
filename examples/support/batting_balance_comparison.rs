@@ -204,38 +204,47 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     };
     let model_calibration = args.balance_model_calibration;
     let attack_angle_sweep = args.balance_attack_angle_sweep;
-    let trials = if attack_angle_sweep {
+    let split_attack_angle = args.balance_split_attack_angle;
+    // Angle pairs contain the roster change and the additional LineDrive change.
+    let trials = if split_attack_angle {
         [
-            ("current", Current, 0.0, true),
-            ("line_drive_plus_3", Current, 3.0, true),
-            ("line_drive_plus_6", Current, 6.0, true),
-            ("line_drive_plus_9", Current, 9.0, true),
+            ("current", Current, (0.0, 0.0), true),
+            ("line_drive_plus_6", Current, (0.0, 6.0), true),
+            ("roster_plus_3_line_drive_plus_3", Current, (3.0, 3.0), true),
+            ("roster_plus_6", Current, (6.0, 0.0), true),
+        ]
+    } else if attack_angle_sweep {
+        [
+            ("current", Current, (0.0, 0.0), true),
+            ("line_drive_plus_3", Current, (0.0, 3.0), true),
+            ("line_drive_plus_6", Current, (0.0, 6.0), true),
+            ("line_drive_plus_9", Current, (0.0, 9.0), true),
         ]
     } else if model_calibration {
         [
-            ("current", Current, 0.0, false),
-            ("generation_angle_only", Current, 2.0, false),
-            ("model_only", Current, 0.0, true),
-            ("generation_angle_and_model", Current, 2.0, true),
+            ("current", Current, (0.0, 0.0), false),
+            ("generation_angle_only", Current, (2.0, 0.0), false),
+            ("model_only", Current, (0.0, 0.0), true),
+            ("generation_angle_and_model", Current, (2.0, 0.0), true),
         ]
     } else if mean_drop_with_angle {
         [
-            ("current", Current, 0.0, false),
-            ("mean_drop_only", shifted, 0.0, false),
-            ("angle_only", Current, angle_deg, false),
-            ("mean_drop_and_angle", shifted, angle_deg, false),
+            ("current", Current, (0.0, 0.0), false),
+            ("mean_drop_only", shifted, (0.0, 0.0), false),
+            ("angle_only", Current, (0.0, angle_deg), false),
+            ("mean_drop_and_angle", shifted, (0.0, angle_deg), false),
         ]
     } else if args.balance_ability_limits {
         [
-            ("current", Current, 0.0, false),
-            ("mean_drop_only", shifted, 0.0, false),
+            ("current", Current, (0.0, 0.0), false),
+            ("mean_drop_only", shifted, (0.0, 0.0), false),
             (
                 "cap_only",
                 Limits {
                     mean_drop: 0.0,
                     cap: Some(cap),
                 },
-                0.0,
+                (0.0, 0.0),
                 false,
             ),
             (
@@ -244,16 +253,16 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     mean_drop,
                     cap: Some(cap),
                 },
-                0.0,
+                (0.0, 0.0),
                 false,
             ),
         ]
     } else {
         [
-            ("current", Current, 0.0, false),
-            ("compression_only", CompressUpperTail, 0.0, false),
-            ("angle_only", Current, angle_deg, false),
-            ("combined", CompressUpperTail, angle_deg, false),
+            ("current", Current, (0.0, 0.0), false),
+            ("compression_only", CompressUpperTail, (0.0, 0.0), false),
+            ("angle_only", Current, (0.0, angle_deg), false),
+            ("combined", CompressUpperTail, (0.0, angle_deg), false),
         ]
     };
     let case_count = if args.balance_current_only {
@@ -261,12 +270,9 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     } else {
         trials.len()
     };
-    for (label, adjustment, delta_deg, calibrated) in trials.into_iter().take(case_count) {
-        let (roster_angle_delta_deg, line_drive_delta_deg) = if model_calibration {
-            (delta_deg, 0.0)
-        } else {
-            (0.0, delta_deg)
-        };
+    for (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated) in
+        trials.into_iter().take(case_count)
+    {
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
         for &seed in &args.seeds {
@@ -380,20 +386,21 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 ),
             });
         }
-        if model_calibration {
+        if model_calibration || split_attack_angle {
             arm["calibrated_batting_model"] = json!(calibrated);
             arm["roster_attack_angle_delta_deg"] = json!(roster_angle_delta_deg);
         }
         arms.push(arm);
     }
     let mut output = json!({
-        "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The attack delta changes the live LineDrive execution angle only.",
+        "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
     if attack_angle_sweep {
         output["attack_angle_sweep"] = json!({
-            "definition": "All arms use the regular-game batting response coefficients. Only the LineDrive execution angle changes. The launch bands count terminal fair outcomes across all intents, including home runs. Replays use the diagnostic batting totals, which count sacrifice-fly outs as at-bats.",
+            "definition": "All arms use the regular-game batting response coefficients. The launch bands count terminal fair outcomes across all intents, including home runs. Replays use the diagnostic batting totals, which count sacrifice-fly outs as at-bats.",
             "min_exit_speed_ms": HIGH_EV_MIN_MS,
+            "split_roster_and_line_drive_offsets": split_attack_angle,
         });
     } else if model_calibration {
         output["model_calibration"] = json!({
