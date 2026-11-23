@@ -127,6 +127,9 @@ struct Args {
         "balance_line_drive_attack_deg"
     ])]
     balance_attack_angle_sweep: bool,
+    /// Distribute a +6° LineDrive lift between roster angle and intent-specific lift.
+    #[arg(long, requires = "balance_attack_angle_sweep")]
+    balance_split_attack_angle: bool,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,
