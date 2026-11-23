@@ -546,7 +546,7 @@ contact. The report also shows the current roster's speeds and paired samples
 from the configured generator before and after upper-tail compression.
 New batters retain their sampled swing speed up to 35.0 m/s. Above that
 point, the generator smoothly compresses samples toward 35.5 m/s.
-Normal game processing and analysis add 1.5 m/s to the loaded roster's
+Normal game processing and analysis add 2.0 m/s to the loaded roster's
 `swing_speed` before lineup selection. This applies to newly played games
 and leaves stored player speeds intact. The report opens `SABERBB_DB` read-only.
 
