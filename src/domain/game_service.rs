@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
+const GAME_BATTING_EYE_REDUCTION: f64 = 0.25;
 
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,
@@ -54,6 +55,7 @@ impl<R: GameRoundRepository> GameService<R> {
             {
                 if let Some(batter) = &mut player.offense_skills.batter {
                     batter.swing_speed += GAME_SWING_SPEED_BONUS_MS;
+                    batter.batting_eye -= GAME_BATTING_EYE_REDUCTION;
                 }
             }
             let result = simulate_game_with_pitching(
