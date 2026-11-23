@@ -608,6 +608,16 @@ subtracting then capping. Both settings apply to `bat_control` and
 `batting_eye`. Each arm reports the resulting roster means and maxima.
 The standard game logic builds lineups from the trial rosters.
 
+To compare the ability decrease with a LineDrive angle increase, supply
+an explicit angle instead of a cap:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-ability-limits --balance-ability-mean-drop 0.5 --balance-line-drive-attack-deg 2 > batting_mean_drop_plus2_2026.json
+```
+
+The four arms are current, mean decrease only, angle increase only, and
+both changes. The cap option conflicts with this angle combination.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 
