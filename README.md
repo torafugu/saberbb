@@ -713,6 +713,18 @@ Each seed reports the home-run leader, the number of hitters with at least
 10 home runs, and league batting outcomes, including doubles and batting
 average. The roster changes exist only for the replay.
 
+To compare lower bat control and batting eye with the live swing-speed bonus:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --games 360 --batting-balance-comparison --balance-swing-attributes --balance-live-batting-abilities > live_batting_abilities_2026.json
+```
+
+The three alternatives drop `bat_control`, `batting_eye`, or both by 0.5
+on the cloned roster. Compare league batting average, the qualified batting
+average distribution, strikeouts, walks, and the number of 10-HR batters.
+The baseline's home-run leaders are tracked across arms within each seed
+to compare their playing time and home runs per 100 PA.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 

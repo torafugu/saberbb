@@ -144,6 +144,11 @@ struct Args {
     /// Compare small attack-angle and swing-power increases on the live speed baseline.
     #[arg(long, requires = "balance_swing_attributes", conflicts_with = "balance_swing_speed_sweep")]
     balance_angle_power_tuning: bool,
+    /// Compare lower bat control and batting eye on the live swing-speed baseline.
+    #[arg(long, requires = "balance_swing_attributes", conflicts_with_all = [
+        "balance_swing_speed_sweep", "balance_angle_power_tuning"
+    ])]
+    balance_live_batting_abilities: bool,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,
