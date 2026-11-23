@@ -15,7 +15,7 @@ use crate::t;
 use anyhow::{Context, Result};
 use tracing::info;
 
-const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
+pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
 
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,

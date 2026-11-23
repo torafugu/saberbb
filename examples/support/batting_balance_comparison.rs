@@ -15,7 +15,8 @@ use saberbb::domain::{
 };
 use saberbb::{
     domain::{
-        game_service::simulate_game_with_pitching, resolver::batting_resolver::SwingContactType,
+        game_service::{GAME_SWING_SPEED_BONUS_MS, simulate_game_with_pitching},
+        resolver::batting_resolver::SwingContactType,
     },
     repositories::game_repository::SqlGameRepository,
 };
@@ -176,7 +177,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         ("swing_speed_plus_1_5_ms", 1.5),
         ("swing_speed_plus_2_ms", 2.0),
     ];
+    // Each pair is the roster attack-angle increase in degrees and the swing-power increase.
+    const ANGLE_POWER_TRIALS: [(&str, f64, f64); 4] = [
+        ("live_speed_baseline", 0.0, 0.0),
+        ("attack_angle_plus_1_deg", 1.0, 0.0),
+        ("swing_power_plus_0_25", 0.0, 0.25),
+        ("angle_and_power", 1.0, 0.25),
+    ];
     let swing_attributes = args.balance_swing_attributes;
+    let angle_power_tuning = args.balance_angle_power_tuning;
     let speed_sweep = args.balance_swing_speed_sweep;
     let pregame = if swing_attributes {
         SqlGameRepository::replay_pregame(conn, games)?
@@ -228,7 +237,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let attack_angle_sweep = args.balance_attack_angle_sweep;
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
-    let trials = if speed_sweep {
+    let trials = if angle_power_tuning {
+        ANGLE_POWER_TRIALS
+            .iter()
+            .map(|&(label, angle, _)| (label, Current, (angle, 0.0), true))
+            .collect()
+    } else if speed_sweep {
         SPEED_SWEEP
             .iter()
             .map(|&(label, _)| (label, Current, (0.0, 0.0), true))
@@ -308,11 +322,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated),
     ) in trials.into_iter().take(case_count).enumerate()
     {
-        let (power_delta, speed_delta) = match (swing_attributes, speed_sweep, arm_index) {
-            (_, true, index) => (0.0, SPEED_SWEEP[index].1),
-            (true, false, 1) => (POWER_DELTA, 0.0),
-            (true, false, 2) => (0.0, SPEED_DELTA_MS),
-            _ => (0.0, 0.0),
+        let (power_delta, speed_delta) = if angle_power_tuning {
+            (ANGLE_POWER_TRIALS[arm_index].2, GAME_SWING_SPEED_BONUS_MS)
+        } else {
+            match (swing_attributes, speed_sweep, arm_index) {
+                (_, true, index) => (0.0, SPEED_SWEEP[index].1),
+                (true, false, 1) => (POWER_DELTA, 0.0),
+                (true, false, 2) => (0.0, SPEED_DELTA_MS),
+                _ => (0.0, 0.0),
+            }
         };
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
@@ -322,8 +340,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             let mut launch_bands = attack_angle_sweep.then(AttackAngleLaunchBands::default);
             let mut teams = BTreeMap::new();
             let mut players = BTreeMap::new();
-            let mut frozen_flight = (swing_attributes && !speed_sweep && arm_index == 0)
-                .then(FrozenFlightAudit::default);
+            let mut frozen_flight =
+                (swing_attributes && !speed_sweep && !angle_power_tuning && arm_index == 0)
+                    .then(FrozenFlightAudit::default);
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
                 let mut game = original.clone();
@@ -405,6 +424,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             let mut pa_bands: [PlateAppearanceBand; PA_BANDS.len()] = Default::default();
             let mut batter_rows = Vec::new();
             let mut max_home_runs = 0;
+            let mut batters_with_at_least_10_hr = 0;
             let mut max_qualified_ba: Option<f64> = None;
             for (id, counts) in players.into_iter().filter(|(_, counts)| counts.pa > 0) {
                 let (team_id, player) = roster[&id];
@@ -416,6 +436,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 let ba = (counts.ab > 0).then(|| hits as f64 / counts.ab as f64);
                 let qualified = ba.is_some() && counts.pa >= required_pa;
                 max_home_runs = max_home_runs.max(counts.hr);
+                batters_with_at_least_10_hr += u64::from(counts.hr >= 10);
                 if let Some(ba) = ba.filter(|_| qualified) {
                     max_qualified_ba = Some(max_qualified_ba.map_or(ba, |best| best.max(ba)));
                 }
@@ -456,7 +477,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     report["frozen_flight"] = json!(audit);
                 }
             }
-            if speed_sweep {
+            if angle_power_tuning {
+                report["batters_with_at_least_10_hr"] = json!(batters_with_at_least_10_hr);
+            }
+            if speed_sweep || angle_power_tuning {
                 seeds_reaching_target += u64::from(max_home_runs >= HOME_RUN_TARGET);
                 pooled_swings += swings;
                 pooled_whiffs += whiffs;
@@ -476,7 +500,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             arm["swing_power_delta"] = json!(power_delta);
             arm["swing_speed_delta_ms"] = json!(speed_delta);
         }
-        if speed_sweep {
+        if speed_sweep || angle_power_tuning {
             arm["seeds_reaching_hr_target"] = json!(seeds_reaching_target);
             arm["pooled_whiff_rate"] =
                 json!((pooled_swings > 0).then(|| pooled_whiffs as f64 / pooled_swings as f64));
@@ -491,7 +515,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 ),
             });
         }
-        if model_calibration || split_attack_angle {
+        if model_calibration || split_attack_angle || angle_power_tuning {
             arm["calibrated_batting_model"] = json!(calibrated);
             arm["roster_attack_angle_delta_deg"] = json!(roster_angle_delta_deg);
         }
@@ -508,7 +532,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "position_workload_games_with_nonzero_load": pregame.iter().filter(|h| h.position_fatigue.values().any(|&x| x > 0.0)).count(),
         });
         let settings = &mut output["swing_attributes"];
-        if speed_sweep {
+        if angle_power_tuning {
+            settings["home_run_target"] = json!(HOME_RUN_TARGET);
+            settings["live_speed_bonus_ms"] = json!(GAME_SWING_SPEED_BONUS_MS);
+            settings["angle_power_tuning"] = json!(
+                "All arms replay full games with the live swing-speed bonus. Added roster angle and power are measured independently and together."
+            );
+        } else if speed_sweep {
             settings["home_run_target"] = json!(HOME_RUN_TARGET);
             settings["speed_sweep_deltas_ms"] = json!(SPEED_SWEEP.map(|(_, delta)| delta));
         } else {
