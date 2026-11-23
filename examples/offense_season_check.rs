@@ -121,6 +121,12 @@ struct Args {
     /// Compare the recalibrated batting model and higher generated attack angles.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with_all = ["balance_current_only", "balance_ability_limits", "balance_line_drive_attack_deg"])]
     balance_model_calibration: bool,
+    /// Sweep LineDrive execution angle on the regular-game batting model.
+    #[arg(long, requires = "batting_balance_comparison", conflicts_with_all = [
+        "balance_model_calibration", "balance_current_only", "balance_ability_limits",
+        "balance_line_drive_attack_deg"
+    ])]
+    balance_attack_angle_sweep: bool,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,

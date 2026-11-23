@@ -639,6 +639,19 @@ existing values to reproduce a shift in the generation mean without
 resampling players. Use a roster generated under the old angle distribution
 to test the 3.5° to 5.5° change.
 
+To compare LineDrive execution angles at 0°, +3°, +6°, and +9° on the
+regular-game batting model, run:
+
+```sh
+cargo run --release --example offense_season_check -- --season 2026 --batting-balance-comparison --balance-attack-angle-sweep > attack_angle_sweep_2026.json
+```
+
+Set `SABERBB_DB` to the same roster and schedule database. The command replays
+the full regular-season schedule for each seed. Each arm reports fair-ball
+outcomes at exit speeds of at least 45 m/s in the 7–15° and 30–40° launch
+bands, alongside the home-run leader's total, the highest qualified batting
+average and the number of qualified batters at .400 or higher.
+
 To inspect which batting averages fall short of the plate appearance
 requirement, run the current arm by itself:
 
