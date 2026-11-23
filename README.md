@@ -97,6 +97,13 @@ cargo run -- --process 10
 cargo run --features desktop -- --gui
 ```
 
+Regular game processing and analysis apply a game-time adjustment of −0.5
+to each batter's `bat_control` and `batting_eye`, and add +2° to the execution
+angle for `LineDrive` swings. The adjustment uses the saved roster as input
+for each game. Saved abilities and generation settings are unchanged.
+The independent offense comparison still lets you replay the original
+baseline and each experimental arm.
+
 The default database file is created at the platform-specific config path for
 `jp.cosmi.saberbb`. Override `database_path` in the generated config file if you
 want to point the app at a different SQLite file.

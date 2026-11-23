@@ -1,4 +1,6 @@
-use super::shared::game_state::{GameProgress, GameState, InningProgress};
+use super::shared::game_state::{
+    GameProgress, GameState, InningProgress, with_line_drive_attack_angle_trial,
+};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
@@ -13,6 +15,9 @@ use crate::repositories::game_repository::GameRoundRepository;
 use crate::t;
 use anyhow::{Context, Result};
 use tracing::info;
+
+const GAME_BATTING_ABILITY_DROP: f64 = 0.5;
+const GAME_LINE_DRIVE_ATTACK_DELTA_DEG: f64 = 2.0;
 
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,
@@ -44,7 +49,7 @@ impl<R: GameRoundRepository> GameService<R> {
             let season_stats = self.repo.load_pitcher_season_stats(&game_schedule)?;
             let position_fatigue = self.repo.load_position_player_fatigue(&game_schedule)?;
             let result = simulate_game_with_pitching(
-                &game_schedule,
+                game_schedule,
                 Box::new(RealRng::new()),
                 &loads,
                 &season_stats,
@@ -84,14 +89,30 @@ pub fn simulate_game(
     )
 }
 
+fn adjust_game_batting_abilities(schedule: &mut GameSchedule) {
+    for player in schedule
+        .away_team
+        .players
+        .iter_mut()
+        .chain(&mut schedule.home_team.players)
+    {
+        if let Some(batter) = &mut player.offense_skills.batter {
+            batter.bat_control -= GAME_BATTING_ABILITY_DROP;
+            batter.batting_eye -= GAME_BATTING_ABILITY_DROP;
+        }
+    }
+}
+
 fn simulate_game_with_pitching(
-    schedule: &GameSchedule,
+    mut schedule: GameSchedule,
     rng: Box<dyn RandomProvider>,
     loads: &BTreeMap<i64, f64>,
     season_stats: &SeasonPitchingStats,
     position_fatigue: Option<&BTreeMap<i64, f64>>,
     record_contact_states: bool,
 ) -> Result<GameResult> {
+    // Apply once before lineup selection so starters and replacements use the same abilities.
+    adjust_game_batting_abilities(&mut schedule);
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
         PitchingStaff::new(team, loads, schedule.base_four_seam_speed, weights, season_stats)
@@ -100,24 +121,26 @@ fn simulate_game_with_pitching(
     let home = staff(&schedule.home_team);
     let state = GameState::with_lineup_policy(
         rng,
-        schedule,
+        &schedule,
         [away.starter(), home.starter()],
         position_fatigue,
     )?;
-    play_game(
-        state,
-        BattingStrategySettings::player_driven(),
-        None,
-        record_contact_states,
-        Some([away, home]),
-        position_fatigue.map(|entering| {
-            [&schedule.away_team, &schedule.home_team].map(|team| PositionPlayers {
-                team,
-                entering,
-                pending: None,
-            })
-        }),
-    )
+    with_line_drive_attack_angle_trial(GAME_LINE_DRIVE_ATTACK_DELTA_DEG, || {
+        play_game(
+            state,
+            BattingStrategySettings::player_driven(),
+            None,
+            record_contact_states,
+            Some([away, home]),
+            position_fatigue.map(|entering| {
+                [&schedule.away_team, &schedule.home_team].map(|team| PositionPlayers {
+                    team,
+                    entering,
+                    pending: None,
+                })
+            }),
+        )
+    })
 }
 
 fn play_game(
@@ -446,6 +469,26 @@ mod tests {
     }
 
     #[test]
+    fn game_batting_adjustment_applies_to_both_rosters_without_capping() {
+        let mut game = schedule(1);
+        for team in [&mut game.away_team, &mut game.home_team] {
+            let batter = team.players[1].offense_skills.batter.as_mut().unwrap();
+            batter.bat_control = 3.0;
+            batter.batting_eye = -1.0;
+        }
+
+        adjust_game_batting_abilities(&mut game);
+
+        for team in [&game.away_team, &game.home_team] {
+            assert!(team.players[0].offense_skills.batter.is_none());
+            let batter = team.players[1].batter().unwrap();
+            assert_eq!(batter.bat_control, 2.5);
+            assert_eq!(batter.batting_eye, -1.5);
+            assert_eq!(batter.attack_angle, 10.0);
+        }
+    }
+
+    #[test]
     fn fatigue_rotates_the_starter_and_relieves_between_batters() {
         let mut schedule = schedule(1);
         schedule.away_team.players.extend([player(21), player(31), player(41)]);
@@ -464,7 +507,7 @@ mod tests {
         assert_eq!(staff.starter(), Some(31));
 
         let game = simulate_game_with_pitching(
-            &schedule,
+            schedule,
             Box::new(RealRng::from_seed(9)),
             &loads,
             &season_stats,
@@ -590,7 +633,7 @@ mod tests {
         assert_eq!(starter(&season), Some(31));
 
         let result = simulate_game_with_pitching(
-            &schedule,
+            schedule,
             Box::new(RealRng::from_seed(9)),
             &loads,
             &season,
