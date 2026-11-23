@@ -237,7 +237,7 @@ thread_local! {
     static LINE_DRIVE_ATTACK_DELTA_DEG: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
 }
 
-/// Scope a LineDrive-only attack angle change to a synchronous game or diagnostic.
+/// Scope a LineDrive-only attack angle change to a synchronous game diagnostic.
 pub fn with_line_drive_attack_angle_trial<T>(delta_deg: f64, run: impl FnOnce() -> T) -> T {
     struct Restore(f64);
     impl Drop for Restore {

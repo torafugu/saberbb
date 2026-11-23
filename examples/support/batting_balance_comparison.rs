@@ -1,7 +1,11 @@
 use super::{Args, Counts, GameSchedule, accumulate, derived_seed, simulate_game};
 use anyhow::{Context, Result, ensure};
 use saberbb::domain::{
-    random_provider::RealRng, shared::game_state::with_line_drive_attack_angle_trial,
+    random_provider::RealRng,
+    resolver::batting_calibration::{
+        BAT_CONTROL_CORRECTION_MIDPOINT, BATTING_EYE_TIMING_MIDPOINT, with_calibrated_batting,
+    },
+    shared::game_state::with_line_drive_attack_angle_trial,
     strategy::batting_strategy::BattingStrategySettings,
 };
 use serde::Serialize;
@@ -172,17 +176,25 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         mean_drop,
         cap: None,
     };
-    let trials = if mean_drop_with_angle {
+    let model_calibration = args.balance_model_calibration;
+    let trials = if model_calibration {
         [
-            ("current", Current, 0.0),
-            ("mean_drop_only", shifted, 0.0),
-            ("angle_only", Current, angle_deg),
-            ("mean_drop_and_angle", shifted, angle_deg),
+            ("current", Current, 0.0, false),
+            ("generation_angle_only", Current, 2.0, false),
+            ("model_only", Current, 0.0, true),
+            ("generation_angle_and_model", Current, 2.0, true),
+        ]
+    } else if mean_drop_with_angle {
+        [
+            ("current", Current, 0.0, false),
+            ("mean_drop_only", shifted, 0.0, false),
+            ("angle_only", Current, angle_deg, false),
+            ("mean_drop_and_angle", shifted, angle_deg, false),
         ]
     } else if args.balance_ability_limits {
         [
-            ("current", Current, 0.0),
-            ("mean_drop_only", shifted, 0.0),
+            ("current", Current, 0.0, false),
+            ("mean_drop_only", shifted, 0.0, false),
             (
                 "cap_only",
                 Limits {
@@ -190,6 +202,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     cap: Some(cap),
                 },
                 0.0,
+                false,
             ),
             (
                 "mean_drop_and_cap",
@@ -198,14 +211,15 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                     cap: Some(cap),
                 },
                 0.0,
+                false,
             ),
         ]
     } else {
         [
-            ("current", Current, 0.0),
-            ("compression_only", CompressUpperTail, 0.0),
-            ("angle_only", Current, angle_deg),
-            ("combined", CompressUpperTail, angle_deg),
+            ("current", Current, 0.0, false),
+            ("compression_only", CompressUpperTail, 0.0, false),
+            ("angle_only", Current, angle_deg, false),
+            ("combined", CompressUpperTail, angle_deg, false),
         ]
     };
     let case_count = if args.balance_current_only {
@@ -213,7 +227,12 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
     } else {
         trials.len()
     };
-    for (label, adjustment, delta_deg) in trials.into_iter().take(case_count) {
+    for (label, adjustment, delta_deg, calibrated) in trials.into_iter().take(case_count) {
+        let (roster_angle_delta_deg, line_drive_delta_deg) = if model_calibration {
+            (delta_deg, 0.0)
+        } else {
+            (0.0, delta_deg)
+        };
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
         for &seed in &args.seeds {
@@ -222,7 +241,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
             let mut players = BTreeMap::new();
             for original in games {
                 let mut game = original.clone();
-                if !matches!(adjustment, Current) {
+                if !matches!(adjustment, Current) || roster_angle_delta_deg != 0.0 {
                     for player in game
                         .away_team
                         .players
@@ -232,10 +251,13 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         if let Some(batter) = &mut player.offense_skills.batter {
                             batter.bat_control = adjustment.apply(batter.bat_control, &bat_control);
                             batter.batting_eye = adjustment.apply(batter.batting_eye, &batting_eye);
+                            if roster_angle_delta_deg != 0.0 {
+                                batter.attack_angle += roster_angle_delta_deg;
+                            }
                         }
                     }
                 }
-                let result = with_line_drive_attack_angle_trial(delta_deg, || {
+                let run = || {
                     simulate_game(
                         game,
                         Box::new(RealRng::from_seed(derived_seed(seed, original.id))),
@@ -243,7 +265,12 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                         Some(args.max_pitches),
                         false,
                     )
-                })
+                };
+                let result = if calibrated {
+                    with_calibrated_batting(run)
+                } else {
+                    with_line_drive_attack_angle_trial(line_drive_delta_deg, run)
+                }
                 .with_context(|| {
                     format!("batting balance {label}, seed {seed}, game {}", original.id)
                 })?;
@@ -288,7 +315,7 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
         }
         let mut arm = json!({
             "arm": label, "compress_upper_tail": matches!(adjustment, CompressUpperTail),
-            "line_drive_attack_delta_deg": delta_deg, "pooled_league": rates(&pooled), "reports": reports,
+            "line_drive_attack_delta_deg": line_drive_delta_deg, "pooled_league": rates(&pooled), "reports": reports,
         });
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
@@ -300,13 +327,23 @@ pub(super) fn run(args: &Args, games: &[GameSchedule]) -> Result<Value> {
                 ),
             });
         }
+        if model_calibration {
+            arm["calibrated_batting_model"] = json!(calibrated);
+            arm["roster_attack_angle_delta_deg"] = json!(roster_angle_delta_deg);
+        }
         arms.push(arm);
     }
     let mut output = json!({
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The attack delta changes the live LineDrive execution angle only.",
         "arms": arms,
     });
-    if mean_drop_with_angle {
+    if model_calibration {
+        output["model_calibration"] = json!({
+            "definition": "The current arm uses the legacy model and saved roster angles. The angle arms add 2 degrees to each input roster angle to approximate shifting the generation distribution, retaining individual differences and applying to both intents. The model arms move the midpoint of the bat-control displacement correction and batting-eye timing response from zero to 0.5.",
+            "bat_control_correction_midpoint": BAT_CONTROL_CORRECTION_MIDPOINT,
+            "batting_eye_timing_midpoint": BATTING_EYE_TIMING_MIDPOINT,
+        });
+    } else if mean_drop_with_angle {
         output["mean_drop_with_angle"] = json!({
             "definition": "Subtract the same amount from bat_control and batting_eye on a cloned roster in the mean-drop arms. Compare with the LineDrive execution angle increase alone and with both changes together. The standard lineup and batting logic are run using the trial abilities.",
             "roster_batters": skills.len(), "mean_drop": mean_drop,
