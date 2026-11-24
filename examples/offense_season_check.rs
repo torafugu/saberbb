@@ -155,6 +155,9 @@ struct Args {
     /// Export swing and fair-contact diagnostics for these batters in the -0.25 eye arm.
     #[arg(long, value_delimiter = ',', requires = "balance_batting_eye_sweep")]
     balance_contact_batter_ids: Vec<i64>,
+    /// Replay selected fair balls with this roster batter's speed, power, and both.
+    #[arg(long, requires = "balance_contact_batter_ids", conflicts_with = "balance_current_only")]
+    balance_contact_flight_reference_id: Option<i64>,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,

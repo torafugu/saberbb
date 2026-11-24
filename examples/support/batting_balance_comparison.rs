@@ -276,6 +276,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "duplicate contact audit batter {id}"
         );
     }
+    let flight_reference = args
+        .balance_contact_flight_reference_id
+        .map(|id| {
+            roster.get(&id)
+                .and_then(|(_, player)| player.offense_skills.batter)
+                .with_context(|| format!("flight reference batter {id} has no batting abilities on the scheduled rosters"))
+        })
+        .transpose()?;
     let skills: Vec<_> = roster
         .values()
         .filter_map(|(_, p)| p.offense_skills.batter)
@@ -474,6 +482,17 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         .map(|&id| (id, BatterContactAudit::default())),
                 );
             }
+            let mut paired_flight = BTreeMap::new();
+            if let Some(reference) = flight_reference {
+                for &id in contact_audit.keys() {
+                    let batter = contact_batters[&id];
+                    paired_flight.insert(id, FrozenFlightAudit::for_batter(
+                        id,
+                        reference.swing_speed - batter.swing_speed,
+                        reference.swing_power - batter.swing_power,
+                    ));
+                }
+            }
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
                 let mut game = original.clone();
@@ -552,6 +571,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                             );
                         }
                     }
+                }
+                for audit in paired_flight.values_mut() {
+                    audit.observe_game(original, &result);
                 }
                 if !contact_audit.is_empty() {
                     for batting in &result.player_battings {
@@ -645,6 +667,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         .collect::<BTreeMap<_, _>>()
                 );
             }
+            if !paired_flight.is_empty() {
+                report["batter_contact_paired_flight"] = json!(paired_flight);
+            }
             if let Some(group) = baseline_hr_group {
                 report["baseline_hr_leaders"] = group;
             }
@@ -706,6 +731,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 .unwrap_or_else(|_| "legacy".into()),
             "roster_batting_abilities": contact_batters,
             "definition": "Fair contacts use the replay's counted fair plate-appearance outcomes, including home runs. Roster abilities are reported before the arm's deltas. Each fair contact is keyed by game ID and count sequence within its seed.",
+        });
+    }
+    if let Some(reference) = flight_reference {
+        output["contact_flight_reference"] = json!({
+            "batter_id": args.balance_contact_flight_reference_id,
+            "roster_swing_speed_ms": reference.swing_speed,
+            "roster_swing_power": reference.swing_power,
+            "definition": "Apply roster speed or power differences to each recorded swing. Pitch speed, contact offsets, timing depth, launch angles, spin and park are fixed. Count home runs only on pairs whose baseline reproduces the recorded exit speed and flight. This replay does not estimate effects on swing decisions or making contact.",
         });
     }
     if swing_attributes {
