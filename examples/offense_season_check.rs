@@ -170,6 +170,10 @@ struct Args {
     #[arg(long, requires_all = ["balance_contact_batter_ids", "balance_swing_speed_cap_sweep"],
         conflicts_with = "balance_batting_eye_sweep")]
     balance_contact_exit_speed_replay: bool,
+    /// Replay recorded fair-ball flights with shifted vertical launch angles in the 35.5 m/s cap arm.
+    #[arg(long, requires_all = ["balance_contact_batter_ids", "balance_swing_speed_cap_sweep"],
+        conflicts_with = "balance_batting_eye_sweep")]
+    balance_contact_launch_angle_replay: bool,
     /// Replay selected fair balls with this roster batter's speed, power, and both.
     #[arg(long, requires = "balance_contact_batter_ids", conflicts_with_all = [
         "balance_current_only", "balance_swing_speed_cap_sweep"
@@ -1797,6 +1801,11 @@ mod tests {
         );
         assert!(Args::try_parse_from(with_batters().chain([eye, replay])).is_err());
         assert!(Args::try_parse_from(common.into_iter().chain([cap, replay])).is_err());
+        let angle_replay = "--balance-contact-launch-angle-replay";
+        let both = Args::try_parse_from(with_batters().chain([cap, replay, angle_replay])).unwrap();
+        assert!(both.balance_contact_launch_angle_replay && both.balance_contact_exit_speed_replay);
+        assert!(Args::try_parse_from(with_batters().chain([eye, angle_replay])).is_err());
+        assert!(Args::try_parse_from(common.into_iter().chain([cap, angle_replay])).is_err());
     }
 
     #[test]

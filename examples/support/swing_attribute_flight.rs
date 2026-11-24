@@ -108,8 +108,32 @@ pub(super) const EXIT_SPEED_REDUCTIONS: [(&str, f64); 4] = [
     ("ev_minus_3_ms", 3.0),
 ];
 
-#[derive(Default, Serialize)]
-pub(super) struct ExitSpeedFlightAudit {
+pub(super) const LAUNCH_ANGLE_SHIFTS: [(&str, f64); 4] = [
+    ("vla_minus_4_deg", -4.0),
+    ("vla_minus_2_deg", -2.0),
+    ("vla_plus_2_deg", 2.0),
+    ("vla_plus_4_deg", 4.0),
+];
+
+#[derive(Clone, Copy)]
+pub(super) enum CappedFlightAdjustment {
+    ExitSpeed,
+    LaunchAngle,
+}
+
+impl CappedFlightAdjustment {
+    fn trials(self) -> &'static [(&'static str, f64)] {
+        match self {
+            Self::ExitSpeed => &EXIT_SPEED_REDUCTIONS,
+            Self::LaunchAngle => &LAUNCH_ANGLE_SHIFTS,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub(super) struct CappedContactFlightAudit {
+    #[serde(skip)]
+    adjustment: CappedFlightAdjustment,
     selected_fair_contacts: u64,
     selected_home_runs: u64,
     missing_inputs: u64,
@@ -119,7 +143,20 @@ pub(super) struct ExitSpeedFlightAudit {
     by_original_ev_vla: BTreeMap<String, Cell>,
 }
 
-impl ExitSpeedFlightAudit {
+impl CappedContactFlightAudit {
+    pub(super) fn new(adjustment: CappedFlightAdjustment) -> Self {
+        Self {
+            adjustment,
+            selected_fair_contacts: 0,
+            selected_home_runs: 0,
+            missing_inputs: 0,
+            baseline_flight_error: 0,
+            baseline_flight_mismatch: 0,
+            trial_flight_error: 0,
+            by_original_ev_vla: BTreeMap::new(),
+        }
+    }
+
     pub(super) fn observe(&mut self, stadium: &Stadium, batting: &PlayerGameBatting) {
         let ball = &batting.ball;
         let ev = ball.launch_speed;
@@ -138,17 +175,17 @@ impl ExitSpeedFlightAudit {
             self.missing_inputs += 1;
             return;
         }
-        let replay = |speed| {
+        let replay = |speed, angle| {
             calculate_trajectory(
                 speed,
-                vla,
+                angle,
                 batting.final_hla_deg,
                 ball.spin_rate,
                 ball.spin_angle,
                 stadium,
             )
         };
-        let Ok(baseline) = replay(ev) else {
+        let Ok(baseline) = replay(ev, vla) else {
             self.baseline_flight_error += 1;
             return;
         };
@@ -158,13 +195,18 @@ impl ExitSpeedFlightAudit {
             self.baseline_flight_mismatch += 1;
             return;
         }
-        let alternatives = EXIT_SPEED_REDUCTIONS
+        let trials = self.adjustment.trials();
+        let alternatives = trials
             .iter()
-            .map(|&(name, reduction)| {
-                replay(ev - reduction).map(|flight| {
+            .map(|&(name, amount)| {
+                let (ev_delta, vla_delta) = match self.adjustment {
+                    CappedFlightAdjustment::ExitSpeed => (-amount, 0.0),
+                    CappedFlightAdjustment::LaunchAngle => (0.0, amount),
+                };
+                replay(ev + ev_delta, vla + vla_delta).map(|flight| {
                     (
                         name,
-                        (flight.outbound_result == OutboundResult::HomeRun, -reduction),
+                        (flight.outbound_result == OutboundResult::HomeRun, ev_delta),
                     )
                 })
             })
@@ -177,7 +219,7 @@ impl ExitSpeedFlightAudit {
         let vla_band = bip_audit::band(vla, &[20.0, 25.0, 30.0, 35.0]);
         self.by_original_ev_vla
             .entry(format!("EV_ms:{ev_band}|VLA_deg:{vla_band}"))
-            .or_insert_with(|| Cell::new(EXIT_SPEED_REDUCTIONS.map(|(name, _)| name)))
+            .or_insert_with(|| Cell::new(trials.iter().map(|&(name, _)| name)))
             .observe(was_hr, batting.result == BattingResult::Double, &alternatives);
     }
 }
