@@ -347,6 +347,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         ("swing_power_plus_0_25", 0.0, 0.25),
         ("angle_and_power", 1.0, 0.25),
     ];
+    const SHARED_SPEED_TRIALS: [(&str, f64); 4] = [
+        ("shared_speed_33_5", 33.5),
+        ("shared_speed_34_0", 34.0),
+        ("shared_speed_34_5", 34.5),
+        ("shared_speed_35_0", 35.0),
+    ];
     let swing_attributes = args.balance_swing_attributes;
     let live_batting_abilities = args.balance_live_batting_abilities;
     let angle_power_tuning = args.balance_angle_power_tuning;
@@ -361,8 +367,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let collision_power_sweep = args.balance_collision_power_sweep;
     let median_power_speed_swap = args.balance_contact_median_power_speed_swap;
     let live_speed_swap = args.balance_live_median_power_speed_swap;
-    let live_collision_power = collision_power_sweep || median_power_speed_swap || live_speed_swap;
-    let fixed_opening_lineups = fixed_lineups || live_speed_swap;
+    let shared_speed_sweep = args.balance_live_median_power_shared_speed_sweep;
+    let compare_live_speeds = live_speed_swap || shared_speed_sweep;
+    let live_collision_power =
+        collision_power_sweep || median_power_speed_swap || compare_live_speeds;
+    let fixed_opening_lineups = fixed_lineups || compare_live_speeds;
     let capped_zero_bonus = fast_swing_sweep || median_power_replay || live_collision_power;
     if capped_zero_bonus {
         ensure!(
@@ -420,6 +429,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         ensure!(
             contact_batters.len() == 2,
             "median-power speed swap requires exactly two contact audit batter IDs"
+        );
+    }
+    if shared_speed_sweep {
+        ensure!(
+            contact_batters.len() == 2,
+            "shared-speed sweep requires exactly two contact audit batter IDs"
         );
     }
     let flight_reference = args
@@ -497,7 +512,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
     // Each pair specifies the amount to subtract from bat control and batting eye.
-    let batting_ability_trials: &[(&str, f64, f64)] = if live_speed_swap {
+    let shared_speed_ability_trials = SHARED_SPEED_TRIALS
+        .map(|(label, _)| (label, 0.0, GAME_BATTING_EYE_REDUCTION));
+    let batting_ability_trials: &[(&str, f64, f64)] = if shared_speed_sweep {
+        &shared_speed_ability_trials
+    } else if live_speed_swap {
         &[
             ("collision_power_median", 0.0, GAME_BATTING_EYE_REDUCTION),
             (
@@ -710,7 +729,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "fast_swing_error_150" => 1.50,
             _ => 1.0,
         };
+        let shared_speed = shared_speed_sweep.then(|| SHARED_SPEED_TRIALS[arm_index].1);
         let retained_collision_power = match label {
+            _ if shared_speed.is_some() => 0.0,
             "collision_power_half" => 0.5,
             "collision_power_median" | "collision_power_median_swapped_speed" => 0.0,
             _ => 1.0,
@@ -732,7 +753,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 capped
             }
         };
-        let swapped_speeds: BTreeMap<_, _> = if label == "collision_power_median_swapped_speed" {
+        let trial_speeds: BTreeMap<_, _> = if let Some(speed) = shared_speed {
+            contact_batters.keys().map(|&id| (id, speed)).collect()
+        } else if label == "collision_power_median_swapped_speed" {
             contact_batters
                 .keys()
                 .zip(contact_batters.values().rev())
@@ -742,7 +765,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             BTreeMap::new()
         };
         let trial_speed = |id, speed| {
-            swapped_speeds
+            trial_speeds
                 .get(&id)
                 .copied()
                 .unwrap_or_else(|| effective_speed(speed))
@@ -871,11 +894,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 };
                 let mut game = original.clone();
                 apply_abilities(&mut game, false);
-                let lineup_source = (fixed_opening_lineups && arm_index > 0).then(|| {
-                    let mut control = original.clone();
-                    apply_abilities(&mut control, true);
-                    control
-                });
+                let lineup_source = (shared_speed_sweep || (fixed_opening_lineups && arm_index > 0))
+                    .then(|| {
+                        let mut control = original.clone();
+                        apply_abilities(&mut control, true);
+                        control
+                    });
                 let run = || {
                     let rng = Box::new(RealRng::from_seed(derived_seed(seed, original.id)));
                     if let Some(history) = pregame.get(index) {
@@ -1091,7 +1115,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     report["frozen_flight"] = json!(audit);
                 }
             }
-            if live_speed_swap {
+            if compare_live_speeds {
                 for (&id, audit) in &contact_audit {
                     pooled_contact_rates.entry(id).or_default().add(audit);
                 }
@@ -1163,7 +1187,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         }
         if speed_distribution_sweep {
             arm["effective_roster_swing_speed_ms"] = ability_distribution(
-                skills.iter().map(|b| effective_speed(b.swing_speed)), skills.len(),
+                roster.iter().filter_map(|(&id, (_, player))| {
+                    player
+                        .offense_skills
+                        .batter
+                        .map(|batter| trial_speed(id, batter.swing_speed))
+                }),
+                skills.len(),
             );
         }
         if capped_tail_comparison {
@@ -1194,7 +1224,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             arm["pooled_league"]["doubles_per_100_pa"] =
                 json!(ratio(pooled.double, pooled.pa).map(|value| 100.0 * value));
         }
-        if live_speed_swap {
+        if let Some(speed) = shared_speed {
+            arm["shared_swing_speed_ms"] = json!(speed);
+        }
+        if compare_live_speeds {
             arm["pooled_batter_contact_rates"] = json!(
                 pooled_contact_rates
                     .iter()
@@ -1225,7 +1258,18 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if live_speed_swap && let Some(median) = median_power {
+    if shared_speed_sweep && let Some(median) = median_power {
+        output["live_median_power_shared_speed_sweep"] = json!({
+            "batter_ids": contact_batters.keys().copied().collect::<Vec<_>>(),
+            "roster_swing_power_median": median,
+            "roster_batters": skills.len(),
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "swing_speed_cap_ms": COMMON_CAP_MS,
+            "shared_swing_speeds_ms": SHARED_SPEED_TRIALS.map(|(_, speed)| speed),
+            "definition": "Play complete games with collision power set to roster-median swing power at each contact depth. Give both audited batters the same swing speed within each arm and choose opening lineups with their normal capped abilities. Use the same schedules and starting seeds. Pooled rates use swings for whiffs, completed PA for fair balls and home runs, and fair balls for home runs per fair ball.",
+        });
+    } else if live_speed_swap && let Some(median) = median_power {
         output["live_median_power_speed_swap"] = json!({
             "batter_ids": contact_batters.keys().copied().collect::<Vec<_>>(),
             "roster_swing_power_median": median,
