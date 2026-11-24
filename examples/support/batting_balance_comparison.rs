@@ -27,7 +27,7 @@ use saberbb::{
         },
         resolver::batting_resolver::{
             FAST_SWING_ERROR_FULL_MS, FAST_SWING_ERROR_START_MS, SwingContactType,
-            with_fast_swing_error_trial,
+            with_collision_power_trial, with_fast_swing_error_trial,
         },
     },
     repositories::game_repository::SqlGameRepository,
@@ -324,7 +324,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let fixed_lineups = args.balance_capped_power_fixed_lineups;
     let fast_swing_sweep = args.balance_fast_swing_error_sweep;
     let median_power_replay = args.balance_contact_median_power_replay;
-    let capped_zero_bonus = fast_swing_sweep || median_power_replay;
+    let collision_power_sweep = args.balance_collision_power_sweep;
+    let capped_zero_bonus = fast_swing_sweep || median_power_replay || collision_power_sweep;
     if capped_zero_bonus {
         ensure!(
             std::env::var("SABERBB_SWING_EXECUTION").as_deref() == Ok("mixture"),
@@ -419,7 +420,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     } else {
         None
     };
-    let median_power = if median_power_replay {
+    let median_power = if median_power_replay || collision_power_sweep {
         let mut powers: Vec<_> = skills.iter().map(|batter| batter.swing_power).collect();
         ensure!(
             powers.iter().all(|power| power.is_finite()),
@@ -454,6 +455,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     // Each pair specifies the amount to subtract from bat control and batting eye.
     let batting_ability_trials: &[(&str, f64, f64)] = if median_power_replay {
         &[("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION)]
+    } else if collision_power_sweep {
+        &[
+            ("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("collision_power_half", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("collision_power_median", 0.0, GAME_BATTING_EYE_REDUCTION),
+        ]
     } else if fast_swing_sweep {
         &[
             ("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION),
@@ -648,6 +655,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "fast_swing_error_150" => 1.50,
             _ => 1.0,
         };
+        let retained_collision_power = match label {
+            "collision_power_half" => 0.5,
+            "collision_power_median" => 0.0,
+            _ => 1.0,
+        };
         let retained_power_excess = match label {
             "capped_power_tail" => Some(POWER_EXCESS_RETAINED),
             "capped_power_tail_keep_50" => Some(0.50),
@@ -729,7 +741,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     );
                 }
             }
-            if let Some(median) = median_power {
+            if median_power_replay && let Some(median) = median_power {
                 for &id in contact_audit.keys() {
                     paired_flight.insert(id, FrozenFlightAudit::for_median_power(id, median));
                 }
@@ -800,6 +812,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     with_fast_swing_error_trial(fast_swing_max_scale, || {
                         with_line_drive_attack_angle_trial(line_drive_delta_deg, run)
                     })
+                };
+                let run = || {
+                    if collision_power_sweep && let Some(median) = median_power {
+                        with_collision_power_trial(median, retained_collision_power, run)
+                    } else {
+                        run()
+                    }
                 };
                 let result = if calibrated {
                     with_calibrated_batting(run)
@@ -1075,6 +1094,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         if capped_zero_bonus {
             arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms);
         }
+        if collision_power_sweep {
+            arm["collision_power_retained_fraction"] = json!(retained_collision_power);
+            arm["pooled_league"]["doubles_per_100_pa"] =
+                json!(ratio(pooled.double, pooled.pa).map(|value| 100.0 * value));
+        }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
                 "bat_control": ability_distribution(
@@ -1095,7 +1119,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if let Some(median) = median_power {
+    if collision_power_sweep && let Some(median) = median_power {
+        output["collision_power_sweep"] = json!({
+            "roster_swing_power_median": median,
+            "roster_batters": skills.len(),
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "swing_speed_cap_ms": COMMON_CAP_MS,
+            "definition": "Retain the arm fraction of the difference between each batter's collision coefficient and the coefficient at roster-median swing power, at the same contact depth. Roster power and its other uses such as lineup scoring are preserved. Play complete games in every arm.",
+        });
+    } else if let Some(median) = median_power {
         output["contact_median_power_replay"] = json!({
             "roster_swing_power_median": median,
             "roster_batters": skills.len(),
