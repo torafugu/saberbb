@@ -163,6 +163,12 @@ struct Args {
         "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_current_only"
     ])]
     balance_swing_speed_cap_sweep: bool,
+    /// Compare targeted speed and power compression under the 35.5 m/s cap.
+    #[arg(long, requires = "balance_live_batting_abilities", conflicts_with_all = [
+        "balance_batting_eye_sweep", "balance_swing_speed_upper_tail",
+        "balance_swing_speed_cap_sweep", "balance_current_only"
+    ])]
+    balance_capped_swing_tail_comparison: bool,
     /// Export batter contact diagnostics for the -0.25 eye arm or all swing-speed cap arms.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -1818,6 +1824,30 @@ mod tests {
         );
         assert!(Args::try_parse_from(with_batters().chain([eye, swap])).is_err());
         assert!(Args::try_parse_from(common.into_iter().chain([cap, swap])).is_err());
+    }
+
+    #[test]
+    fn capped_swing_tail_comparison_is_a_separate_live_ability_mode() {
+        let mode = "--balance-capped-swing-tail-comparison";
+        let common = [
+            "check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-swing-attributes",
+            "--balance-live-batting-abilities",
+            mode,
+        ];
+        assert!(Args::try_parse_from(common).unwrap().balance_capped_swing_tail_comparison);
+        for flag in [
+            "--balance-batting-eye-sweep",
+            "--balance-swing-speed-upper-tail",
+            "--balance-swing-speed-cap-sweep",
+            "--balance-current-only",
+        ] {
+            assert!(Args::try_parse_from(common.into_iter().chain([flag])).is_err());
+        }
+        assert!(Args::try_parse_from(["check", "--season", "2026", mode]).is_err());
     }
 
     #[test]
