@@ -225,6 +225,21 @@ impl CappedContactFlightAudit {
 }
 
 #[derive(Serialize)]
+struct ContactGeometryCell {
+    baseline_exit_speed_sum_ms: f64,
+    #[serde(flatten)]
+    flight: Cell,
+}
+
+#[derive(Serialize)]
+struct CappedSwap {
+    peer_batter_id: i64,
+    effective_swing_speed_delta_ms: f64,
+    swing_power_delta: f64,
+    by_contact_geometry_at_25_to_30_deg: BTreeMap<String, ContactGeometryCell>,
+}
+
+#[derive(Serialize)]
 pub(super) struct FrozenFlightAudit {
     #[serde(skip)]
     batter_id: Option<i64>,
@@ -238,6 +253,8 @@ pub(super) struct FrozenFlightAudit {
     trial_flight_error: u64,
     total: Cell,
     by_original_ev_vla: BTreeMap<String, Cell>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capped_swap: Option<CappedSwap>,
 }
 
 impl Default for FrozenFlightAudit {
@@ -259,6 +276,7 @@ impl FrozenFlightAudit {
             trial_flight_error: 0,
             total: Cell::new(trials.iter().map(|trial| trial.name)),
             by_original_ev_vla: BTreeMap::new(),
+            capped_swap: None,
         }
     }
 
@@ -283,6 +301,22 @@ impl FrozenFlightAudit {
                 },
             ],
         )
+    }
+
+    pub(super) fn for_capped_swap(
+        batter_id: i64,
+        peer_batter_id: i64,
+        speed_delta_ms: f64,
+        power_delta: f64,
+    ) -> Self {
+        let mut audit = Self::for_batter(batter_id, speed_delta_ms, power_delta);
+        audit.capped_swap = Some(CappedSwap {
+            peer_batter_id,
+            effective_swing_speed_delta_ms: speed_delta_ms,
+            swing_power_delta: power_delta,
+            by_contact_geometry_at_25_to_30_deg: BTreeMap::new(),
+        });
+        audit
     }
 
     pub(super) fn observe_game(&mut self, schedule: &GameSchedule, game: &GameResult) {
@@ -323,6 +357,7 @@ impl FrozenFlightAudit {
                     pitch,
                     depth,
                     thickness,
+                    depth,
                     speed,
                     length,
                     live.launch_speed,
@@ -364,7 +399,10 @@ impl FrozenFlightAudit {
                 self.baseline_flight_error += 1;
                 continue;
             };
-            if !same_flight(&baseline, live) {
+            let was_hr = baseline.outbound_result == OutboundResult::HomeRun;
+            if !same_flight(&baseline, live)
+                || (self.capped_swap.is_some() && was_hr != (b.result == BattingResult::HomeRun))
+            {
                 self.baseline_flight_mismatch += 1;
                 continue;
             }
@@ -389,9 +427,31 @@ impl FrozenFlightAudit {
                 self.trial_flight_error += 1;
                 continue;
             };
-            let was_hr = baseline.outbound_result == OutboundResult::HomeRun;
             let was_double = b.result == BattingResult::Double;
             self.total.observe(was_hr, was_double, &alternatives);
+            if let Some(swap) = &mut self.capped_swap
+                && (25.0..30.0).contains(&live.launch_angle)
+            {
+                let length_band = b.signed_length_offset_m.map_or_else(
+                    || "unknown".into(),
+                    |m| bip_audit::band(m.abs() * 100.0, &[5.0]),
+                );
+                let thickness_band = b.signed_thickness_offset_m.map_or_else(
+                    || "unknown".into(),
+                    |m| bip_audit::band(m.abs() * 100.0, &[2.0]),
+                );
+                let cell = swap
+                    .by_contact_geometry_at_25_to_30_deg
+                    .entry(format!(
+                        "length_cm:{length_band}|thickness_cm:{thickness_band}"
+                    ))
+                    .or_insert_with(|| ContactGeometryCell {
+                        baseline_exit_speed_sum_ms: 0.0,
+                        flight: Cell::new(self.trials.iter().map(|trial| trial.name)),
+                    });
+                cell.baseline_exit_speed_sum_ms += live.launch_speed;
+                cell.flight.observe(was_hr, was_double, &alternatives);
+            }
             let ev = bip_audit::band(live.launch_speed, &[35.0, 40.0, 45.0, 47.5, 50.0, 55.0]);
             let vla = bip_audit::band(
                 live.launch_angle,

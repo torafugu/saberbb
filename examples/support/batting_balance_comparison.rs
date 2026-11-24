@@ -315,6 +315,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "duplicate contact audit batter {id}"
         );
     }
+    if args.balance_contact_swap_batting_attributes {
+        ensure!(
+            contact_batters.len() == 2,
+            "contact attribute swap requires exactly two contact audit batter IDs"
+        );
+        ensure!(
+            contact_batters.values().all(|batter| batter.swing_power.is_finite()),
+            "contact attribute swap requires finite swing power for both batters"
+        );
+    }
     let flight_reference = args
         .balance_contact_flight_reference_id
         .map(|id| {
@@ -529,6 +539,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             args.balance_contact_exit_speed_replay && swing_speed_cap_ms == Some(35.5);
         let replay_launch_angle =
             args.balance_contact_launch_angle_replay && swing_speed_cap_ms == Some(35.5);
+        let swap_contact_attributes =
+            args.balance_contact_swap_batting_attributes && swing_speed_cap_ms == Some(35.5);
         let effective_speed = |speed: f64| {
             let speed = speed_tail.as_ref().zip(retained_speed_excess)
                 .map_or(speed, |(tail, fraction)| tail.retain_excess(speed, fraction));
@@ -575,6 +587,21 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         reference.swing_speed - batter.swing_speed,
                         reference.swing_power - batter.swing_power,
                     ));
+                }
+            }
+            if swap_contact_attributes {
+                for ((&id, batter), (&peer_id, peer)) in
+                    contact_batters.iter().zip(contact_batters.iter().rev())
+                {
+                    paired_flight.insert(
+                        id,
+                        FrozenFlightAudit::for_capped_swap(
+                            id,
+                            peer_id,
+                            effective_speed(peer.swing_speed) - effective_speed(batter.swing_speed),
+                            peer.swing_power - batter.swing_power,
+                        ),
+                    );
                 }
             }
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
@@ -916,6 +943,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "roster_swing_speed_ms": reference.swing_speed,
             "roster_swing_power": reference.swing_power,
             "definition": "Apply roster speed or power differences to each recorded swing. Pitch speed, contact offsets, timing depth, launch angles, spin and park are fixed. Count home runs only on pairs whose baseline reproduces the recorded exit speed and flight. This replay does not estimate effects on swing decisions or making contact.",
+        });
+    }
+    if args.balance_contact_swap_batting_attributes {
+        output["contact_batting_attribute_swap"] = json!({
+            "arm": "speed_cap_35_5",
+            "definition": "Swap the two batters' effective roster swing speeds after the live bonus and cap, their swing power, and both independently on each recorded contact. Hold pitch speed, contact offsets, timing depth, launch angles, spin and park fixed. Require the baseline to reproduce measured exit speed, flight and home-run status. Report exit-speed deltas and home-run transitions on matched contacts. Group the 25 to under 30 degree contacts by absolute signed offsets split at 5 cm (length) and 2 cm (thickness).",
         });
     }
     if swing_attributes {
