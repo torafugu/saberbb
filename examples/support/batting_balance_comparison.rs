@@ -253,6 +253,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let angle_power_tuning = args.balance_angle_power_tuning;
     let speed_sweep = args.balance_swing_speed_sweep;
     let speed_tail_sweep = args.balance_swing_speed_upper_tail;
+    let speed_cap_sweep = args.balance_swing_speed_cap_sweep;
+    let speed_distribution_sweep = speed_tail_sweep || speed_cap_sweep;
+    let speed_caps_ms = [None, Some(36.0), Some(35.5), Some(35.0)];
     let speed_tail_fractions = [1.0, 0.75, 0.50, 0.25];
     let pregame = if swing_attributes {
         SqlGameRepository::replay_pregame(conn, games)?
@@ -304,7 +307,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             .all(|b| b.bat_control.is_finite() && b.batting_eye.is_finite()),
         "non-finite roster batting ability"
     );
-    let speed_tail = if speed_tail_sweep {
+    let speed_tail = if speed_distribution_sweep {
         ensure!(
             skills.iter().all(|b| b.swing_speed.is_finite() && b.swing_speed > 0.0),
             "invalid roster swing speed"
@@ -336,7 +339,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
     // Each pair specifies the amount to subtract from bat control and batting eye.
-    let batting_ability_trials: &[(&str, f64, f64)] = if speed_tail_sweep {
+    let batting_ability_trials: &[(&str, f64, f64)] = if speed_cap_sweep {
+        &[
+            ("live_speed_baseline", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("speed_cap_36_0", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("speed_cap_35_5", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("speed_cap_35_0", 0.0, GAME_BATTING_EYE_REDUCTION),
+        ]
+    } else if speed_tail_sweep {
         &[
             ("live_speed_baseline", 0.0, GAME_BATTING_EYE_REDUCTION),
             ("speed_tail_keep_75", 0.0, GAME_BATTING_EYE_REDUCTION),
@@ -483,12 +493,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 _ => (0.0, 0.0),
             }
         };
-        let retained_speed_excess =
-            speed_tail.as_ref().map(|_| speed_tail_fractions[arm_index]);
+        let retained_speed_excess = speed_tail_sweep.then(|| speed_tail_fractions[arm_index]);
+        let swing_speed_cap_ms = speed_cap_sweep.then(|| speed_caps_ms[arm_index]).flatten();
         let effective_speed = |speed: f64| {
             let speed = speed_tail.as_ref().zip(retained_speed_excess)
                 .map_or(speed, |(tail, fraction)| tail.retain_excess(speed, fraction));
-            speed + speed_delta
+            let live_speed = speed + speed_delta;
+            swing_speed_cap_ms.map_or(live_speed, |cap| live_speed.min(cap))
         };
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
@@ -663,6 +674,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             let mut pa_bands: [PlateAppearanceBand; PA_BANDS.len()] = Default::default();
             let mut batter_rows = Vec::new();
             let mut max_home_runs = 0;
+            let mut capped_batters_with_pa = 0;
             let mut batters_with_at_least_10_hr = 0;
             let mut max_qualified_ba: Option<f64> = None;
             for (id, counts) in players.into_iter().filter(|(_, counts)| counts.pa > 0) {
@@ -688,10 +700,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     "required_pa": required_pa, "pa_shortfall": required_pa.saturating_sub(counts.pa),
                     "qualified": qualified,
                 });
-                if speed_tail_sweep {
+                if speed_distribution_sweep {
                     if let Some(batter) = player.offense_skills.batter {
-                        row["baseline_swing_speed_ms"] = json!(batter.swing_speed + speed_delta);
-                        row["effective_swing_speed_ms"] = json!(effective_speed(batter.swing_speed));
+                        let baseline = batter.swing_speed + speed_delta;
+                        let effective = effective_speed(batter.swing_speed);
+                        row["baseline_swing_speed_ms"] = json!(baseline);
+                        row["effective_swing_speed_ms"] = json!(effective);
+                        capped_batters_with_pa += usize::from(
+                            swing_speed_cap_ms.is_some_and(|cap| baseline > cap)
+                        );
                     }
                 }
                 batter_rows.push(row);
@@ -734,6 +751,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             if !paired_flight.is_empty() {
                 report["batter_contact_paired_flight"] = json!(paired_flight);
             }
+            if speed_cap_sweep {
+                report["capped_batters_with_pa"] = json!(capped_batters_with_pa);
+            }
             if let Some(cohort) = speed_tail_cohort {
                 report["baseline_qualified_at_or_below_speed_p90"] = cohort;
             }
@@ -774,6 +794,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         }
         if let Some(fraction) = retained_speed_excess {
             arm["retained_speed_excess_fraction"] = json!(fraction);
+        }
+        if speed_cap_sweep {
+            let affected = skills.iter().filter(|batter| {
+                swing_speed_cap_ms.is_some_and(|cap| batter.swing_speed + speed_delta > cap)
+            }).count();
+            arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms);
+            arm["capped_roster_batters"] = json!(affected);
+        }
+        if speed_distribution_sweep {
             arm["effective_roster_swing_speed_ms"] = ability_distribution(
                 skills.iter().map(|b| effective_speed(b.swing_speed)), skills.len(),
             );
@@ -799,14 +828,19 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "arms": arms,
     });
     if let Some(tail) = speed_tail {
-        output["swing_speed_upper_tail"] = json!({
+        let (key, definition) = if speed_cap_sweep {
+            ("swing_speed_cap_sweep", "Apply each absolute cap after the regular-game speed bonus. Count unique roster batters whose live speed exceeds the cap, and report how many of those batters had at least one PA per replay. The median follows the same baseline-qualified batters at or below the uncapped speed P90, including batters affected by a cap.")
+        } else {
+            ("swing_speed_upper_tail", "Use the nearest-rank P90 of unique scheduled roster batters. Retain the stated fraction of each batter's speed above P90, then add the regular-game speed bonus. The median home-run rate uses the same baseline-qualified batters at or below speed P90 for each seed, excluding anyone with no trial PA.")
+        };
+        output[key] = json!({
             "roster_p90_ms": tail.threshold,
             "live_p90_ms": tail.threshold + GAME_SWING_SPEED_BONUS_MS,
             "roster_batters": skills.len(),
             "players_above_threshold": tail.players_above_threshold,
             "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
                 .unwrap_or_else(|_| "legacy".into()),
-            "definition": "Use the nearest-rank P90 of unique scheduled roster batters. Retain the stated fraction of each batter's speed above P90, then add the regular-game speed bonus. The median home-run rate uses the same baseline-qualified batters at or below speed P90 for each seed, excluding anyone with no trial PA.",
+            "definition": definition,
         });
     }
     if !contact_batters.is_empty() {
