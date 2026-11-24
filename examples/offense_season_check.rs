@@ -89,7 +89,7 @@ mod vertical_contact_replay;
     "balance_collision_power_sweep", "balance_contact_median_power_speed_swap",
     "balance_live_median_power_speed_swap", "balance_live_median_power_shared_speed_sweep",
     "balance_live_median_power_speed_tail_sweep", "balance_live_current_power_speed_tail_sweep",
-    "balance_live_half_power_speed_cap"
+    "balance_live_half_power_speed_cap", "balance_live_capped_collision_power_percent"
 ])))]
 struct Args {
     #[arg(long)]
@@ -246,6 +246,15 @@ struct Args {
         "balance_current_only", "balance_contact_flight_reference_id"
     ])]
     balance_live_half_power_speed_cap: bool,
+    /// Retain this percent of collision coefficient differences from the roster median at a 34 m/s cap.
+    #[arg(long, requires = "balance_live_batting_abilities",
+        value_parser = clap::value_parser!(u8).range(0..=100),
+        conflicts_with_all = [
+            "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_swing_speed_cap_sweep",
+            "balance_capped_swing_tail_comparison", "balance_fast_swing_error_sweep",
+            "balance_current_only", "balance_contact_flight_reference_id"
+        ])]
+    balance_live_capped_collision_power_percent: Option<u8>,
     /// Export batter contact diagnostics in a supported batting balance mode.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -2139,6 +2148,32 @@ mod tests {
         ] {
             assert!(Args::try_parse_from(with_batters().chain([flag])).is_err());
         }
+    }
+
+    #[test]
+    fn capped_collision_power_percent_checks_bounds_and_accepts_batter_audits() {
+        let args = [
+            "check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-swing-attributes",
+            "--balance-live-batting-abilities",
+            "--balance-live-capped-collision-power-percent",
+        ];
+        for (input, expected) in [("0", 0), ("25", 25), ("100", 100)] {
+            let parsed = Args::try_parse_from(
+                args.into_iter().chain([input, "--balance-contact-batter-ids", "627,649"]),
+            )
+            .unwrap();
+            assert_eq!(parsed.balance_live_capped_collision_power_percent, Some(expected));
+            assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
+        }
+        assert!(Args::try_parse_from(args.into_iter().chain(["101"])).is_err());
+        assert!(
+            Args::try_parse_from(args.into_iter().chain(["25", "--balance-live-half-power-speed-cap"]))
+                .is_err()
+        );
     }
 
     #[test]
