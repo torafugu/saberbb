@@ -19,6 +19,43 @@ use tracing::info;
 pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
 pub const GAME_BATTING_EYE_REDUCTION: f64 = 0.25;
 
+struct LiveSwingSpeed {
+    bonus_ms: f64,
+    cap_ms: Option<f64>,
+}
+
+impl LiveSwingSpeed {
+    fn from_env() -> Result<Self> {
+        let read = |name| -> Result<Option<f64>> {
+            match std::env::var(name) {
+                Ok(value) => {
+                    let value: f64 = value.parse().with_context(|| format!("Reading {name}"))?;
+                    ensure!(value.is_finite(), "{name} must be finite");
+                    Ok(Some(value))
+                }
+                Err(std::env::VarError::NotPresent) => Ok(None),
+                Err(error) => Err(error).with_context(|| format!("Reading {name}")),
+            }
+        };
+        let bonus_ms = read("SABERBB_SWING_SPEED_BONUS_MS")?.unwrap_or(GAME_SWING_SPEED_BONUS_MS);
+        let cap_ms = read("SABERBB_SWING_SPEED_CAP_MS")?;
+        ensure!(
+            bonus_ms >= 0.0,
+            "SABERBB_SWING_SPEED_BONUS_MS must be nonnegative"
+        );
+        ensure!(
+            cap_ms.is_none_or(|cap| cap > 0.0),
+            "SABERBB_SWING_SPEED_CAP_MS must be positive"
+        );
+        Ok(Self { bonus_ms, cap_ms })
+    }
+
+    fn apply(&self, roster_speed_ms: f64) -> f64 {
+        let live_speed = roster_speed_ms + self.bonus_ms;
+        self.cap_ms.map_or(live_speed, |cap| live_speed.min(cap))
+    }
+}
+
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,
 }
@@ -34,7 +71,12 @@ impl<R: GameRoundRepository> GameService<R> {
     }
 
     fn run_game_round(&mut self, record_contact_states: bool) -> Result<()> {
-        info!("process_game_round() started");
+        let swing_speed = LiveSwingSpeed::from_env()?;
+        info!(
+            swing_speed_bonus_ms = swing_speed.bonus_ms,
+            swing_speed_cap_ms = ?swing_speed.cap_ms,
+            "process_game_round() started"
+        );
 
         let game_schedules = self
             .repo
@@ -55,7 +97,7 @@ impl<R: GameRoundRepository> GameService<R> {
                 .chain(&mut game_schedule.home_team.players)
             {
                 if let Some(batter) = &mut player.offense_skills.batter {
-                    batter.swing_speed += GAME_SWING_SPEED_BONUS_MS;
+                    batter.swing_speed = swing_speed.apply(batter.swing_speed);
                     batter.batting_eye -= GAME_BATTING_EYE_REDUCTION;
                 }
             }
@@ -685,6 +727,24 @@ mod tests {
         assert!(result.player_entries.iter().any(|entry| {
             entry.position == Position::P && entry.start_count_seq == 1 && entry.player_id == 31
         }));
+    }
+
+    #[test]
+    fn live_swing_speed_cap_applies_after_the_bonus() {
+        let settings = LiveSwingSpeed {
+            bonus_ms: 2.0,
+            cap_ms: Some(35.5),
+        };
+        assert_eq!(settings.apply(32.0), 34.0);
+        assert_eq!(settings.apply(34.0), 35.5);
+        assert_eq!(
+            LiveSwingSpeed {
+                bonus_ms: 2.0,
+                cap_ms: None
+            }
+            .apply(34.0),
+            36.0
+        );
     }
 
     #[test]

@@ -34,10 +34,22 @@ impl Default for AppConfig {
 }
 
 pub fn load_app_config() -> anyhow::Result<AppConfig> {
+    let mut app_config = load_saved_app_config();
+    if let Some(path) = std::env::var_os("SABERBB_DB") {
+        anyhow::ensure!(
+            !path.to_string_lossy().trim().is_empty(),
+            "SABERBB_DB is blank"
+        );
+        app_config.database_path = PathBuf::from(path);
+    }
+    Ok(app_config)
+}
+
+fn load_saved_app_config() -> AppConfig {
     let config_path = proj_dirs().config_dir().join("default-config.toml");
     let mut app_config = confy::load_path::<AppConfig>(config_path).unwrap_or_default();
     merge_default_keybindings(&mut app_config.keybindings);
-    Ok(app_config)
+    app_config
 }
 
 fn merge_default_keybindings(keybindings: &mut KeybindingConfig) {
@@ -90,6 +102,6 @@ fn default_database_path() -> PathBuf {
 
 /// Update only the language preference, retaining database and keybinding settings.
 pub fn save_language(language:&str)->anyhow::Result<()> {
-    let mut config=load_app_config()?;config.language=language.into();
+    let mut config=load_saved_app_config();config.language=language.into();
     confy::store_path(proj_dirs().config_dir().join("default-config.toml"),&config)?;Ok(())
 }
