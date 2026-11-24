@@ -325,7 +325,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let fast_swing_sweep = args.balance_fast_swing_error_sweep;
     let median_power_replay = args.balance_contact_median_power_replay;
     let collision_power_sweep = args.balance_collision_power_sweep;
-    let capped_zero_bonus = fast_swing_sweep || median_power_replay || collision_power_sweep;
+    let median_power_speed_swap = args.balance_contact_median_power_speed_swap;
+    let live_collision_power = collision_power_sweep || median_power_speed_swap;
+    let capped_zero_bonus = fast_swing_sweep || median_power_replay || live_collision_power;
     if capped_zero_bonus {
         ensure!(
             std::env::var("SABERBB_SWING_EXECUTION").as_deref() == Ok("mixture"),
@@ -378,6 +380,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "contact attribute swap requires finite swing power for both batters"
         );
     }
+    if median_power_speed_swap {
+        ensure!(
+            contact_batters.len() == 2,
+            "median-power contact speed swap requires exactly two contact audit batter IDs"
+        );
+    }
     let flight_reference = args
         .balance_contact_flight_reference_id
         .map(|id| {
@@ -420,7 +428,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     } else {
         None
     };
-    let median_power = if median_power_replay || collision_power_sweep {
+    let median_power = if median_power_replay || live_collision_power {
         let mut powers: Vec<_> = skills.iter().map(|batter| batter.swing_power).collect();
         ensure!(
             powers.iter().all(|power| power.is_finite()),
@@ -453,7 +461,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
     // Each pair specifies the amount to subtract from bat control and batting eye.
-    let batting_ability_trials: &[(&str, f64, f64)] = if median_power_replay {
+    let batting_ability_trials: &[(&str, f64, f64)] = if median_power_speed_swap {
+        &[("collision_power_median", 0.0, GAME_BATTING_EYE_REDUCTION)]
+    } else if median_power_replay {
         &[("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION)]
     } else if collision_power_sweep {
         &[
@@ -746,6 +756,22 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     paired_flight.insert(id, FrozenFlightAudit::for_median_power(id, median));
                 }
             }
+            if median_power_speed_swap && let Some(median) = median_power {
+                for ((&id, batter), (&peer_id, peer)) in
+                    contact_batters.iter().zip(contact_batters.iter().rev())
+                {
+                    paired_flight.insert(
+                        id,
+                        FrozenFlightAudit::for_median_power_speed_swap(
+                            id,
+                            peer_id,
+                            median,
+                            effective_speed(batter.swing_speed),
+                            effective_speed(peer.swing_speed),
+                        ),
+                    );
+                }
+            }
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
                 let apply_abilities = |game: &mut GameSchedule, use_control_power: bool| {
@@ -814,7 +840,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     })
                 };
                 let run = || {
-                    if collision_power_sweep && let Some(median) = median_power {
+                    if live_collision_power && let Some(median) = median_power {
                         with_collision_power_trial(median, retained_collision_power, run)
                     } else {
                         run()
@@ -1094,7 +1120,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         if capped_zero_bonus {
             arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms);
         }
-        if collision_power_sweep {
+        if live_collision_power {
             arm["collision_power_retained_fraction"] = json!(retained_collision_power);
             arm["pooled_league"]["doubles_per_100_pa"] =
                 json!(ratio(pooled.double, pooled.pa).map(|value| 100.0 * value));
@@ -1119,7 +1145,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if collision_power_sweep && let Some(median) = median_power {
+    if median_power_speed_swap && let Some(median) = median_power {
+        output["contact_median_power_speed_swap"] = json!({
+            "roster_swing_power_median": median,
+            "roster_batters": skills.len(),
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "swing_speed_cap_ms": COMMON_CAP_MS,
+            "definition": "Generate fair contacts in the full-game median collision power arm. Reconstruct each recorded contact and replace only its collision bat speed with the peer's effective roster swing speed. Hold pitch speed, contact geometry, launch angles, spin and park fixed. Count paired changes in fence clearances without rerunning fielding or changing the game.",
+        });
+    } else if collision_power_sweep && let Some(median) = median_power {
         output["collision_power_sweep"] = json!({
             "roster_swing_power_median": median,
             "roster_batters": skills.len(),
