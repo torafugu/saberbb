@@ -1,4 +1,6 @@
-use super::swing_attribute_flight::{FrozenFlightAudit, POWER_DELTA, SPEED_DELTA_MS};
+use super::swing_attribute_flight::{
+    EXIT_SPEED_REDUCTIONS, ExitSpeedFlightAudit, FrozenFlightAudit, POWER_DELTA, SPEED_DELTA_MS,
+};
 use super::{
     Args, Counts, FairBallOutcomes, GameResult, GameSchedule, accumulate, bip_audit::band, derived_seed,
     fair_launch_audit::HIGH_EV_MIN_MS, simulate_game,
@@ -184,6 +186,7 @@ struct BatterContactAudit {
     fair: FairBallOutcomes,
     fair_by_ev_and_vla: BTreeMap<String, BTreeMap<String, FairBallOutcomes>>,
     fair_contacts: Vec<Value>,
+    exit_speed_replay: Option<ExitSpeedFlightAudit>,
 }
 
 impl BatterContactAudit {
@@ -197,6 +200,9 @@ impl BatterContactAudit {
         self.fair.observe(batting.result);
         if self.fair.plays == prior_fair_plays {
             return;
+        }
+        if let Some(replay) = &mut self.exit_speed_replay {
+            replay.observe(&game.stadium, batting);
         }
         self.fair_by_ev_and_vla
             .entry(band(batting.ball.launch_speed, CONTACT_EV_EDGES_MS))
@@ -222,7 +228,7 @@ impl BatterContactAudit {
     }
 
     fn into_json(self) -> Value {
-        json!({
+        let mut output = json!({
             "pa": self.counts.pa,
             "ab": self.counts.ab,
             "strikeouts": self.counts.strikeouts,
@@ -236,7 +242,11 @@ impl BatterContactAudit {
             "hr_per_fair": ratio(self.fair.home_run, self.fair.plays),
             "fair_outcomes_by_ev_and_vla": self.fair_by_ev_and_vla,
             "fair_contacts": self.fair_contacts,
-        })
+        });
+        if let Some(replay) = self.exit_speed_replay {
+            output["exit_speed_flight_replay"] = json!(replay);
+        }
+        output
     }
 }
 
@@ -506,6 +516,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         };
         let retained_speed_excess = speed_tail_sweep.then(|| speed_tail_fractions[arm_index]);
         let swing_speed_cap_ms = speed_cap_sweep.then(|| speed_caps_ms[arm_index]).flatten();
+        let replay_exit_speed =
+            args.balance_contact_exit_speed_replay && swing_speed_cap_ms == Some(35.5);
         let effective_speed = |speed: f64| {
             let speed = speed_tail.as_ref().zip(retained_speed_excess)
                 .map_or(speed, |(tail, fraction)| tail.retain_excess(speed, fraction));
@@ -528,11 +540,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 .then(FrozenFlightAudit::default);
             let mut contact_audit = BTreeMap::<i64, BatterContactAudit>::new();
             if speed_cap_sweep || label == "batting_eye_minus_0_25" {
-                contact_audit.extend(
-                    contact_batters
-                        .keys()
-                        .map(|&id| (id, BatterContactAudit::default())),
-                );
+                contact_audit.extend(contact_batters.keys().map(|&id| {
+                    (
+                        id,
+                        BatterContactAudit {
+                            exit_speed_replay: replay_exit_speed.then(ExitSpeedFlightAudit::default),
+                            ..BatterContactAudit::default()
+                        },
+                    )
+                }));
             }
             let mut paired_flight = BTreeMap::new();
             if let Some(reference) = flight_reference {
@@ -862,6 +878,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "exit_speed_edges_ms": CONTACT_EV_EDGES_MS,
             "vertical_launch_angle_edges_deg": CONTACT_VLA_EDGES_DEG,
             "definition": "Fair contacts use the replay's counted fair plate-appearance outcomes, including home runs. Joint bands are keyed by exit speed first and vertical launch angle second, with inclusive lower and exclusive upper bounds. Roster abilities are reported before the arm's deltas and speed cap. Each fair contact is keyed by game ID and count sequence within its seed.",
+        });
+    }
+    if args.balance_contact_exit_speed_replay {
+        output["contact_exit_speed_replay"] = json!({
+            "arm": "speed_cap_35_5",
+            "exit_speed_reductions_ms": EXIT_SPEED_REDUCTIONS.into_iter().collect::<BTreeMap<_, _>>(),
+            "definition": "Replay counted fair balls with original exit speed 47.5 to under 52.5 m/s and vertical launch angle 20 to under 35 degrees. Report transitions by original band, holding direction, spin rate and axis, stadium, and flight settings fixed. Require the reconstructed baseline to match the recorded flight and recorded home-run status; all reductions use the same accepted contacts. Count fence-clearing home runs from the flight model.",
         });
     }
     if let Some(reference) = flight_reference {

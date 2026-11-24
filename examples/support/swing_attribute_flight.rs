@@ -1,7 +1,12 @@
 use super::{GameResult, GameSchedule, bip_audit};
 use saberbb::domain::{
     resolver::batting_resolver::{calculate_trajectory, launch_speed_terms},
-    shared::{ball::OutboundResult, game::BattingResult},
+    shared::{
+        ball::{BattedBall, OutboundResult},
+        game::BattingResult,
+        game_stats::PlayerGameBatting,
+        stadium::Stadium,
+    },
     util::calculate_polar_distance,
 };
 use serde::Serialize;
@@ -59,14 +64,14 @@ struct Cell {
 }
 
 impl Cell {
-    fn new(trials: &[Trial]) -> Self {
+    fn new(trials: impl IntoIterator<Item = &'static str>) -> Self {
         Self {
             paired_contacts: 0,
             baseline_home_runs: 0,
             baseline_doubles: 0,
             trials: trials
-                .iter()
-                .map(|trial| (trial.name, Transitions::default()))
+                .into_iter()
+                .map(|name| (name, Transitions::default()))
                 .collect(),
         }
     }
@@ -86,6 +91,94 @@ impl Cell {
                 .expect("registered trial")
                 .observe(was_hr, was_double, *outcome);
         }
+    }
+}
+
+fn same_flight(baseline: &BattedBall, live: &BattedBall) -> bool {
+    baseline.outbound_result == live.outbound_result
+        && (baseline.total_time - live.total_time).abs() <= 1e-9
+        && calculate_polar_distance(&baseline.final_position, &live.final_position) <= 1e-8
+        && baseline.first_bounce_time == live.first_bounce_time
+}
+
+pub(super) const EXIT_SPEED_REDUCTIONS: [(&str, f64); 4] = [
+    ("ev_minus_0_5_ms", 0.5),
+    ("ev_minus_1_ms", 1.0),
+    ("ev_minus_2_ms", 2.0),
+    ("ev_minus_3_ms", 3.0),
+];
+
+#[derive(Default, Serialize)]
+pub(super) struct ExitSpeedFlightAudit {
+    selected_fair_contacts: u64,
+    selected_home_runs: u64,
+    missing_inputs: u64,
+    baseline_flight_error: u64,
+    baseline_flight_mismatch: u64,
+    trial_flight_error: u64,
+    by_original_ev_vla: BTreeMap<String, Cell>,
+}
+
+impl ExitSpeedFlightAudit {
+    pub(super) fn observe(&mut self, stadium: &Stadium, batting: &PlayerGameBatting) {
+        let ball = &batting.ball;
+        let ev = ball.launch_speed;
+        let vla = ball.launch_angle;
+        if !(47.5..52.5).contains(&ev) || !(20.0..35.0).contains(&vla) {
+            return;
+        }
+        self.selected_fair_contacts += 1;
+        let was_hr = batting.result == BattingResult::HomeRun;
+        self.selected_home_runs += u64::from(was_hr);
+        if ![batting.final_hla_deg, ball.spin_rate, ball.spin_angle]
+            .into_iter()
+            .all(f64::is_finite)
+            || ball.spin_rate < 0.0
+        {
+            self.missing_inputs += 1;
+            return;
+        }
+        let replay = |speed| {
+            calculate_trajectory(
+                speed,
+                vla,
+                batting.final_hla_deg,
+                ball.spin_rate,
+                ball.spin_angle,
+                stadium,
+            )
+        };
+        let Ok(baseline) = replay(ev) else {
+            self.baseline_flight_error += 1;
+            return;
+        };
+        if !same_flight(&baseline, ball)
+            || (baseline.outbound_result == OutboundResult::HomeRun) != was_hr
+        {
+            self.baseline_flight_mismatch += 1;
+            return;
+        }
+        let alternatives = EXIT_SPEED_REDUCTIONS
+            .iter()
+            .map(|&(name, reduction)| {
+                replay(ev - reduction).map(|flight| {
+                    (
+                        name,
+                        (flight.outbound_result == OutboundResult::HomeRun, -reduction),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>();
+        let Ok(alternatives) = alternatives else {
+            self.trial_flight_error += 1;
+            return;
+        };
+        let ev_band = bip_audit::band(ev, &[47.5, 50.0, 52.5]);
+        let vla_band = bip_audit::band(vla, &[20.0, 25.0, 30.0, 35.0]);
+        self.by_original_ev_vla
+            .entry(format!("EV_ms:{ev_band}|VLA_deg:{vla_band}"))
+            .or_insert_with(|| Cell::new(EXIT_SPEED_REDUCTIONS.map(|(name, _)| name)))
+            .observe(was_hr, batting.result == BattingResult::Double, &alternatives);
     }
 }
 
@@ -122,7 +215,7 @@ impl FrozenFlightAudit {
             baseline_flight_error: 0,
             baseline_flight_mismatch: 0,
             trial_flight_error: 0,
-            total: Cell::new(trials),
+            total: Cell::new(trials.iter().map(|trial| trial.name)),
             by_original_ev_vla: BTreeMap::new(),
         }
     }
@@ -229,11 +322,7 @@ impl FrozenFlightAudit {
                 self.baseline_flight_error += 1;
                 continue;
             };
-            if baseline.outbound_result != live.outbound_result
-                || (baseline.total_time - live.total_time).abs() > 1e-9
-                || calculate_polar_distance(&baseline.final_position, &live.final_position) > 1e-8
-                || baseline.first_bounce_time != live.first_bounce_time
-            {
+            if !same_flight(&baseline, live) {
                 self.baseline_flight_mismatch += 1;
                 continue;
             }
@@ -268,7 +357,7 @@ impl FrozenFlightAudit {
             );
             self.by_original_ev_vla
                 .entry(format!("EV_ms:{ev}|VLA_deg:{vla}"))
-                .or_insert_with(|| Cell::new(&self.trials))
+                .or_insert_with(|| Cell::new(self.trials.iter().map(|trial| trial.name)))
                 .observe(was_hr, was_double, &alternatives);
         }
     }
