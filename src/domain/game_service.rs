@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use crate::domain::strategy::batting_strategy::BattingStrategySettings;
 use crate::repositories::game_repository::GameRoundRepository;
 use crate::t;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use tracing::info;
 
 pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
@@ -111,18 +111,67 @@ pub fn simulate_game_with_pitching(
     pitch_budget: Option<u32>,
     record_contact_states: bool,
 ) -> Result<GameResult> {
+    simulate_game_with_pitching_and_lineup_source(
+        schedule,
+        rng,
+        loads,
+        season_stats,
+        position_fatigue,
+        pitch_budget,
+        record_contact_states,
+        None,
+    )
+}
+
+/// Play with a control schedule whose rosters differ only in batting abilities.
+/// Use it for opening lineup selection and use trial abilities during play.
+pub fn simulate_game_with_pitching_and_lineup_source(
+    schedule: GameSchedule,
+    rng: Box<dyn RandomProvider>,
+    loads: &BTreeMap<i64, f64>,
+    season_stats: &SeasonPitchingStats,
+    position_fatigue: Option<&BTreeMap<i64, f64>>,
+    pitch_budget: Option<u32>,
+    record_contact_states: bool,
+    lineup_source: Option<&GameSchedule>,
+) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
         PitchingStaff::new(team, loads, schedule.base_four_seam_speed, weights, season_stats)
     };
     let away = staff(&schedule.away_team);
     let home = staff(&schedule.home_team);
-    let state = GameState::with_lineup_policy(
+    let mut state = GameState::with_lineup_policy(
         rng,
-        &schedule,
+        lineup_source.unwrap_or(&schedule),
         [away.starter(), home.starter()],
         position_fatigue,
     )?;
+    if lineup_source.is_some() {
+        ensure!(
+            state.game_result.id == schedule.id,
+            "lineup source game does not match trial"
+        );
+        for (lineup, team) in [
+            (&mut state.away_lineup, &schedule.away_team),
+            (&mut state.home_lineup, &schedule.home_team),
+        ] {
+            for active in lineup
+                .players
+                .iter_mut()
+                .filter(|player| player.batter.is_some())
+            {
+                let player = team
+                    .players
+                    .iter()
+                    .find(|player| player.info.id == active.id)
+                    .with_context(|| {
+                        format!("Opening batter {} is missing from the trial roster", active.id)
+                    })?;
+                active.batter = Some(player.batter()?);
+            }
+        }
+    }
     let execution_model = match std::env::var("SABERBB_SWING_EXECUTION") {
         Err(std::env::VarError::NotPresent) => SwingExecutionModel::Legacy,
         Ok(value) => match value.as_str() {
@@ -636,6 +685,49 @@ mod tests {
         assert!(result.player_entries.iter().any(|entry| {
             entry.position == Position::P && entry.start_count_seq == 1 && entry.player_id == 31
         }));
+    }
+
+    #[test]
+    fn control_roster_preserves_opening_lineups_when_power_changes_selection() {
+        use crate::domain::shared::team::MAX_LINEUP_PLAYERS;
+
+        let mut control = schedule(1);
+        let mut alternate = player(20);
+        alternate.offense_skills.batter.as_mut().unwrap().swing_power = 1.0;
+        control.away_team.players.push(alternate);
+        let mut trial = control.clone();
+        trial
+            .away_team
+            .players
+            .last_mut()
+            .unwrap()
+            .offense_skills
+            .batter
+            .as_mut()
+            .unwrap()
+            .swing_power = -1.0;
+        let run = |schedule, lineup_source| {
+            simulate_game_with_pitching_and_lineup_source(
+                schedule,
+                Box::new(RealRng::from_seed(9)),
+                &BTreeMap::new(),
+                &SeasonPitchingStats::default(),
+                Some(&BTreeMap::new()),
+                Some(5000),
+                false,
+                lineup_source,
+            )
+            .unwrap()
+            .player_entries
+            .iter()
+            .take(2 * MAX_LINEUP_PLAYERS)
+            .map(|entry| (entry.player_id, entry.position, entry.batting_order))
+            .collect::<Vec<_>>()
+        };
+        let opening_control = run(control.clone(), None);
+        assert!(opening_control.iter().any(|entry| entry.0 == 20));
+        assert_ne!(run(trial.clone(), None), opening_control);
+        assert_eq!(run(trial, Some(&control)), opening_control);
     }
 
     #[test]
