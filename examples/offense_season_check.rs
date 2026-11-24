@@ -166,6 +166,10 @@ struct Args {
     /// Export batter contact diagnostics for the -0.25 eye arm or all swing-speed cap arms.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
+    /// Replay recorded fair-ball flights at lower exit speeds in the 35.5 m/s cap arm.
+    #[arg(long, requires_all = ["balance_contact_batter_ids", "balance_swing_speed_cap_sweep"],
+        conflicts_with = "balance_batting_eye_sweep")]
+    balance_contact_exit_speed_replay: bool,
     /// Replay selected fair balls with this roster batter's speed, power, and both.
     #[arg(long, requires = "balance_contact_batter_ids", conflicts_with_all = [
         "balance_current_only", "balance_swing_speed_cap_sweep"
@@ -1771,21 +1775,28 @@ mod tests {
             "--batting-balance-comparison",
             "--balance-swing-attributes",
             "--balance-live-batting-abilities",
-            "--balance-contact-batter-ids",
-            "627,649",
         ];
+        let with_batters = || common.into_iter().chain(["--balance-contact-batter-ids", "627,649"]);
         let eye = "--balance-batting-eye-sweep";
         let cap = "--balance-swing-speed-cap-sweep";
         let reference = ["--balance-contact-flight-reference-id", "649"];
-        assert!(Args::try_parse_from(common).is_err());
+        assert!(Args::try_parse_from(with_batters()).is_err());
         assert_eq!(
-            Args::try_parse_from(common.into_iter().chain([cap]))
+            Args::try_parse_from(with_batters().chain([cap]))
                 .unwrap()
                 .balance_contact_batter_ids,
             [627, 649]
         );
-        assert!(Args::try_parse_from(common.into_iter().chain([eye]).chain(reference)).is_ok());
-        assert!(Args::try_parse_from(common.into_iter().chain([cap]).chain(reference)).is_err());
+        assert!(Args::try_parse_from(with_batters().chain([eye]).chain(reference)).is_ok());
+        assert!(Args::try_parse_from(with_batters().chain([cap]).chain(reference)).is_err());
+        let replay = "--balance-contact-exit-speed-replay";
+        assert!(
+            Args::try_parse_from(with_batters().chain([cap, replay]))
+                .unwrap()
+                .balance_contact_exit_speed_replay
+        );
+        assert!(Args::try_parse_from(with_batters().chain([eye, replay])).is_err());
+        assert!(Args::try_parse_from(common.into_iter().chain([cap, replay])).is_err());
     }
 
     #[test]
