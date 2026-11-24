@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
-const GAME_BATTING_EYE_REDUCTION: f64 = 0.25;
+pub const GAME_BATTING_EYE_REDUCTION: f64 = 0.25;
 
 pub struct GameService<R: GameRoundRepository> {
     pub repo: R,

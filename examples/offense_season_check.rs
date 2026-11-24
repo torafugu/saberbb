@@ -152,6 +152,9 @@ struct Args {
     /// Compare batting eye reductions of 0.15 and 0.25 on the live swing-speed baseline.
     #[arg(long, requires = "balance_live_batting_abilities")]
     balance_batting_eye_sweep: bool,
+    /// Compress only swing speeds above roster P90, keeping the live batting-eye reduction.
+    #[arg(long, requires = "balance_live_batting_abilities", conflicts_with = "balance_batting_eye_sweep")]
+    balance_swing_speed_upper_tail: bool,
     /// Export swing and fair-contact diagnostics for these batters in the -0.25 eye arm.
     #[arg(long, value_delimiter = ',', requires = "balance_batting_eye_sweep")]
     balance_contact_batter_ids: Vec<i64>,
