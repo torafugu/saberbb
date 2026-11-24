@@ -298,6 +298,23 @@ pub enum SwingExecutionModel {
 thread_local! {
     static SWING_EXECUTION_MODEL: std::cell::Cell<SwingExecutionModel> =
         const { std::cell::Cell::new(SwingExecutionModel::Legacy) };
+    static FAST_SWING_MAX_ERROR_SCALE: std::cell::Cell<f64> =
+        const { std::cell::Cell::new(1.0) };
+}
+
+pub const FAST_SWING_ERROR_START_MS: f64 = 34.0;
+pub const FAST_SWING_ERROR_FULL_MS: f64 = 35.5;
+
+/// Temporarily widen the stochastic execution errors for fast swings.
+pub fn with_fast_swing_error_trial<T>(max_scale: f64, run: impl FnOnce() -> T) -> T {
+    struct Restore(f64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FAST_SWING_MAX_ERROR_SCALE.set(self.0);
+        }
+    }
+    let _restore = Restore(FAST_SWING_MAX_ERROR_SCALE.replace(max_scale));
+    run()
 }
 
 /// Select the execution model for a synchronous simulation or fixed-pitch trial.
@@ -393,7 +410,14 @@ pub fn calculate_swing_execution_error(
     } else {
         1.0
     };
-    let scale = swing_execution_scale(batter.bat_control) * width;
+    let mut scale = swing_execution_scale(batter.bat_control) * width;
+    let max_fast_scale = FAST_SWING_MAX_ERROR_SCALE.get();
+    if max_fast_scale != 1.0 {
+        let fraction = ((batter.swing_speed - FAST_SWING_ERROR_START_MS)
+            / (FAST_SWING_ERROR_FULL_MS - FAST_SWING_ERROR_START_MS))
+            .clamp(0.0, 1.0);
+        scale *= 1.0 + fraction * (max_fast_scale - 1.0);
+    }
     error.additional_timing_sec = scale * rng.normal_std(0.002);
     error.additional_x_m = scale * rng.normal_std(0.015);
     error.additional_z_m = scale * rng.normal_std(0.020);
@@ -1610,6 +1634,35 @@ mod tests {
     use crate::domain::util::Vector3D;
 
     type TestResult = Result<(), GameError>;
+
+    #[test]
+    fn fast_swing_trial_widens_only_execution_errors_without_new_draws() {
+        use crate::domain::random_provider::RealRng;
+
+        let location = BallLocation { x: 0.0, y: 0.0 };
+        with_swing_execution_model(SwingExecutionModel::Mixture, || {
+            for (speed, expected) in [(33.5, 1.0), (34.0, 1.0), (34.75, 1.25), (35.5, 1.5)] {
+                let mut hitter = batter(RL::Right);
+                hitter.swing_speed = speed;
+                let mut control_rng = RealRng::from_seed(42);
+                let mut trial_rng = RealRng::from_seed(42);
+                let control = calculate_swing_execution_error(&mut control_rng, &hitter, &location);
+                let trial = with_fast_swing_error_trial(1.5, || {
+                    calculate_swing_execution_error(&mut trial_rng, &hitter, &location)
+                });
+                assert_eq!(trial.actual_bat_angle_deg, control.actual_bat_angle_deg);
+                assert_eq!(trial.actual_attack_angle_deg, control.actual_attack_angle_deg);
+                for (actual, base) in [
+                    (trial.additional_timing_sec, control.additional_timing_sec),
+                    (trial.additional_x_m, control.additional_x_m),
+                    (trial.additional_z_m, control.additional_z_m),
+                ] {
+                    assert!((actual - base * expected).abs() < 1e-12);
+                }
+                assert_eq!(control_rng.random(), trial_rng.random());
+            }
+        });
+    }
 
     #[test]
     fn extra_length_loss_preserves_center_and_increases_smoothly_off_center() {

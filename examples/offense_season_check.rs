@@ -84,7 +84,8 @@ mod vertical_contact_replay;
 
 #[derive(Parser)]
 #[command(group(clap::ArgGroup::new("balance_contact_audit_mode").args([
-    "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups"
+    "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups",
+    "balance_fast_swing_error_sweep"
 ])))]
 struct Args {
     #[arg(long)]
@@ -175,6 +176,12 @@ struct Args {
     /// Use the capped control's opening lineups and batting orders throughout the power sweep.
     #[arg(long, requires = "balance_capped_power_tail_sweep")]
     balance_capped_power_fixed_lineups: bool,
+    /// Compare stochastic fast-swing error scaling with mixture execution and a 35.5 m/s cap.
+    #[arg(long, requires = "balance_live_batting_abilities", conflicts_with_all = [
+        "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_swing_speed_cap_sweep",
+        "balance_capped_swing_tail_comparison", "balance_current_only"
+    ])]
+    balance_fast_swing_error_sweep: bool,
     /// Export batter contact diagnostics for the -0.25 eye arm, swing-speed caps, or fixed lineups.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -192,7 +199,8 @@ struct Args {
     balance_contact_swap_batting_attributes: bool,
     /// Replay selected fair balls with this roster batter's speed, power, and both.
     #[arg(long, requires = "balance_contact_batter_ids", conflicts_with_all = [
-        "balance_current_only", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups"
+        "balance_current_only", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups",
+        "balance_fast_swing_error_sweep"
     ])]
     balance_contact_flight_reference_id: Option<i64>,
     /// Report plate appearances and batting averages for the current balance arm only.
@@ -1867,6 +1875,19 @@ mod tests {
         assert!(parsed.balance_capped_power_fixed_lineups);
         assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
         assert!(Args::try_parse_from(common.into_iter().chain([fixed])).is_err());
+    }
+
+    #[test]
+    fn fast_swing_error_sweep_accepts_batter_audit_without_other_sweeps() {
+        let args = [
+            "check", "--season", "2026", "--batting-balance-comparison",
+            "--balance-swing-attributes", "--balance-live-batting-abilities",
+            "--balance-fast-swing-error-sweep", "--balance-contact-batter-ids", "627,649",
+        ];
+        let parsed = Args::try_parse_from(args).unwrap();
+        assert!(parsed.balance_fast_swing_error_sweep);
+        assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
+        assert!(Args::try_parse_from(args.into_iter().chain(["--balance-swing-speed-cap-sweep"])).is_err());
     }
 
     #[test]

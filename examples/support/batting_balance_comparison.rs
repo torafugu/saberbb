@@ -25,7 +25,10 @@ use saberbb::{
             GAME_BATTING_EYE_REDUCTION, GAME_SWING_SPEED_BONUS_MS,
             simulate_game_with_pitching_and_lineup_source,
         },
-        resolver::batting_resolver::SwingContactType,
+        resolver::batting_resolver::{
+            FAST_SWING_ERROR_FULL_MS, FAST_SWING_ERROR_START_MS, SwingContactType,
+            with_fast_swing_error_trial,
+        },
     },
     repositories::game_repository::SqlGameRepository,
 };
@@ -192,6 +195,8 @@ struct BatterContactAudit {
     whiffs: u64,
     fair: FairBallOutcomes,
     hard_fair_25_to_30: u64,
+    adjacent_25_to_35: FairBallOutcomes,
+    hard_25_to_35: FairBallOutcomes,
     fair_by_ev_and_vla: BTreeMap<String, BTreeMap<String, FairBallOutcomes>>,
     fair_contacts: Vec<Value>,
     exit_speed_replay: Option<CappedContactFlightAudit>,
@@ -212,6 +217,13 @@ impl BatterContactAudit {
         }
         if batting.ball.launch_speed >= 50.0 && (25.0..30.0).contains(&batting.ball.launch_angle) {
             self.hard_fair_25_to_30 += 1;
+        }
+        if (25.0..35.0).contains(&batting.ball.launch_angle) {
+            if batting.ball.launch_speed >= 50.0 {
+                self.hard_25_to_35.observe(batting.result);
+            } else if batting.ball.launch_speed >= 47.5 {
+                self.adjacent_25_to_35.observe(batting.result);
+            }
         }
         for replay in self
             .exit_speed_replay
@@ -243,7 +255,7 @@ impl BatterContactAudit {
         }));
     }
 
-    fn into_json(self, fixed_lineups: bool) -> Value {
+    fn into_json(self, fixed_lineups: bool, fast_swing_sweep: bool) -> Value {
         let mut output = json!({
             "pa": self.counts.pa,
             "ab": self.counts.ab,
@@ -269,6 +281,14 @@ impl BatterContactAudit {
             output["ev_at_least_50_vla_25_to_30"] = json!(self.hard_fair_25_to_30);
             output["ev_at_least_50_vla_25_to_30_per_fair"] =
                 json!(ratio(self.hard_fair_25_to_30, self.fair.plays));
+        }
+        if fast_swing_sweep {
+            output["vla_25_to_under_35"] = json!({
+                "ev_47_5_to_under_50": self.adjacent_25_to_35,
+                "ev_at_least_50": self.hard_25_to_35,
+                "ev_47_5_to_under_50_per_pa": ratio(self.adjacent_25_to_35.plays, self.counts.pa),
+                "ev_at_least_50_per_pa": ratio(self.hard_25_to_35.plays, self.counts.pa),
+            });
         }
         output
     }
@@ -302,7 +322,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let capped_tail_comparison = args.balance_capped_swing_tail_comparison;
     let capped_power_tail_sweep = args.balance_capped_power_tail_sweep;
     let fixed_lineups = args.balance_capped_power_fixed_lineups;
-    let speed_distribution_sweep = speed_tail_sweep || speed_cap_sweep || capped_tail_comparison;
+    let fast_swing_sweep = args.balance_fast_swing_error_sweep;
+    if fast_swing_sweep {
+        ensure!(
+            std::env::var("SABERBB_SWING_EXECUTION").as_deref() == Ok("mixture"),
+            "the fast-swing error sweep requires SABERBB_SWING_EXECUTION=mixture"
+        );
+    }
+    let speed_distribution_sweep =
+        speed_tail_sweep || speed_cap_sweep || capped_tail_comparison || fast_swing_sweep;
     const COMMON_CAP_MS: f64 = 35.5;
     const SPEED_TAIL_START_MS: f64 = 35.0;
     const SPEED_EXCESS_RETAINED: f64 = 0.5;
@@ -410,7 +438,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
     // Each pair specifies the amount to subtract from bat control and batting eye.
-    let batting_ability_trials: &[(&str, f64, f64)] = if capped_power_tail_sweep {
+    let batting_ability_trials: &[(&str, f64, f64)] = if fast_swing_sweep {
+        &[
+            ("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("fast_swing_error_125", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("fast_swing_error_150", 0.0, GAME_BATTING_EYE_REDUCTION),
+        ]
+    } else if capped_power_tail_sweep {
         &[
             ("speed_cap_35_5", 0.0, GAME_BATTING_EYE_REDUCTION),
             ("capped_power_tail", 0.0, GAME_BATTING_EYE_REDUCTION),
@@ -566,7 +600,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         } else {
             (0.0, 0.0, adjustment, adjustment)
         };
-        let (power_delta, speed_delta) = if live_batting_abilities {
+        let (power_delta, speed_delta) = if fast_swing_sweep {
+            (0.0, 0.0)
+        } else if live_batting_abilities {
             (0.0, GAME_SWING_SPEED_BONUS_MS)
         } else if angle_power_tuning {
             (ANGLE_POWER_TRIALS[arm_index].2, GAME_SWING_SPEED_BONUS_MS)
@@ -579,7 +615,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             }
         };
         let retained_speed_excess = speed_tail_sweep.then(|| speed_tail_fractions[arm_index]);
-        let swing_speed_cap_ms = if capped_tail_comparison {
+        let swing_speed_cap_ms = if capped_tail_comparison || fast_swing_sweep {
             Some(COMMON_CAP_MS)
         } else {
             speed_cap_sweep.then(|| speed_caps_ms[arm_index]).flatten()
@@ -591,6 +627,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         let swap_contact_attributes =
             args.balance_contact_swap_batting_attributes && swing_speed_cap_ms == Some(35.5);
         let compress_capped_speed = label == "capped_speed_tail";
+        let fast_swing_max_scale = match label {
+            "fast_swing_error_125" => 1.25,
+            "fast_swing_error_150" => 1.50,
+            _ => 1.0,
+        };
         let retained_power_excess = match label {
             "capped_power_tail" => Some(POWER_EXCESS_RETAINED),
             "capped_power_tail_keep_50" => Some(0.50),
@@ -630,7 +671,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 && arm_index == 0)
                 .then(FrozenFlightAudit::default);
             let mut contact_audit = BTreeMap::<i64, BatterContactAudit>::new();
-            if speed_cap_sweep || fixed_lineups || label == "batting_eye_minus_0_25" {
+            if speed_cap_sweep || fixed_lineups || fast_swing_sweep || label == "batting_eye_minus_0_25" {
                 contact_audit.extend(contact_batters.keys().map(|&id| {
                     (
                         id,
@@ -734,7 +775,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         false,
                     )
                 };
-                let run = || with_line_drive_attack_angle_trial(line_drive_delta_deg, run);
+                let run = || {
+                    with_fast_swing_error_trial(fast_swing_max_scale, || {
+                        with_line_drive_attack_angle_trial(line_drive_delta_deg, run)
+                    })
+                };
                 let result = if calibrated {
                     with_calibrated_batting(run)
                 } else {
@@ -920,7 +965,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 report["batter_contact_audit"] = json!(
                     contact_audit
                         .into_iter()
-                        .map(|(id, audit)| (id, audit.into_json(fixed_lineups)))
+                        .map(|(id, audit)| (id, audit.into_json(fixed_lineups, fast_swing_sweep)))
                         .collect::<BTreeMap<_, _>>()
                 );
             }
@@ -1003,6 +1048,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         if capped_power_tail_sweep {
             arm["power_excess_retained_fraction"] = json!(retained_power_excess.unwrap_or(1.0));
         }
+        if fast_swing_sweep {
+            arm["fast_swing_max_error_scale"] = json!(fast_swing_max_scale);
+            arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms);
+        }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
                 "bat_control": ability_distribution(
@@ -1023,7 +1072,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if capped_power_tail_sweep && let (Some(power), Some(speed)) = (&power_tail, &speed_tail) {
+    if fast_swing_sweep {
+        output["fast_swing_error_sweep"] = json!({
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "swing_speed_cap_ms": COMMON_CAP_MS,
+            "error_scale_start_ms": FAST_SWING_ERROR_START_MS,
+            "error_scale_full_ms": FAST_SWING_ERROR_FULL_MS,
+            "definition": "Multiply the existing stochastic timing and spatial execution errors by a speed-dependent factor. It is 1 at or below the starting speed and rises linearly to the arm maximum at the full speed. Pitch prediction and the collision and flight formulas keep their original inputs and rules. Virtual game paths may diverge after different outcomes.",
+        });
+    } else if capped_power_tail_sweep && let (Some(power), Some(speed)) = (&power_tail, &speed_tail) {
         output["capped_power_tail_sweep"] = json!({
             "base_speed_cap_ms": COMMON_CAP_MS,
             "roster_swing_power_p90": power.threshold,
@@ -1114,7 +1172,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         let settings = &mut output["swing_attributes"];
         if live_batting_abilities {
             settings["home_run_target"] = json!(HOME_RUN_TARGET);
-            settings["live_speed_bonus_ms"] = json!(GAME_SWING_SPEED_BONUS_MS);
+            settings["live_speed_bonus_ms"] = json!(if fast_swing_sweep { 0.0 } else { GAME_SWING_SPEED_BONUS_MS });
             if args.balance_batting_eye_sweep {
                 settings["batting_eye_sweep_deltas"] = json!(
                     batting_ability_trials
@@ -1122,7 +1180,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         .map(|&(_, _, drop)| 0.0 - drop)
                         .collect::<Vec<_>>()
                 );
-            } else if !capped_tail_comparison {
+            } else if !capped_tail_comparison && !fast_swing_sweep {
                 settings["batting_ability_drop"] = json!(mean_drop);
             }
             settings["baseline_hr_leaders"] = json!(
