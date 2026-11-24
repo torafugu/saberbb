@@ -285,6 +285,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let speed_tail_sweep = args.balance_swing_speed_upper_tail;
     let speed_cap_sweep = args.balance_swing_speed_cap_sweep;
     let capped_tail_comparison = args.balance_capped_swing_tail_comparison;
+    let capped_power_tail_sweep = args.balance_capped_power_tail_sweep;
     let speed_distribution_sweep = speed_tail_sweep || speed_cap_sweep || capped_tail_comparison;
     const COMMON_CAP_MS: f64 = 35.5;
     const SPEED_TAIL_START_MS: f64 = 35.0;
@@ -393,7 +394,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
     // Each pair specifies the amount to subtract from bat control and batting eye.
-    let batting_ability_trials: &[(&str, f64, f64)] = if capped_tail_comparison {
+    let batting_ability_trials: &[(&str, f64, f64)] = if capped_power_tail_sweep {
+        &[
+            ("speed_cap_35_5", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("capped_power_tail", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("capped_power_tail_keep_50", 0.0, GAME_BATTING_EYE_REDUCTION),
+            ("capped_power_tail_keep_25", 0.0, GAME_BATTING_EYE_REDUCTION),
+        ]
+    } else if capped_tail_comparison {
         &[
             ("speed_cap_35_5", 0.0, GAME_BATTING_EYE_REDUCTION),
             ("capped_speed_tail", 0.0, GAME_BATTING_EYE_REDUCTION),
@@ -566,7 +574,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         let swap_contact_attributes =
             args.balance_contact_swap_batting_attributes && swing_speed_cap_ms == Some(35.5);
         let compress_capped_speed = label == "capped_speed_tail";
-        let compress_power = label == "capped_power_tail";
+        let retained_power_excess = match label {
+            "capped_power_tail" => Some(POWER_EXCESS_RETAINED),
+            "capped_power_tail_keep_50" => Some(0.50),
+            "capped_power_tail_keep_25" => Some(0.25),
+            _ => None,
+        };
         let effective_speed = |speed: f64| {
             let speed = speed_tail.as_ref().zip(retained_speed_excess)
                 .map_or(speed, |(tail, fraction)| tail.retain_excess(speed, fraction));
@@ -580,8 +593,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         };
         let effective_power = |power: f64| {
             let power = power + power_delta;
-            power_tail.as_ref().filter(|_| compress_power)
-                .map_or(power, |tail| tail.retain_excess(power, POWER_EXCESS_RETAINED))
+            power_tail
+                .as_ref()
+                .zip(retained_power_excess)
+                .map_or(power, |(tail, fraction)| tail.retain_excess(power, fraction))
         };
         let mut pooled = Counts::default();
         let mut reports = Vec::new();
@@ -927,9 +942,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 } else { 0 }
             );
             arm["power_tail_affected_roster_batters"] = json!(
-                power_tail.as_ref().filter(|_| compress_power)
+                power_tail.as_ref().filter(|_| retained_power_excess.is_some())
                     .map_or(0, |tail| tail.players_above_threshold)
             );
+        }
+        if capped_power_tail_sweep {
+            arm["power_excess_retained_fraction"] = json!(retained_power_excess.unwrap_or(1.0));
         }
         if args.balance_ability_limits {
             arm["roster_abilities"] = json!({
@@ -951,7 +969,17 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if let (Some(power), Some(speed)) = (&power_tail, &speed_tail) {
+    if capped_power_tail_sweep && let (Some(power), Some(speed)) = (&power_tail, &speed_tail) {
+        output["capped_power_tail_sweep"] = json!({
+            "base_speed_cap_ms": COMMON_CAP_MS,
+            "roster_swing_power_p90": power.threshold,
+            "uncapped_roster_swing_speed_p90_ms": speed.threshold,
+            "roster_batters": skills.len(),
+            "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
+                .unwrap_or_else(|_| "legacy".into()),
+            "definition": "Keep the same effective swing-speed cap of 35.5 m/s and the live batting-eye reduction in every arm. Use one nearest-rank swing-power P90 from the unique scheduled roster batters for all arms and seeds. Keep values at or below P90 and multiply the excess above it by each arm's retained fraction.",
+        });
+    } else if let (Some(power), Some(speed)) = (&power_tail, &speed_tail) {
         output["capped_swing_tail_comparison"] = json!({
             "base_speed_cap_ms": COMMON_CAP_MS,
             "speed_tail_start_ms": SPEED_TAIL_START_MS,
