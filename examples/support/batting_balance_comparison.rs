@@ -22,7 +22,7 @@ use saberbb::domain::{
 use saberbb::{
     domain::{
         game_service::{
-            GAME_BATTING_EYE_REDUCTION, GAME_SWING_SPEED_BONUS_MS,
+            GAME_BATTING_EYE_REDUCTION, GAME_SWING_SPEED_BONUS_MS, roster_swing_power_median,
             simulate_game_with_pitching_and_lineup_source,
         },
         resolver::batting_resolver::{
@@ -515,14 +515,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         None
     };
     let median_power = if median_power_replay || live_collision_power {
-        let mut powers: Vec<_> = skills.iter().map(|batter| batter.swing_power).collect();
-        ensure!(
-            powers.iter().all(|power| power.is_finite()),
-            "invalid roster swing power"
-        );
-        powers.sort_by(f64::total_cmp);
-        let n = powers.len();
-        Some(powers[(n - 1) / 2].midpoint(powers[n / 2]))
+        Some(roster_swing_power_median(
+            skills.iter().map(|batter| batter.swing_power).collect(),
+        )?)
     } else {
         None
     };

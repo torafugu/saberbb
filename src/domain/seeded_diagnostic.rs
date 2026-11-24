@@ -396,6 +396,9 @@ mod tests {
     struct Repo { schedules:Vec<GameSchedule>,saved:usize,updated:usize,fail:bool,folder:PathBuf }
     impl crate::repositories::game_repository::GameScheduleReader for Repo {
         fn load_game_schedules_to_process(&self)->Result<Vec<GameSchedule>,crate::error::AppError> { Ok(self.schedules.clone()) }
+        fn load_season_roster_swing_powers(&self, _season: u16) -> Result<Vec<f64>, crate::error::AppError> {
+            unreachable!("seeded diagnostics use the frozen game inputs")
+        }
         fn load_team_game_schedules(&self,_id:u16,_start:chrono::NaiveDate,_end:chrono::NaiveDate)
             ->Result<Vec<crate::domain::shared::game::TeamGameScheduleView>,crate::error::AppError> { Ok(Vec::new()) }
     }

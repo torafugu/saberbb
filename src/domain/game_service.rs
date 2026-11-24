@@ -2,7 +2,9 @@ use super::shared::game_state::{GameProgress, GameState, InningProgress};
 use crate::domain::random_provider::RealRng;
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::resolver::batting_calibration::with_calibrated_batting;
-use crate::domain::resolver::batting_resolver::{SwingExecutionModel, with_swing_execution_model};
+use crate::domain::resolver::batting_resolver::{
+    SwingExecutionModel, with_collision_power_trial, with_swing_execution_model,
+};
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
 use crate::domain::shared::player::Position;
 use crate::domain::shared::stats::SeasonPitchingStats;
@@ -16,8 +18,12 @@ use crate::t;
 use anyhow::{Context, Result, ensure};
 use tracing::info;
 
+/// Legacy swing-speed bonus used as the reference in diagnostic sweeps.
 pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
 pub const GAME_BATTING_EYE_REDUCTION: f64 = 0.25;
+const LIVE_SWING_SPEED_CAP_MS: f64 = 34.0;
+const OPENING_LINEUP_SWING_SPEED_CAP_MS: f64 = 35.5;
+const LIVE_COLLISION_POWER_RETAINED_FRACTION: f64 = 0.25;
 
 struct LiveSwingSpeed {
     bonus_ms: f64,
@@ -37,23 +43,59 @@ impl LiveSwingSpeed {
                 Err(error) => Err(error).with_context(|| format!("Reading {name}")),
             }
         };
-        let bonus_ms = read("SABERBB_SWING_SPEED_BONUS_MS")?.unwrap_or(GAME_SWING_SPEED_BONUS_MS);
-        let cap_ms = read("SABERBB_SWING_SPEED_CAP_MS")?;
+        let bonus_ms = read("SABERBB_SWING_SPEED_BONUS_MS")?.unwrap_or(0.0);
+        let cap_ms = read("SABERBB_SWING_SPEED_CAP_MS")?.unwrap_or(LIVE_SWING_SPEED_CAP_MS);
         ensure!(
             bonus_ms >= 0.0,
             "SABERBB_SWING_SPEED_BONUS_MS must be nonnegative"
         );
         ensure!(
-            cap_ms.is_none_or(|cap| cap > 0.0),
+            cap_ms > 0.0,
             "SABERBB_SWING_SPEED_CAP_MS must be positive"
         );
-        Ok(Self { bonus_ms, cap_ms })
+        Ok(Self { bonus_ms, cap_ms: Some(cap_ms) })
     }
 
     fn apply(&self, roster_speed_ms: f64) -> f64 {
         let live_speed = roster_speed_ms + self.bonus_ms;
         self.cap_ms.map_or(live_speed, |cap| live_speed.min(cap))
     }
+}
+
+fn apply_live_batting_abilities(schedule: &mut GameSchedule, speed: &LiveSwingSpeed) {
+    for player in schedule
+        .away_team
+        .players
+        .iter_mut()
+        .chain(&mut schedule.home_team.players)
+    {
+        if let Some(batter) = &mut player.offense_skills.batter {
+            batter.swing_speed = speed.apply(batter.swing_speed);
+            batter.batting_eye -= GAME_BATTING_EYE_REDUCTION;
+        }
+    }
+}
+
+fn swing_execution_from_env(default: SwingExecutionModel) -> Result<SwingExecutionModel> {
+    match std::env::var("SABERBB_SWING_EXECUTION") {
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Ok(value) => match value.as_str() {
+            "legacy" => Ok(SwingExecutionModel::Legacy),
+            "gaussian" => Ok(SwingExecutionModel::Gaussian),
+            "mixture" => Ok(SwingExecutionModel::Mixture),
+            _ => anyhow::bail!("SABERBB_SWING_EXECUTION must be legacy, gaussian, or mixture"),
+        },
+        Err(err) => Err(err).context("Reading SABERBB_SWING_EXECUTION"),
+    }
+}
+
+/// Median calculated with one swing-power value per roster batter.
+pub fn roster_swing_power_median(mut powers: Vec<f64>) -> Result<f64> {
+    ensure!(!powers.is_empty(), "no roster batters for the collision power median");
+    ensure!(powers.iter().all(|power| power.is_finite()), "invalid roster swing power");
+    powers.sort_by(f64::total_cmp);
+    let count = powers.len();
+    Ok(powers[(count - 1) / 2].midpoint(powers[count / 2]))
 }
 
 pub struct GameService<R: GameRoundRepository> {
@@ -72,9 +114,16 @@ impl<R: GameRoundRepository> GameService<R> {
 
     fn run_game_round(&mut self, record_contact_states: bool) -> Result<()> {
         let swing_speed = LiveSwingSpeed::from_env()?;
+        let lineup_speed = LiveSwingSpeed {
+            bonus_ms: swing_speed.bonus_ms,
+            cap_ms: Some(OPENING_LINEUP_SWING_SPEED_CAP_MS),
+        };
+        let execution_model = swing_execution_from_env(SwingExecutionModel::Mixture)?;
         info!(
             swing_speed_bonus_ms = swing_speed.bonus_ms,
             swing_speed_cap_ms = ?swing_speed.cap_ms,
+            collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
+            ?execution_model,
             "process_game_round() started"
         );
 
@@ -83,6 +132,17 @@ impl<R: GameRoundRepository> GameService<R> {
             .load_game_schedules_to_process()
             .context(t!("error", "function" => "load_game_schedules_to_process"))?;
 
+        let mut medians = BTreeMap::new();
+        for game in &game_schedules {
+            if let std::collections::btree_map::Entry::Vacant(entry) = medians.entry(game.season) {
+                let median = roster_swing_power_median(
+                    self.repo.load_season_roster_swing_powers(game.season)?,
+                )
+                .with_context(|| format!("Calculating roster swing-power median for {}", game.season))?;
+                entry.insert(median);
+            }
+        }
+
         // TODO: Check postponement
         for mut game_schedule in game_schedules {
             info!("new game started");
@@ -90,26 +150,23 @@ impl<R: GameRoundRepository> GameService<R> {
             let loads = self.repo.load_pitcher_workload(&game_schedule)?;
             let season_stats = self.repo.load_pitcher_season_stats(&game_schedule)?;
             let position_fatigue = self.repo.load_position_player_fatigue(&game_schedule)?;
-            for player in game_schedule
-                .away_team
-                .players
-                .iter_mut()
-                .chain(&mut game_schedule.home_team.players)
-            {
-                if let Some(batter) = &mut player.offense_skills.batter {
-                    batter.swing_speed = swing_speed.apply(batter.swing_speed);
-                    batter.batting_eye -= GAME_BATTING_EYE_REDUCTION;
-                }
-            }
-            let result = simulate_game_with_pitching(
-                game_schedule,
-                Box::new(RealRng::new()),
-                &loads,
-                &season_stats,
-                Some(&position_fatigue),
-                None,
-                record_contact_states,
-            )?;
+            let median = medians[&game_schedule.season];
+            let mut lineup_source = game_schedule.clone();
+            apply_live_batting_abilities(&mut lineup_source, &lineup_speed);
+            apply_live_batting_abilities(&mut game_schedule, &swing_speed);
+            let result = with_collision_power_trial(median, LIVE_COLLISION_POWER_RETAINED_FRACTION, || {
+                simulate_staffed_game(
+                    game_schedule,
+                    Box::new(RealRng::new()),
+                    &loads,
+                    &season_stats,
+                    Some(&position_fatigue),
+                    None,
+                    record_contact_states,
+                    Some(&lineup_source),
+                    execution_model,
+                )
+            })?;
             if let Err(e) = self.repo.update_game_result(&result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);
                 return Err(e.into());
@@ -177,6 +234,30 @@ pub fn simulate_game_with_pitching_and_lineup_source(
     record_contact_states: bool,
     lineup_source: Option<&GameSchedule>,
 ) -> Result<GameResult> {
+    simulate_staffed_game(
+        schedule,
+        rng,
+        loads,
+        season_stats,
+        position_fatigue,
+        pitch_budget,
+        record_contact_states,
+        lineup_source,
+        swing_execution_from_env(SwingExecutionModel::Legacy)?,
+    )
+}
+
+fn simulate_staffed_game(
+    schedule: GameSchedule,
+    rng: Box<dyn RandomProvider>,
+    loads: &BTreeMap<i64, f64>,
+    season_stats: &SeasonPitchingStats,
+    position_fatigue: Option<&BTreeMap<i64, f64>>,
+    pitch_budget: Option<u32>,
+    record_contact_states: bool,
+    lineup_source: Option<&GameSchedule>,
+    execution_model: SwingExecutionModel,
+) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
         PitchingStaff::new(team, loads, schedule.base_four_seam_speed, weights, season_stats)
@@ -214,16 +295,6 @@ pub fn simulate_game_with_pitching_and_lineup_source(
             }
         }
     }
-    let execution_model = match std::env::var("SABERBB_SWING_EXECUTION") {
-        Err(std::env::VarError::NotPresent) => SwingExecutionModel::Legacy,
-        Ok(value) => match value.as_str() {
-            "legacy" => SwingExecutionModel::Legacy,
-            "gaussian" => SwingExecutionModel::Gaussian,
-            "mixture" => SwingExecutionModel::Mixture,
-            _ => anyhow::bail!("SABERBB_SWING_EXECUTION must be legacy, gaussian, or mixture"),
-        },
-        Err(err) => return Err(err).context("Reading SABERBB_SWING_EXECUTION"),
-    };
     with_calibrated_batting(|| {
         with_swing_execution_model(execution_model, || {
             play_game(
@@ -436,6 +507,17 @@ mod tests {
             }
 
             Ok(self.schedules.clone())
+        }
+
+        fn load_season_roster_swing_powers(&self, season: u16) -> Result<Vec<f64>, AppError> {
+            Ok(self.schedules
+                .iter()
+                .filter(|game| game.season == season)
+                .flat_map(|game| game.away_team.players.iter().chain(&game.home_team.players))
+                .filter_map(|p| p.offense_skills.batter.map(|b| (p.info.id, b.swing_power)))
+                .collect::<BTreeMap<_, _>>()
+                .into_values()
+                .collect())
         }
 
         fn load_team_game_schedules(
@@ -954,8 +1036,10 @@ mod tests {
 
     #[test]
     fn process_game_round_saves_one_result_for_one_schedule() {
+        let mut scheduled = schedule(1);
+        scheduled.away_team.players[1].offense_skills.batter.as_mut().unwrap().swing_speed = 38.0;
         let mut service = GameService {
-            repo: RecordingRepo::new(vec![schedule(1)]),
+            repo: RecordingRepo::new(vec![scheduled]),
         };
 
         let result = service.process_game_round();
@@ -980,10 +1064,12 @@ mod tests {
             .filter(|&speed| speed > 0.0)
             .peekable();
         assert!(recorded_speeds.peek().is_some());
-        assert!(recorded_speeds.all(|speed| speed == 34.0));
+        assert!(recorded_speeds.all(|speed| speed == 32.0 || speed == 34.0));
+        assert!(saved.player_battings.iter().any(|batting| batting.bat_speed == 34.0));
+        assert!(saved.player_battings.iter().any(|batting| batting.bat_speed == 32.0));
         assert_eq!(
             service.repo.schedules[0].away_team.players[1].batter().unwrap().swing_speed,
-            32.0
+            38.0
         );
     }
 

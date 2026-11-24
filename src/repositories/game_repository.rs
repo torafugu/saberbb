@@ -38,6 +38,7 @@ pub trait GameRoundWriter {
 
 pub trait GameScheduleReader {
     fn load_game_schedules_to_process(&self) -> Result<Vec<GameSchedule>, AppError>;
+    fn load_season_roster_swing_powers(&self, season: u16) -> Result<Vec<f64>, AppError>;
     fn load_pitcher_workload(&self, _game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
         Ok(Default::default())
     }
@@ -325,6 +326,31 @@ impl GameScheduleReader for SqlGameRepository {
             game_schedule.home_team.manager=crate::repositories::batting_personnel_repository::load_team_manager(&conn,game_schedule.home_team.id).map_err(AppError::Internal)?;
         }
         Ok(game_schedules)
+    }
+
+    fn load_season_roster_swing_powers(&self, season: u16) -> Result<Vec<f64>, AppError> {
+        let conn = self.db_client.get_conn()?;
+        let mut stmt = conn.prepare(
+            "WITH season_games AS (
+                SELECT away_team_id, home_team_id, game_type FROM game WHERE season = ?1
+            ), roster_games AS (
+                SELECT away_team_id, home_team_id FROM season_games
+                WHERE game_type = 'Regular'
+                   OR NOT EXISTS (SELECT 1 FROM season_games WHERE game_type = 'Regular')
+            ), roster_teams AS (
+                SELECT away_team_id AS team_id FROM roster_games
+                UNION
+                SELECT home_team_id FROM roster_games
+            )
+            SELECT b.swing_power
+            FROM roster_teams r
+            JOIN player_info p ON p.team_id = r.team_id
+            JOIN defense_skills d ON d.player_id = p.id
+            JOIN batter_info b ON b.player_id = p.id
+            WHERE d.position <> 'P' COLLATE NOCASE",
+        )?;
+        let powers = stmt.query_map(params![season], |row| row.get(0))?;
+        Ok(powers.collect::<Result<Vec<_>, _>>()?)
     }
 
     fn load_pitcher_workload(&self, game: &GameSchedule) -> Result<BTreeMap<i64, f64>, AppError> {
@@ -1613,6 +1639,37 @@ mod tests {
         assert_eq!(schedules[0].away_team.players.iter().find(|p|p.info.id==2).unwrap().batting_character,BatterCharacter::Adaptive);
         assert!(schedules[0].home_team.manager.is_none());std::fs::remove_file(path).ok();
     }
+    #[test]
+    fn season_roster_swing_powers_use_unique_regular_season_rosters() {
+        let (repo, path) = setup_repo();
+        seed_teams(&repo);
+        seed_players(&repo);
+        seed_player_skills(&repo);
+        seed_game(&repo, 1, 2026, 1, 1, None);
+        seed_game(&repo, 2, 2026, 2, 1, None);
+        seed_game_with_planned_date(&repo, 3, "2026-04-03", 1, 3);
+        seed_game_with_planned_date(&repo, 4, "2026-04-01", 1, 4);
+        seed_game(&repo, 5, 2027, 1, 1, None);
+        conn(&repo).execute_batch(
+            "UPDATE player_info SET team_id = 3 WHERE id = 17;
+             UPDATE player_info SET team_id = 4 WHERE id = 18;
+             UPDATE batter_info SET swing_power = 3.0 WHERE player_id = 17;
+             UPDATE batter_info SET swing_power = 4.0 WHERE player_id = 18;
+             UPDATE game SET game_type = 'Exhibition' WHERE id = 4;
+             UPDATE game SET game_type = 'Exhibition', home_team_id = 4 WHERE id = 5;",
+        ).unwrap();
+
+        let mut regular = repo.load_season_roster_swing_powers(2026).unwrap();
+        regular.sort_by(f64::total_cmp);
+        assert_eq!(&regular[..14], &[1.0; 14]);
+        assert_eq!(&regular[14..], &[3.0]);
+        let exhibition = repo.load_season_roster_swing_powers(2027).unwrap();
+        assert_eq!(exhibition.len(), 9);
+        assert!(exhibition.contains(&4.0));
+        assert!(repo.load_season_roster_swing_powers(2028).unwrap().is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
     #[test]
     fn load_game_schedules_to_process_returns_current_round_with_players() {
         let (repo, path) = setup_repo();
