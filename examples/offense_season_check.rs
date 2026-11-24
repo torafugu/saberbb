@@ -88,7 +88,7 @@ mod vertical_contact_replay;
     "balance_fast_swing_error_sweep", "balance_contact_median_power_replay",
     "balance_collision_power_sweep", "balance_contact_median_power_speed_swap",
     "balance_live_median_power_speed_swap", "balance_live_median_power_shared_speed_sweep",
-    "balance_live_median_power_speed_tail_sweep"
+    "balance_live_median_power_speed_tail_sweep", "balance_live_current_power_speed_tail_sweep"
 ])))]
 struct Args {
     #[arg(long)]
@@ -231,6 +231,13 @@ struct Args {
         "balance_current_only", "balance_contact_flight_reference_id"
     ])]
     balance_live_median_power_speed_tail_sweep: bool,
+    /// Play current-collision-power games retaining all, half, or none of roster speeds above 34 m/s.
+    #[arg(long, requires = "balance_live_batting_abilities", conflicts_with_all = [
+        "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_swing_speed_cap_sweep",
+        "balance_capped_swing_tail_comparison", "balance_fast_swing_error_sweep",
+        "balance_current_only", "balance_contact_flight_reference_id"
+    ])]
+    balance_live_current_power_speed_tail_sweep: bool,
     /// Export batter contact diagnostics in a supported batting balance mode.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -2074,6 +2081,30 @@ mod tests {
         assert!(
             Args::try_parse_from(
                 with_batters().chain(["--balance-live-median-power-shared-speed-sweep"])
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn current_power_speed_tail_accepts_batter_audits_and_excludes_median_power_mode() {
+        let args = [
+            "check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-swing-attributes",
+            "--balance-live-batting-abilities",
+            "--balance-live-current-power-speed-tail-sweep",
+        ];
+        assert!(Args::try_parse_from(args).is_ok());
+        let with_batters = || args.into_iter().chain(["--balance-contact-batter-ids", "627,649"]);
+        let parsed = Args::try_parse_from(with_batters()).unwrap();
+        assert!(parsed.balance_live_current_power_speed_tail_sweep);
+        assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
+        assert!(
+            Args::try_parse_from(
+                with_batters().chain(["--balance-live-median-power-speed-tail-sweep"])
             )
             .is_err()
         );
