@@ -255,7 +255,7 @@ impl BatterContactAudit {
         }));
     }
 
-    fn into_json(self, fixed_lineups: bool, fast_swing_sweep: bool) -> Value {
+    fn into_json(self, fixed_lineups: bool, include_hard_launch_bands: bool) -> Value {
         let mut output = json!({
             "pa": self.counts.pa,
             "ab": self.counts.ab,
@@ -282,7 +282,7 @@ impl BatterContactAudit {
             output["ev_at_least_50_vla_25_to_30_per_fair"] =
                 json!(ratio(self.hard_fair_25_to_30, self.fair.plays));
         }
-        if fast_swing_sweep {
+        if include_hard_launch_bands {
             output["vla_25_to_under_35"] = json!({
                 "ev_47_5_to_under_50": self.adjacent_25_to_35,
                 "ev_at_least_50": self.hard_25_to_35,
@@ -323,14 +323,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let capped_power_tail_sweep = args.balance_capped_power_tail_sweep;
     let fixed_lineups = args.balance_capped_power_fixed_lineups;
     let fast_swing_sweep = args.balance_fast_swing_error_sweep;
-    if fast_swing_sweep {
+    let median_power_replay = args.balance_contact_median_power_replay;
+    let capped_zero_bonus = fast_swing_sweep || median_power_replay;
+    if capped_zero_bonus {
         ensure!(
             std::env::var("SABERBB_SWING_EXECUTION").as_deref() == Ok("mixture"),
-            "the fast-swing error sweep requires SABERBB_SWING_EXECUTION=mixture"
+            "the zero-bonus capped comparison requires SABERBB_SWING_EXECUTION=mixture"
         );
     }
     let speed_distribution_sweep =
-        speed_tail_sweep || speed_cap_sweep || capped_tail_comparison || fast_swing_sweep;
+        speed_tail_sweep || speed_cap_sweep || capped_tail_comparison || capped_zero_bonus;
     const COMMON_CAP_MS: f64 = 35.5;
     const SPEED_TAIL_START_MS: f64 = 35.0;
     const SPEED_EXCESS_RETAINED: f64 = 0.5;
@@ -417,6 +419,18 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     } else {
         None
     };
+    let median_power = if median_power_replay {
+        let mut powers: Vec<_> = skills.iter().map(|batter| batter.swing_power).collect();
+        ensure!(
+            powers.iter().all(|power| power.is_finite()),
+            "invalid roster swing power"
+        );
+        powers.sort_by(f64::total_cmp);
+        let n = powers.len();
+        Some(powers[(n - 1) / 2].midpoint(powers[n / 2]))
+    } else {
+        None
+    };
     let angle_deg = f64::from(args.balance_line_drive_attack_deg.unwrap_or(2));
 
     let mut arms = Vec::new();
@@ -438,7 +452,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let split_attack_angle = args.balance_split_attack_angle;
     // Angle pairs contain the roster change and the additional LineDrive change.
     // Each pair specifies the amount to subtract from bat control and batting eye.
-    let batting_ability_trials: &[(&str, f64, f64)] = if fast_swing_sweep {
+    let batting_ability_trials: &[(&str, f64, f64)] = if median_power_replay {
+        &[("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION)]
+    } else if fast_swing_sweep {
         &[
             ("fast_swing_control", 0.0, GAME_BATTING_EYE_REDUCTION),
             ("fast_swing_error_125", 0.0, GAME_BATTING_EYE_REDUCTION),
@@ -600,7 +616,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         } else {
             (0.0, 0.0, adjustment, adjustment)
         };
-        let (power_delta, speed_delta) = if fast_swing_sweep {
+        let (power_delta, speed_delta) = if capped_zero_bonus {
             (0.0, 0.0)
         } else if live_batting_abilities {
             (0.0, GAME_SWING_SPEED_BONUS_MS)
@@ -615,7 +631,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             }
         };
         let retained_speed_excess = speed_tail_sweep.then(|| speed_tail_fractions[arm_index]);
-        let swing_speed_cap_ms = if capped_tail_comparison || fast_swing_sweep {
+        let swing_speed_cap_ms = if capped_tail_comparison || capped_zero_bonus {
             Some(COMMON_CAP_MS)
         } else {
             speed_cap_sweep.then(|| speed_caps_ms[arm_index]).flatten()
@@ -671,7 +687,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 && arm_index == 0)
                 .then(FrozenFlightAudit::default);
             let mut contact_audit = BTreeMap::<i64, BatterContactAudit>::new();
-            if speed_cap_sweep || fixed_lineups || fast_swing_sweep || label == "batting_eye_minus_0_25" {
+            if speed_cap_sweep || fixed_lineups || capped_zero_bonus || label == "batting_eye_minus_0_25" {
                 contact_audit.extend(contact_batters.keys().map(|&id| {
                     (
                         id,
@@ -711,6 +727,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                             peer.swing_power - batter.swing_power,
                         ),
                     );
+                }
+            }
+            if let Some(median) = median_power {
+                for &id in contact_audit.keys() {
+                    paired_flight.insert(id, FrozenFlightAudit::for_median_power(id, median));
                 }
             }
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
@@ -965,7 +986,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 report["batter_contact_audit"] = json!(
                     contact_audit
                         .into_iter()
-                        .map(|(id, audit)| (id, audit.into_json(fixed_lineups, fast_swing_sweep)))
+                        .map(|(id, audit)| (id, audit.into_json(fixed_lineups, capped_zero_bonus)))
                         .collect::<BTreeMap<_, _>>()
                 );
             }
@@ -1050,6 +1071,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         }
         if fast_swing_sweep {
             arm["fast_swing_max_error_scale"] = json!(fast_swing_max_scale);
+        }
+        if capped_zero_bonus {
             arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms);
         }
         if args.balance_ability_limits {
@@ -1072,7 +1095,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if fast_swing_sweep {
+    if let Some(median) = median_power {
+        output["contact_median_power_replay"] = json!({
+            "roster_swing_power_median": median,
+            "roster_batters": skills.len(),
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "swing_speed_cap_ms": COMMON_CAP_MS,
+            "definition": "Use the median of the unique scheduled roster batters' swing power. Replace only the power input to the collision calculation, holding pitch speed, bat speed, timing depth, contact offsets, launch angles, spin and park fixed. Compare only contacts whose baseline reconstructs the recorded exit speed, flight and home-run status. Group by original exit speed and launch angle.",
+        });
+    } else if fast_swing_sweep {
         output["fast_swing_error_sweep"] = json!({
             "swing_execution_model": "mixture",
             "swing_speed_bonus_ms": 0.0,
@@ -1172,7 +1204,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         let settings = &mut output["swing_attributes"];
         if live_batting_abilities {
             settings["home_run_target"] = json!(HOME_RUN_TARGET);
-            settings["live_speed_bonus_ms"] = json!(if fast_swing_sweep { 0.0 } else { GAME_SWING_SPEED_BONUS_MS });
+            settings["live_speed_bonus_ms"] = json!(if capped_zero_bonus { 0.0 } else { GAME_SWING_SPEED_BONUS_MS });
             if args.balance_batting_eye_sweep {
                 settings["batting_eye_sweep_deltas"] = json!(
                     batting_ability_trials
@@ -1180,7 +1212,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                         .map(|&(_, _, drop)| 0.0 - drop)
                         .collect::<Vec<_>>()
                 );
-            } else if !capped_tail_comparison && !fast_swing_sweep {
+            } else if !capped_tail_comparison && !capped_zero_bonus {
                 settings["batting_ability_drop"] = json!(mean_drop);
             }
             settings["baseline_hr_leaders"] = json!(

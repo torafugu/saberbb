@@ -85,7 +85,7 @@ mod vertical_contact_replay;
 #[derive(Parser)]
 #[command(group(clap::ArgGroup::new("balance_contact_audit_mode").args([
     "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups",
-    "balance_fast_swing_error_sweep"
+    "balance_fast_swing_error_sweep", "balance_contact_median_power_replay"
 ])))]
 struct Args {
     #[arg(long)]
@@ -182,7 +182,15 @@ struct Args {
         "balance_capped_swing_tail_comparison", "balance_current_only"
     ])]
     balance_fast_swing_error_sweep: bool,
-    /// Export batter contact diagnostics for the -0.25 eye arm, swing-speed caps, or fixed lineups.
+    /// Replay the selected batters' fair contacts with the roster median swing power.
+    #[arg(long, requires_all = ["balance_live_batting_abilities", "balance_contact_batter_ids"],
+        conflicts_with_all = [
+            "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_swing_speed_cap_sweep",
+            "balance_capped_swing_tail_comparison", "balance_fast_swing_error_sweep", "balance_current_only",
+            "balance_contact_flight_reference_id"
+        ])]
+    balance_contact_median_power_replay: bool,
+    /// Export batter contact diagnostics in a supported batting balance mode.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
     /// Replay recorded fair-ball flights at lower exit speeds in the 35.5 m/s cap arm.
@@ -1888,6 +1896,25 @@ mod tests {
         assert!(parsed.balance_fast_swing_error_sweep);
         assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
         assert!(Args::try_parse_from(args.into_iter().chain(["--balance-swing-speed-cap-sweep"])).is_err());
+    }
+
+    #[test]
+    fn median_power_replay_requires_audited_batters_and_its_own_control() {
+        let args = [
+            "check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-swing-attributes",
+            "--balance-live-batting-abilities",
+            "--balance-contact-median-power-replay",
+        ];
+        let with_batters = || args.into_iter().chain(["--balance-contact-batter-ids", "627,649"]);
+        assert!(Args::try_parse_from(args).is_err());
+        let parsed = Args::try_parse_from(with_batters()).unwrap();
+        assert!(parsed.balance_contact_median_power_replay);
+        assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
+        assert!(Args::try_parse_from(with_batters().chain(["--balance-fast-swing-error-sweep"])).is_err());
     }
 
     #[test]
