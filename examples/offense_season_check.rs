@@ -152,6 +152,9 @@ struct Args {
     /// Compare batting eye reductions of 0.15 and 0.25 on the live swing-speed baseline.
     #[arg(long, requires = "balance_live_batting_abilities")]
     balance_batting_eye_sweep: bool,
+    /// Export swing and fair-contact diagnostics for these batters in the -0.25 eye arm.
+    #[arg(long, value_delimiter = ',', requires = "balance_batting_eye_sweep")]
+    balance_contact_batter_ids: Vec<i64>,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
     balance_current_only: bool,
