@@ -246,15 +246,15 @@ struct Args {
         "balance_current_only", "balance_contact_flight_reference_id"
     ])]
     balance_live_half_power_speed_cap: bool,
-    /// Retain this percent of collision coefficient differences from the roster median at a 34 m/s cap.
-    #[arg(long, requires = "balance_live_batting_abilities",
+    /// Compare one or more retained collision coefficient percentages under a 34 m/s cap.
+    #[arg(long, requires = "balance_live_batting_abilities", value_delimiter = ',',
         value_parser = clap::value_parser!(u8).range(0..=100),
         conflicts_with_all = [
             "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_swing_speed_cap_sweep",
             "balance_capped_swing_tail_comparison", "balance_fast_swing_error_sweep",
             "balance_current_only", "balance_contact_flight_reference_id"
         ])]
-    balance_live_capped_collision_power_percent: Option<u8>,
+    balance_live_capped_collision_power_percent: Vec<u8>,
     /// Export batter contact diagnostics in a supported batting balance mode.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -2166,10 +2166,12 @@ mod tests {
                 args.into_iter().chain([input, "--balance-contact-batter-ids", "627,649"]),
             )
             .unwrap();
-            assert_eq!(parsed.balance_live_capped_collision_power_percent, Some(expected));
+            assert_eq!(parsed.balance_live_capped_collision_power_percent, [expected]);
             assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
         }
-        assert!(Args::try_parse_from(args.into_iter().chain(["101"])).is_err());
+        let pair = Args::try_parse_from(args.into_iter().chain(["25,50"])).unwrap();
+        assert_eq!(pair.balance_live_capped_collision_power_percent, [25, 50]);
+        assert!(Args::try_parse_from(args.into_iter().chain(["25,101"])).is_err());
         assert!(
             Args::try_parse_from(args.into_iter().chain(["25", "--balance-live-half-power-speed-cap"]))
                 .is_err()

@@ -34,7 +34,7 @@ use saberbb::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Serialize)]
 struct UpperTail {
@@ -378,11 +378,23 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let current_power_speed_tail_sweep = args.balance_live_current_power_speed_tail_sweep;
     let roster_speed_tail_sweep = median_power_speed_tail_sweep || current_power_speed_tail_sweep;
     let half_power_speed_cap = args.balance_live_half_power_speed_cap;
-    let capped_power_fraction = args
-        .balance_live_capped_collision_power_percent
-        .map(|percent| f64::from(percent) / 100.0)
-        .or_else(|| half_power_speed_cap.then_some(0.5));
-    let capped_collision_power = capped_power_fraction.is_some();
+    let capped_power_percents = if half_power_speed_cap {
+        vec![50]
+    } else {
+        args.balance_live_capped_collision_power_percent.clone()
+    };
+    let mut distinct_power_percents = BTreeSet::new();
+    ensure!(
+        capped_power_percents
+            .iter()
+            .all(|&percent| distinct_power_percents.insert(percent)),
+        "duplicate capped collision power percentage"
+    );
+    let capped_power_fractions: Vec<_> = capped_power_percents
+        .iter()
+        .map(|&percent| f64::from(percent) / 100.0)
+        .collect();
+    let capped_collision_power = !capped_power_percents.is_empty();
     let compare_live_speeds =
         live_speed_swap || shared_speed_sweep || roster_speed_tail_sweep || capped_collision_power;
     let live_collision_power = collision_power_sweep
@@ -552,12 +564,20 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     };
     let roster_speed_tail_ability_trials =
         roster_speed_tail_labels.map(|label| (label, 0.0, GAME_BATTING_EYE_REDUCTION));
-    let capped_power_label = if half_power_speed_cap {
-        "collision_power_half_speed_cap_34_0"
+    let capped_power_labels: Vec<_> = if half_power_speed_cap {
+        vec!["collision_power_half_speed_cap_34_0".to_owned()]
+    } else if capped_power_percents.len() == 1 {
+        vec!["collision_power_speed_cap_34_0".to_owned()]
     } else {
-        "collision_power_speed_cap_34_0"
+        capped_power_percents
+            .iter()
+            .map(|percent| format!("collision_power_{percent}_pct_speed_cap_34_0"))
+            .collect()
     };
-    let capped_power_trials = [(capped_power_label, 0.0, GAME_BATTING_EYE_REDUCTION)];
+    let capped_power_trials: Vec<_> = capped_power_labels
+        .iter()
+        .map(|label| (label.as_str(), 0.0, GAME_BATTING_EYE_REDUCTION))
+        .collect();
     let batting_ability_trials: &[(&str, f64, f64)] = if capped_collision_power {
         &capped_power_trials
     } else if roster_speed_tail_sweep {
@@ -783,12 +803,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         } else {
             roster_speed_tail_sweep.then(|| ROSTER_SPEED_TAIL_FRACTIONS[arm_index])
         };
-        let retained_collision_power = capped_power_fraction.unwrap_or(match label {
-            _ if shared_speed.is_some() || median_power_speed_tail_sweep => 0.0,
-            "collision_power_half" => 0.5,
-            "collision_power_median" | "collision_power_median_swapped_speed" => 0.0,
-            _ => 1.0,
-        });
+        let retained_collision_power = capped_power_fractions.get(arm_index).copied().unwrap_or(
+            match label {
+                _ if shared_speed.is_some() || median_power_speed_tail_sweep => 0.0,
+                "collision_power_half" => 0.5,
+                "collision_power_median" | "collision_power_median_swapped_speed" => 0.0,
+                _ => 1.0,
+            },
+        );
         let retained_power_excess = match label {
             "capped_power_tail" => Some(POWER_EXCESS_RETAINED),
             "capped_power_tail_keep_50" => Some(0.50),
@@ -1329,7 +1351,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if let (Some(fraction), Some(median)) = (capped_power_fraction, median_power) {
+    if capped_collision_power && let Some(median) = median_power {
         let key = if half_power_speed_cap {
             "live_half_power_speed_cap"
         } else {
@@ -1346,7 +1368,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "definition": "Play complete games at a roster-wide 34 m/s speed cap. At each contact depth retain half of the difference between each batter's current collision coefficient and the coefficient at roster-median swing power. Choose opening lineups with the original capped batting abilities, as in the current- and median-power endpoint runs. League and audited batter rates are pooled across seeds.",
         });
         if !half_power_speed_cap {
-            settings["collision_power_retained_fraction"] = json!(fraction);
+            if let [fraction] = capped_power_fractions.as_slice() {
+                settings["collision_power_retained_fraction"] = json!(fraction);
+            } else {
+                settings["collision_power_retained_fractions"] = json!(capped_power_fractions);
+            }
             settings["definition"] = json!("Play complete games at a roster-wide 34 m/s speed cap. At each contact depth retain the specified fraction of each batter's collision coefficient difference from the coefficient at roster-median swing power. Choose opening lineups with the original capped batting abilities. League and audited batter rates are pooled across seeds.");
         }
         output[key] = settings;
