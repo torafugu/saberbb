@@ -169,6 +169,9 @@ struct Args {
         "balance_swing_speed_cap_sweep", "balance_current_only"
     ])]
     balance_capped_swing_tail_comparison: bool,
+    /// Compare 25%, 50%, and 75% reductions of power above roster P90 under the 35.5 m/s cap.
+    #[arg(long, requires = "balance_capped_swing_tail_comparison")]
+    balance_capped_power_tail_sweep: bool,
     /// Export batter contact diagnostics for the -0.25 eye arm or all swing-speed cap arms.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -1848,6 +1851,13 @@ mod tests {
             assert!(Args::try_parse_from(common.into_iter().chain([flag])).is_err());
         }
         assert!(Args::try_parse_from(["check", "--season", "2026", mode]).is_err());
+        let sweep = "--balance-capped-power-tail-sweep";
+        assert!(
+            Args::try_parse_from(common.into_iter().chain([sweep]))
+                .unwrap()
+                .balance_capped_power_tail_sweep
+        );
+        assert!(Args::try_parse_from(common[..common.len() - 1].iter().copied().chain([sweep])).is_err());
     }
 
     #[test]
