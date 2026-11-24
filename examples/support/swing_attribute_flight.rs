@@ -255,6 +255,8 @@ pub(super) struct FrozenFlightAudit {
     by_original_ev_vla: BTreeMap<String, Cell>,
     #[serde(skip_serializing_if = "Option::is_none")]
     capped_swap: Option<CappedSwap>,
+    #[serde(skip)]
+    median_power: Option<f64>,
 }
 
 impl Default for FrozenFlightAudit {
@@ -277,6 +279,7 @@ impl FrozenFlightAudit {
             total: Cell::new(trials.iter().map(|trial| trial.name)),
             by_original_ev_vla: BTreeMap::new(),
             capped_swap: None,
+            median_power: None,
         }
     }
 
@@ -316,6 +319,19 @@ impl FrozenFlightAudit {
             swing_power_delta: power_delta,
             by_contact_geometry_at_25_to_30_deg: BTreeMap::new(),
         });
+        audit
+    }
+
+    pub(super) fn for_median_power(batter_id: i64, median: f64) -> Self {
+        let mut audit = Self::new(
+            Some(batter_id),
+            &[Trial {
+                name: "median_power",
+                speed_delta_ms: 0.0,
+                power_delta: 0.0,
+            }],
+        );
+        audit.median_power = Some(median);
         audit
     }
 
@@ -401,7 +417,8 @@ impl FrozenFlightAudit {
             };
             let was_hr = baseline.outbound_result == OutboundResult::HomeRun;
             if !same_flight(&baseline, live)
-                || (self.capped_swap.is_some() && was_hr != (b.result == BattingResult::HomeRun))
+                || ((self.capped_swap.is_some() || self.median_power.is_some())
+                    && was_hr != (b.result == BattingResult::HomeRun))
             {
                 self.baseline_flight_mismatch += 1;
                 continue;
@@ -411,7 +428,8 @@ impl FrozenFlightAudit {
                 .trials
                 .iter()
                 .map(|trial| {
-                    let ev = exit_speed(speed + trial.speed_delta_ms, power + trial.power_delta);
+                    let trial_power = self.median_power.unwrap_or(power + trial.power_delta);
+                    let ev = exit_speed(speed + trial.speed_delta_ms, trial_power);
                     replay(ev).map(|flight| {
                         (
                             trial.name,
@@ -453,10 +471,12 @@ impl FrozenFlightAudit {
                 cell.flight.observe(was_hr, was_double, &alternatives);
             }
             let ev = bip_audit::band(live.launch_speed, &[35.0, 40.0, 45.0, 47.5, 50.0, 55.0]);
-            let vla = bip_audit::band(
-                live.launch_angle,
-                &[0.0, 10.0, 20.0, 25.0, 30.0, 40.0, 50.0],
-            );
+            let vla_edges: &[f64] = if self.median_power.is_some() {
+                &[0.0, 10.0, 20.0, 25.0, 30.0, 35.0, 40.0, 50.0]
+            } else {
+                &[0.0, 10.0, 20.0, 25.0, 30.0, 40.0, 50.0]
+            };
+            let vla = bip_audit::band(live.launch_angle, vla_edges);
             self.by_original_ev_vla
                 .entry(format!("EV_ms:{ev}|VLA_deg:{vla}"))
                 .or_insert_with(|| Cell::new(self.trials.iter().map(|trial| trial.name)))
