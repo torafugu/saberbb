@@ -13,12 +13,18 @@ use saberbb::domain::{
     resolver::batting_calibration::{
         BAT_CONTROL_CORRECTION_MIDPOINT, BATTING_EYE_TIMING_MIDPOINT, with_calibrated_batting,
     },
-    shared::{game_state::with_line_drive_attack_angle_trial, game_stats::PlayerGameBatting},
+    shared::{
+        game_state::with_line_drive_attack_angle_trial, game_stats::PlayerGameBatting,
+        player::Position, team::MAX_LINEUP_PLAYERS,
+    },
     strategy::batting_strategy::BattingStrategySettings,
 };
 use saberbb::{
     domain::{
-        game_service::{GAME_BATTING_EYE_REDUCTION, GAME_SWING_SPEED_BONUS_MS, simulate_game_with_pitching},
+        game_service::{
+            GAME_BATTING_EYE_REDUCTION, GAME_SWING_SPEED_BONUS_MS,
+            simulate_game_with_pitching_and_lineup_source,
+        },
         resolver::batting_resolver::SwingContactType,
     },
     repositories::game_repository::SqlGameRepository,
@@ -185,6 +191,7 @@ struct BatterContactAudit {
     swings: u64,
     whiffs: u64,
     fair: FairBallOutcomes,
+    hard_fair_25_to_30: u64,
     fair_by_ev_and_vla: BTreeMap<String, BTreeMap<String, FairBallOutcomes>>,
     fair_contacts: Vec<Value>,
     exit_speed_replay: Option<CappedContactFlightAudit>,
@@ -202,6 +209,9 @@ impl BatterContactAudit {
         self.fair.observe(batting.result);
         if self.fair.plays == prior_fair_plays {
             return;
+        }
+        if batting.ball.launch_speed >= 50.0 && (25.0..30.0).contains(&batting.ball.launch_angle) {
+            self.hard_fair_25_to_30 += 1;
         }
         for replay in self
             .exit_speed_replay
@@ -233,7 +243,7 @@ impl BatterContactAudit {
         }));
     }
 
-    fn into_json(self) -> Value {
+    fn into_json(self, fixed_lineups: bool) -> Value {
         let mut output = json!({
             "pa": self.counts.pa,
             "ab": self.counts.ab,
@@ -254,6 +264,11 @@ impl BatterContactAudit {
         }
         if let Some(replay) = self.launch_angle_replay {
             output["launch_angle_flight_replay"] = json!(replay);
+        }
+        if fixed_lineups {
+            output["ev_at_least_50_vla_25_to_30"] = json!(self.hard_fair_25_to_30);
+            output["ev_at_least_50_vla_25_to_30_per_fair"] =
+                json!(ratio(self.hard_fair_25_to_30, self.fair.plays));
         }
         output
     }
@@ -286,6 +301,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let speed_cap_sweep = args.balance_swing_speed_cap_sweep;
     let capped_tail_comparison = args.balance_capped_swing_tail_comparison;
     let capped_power_tail_sweep = args.balance_capped_power_tail_sweep;
+    let fixed_lineups = args.balance_capped_power_fixed_lineups;
     let speed_distribution_sweep = speed_tail_sweep || speed_cap_sweep || capped_tail_comparison;
     const COMMON_CAP_MS: f64 = 35.5;
     const SPEED_TAIL_START_MS: f64 = 35.0;
@@ -522,6 +538,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     };
     let mut baseline_hr_leaders = BTreeMap::<u64, Vec<i64>>::new();
     let mut baseline_qualified_below_speed_tail = BTreeMap::<u64, Vec<i64>>::new();
+    let mut control_lineups = BTreeMap::<(u64, u32), Vec<(i64, Position, u8)>>::new();
     for (
         arm_index,
         (label, adjustment, (roster_angle_delta_deg, line_drive_delta_deg), calibrated),
@@ -613,7 +630,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 && arm_index == 0)
                 .then(FrozenFlightAudit::default);
             let mut contact_audit = BTreeMap::<i64, BatterContactAudit>::new();
-            if speed_cap_sweep || label == "batting_eye_minus_0_25" {
+            if speed_cap_sweep || fixed_lineups || label == "batting_eye_minus_0_25" {
                 contact_audit.extend(contact_batters.keys().map(|&id| {
                     (
                         id,
@@ -657,38 +674,48 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             }
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
-                let mut game = original.clone();
-                if !matches!(control_adjustment, Current)
-                    || !matches!(eye_adjustment, Current)
-                    || roster_angle_delta_deg != 0.0
-                    || power_delta != 0.0
-                    || speed_delta != 0.0
-                {
-                    for player in game
-                        .away_team
-                        .players
-                        .iter_mut()
-                        .chain(&mut game.home_team.players)
+                let apply_abilities = |game: &mut GameSchedule, use_control_power: bool| {
+                    if !matches!(control_adjustment, Current)
+                        || !matches!(eye_adjustment, Current)
+                        || roster_angle_delta_deg != 0.0
+                        || power_delta != 0.0
+                        || speed_delta != 0.0
                     {
-                        if let Some(batter) = &mut player.offense_skills.batter {
-                            batter.bat_control =
-                                control_adjustment.apply(batter.bat_control, &bat_control);
-                            batter.batting_eye =
-                                eye_adjustment.apply(batter.batting_eye, &batting_eye);
-                            if swing_attributes {
-                                batter.swing_power = effective_power(batter.swing_power);
-                                batter.swing_speed = effective_speed(batter.swing_speed);
-                            }
-                            if roster_angle_delta_deg != 0.0 {
-                                batter.attack_angle += roster_angle_delta_deg;
+                        for player in game
+                            .away_team
+                            .players
+                            .iter_mut()
+                            .chain(&mut game.home_team.players)
+                        {
+                            if let Some(batter) = &mut player.offense_skills.batter {
+                                batter.bat_control =
+                                    control_adjustment.apply(batter.bat_control, &bat_control);
+                                batter.batting_eye =
+                                    eye_adjustment.apply(batter.batting_eye, &batting_eye);
+                                if swing_attributes {
+                                    if !use_control_power {
+                                        batter.swing_power = effective_power(batter.swing_power);
+                                    }
+                                    batter.swing_speed = effective_speed(batter.swing_speed);
+                                }
+                                if roster_angle_delta_deg != 0.0 {
+                                    batter.attack_angle += roster_angle_delta_deg;
+                                }
                             }
                         }
                     }
-                }
+                };
+                let mut game = original.clone();
+                apply_abilities(&mut game, false);
+                let lineup_source = (fixed_lineups && arm_index > 0).then(|| {
+                    let mut control = original.clone();
+                    apply_abilities(&mut control, true);
+                    control
+                });
                 let run = || {
                     let rng = Box::new(RealRng::from_seed(derived_seed(seed, original.id)));
                     if let Some(history) = pregame.get(index) {
-                        return simulate_game_with_pitching(
+                        return simulate_game_with_pitching_and_lineup_source(
                             game,
                             rng,
                             &history.pitcher_loads,
@@ -696,6 +723,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                             Some(&history.position_fatigue),
                             Some(args.max_pitches),
                             false,
+                            lineup_source.as_ref(),
                         );
                     }
                     simulate_game(
@@ -715,6 +743,29 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 .with_context(|| {
                     format!("batting balance {label}, seed {seed}, game {}", original.id)
                 })?;
+                if fixed_lineups {
+                    let opening: Vec<_> = result
+                        .player_entries
+                        .iter()
+                        .take(2 * MAX_LINEUP_PLAYERS)
+                        .map(|entry| (entry.player_id, entry.position, entry.batting_order))
+                        .collect();
+                    ensure!(
+                        opening.len() == 2 * MAX_LINEUP_PLAYERS,
+                        "incomplete opening lineups for game {}",
+                        original.id
+                    );
+                    let key = (seed, original.id);
+                    if arm_index == 0 {
+                        control_lineups.insert(key, opening);
+                    } else {
+                        ensure!(
+                            control_lineups.get(&key) == Some(&opening),
+                            "opening lineup differs from control in {label}, seed {seed}, game {}",
+                            original.id
+                        );
+                    }
+                }
                 if let Some(bands) = &mut launch_bands {
                     bands.observe_game(&result);
                 }
@@ -869,12 +920,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 report["batter_contact_audit"] = json!(
                     contact_audit
                         .into_iter()
-                        .map(|(id, audit)| (id, audit.into_json()))
+                        .map(|(id, audit)| (id, audit.into_json(fixed_lineups)))
                         .collect::<BTreeMap<_, _>>()
                 );
             }
             if !paired_flight.is_empty() {
                 report["batter_contact_paired_flight"] = json!(paired_flight);
+            }
+            if fixed_lineups {
+                report["verified_opening_lineup_games"] = json!(games.len());
             }
             if speed_cap_sweep || capped_tail_comparison {
                 report["capped_batters_with_pa"] = json!(capped_batters_with_pa);
@@ -979,6 +1033,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 .unwrap_or_else(|_| "legacy".into()),
             "definition": "Keep the same effective swing-speed cap of 35.5 m/s and the live batting-eye reduction in every arm. Use one nearest-rank swing-power P90 from the unique scheduled roster batters for all arms and seeds. Keep values at or below P90 and multiply the excess above it by each arm's retained fraction.",
         });
+        if fixed_lineups {
+            output["capped_power_tail_sweep"]["opening_lineups"] = json!(
+                "Select both opening lineups and batting orders with control abilities under the same pregame workload and seed. Verify player ID, position and batting order against the control for every game. Apply trial power to the active batters. Substitutions and pitching changes use the live policies."
+            );
+        }
     } else if let (Some(power), Some(speed)) = (&power_tail, &speed_tail) {
         output["capped_swing_tail_comparison"] = json!({
             "base_speed_cap_ms": COMMON_CAP_MS,

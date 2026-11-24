@@ -84,7 +84,7 @@ mod vertical_contact_replay;
 
 #[derive(Parser)]
 #[command(group(clap::ArgGroup::new("balance_contact_audit_mode").args([
-    "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep"
+    "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups"
 ])))]
 struct Args {
     #[arg(long)]
@@ -172,7 +172,10 @@ struct Args {
     /// Compare 25%, 50%, and 75% reductions of power above roster P90 under the 35.5 m/s cap.
     #[arg(long, requires = "balance_capped_swing_tail_comparison")]
     balance_capped_power_tail_sweep: bool,
-    /// Export batter contact diagnostics for the -0.25 eye arm or all swing-speed cap arms.
+    /// Use the capped control's opening lineups and batting orders throughout the power sweep.
+    #[arg(long, requires = "balance_capped_power_tail_sweep")]
+    balance_capped_power_fixed_lineups: bool,
+    /// Export batter contact diagnostics for the -0.25 eye arm, swing-speed caps, or fixed lineups.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
     /// Replay recorded fair-ball flights at lower exit speeds in the 35.5 m/s cap arm.
@@ -189,7 +192,7 @@ struct Args {
     balance_contact_swap_batting_attributes: bool,
     /// Replay selected fair balls with this roster batter's speed, power, and both.
     #[arg(long, requires = "balance_contact_batter_ids", conflicts_with_all = [
-        "balance_current_only", "balance_swing_speed_cap_sweep"
+        "balance_current_only", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups"
     ])]
     balance_contact_flight_reference_id: Option<i64>,
     /// Report plate appearances and batting averages for the current balance arm only.
@@ -1858,6 +1861,12 @@ mod tests {
                 .balance_capped_power_tail_sweep
         );
         assert!(Args::try_parse_from(common[..common.len() - 1].iter().copied().chain([sweep])).is_err());
+        let fixed = "--balance-capped-power-fixed-lineups";
+        let contact = ["--balance-contact-batter-ids", "627,649"];
+        let parsed = Args::try_parse_from(common.into_iter().chain([sweep, fixed]).chain(contact)).unwrap();
+        assert!(parsed.balance_capped_power_fixed_lineups);
+        assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
+        assert!(Args::try_parse_from(common.into_iter().chain([fixed])).is_err());
     }
 
     #[test]
