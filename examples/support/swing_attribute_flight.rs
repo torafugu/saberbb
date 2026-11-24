@@ -240,6 +240,25 @@ struct CappedSwap {
 }
 
 #[derive(Serialize)]
+struct MedianPowerSpeedSwap {
+    peer_batter_id: i64,
+    effective_swing_speed_ms: f64,
+    peer_effective_swing_speed_ms: f64,
+    contacts: Vec<SpeedSwapContact>,
+}
+
+#[derive(Serialize)]
+struct SpeedSwapContact {
+    game_id: u32,
+    count_seq: u16,
+    launch_angle_deg: f64,
+    baseline_exit_speed_ms: f64,
+    swapped_exit_speed_ms: f64,
+    baseline_home_run: bool,
+    swapped_home_run: bool,
+}
+
+#[derive(Serialize)]
 pub(super) struct FrozenFlightAudit {
     #[serde(skip)]
     batter_id: Option<i64>,
@@ -257,6 +276,8 @@ pub(super) struct FrozenFlightAudit {
     capped_swap: Option<CappedSwap>,
     #[serde(skip)]
     median_power: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    median_power_speed_swap: Option<MedianPowerSpeedSwap>,
 }
 
 impl Default for FrozenFlightAudit {
@@ -280,6 +301,7 @@ impl FrozenFlightAudit {
             by_original_ev_vla: BTreeMap::new(),
             capped_swap: None,
             median_power: None,
+            median_power_speed_swap: None,
         }
     }
 
@@ -332,6 +354,31 @@ impl FrozenFlightAudit {
             }],
         );
         audit.median_power = Some(median);
+        audit
+    }
+
+    pub(super) fn for_median_power_speed_swap(
+        batter_id: i64,
+        peer_batter_id: i64,
+        median_power: f64,
+        effective_swing_speed_ms: f64,
+        peer_effective_swing_speed_ms: f64,
+    ) -> Self {
+        let mut audit = Self::new(
+            Some(batter_id),
+            &[Trial {
+                name: "peer_speed",
+                speed_delta_ms: 0.0,
+                power_delta: 0.0,
+            }],
+        );
+        audit.median_power = Some(median_power);
+        audit.median_power_speed_swap = Some(MedianPowerSpeedSwap {
+            peer_batter_id,
+            effective_swing_speed_ms,
+            peer_effective_swing_speed_ms,
+            contacts: Vec::new(),
+        });
         audit
     }
 
@@ -407,7 +454,12 @@ impl FrozenFlightAudit {
                     &schedule.stadium,
                 )
             };
-            if (exit_speed(speed, power) - live.launch_speed).abs() > 1e-8 {
+            let baseline_power = if self.median_power_speed_swap.is_some() {
+                self.median_power.unwrap_or(power)
+            } else {
+                power
+            };
+            if (exit_speed(speed, baseline_power) - live.launch_speed).abs() > 1e-8 {
                 self.baseline_ev_mismatch += 1;
                 continue;
             }
@@ -429,7 +481,11 @@ impl FrozenFlightAudit {
                 .iter()
                 .map(|trial| {
                     let trial_power = self.median_power.unwrap_or(power + trial.power_delta);
-                    let ev = exit_speed(speed + trial.speed_delta_ms, trial_power);
+                    let trial_speed = self.median_power_speed_swap.as_ref().map_or(
+                        speed + trial.speed_delta_ms,
+                        |swap| swap.peer_effective_swing_speed_ms,
+                    );
+                    let ev = exit_speed(trial_speed, trial_power);
                     replay(ev).map(|flight| {
                         (
                             trial.name,
@@ -447,6 +503,18 @@ impl FrozenFlightAudit {
             };
             let was_double = b.result == BattingResult::Double;
             self.total.observe(was_hr, was_double, &alternatives);
+            if let Some(swap) = &mut self.median_power_speed_swap {
+                let (_, (swapped_home_run, exit_speed_delta_ms)) = alternatives[0];
+                swap.contacts.push(SpeedSwapContact {
+                    game_id: schedule.id,
+                    count_seq: b.count_seq,
+                    launch_angle_deg: live.launch_angle,
+                    baseline_exit_speed_ms: live.launch_speed,
+                    swapped_exit_speed_ms: live.launch_speed + exit_speed_delta_ms,
+                    baseline_home_run: was_hr,
+                    swapped_home_run,
+                });
+            }
             if let Some(swap) = &mut self.capped_swap
                 && (25.0..30.0).contains(&live.launch_angle)
             {
