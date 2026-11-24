@@ -29,27 +29,72 @@ impl Transitions {
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Clone, Copy)]
+struct Trial {
+    name: &'static str,
+    speed_delta_ms: f64,
+    power_delta: f64,
+}
+
+const LEGACY_TRIALS: &[Trial] = &[
+    Trial {
+        name: "power_plus_1",
+        speed_delta_ms: 0.0,
+        power_delta: POWER_DELTA,
+    },
+    Trial {
+        name: "speed_plus_1_ms",
+        speed_delta_ms: SPEED_DELTA_MS,
+        power_delta: 0.0,
+    },
+];
+
+#[derive(Serialize)]
 struct Cell {
     paired_contacts: u64,
     baseline_home_runs: u64,
     baseline_doubles: u64,
-    power_plus_1: Transitions,
-    speed_plus_1_ms: Transitions,
+    #[serde(flatten)]
+    trials: BTreeMap<&'static str, Transitions>,
 }
 
 impl Cell {
-    fn observe(&mut self, was_hr: bool, was_double: bool, trials: [(bool, f64); 2]) {
+    fn new(trials: &[Trial]) -> Self {
+        Self {
+            paired_contacts: 0,
+            baseline_home_runs: 0,
+            baseline_doubles: 0,
+            trials: trials
+                .iter()
+                .map(|trial| (trial.name, Transitions::default()))
+                .collect(),
+        }
+    }
+
+    fn observe(
+        &mut self,
+        was_hr: bool,
+        was_double: bool,
+        outcomes: &[(&'static str, (bool, f64))],
+    ) {
         self.paired_contacts += 1;
         self.baseline_home_runs += u64::from(was_hr);
         self.baseline_doubles += u64::from(was_double);
-        self.power_plus_1.observe(was_hr, was_double, trials[0]);
-        self.speed_plus_1_ms.observe(was_hr, was_double, trials[1]);
+        for (name, outcome) in outcomes {
+            self.trials
+                .get_mut(name)
+                .expect("registered trial")
+                .observe(was_hr, was_double, *outcome);
+        }
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Serialize)]
 pub(super) struct FrozenFlightAudit {
+    #[serde(skip)]
+    batter_id: Option<i64>,
+    #[serde(skip)]
+    trials: Vec<Trial>,
     selected_fair_contacts: u64,
     missing_inputs: u64,
     baseline_ev_mismatch: u64,
@@ -60,7 +105,51 @@ pub(super) struct FrozenFlightAudit {
     by_original_ev_vla: BTreeMap<String, Cell>,
 }
 
+impl Default for FrozenFlightAudit {
+    fn default() -> Self {
+        Self::new(None, LEGACY_TRIALS)
+    }
+}
+
 impl FrozenFlightAudit {
+    fn new(batter_id: Option<i64>, trials: &[Trial]) -> Self {
+        Self {
+            batter_id,
+            trials: trials.to_vec(),
+            selected_fair_contacts: 0,
+            missing_inputs: 0,
+            baseline_ev_mismatch: 0,
+            baseline_flight_error: 0,
+            baseline_flight_mismatch: 0,
+            trial_flight_error: 0,
+            total: Cell::new(trials),
+            by_original_ev_vla: BTreeMap::new(),
+        }
+    }
+
+    pub(super) fn for_batter(batter_id: i64, speed_delta_ms: f64, power_delta: f64) -> Self {
+        Self::new(
+            Some(batter_id),
+            &[
+                Trial {
+                    name: "reference_speed",
+                    speed_delta_ms,
+                    power_delta: 0.0,
+                },
+                Trial {
+                    name: "reference_power",
+                    speed_delta_ms: 0.0,
+                    power_delta,
+                },
+                Trial {
+                    name: "reference_speed_and_power",
+                    speed_delta_ms,
+                    power_delta,
+                },
+            ],
+        )
+    }
+
     pub(super) fn observe_game(&mut self, schedule: &GameSchedule, game: &GameResult) {
         let power: BTreeMap<_, _> = schedule
             .away_team
@@ -75,7 +164,9 @@ impl FrozenFlightAudit {
             .map(|p| ((p.count_seq, p.pitcher_id), p.ball.speed))
             .collect();
         for b in &game.player_battings {
-            if !bip_audit::is_bip(b.result) && b.result != BattingResult::HomeRun {
+            if self.batter_id.is_some_and(|id| id != b.batter_id)
+                || (!bip_audit::is_bip(b.result) && b.result != BattingResult::HomeRun)
+            {
                 continue;
             }
             self.selected_fair_contacts += 1;
@@ -147,27 +238,29 @@ impl FrozenFlightAudit {
                 continue;
             }
 
-            let [power_ev, speed_ev] = [
-                exit_speed(speed, power + POWER_DELTA),
-                exit_speed(speed + SPEED_DELTA_MS, power),
-            ];
-            let (Ok(power_trial), Ok(speed_trial)) = (replay(power_ev), replay(speed_ev)) else {
+            let alternatives = self
+                .trials
+                .iter()
+                .map(|trial| {
+                    let ev = exit_speed(speed + trial.speed_delta_ms, power + trial.power_delta);
+                    replay(ev).map(|flight| {
+                        (
+                            trial.name,
+                            (
+                                flight.outbound_result == OutboundResult::HomeRun,
+                                ev - live.launch_speed,
+                            ),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>();
+            let Ok(alternatives) = alternatives else {
                 self.trial_flight_error += 1;
                 continue;
             };
             let was_hr = baseline.outbound_result == OutboundResult::HomeRun;
-            let alternatives = [
-                (
-                    power_trial.outbound_result == OutboundResult::HomeRun,
-                    power_ev - live.launch_speed,
-                ),
-                (
-                    speed_trial.outbound_result == OutboundResult::HomeRun,
-                    speed_ev - live.launch_speed,
-                ),
-            ];
             let was_double = b.result == BattingResult::Double;
-            self.total.observe(was_hr, was_double, alternatives);
+            self.total.observe(was_hr, was_double, &alternatives);
             let ev = bip_audit::band(live.launch_speed, &[35.0, 40.0, 45.0, 47.5, 50.0, 55.0]);
             let vla = bip_audit::band(
                 live.launch_angle,
@@ -175,8 +268,8 @@ impl FrozenFlightAudit {
             );
             self.by_original_ev_vla
                 .entry(format!("EV_ms:{ev}|VLA_deg:{vla}"))
-                .or_default()
-                .observe(was_hr, was_double, alternatives);
+                .or_insert_with(|| Cell::new(&self.trials))
+                .observe(was_hr, was_double, &alternatives);
         }
     }
 }
