@@ -300,6 +300,25 @@ thread_local! {
         const { std::cell::Cell::new(SwingExecutionModel::Legacy) };
     static FAST_SWING_MAX_ERROR_SCALE: std::cell::Cell<f64> =
         const { std::cell::Cell::new(1.0) };
+    static COLLISION_POWER_TRIAL: std::cell::Cell<Option<(f64, f64)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Retain a fraction of each batter's collision coefficient difference from the roster median.
+pub fn with_collision_power_trial<T>(
+    median_power: f64,
+    retained_fraction: f64,
+    run: impl FnOnce() -> T,
+) -> T {
+    struct Restore(Option<(f64, f64)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            COLLISION_POWER_TRIAL.set(self.0);
+        }
+    }
+    let trial = (retained_fraction != 1.0).then(|| (sigmoid(median_power), retained_fraction));
+    let _restore = Restore(COLLISION_POWER_TRIAL.replace(trial));
+    run()
 }
 
 pub const FAST_SWING_ERROR_START_MS: f64 = 34.0;
@@ -920,7 +939,11 @@ pub fn launch_speed_terms(
     // 1. Theoretical maximum exit velocity on perfect sweet-spot contact (m/s)
     const C_PITCH: f64 = 0.18; // Pitch speed contribution (18%)
     // Dynamic C_SWING variation based on swing_power (1.12 ~ 1.28)
-    let power = calculate_effective_c_swing(sigmoid(swing_power), depth_displacement_m);
+    let power = sigmoid(swing_power);
+    let power = COLLISION_POWER_TRIAL
+        .get()
+        .map_or(power, |(median, retained)| median + retained * (power - median));
+    let power = calculate_effective_c_swing(power, depth_displacement_m);
     let c_swing: f64 = 1.12 + (0.16 * power);
 
     // 2. Thickness-direction energy decay rate (E_thick: 0.0 ~ 1.0)
@@ -1634,6 +1657,26 @@ mod tests {
     use crate::domain::util::Vector3D;
 
     type TestResult = Result<(), GameError>;
+
+    #[test]
+    fn collision_power_trial_interpolates_the_coefficient_at_each_depth() {
+        for depth in [-0.10, 0.0, 0.10] {
+            for power in [-1.0, 2.0] {
+                let terms = |power| launch_speed_terms(40.0, 35.0, power, depth, 0.03, 0.05);
+                let original = terms(power);
+                let median = terms(0.1);
+                let uniform = with_collision_power_trial(0.1, 0.0, || terms(power));
+                let half = with_collision_power_trial(0.1, 0.5, || terms(power));
+                assert_eq!(uniform.exit_speed_ms(), median.exit_speed_ms());
+                assert_eq!(half.pitch_term_ms, original.pitch_term_ms);
+                assert_eq!(half.thickness_retention, original.thickness_retention);
+                assert_eq!(half.length_retention, original.length_retention);
+                let midpoint = original.swing_term_ms.midpoint(median.swing_term_ms);
+                assert!((half.swing_term_ms - midpoint).abs() < 1e-12);
+                assert_eq!(terms(power).exit_speed_ms(), original.exit_speed_ms());
+            }
+        }
+    }
 
     #[test]
     fn fast_swing_trial_widens_only_execution_errors_without_new_draws() {
