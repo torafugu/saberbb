@@ -10,7 +10,7 @@ use saberbb::domain::{
     resolver::batting_calibration::{
         BAT_CONTROL_CORRECTION_MIDPOINT, BATTING_EYE_TIMING_MIDPOINT, with_calibrated_batting,
     },
-    shared::game_state::with_line_drive_attack_angle_trial,
+    shared::{game_state::with_line_drive_attack_angle_trial, game_stats::PlayerGameBatting},
     strategy::batting_strategy::BattingStrategySettings,
 };
 use saberbb::{
@@ -169,6 +169,66 @@ impl AttackAngleLaunchBands {
     }
 }
 
+#[derive(Default)]
+struct BatterContactAudit {
+    counts: Counts,
+    swings: u64,
+    whiffs: u64,
+    fair: FairBallOutcomes,
+    fair_contacts: Vec<Value>,
+}
+
+impl BatterContactAudit {
+    fn observe(&mut self, game: &GameSchedule, batting: &PlayerGameBatting) {
+        self.counts.batting(batting.result);
+        if batting.swing_decision.is_some_and(|decision| decision.swung) {
+            self.swings += 1;
+            self.whiffs += u64::from(batting.adjusted_contact_type == SwingContactType::SwungAndMiss);
+        }
+        let prior_fair_plays = self.fair.plays;
+        self.fair.observe(batting.result);
+        if self.fair.plays == prior_fair_plays {
+            return;
+        }
+        self.fair_contacts.push(json!({
+            "game_id": game.id,
+            "count_seq": batting.count_seq,
+            "stadium_id": game.stadium.id,
+            "pitcher_id": batting.pitcher_id,
+            "result": batting.result,
+            "contact_type": batting.adjusted_contact_type,
+            "exit_speed_ms": batting.ball.launch_speed,
+            "launch_angle_deg": batting.ball.launch_angle,
+            "spray_angle_deg": batting.final_hla_deg,
+            "spin_rpm": batting.ball.spin_rate,
+            "timing_error_ms": batting.timing_error * 1_000.0,
+            "signed_length_offset_m": batting.signed_length_offset_m,
+            "signed_thickness_offset_m": batting.signed_thickness_offset_m,
+        }));
+    }
+
+    fn into_json(self) -> Value {
+        json!({
+            "pa": self.counts.pa,
+            "ab": self.counts.ab,
+            "strikeouts": self.counts.strikeouts,
+            "walks": self.counts.walks,
+            "hit_by_pitch": self.counts.hit_by_pitch,
+            "hr_per_pa": ratio(self.counts.hr, self.counts.pa),
+            "swings": self.swings,
+            "whiffs": self.whiffs,
+            "fair_outcomes": self.fair,
+            "fair_per_pa": ratio(self.fair.plays, self.counts.pa),
+            "hr_per_fair": ratio(self.fair.home_run, self.fair.plays),
+            "fair_contacts": self.fair_contacts,
+        })
+    }
+}
+
+fn ratio(numerator: u64, denominator: u64) -> Option<f64> {
+    (denominator > 0).then(|| numerator as f64 / denominator as f64)
+}
+
 pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Result<Value> {
     const HOME_RUN_TARGET: u64 = 20;
     const SPEED_SWEEP: [(&str, f64); 4] = [
@@ -202,6 +262,20 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 .map(move |player| (player.info.id, (team.id, player)))
         })
         .collect();
+    let mut contact_batters = BTreeMap::new();
+    for &id in &args.balance_contact_batter_ids {
+        let (_, player) = roster
+            .get(&id)
+            .with_context(|| format!("contact audit batter {id} is not on a scheduled roster"))?;
+        let batter = player
+            .offense_skills
+            .batter
+            .with_context(|| format!("contact audit player {id} has no batting abilities"))?;
+        ensure!(
+            contact_batters.insert(id, batter).is_none(),
+            "duplicate contact audit batter {id}"
+        );
+    }
     let skills: Vec<_> = roster
         .values()
         .filter_map(|(_, p)| p.offense_skills.batter)
@@ -392,6 +466,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 && !live_batting_abilities
                 && arm_index == 0)
                 .then(FrozenFlightAudit::default);
+            let mut contact_audit = BTreeMap::<i64, BatterContactAudit>::new();
+            if label == "batting_eye_minus_0_25" {
+                contact_audit.extend(
+                    contact_batters
+                        .keys()
+                        .map(|&id| (id, BatterContactAudit::default())),
+                );
+            }
             let (mut swings, mut whiffs) = (0_u64, 0_u64);
             for (index, original) in games.iter().enumerate() {
                 let mut game = original.clone();
@@ -468,6 +550,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                             whiffs += u64::from(
                                 batting.adjusted_contact_type == SwingContactType::SwungAndMiss,
                             );
+                        }
+                    }
+                }
+                if !contact_audit.is_empty() {
+                    for batting in &result.player_battings {
+                        if let Some(audit) = contact_audit.get_mut(&batting.batter_id) {
+                            audit.observe(original, batting);
                         }
                     }
                 }
@@ -548,6 +637,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     report["frozen_flight"] = json!(audit);
                 }
             }
+            if !contact_audit.is_empty() {
+                report["batter_contact_audit"] = json!(
+                    contact_audit
+                        .into_iter()
+                        .map(|(id, audit)| (id, audit.into_json()))
+                        .collect::<BTreeMap<_, _>>()
+                );
+            }
             if let Some(group) = baseline_hr_group {
                 report["baseline_hr_leaders"] = group;
             }
@@ -603,6 +700,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
+    if !contact_batters.is_empty() {
+        output["contact_audit"] = json!({
+            "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
+                .unwrap_or_else(|_| "legacy".into()),
+            "roster_batting_abilities": contact_batters,
+            "definition": "Fair contacts use the replay's counted fair plate-appearance outcomes, including home runs. Roster abilities are reported before the arm's deltas. Each fair contact is keyed by game ID and count sequence within its seed.",
+        });
+    }
     if swing_attributes {
         output["swing_attributes"] = json!({
             "game_replay": "Uses the regular-game lineup and pitching policies with frozen pregame workload and pitching statistics from the source database. Trial games do not update that history. Ability deltas apply to cloned rosters and can affect lineup selections.",
