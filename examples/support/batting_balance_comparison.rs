@@ -59,11 +59,15 @@ impl UpperTail {
     }
 
     fn retain_excess(&self, value: f64, fraction: f64) -> f64 {
-        if value > self.threshold && fraction != 1.0 {
-            self.threshold + fraction * (value - self.threshold)
-        } else {
-            value
-        }
+        retain_excess_above(value, self.threshold, fraction)
+    }
+}
+
+fn retain_excess_above(value: f64, threshold: f64, fraction: f64) -> f64 {
+    if value > threshold && fraction != 1.0 {
+        threshold + fraction * (value - threshold)
+    } else {
+        value
     }
 }
 
@@ -353,6 +357,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         ("shared_speed_34_5", 34.5),
         ("shared_speed_35_0", 35.0),
     ];
+    const MEDIAN_POWER_SPEED_TAIL_START_MS: f64 = 34.0;
+    const MEDIAN_POWER_SPEED_TAIL_TRIALS: [(&str, f64); 3] = [
+        ("collision_power_median", 1.0),
+        ("median_power_speed_tail_half", 0.5),
+        ("median_power_speed_tail_cap", 0.0),
+    ];
     let swing_attributes = args.balance_swing_attributes;
     let live_batting_abilities = args.balance_live_batting_abilities;
     let angle_power_tuning = args.balance_angle_power_tuning;
@@ -368,7 +378,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let median_power_speed_swap = args.balance_contact_median_power_speed_swap;
     let live_speed_swap = args.balance_live_median_power_speed_swap;
     let shared_speed_sweep = args.balance_live_median_power_shared_speed_sweep;
-    let compare_live_speeds = live_speed_swap || shared_speed_sweep;
+    let median_power_speed_tail_sweep = args.balance_live_median_power_speed_tail_sweep;
+    let compare_live_speeds = live_speed_swap || shared_speed_sweep || median_power_speed_tail_sweep;
     let live_collision_power =
         collision_power_sweep || median_power_speed_swap || compare_live_speeds;
     let fixed_opening_lineups = fixed_lineups || compare_live_speeds;
@@ -514,7 +525,11 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     // Each pair specifies the amount to subtract from bat control and batting eye.
     let shared_speed_ability_trials = SHARED_SPEED_TRIALS
         .map(|(label, _)| (label, 0.0, GAME_BATTING_EYE_REDUCTION));
-    let batting_ability_trials: &[(&str, f64, f64)] = if shared_speed_sweep {
+    let median_power_speed_tail_ability_trials = MEDIAN_POWER_SPEED_TAIL_TRIALS
+        .map(|(label, _)| (label, 0.0, GAME_BATTING_EYE_REDUCTION));
+    let batting_ability_trials: &[(&str, f64, f64)] = if median_power_speed_tail_sweep {
+        &median_power_speed_tail_ability_trials
+    } else if shared_speed_sweep {
         &shared_speed_ability_trials
     } else if live_speed_swap {
         &[
@@ -730,8 +745,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             _ => 1.0,
         };
         let shared_speed = shared_speed_sweep.then(|| SHARED_SPEED_TRIALS[arm_index].1);
+        let median_power_speed_fraction =
+            median_power_speed_tail_sweep.then(|| MEDIAN_POWER_SPEED_TAIL_TRIALS[arm_index].1);
         let retained_collision_power = match label {
-            _ if shared_speed.is_some() => 0.0,
+            _ if shared_speed.is_some() || median_power_speed_fraction.is_some() => 0.0,
             "collision_power_half" => 0.5,
             "collision_power_median" | "collision_power_median_swapped_speed" => 0.0,
             _ => 1.0,
@@ -764,11 +781,16 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         } else {
             BTreeMap::new()
         };
+        let adjust_speed_tail = |speed| {
+            median_power_speed_fraction.map_or(speed, |fraction| {
+                retain_excess_above(speed, MEDIAN_POWER_SPEED_TAIL_START_MS, fraction)
+            })
+        };
         let trial_speed = |id, speed| {
             trial_speeds
                 .get(&id)
                 .copied()
-                .unwrap_or_else(|| effective_speed(speed))
+                .unwrap_or_else(|| adjust_speed_tail(effective_speed(speed)))
         };
         let effective_power = |power: f64| {
             let power = power + power_delta;
@@ -1217,7 +1239,17 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             arm["fast_swing_max_error_scale"] = json!(fast_swing_max_scale);
         }
         if capped_zero_bonus {
-            arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms);
+            arm["effective_swing_speed_cap_ms"] = json!(swing_speed_cap_ms.map(adjust_speed_tail));
+        }
+        if let Some(fraction) = median_power_speed_fraction {
+            arm["retained_speed_excess_fraction"] = json!(fraction);
+            arm["speed_tail_affected_roster_batters"] = json!(skills
+                .iter()
+                .filter(|batter| {
+                    let speed = effective_speed(batter.swing_speed);
+                    adjust_speed_tail(speed) < speed
+                })
+                .count());
         }
         if live_collision_power {
             arm["collision_power_retained_fraction"] = json!(retained_collision_power);
@@ -1258,7 +1290,18 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if shared_speed_sweep && let Some(median) = median_power {
+    if median_power_speed_tail_sweep && let Some(median) = median_power {
+        output["live_median_power_speed_tail_sweep"] = json!({
+            "batter_ids": contact_batters.keys().copied().collect::<Vec<_>>(),
+            "roster_swing_power_median": median,
+            "roster_batters": skills.len(),
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "base_swing_speed_cap_ms": COMMON_CAP_MS,
+            "speed_tail_start_ms": MEDIAN_POWER_SPEED_TAIL_START_MS,
+            "definition": "Play complete games with collision power set to roster-median swing power at each contact depth. After the common speed cap, retain the arm fraction of each roster batter's excess above the speed threshold. Use the control arm's opening lineups, schedules and starting seeds. League and audited batter rates are pooled across seeds.",
+        });
+    } else if shared_speed_sweep && let Some(median) = median_power {
         output["live_median_power_shared_speed_sweep"] = json!({
             "batter_ids": contact_batters.keys().copied().collect::<Vec<_>>(),
             "roster_swing_power_median": median,
