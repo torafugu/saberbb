@@ -87,7 +87,7 @@ mod vertical_contact_replay;
     "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep", "balance_capped_power_fixed_lineups",
     "balance_fast_swing_error_sweep", "balance_contact_median_power_replay",
     "balance_collision_power_sweep", "balance_contact_median_power_speed_swap",
-    "balance_live_median_power_speed_swap"
+    "balance_live_median_power_speed_swap", "balance_live_median_power_shared_speed_sweep"
 ])))]
 struct Args {
     #[arg(long)]
@@ -215,6 +215,14 @@ struct Args {
             "balance_current_only", "balance_contact_flight_reference_id"
         ])]
     balance_live_median_power_speed_swap: bool,
+    /// Play complete median-collision-power games with two batters at shared speeds of 33.5–35.0 m/s.
+    #[arg(long, requires_all = ["balance_live_batting_abilities", "balance_contact_batter_ids"],
+        conflicts_with_all = [
+            "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_swing_speed_cap_sweep",
+            "balance_capped_swing_tail_comparison", "balance_fast_swing_error_sweep",
+            "balance_current_only", "balance_contact_flight_reference_id"
+        ])]
+    balance_live_median_power_shared_speed_sweep: bool,
     /// Export batter contact diagnostics in a supported batting balance mode.
     #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
@@ -2010,6 +2018,28 @@ mod tests {
         assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
         assert!(
             Args::try_parse_from(with_batters().chain(["--balance-contact-median-power-speed-swap"]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn shared_speed_sweep_requires_contact_batters_and_excludes_the_speed_swap() {
+        let args = [
+            "check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-swing-attributes",
+            "--balance-live-batting-abilities",
+            "--balance-live-median-power-shared-speed-sweep",
+        ];
+        assert!(Args::try_parse_from(args).is_err());
+        let with_batters = || args.into_iter().chain(["--balance-contact-batter-ids", "627,649"]);
+        let parsed = Args::try_parse_from(with_batters()).unwrap();
+        assert!(parsed.balance_live_median_power_shared_speed_sweep);
+        assert_eq!(parsed.balance_contact_batter_ids, [627, 649]);
+        assert!(
+            Args::try_parse_from(with_batters().chain(["--balance-live-median-power-speed-swap"]))
                 .is_err()
         );
     }
