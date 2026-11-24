@@ -174,6 +174,10 @@ struct Args {
     #[arg(long, requires_all = ["balance_contact_batter_ids", "balance_swing_speed_cap_sweep"],
         conflicts_with = "balance_batting_eye_sweep")]
     balance_contact_launch_angle_replay: bool,
+    /// Swap the two audited batters' effective speed and power on fixed contacts in the 35.5 m/s cap arm.
+    #[arg(long, requires_all = ["balance_contact_batter_ids", "balance_swing_speed_cap_sweep"],
+        conflicts_with = "balance_batting_eye_sweep")]
+    balance_contact_swap_batting_attributes: bool,
     /// Replay selected fair balls with this roster batter's speed, power, and both.
     #[arg(long, requires = "balance_contact_batter_ids", conflicts_with_all = [
         "balance_current_only", "balance_swing_speed_cap_sweep"
@@ -1806,6 +1810,14 @@ mod tests {
         assert!(both.balance_contact_launch_angle_replay && both.balance_contact_exit_speed_replay);
         assert!(Args::try_parse_from(with_batters().chain([eye, angle_replay])).is_err());
         assert!(Args::try_parse_from(common.into_iter().chain([cap, angle_replay])).is_err());
+        let swap = "--balance-contact-swap-batting-attributes";
+        assert!(
+            Args::try_parse_from(with_batters().chain([cap, swap]))
+                .unwrap()
+                .balance_contact_swap_batting_attributes
+        );
+        assert!(Args::try_parse_from(with_batters().chain([eye, swap])).is_err());
+        assert!(Args::try_parse_from(common.into_iter().chain([cap, swap])).is_err());
     }
 
     #[test]
