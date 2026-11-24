@@ -1,5 +1,6 @@
 use super::swing_attribute_flight::{
-    EXIT_SPEED_REDUCTIONS, ExitSpeedFlightAudit, FrozenFlightAudit, POWER_DELTA, SPEED_DELTA_MS,
+    CappedContactFlightAudit, CappedFlightAdjustment, EXIT_SPEED_REDUCTIONS, FrozenFlightAudit,
+    LAUNCH_ANGLE_SHIFTS, POWER_DELTA, SPEED_DELTA_MS,
 };
 use super::{
     Args, Counts, FairBallOutcomes, GameResult, GameSchedule, accumulate, bip_audit::band, derived_seed,
@@ -186,7 +187,8 @@ struct BatterContactAudit {
     fair: FairBallOutcomes,
     fair_by_ev_and_vla: BTreeMap<String, BTreeMap<String, FairBallOutcomes>>,
     fair_contacts: Vec<Value>,
-    exit_speed_replay: Option<ExitSpeedFlightAudit>,
+    exit_speed_replay: Option<CappedContactFlightAudit>,
+    launch_angle_replay: Option<CappedContactFlightAudit>,
 }
 
 impl BatterContactAudit {
@@ -201,7 +203,11 @@ impl BatterContactAudit {
         if self.fair.plays == prior_fair_plays {
             return;
         }
-        if let Some(replay) = &mut self.exit_speed_replay {
+        for replay in self
+            .exit_speed_replay
+            .iter_mut()
+            .chain(&mut self.launch_angle_replay)
+        {
             replay.observe(&game.stadium, batting);
         }
         self.fair_by_ev_and_vla
@@ -245,6 +251,9 @@ impl BatterContactAudit {
         });
         if let Some(replay) = self.exit_speed_replay {
             output["exit_speed_flight_replay"] = json!(replay);
+        }
+        if let Some(replay) = self.launch_angle_replay {
+            output["launch_angle_flight_replay"] = json!(replay);
         }
         output
     }
@@ -518,6 +527,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         let swing_speed_cap_ms = speed_cap_sweep.then(|| speed_caps_ms[arm_index]).flatten();
         let replay_exit_speed =
             args.balance_contact_exit_speed_replay && swing_speed_cap_ms == Some(35.5);
+        let replay_launch_angle =
+            args.balance_contact_launch_angle_replay && swing_speed_cap_ms == Some(35.5);
         let effective_speed = |speed: f64| {
             let speed = speed_tail.as_ref().zip(retained_speed_excess)
                 .map_or(speed, |(tail, fraction)| tail.retain_excess(speed, fraction));
@@ -544,7 +555,12 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                     (
                         id,
                         BatterContactAudit {
-                            exit_speed_replay: replay_exit_speed.then(ExitSpeedFlightAudit::default),
+                            exit_speed_replay: replay_exit_speed.then(|| {
+                                CappedContactFlightAudit::new(CappedFlightAdjustment::ExitSpeed)
+                            }),
+                            launch_angle_replay: replay_launch_angle.then(|| {
+                                CappedContactFlightAudit::new(CappedFlightAdjustment::LaunchAngle)
+                            }),
                             ..BatterContactAudit::default()
                         },
                     )
@@ -885,6 +901,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "arm": "speed_cap_35_5",
             "exit_speed_reductions_ms": EXIT_SPEED_REDUCTIONS.into_iter().collect::<BTreeMap<_, _>>(),
             "definition": "Replay counted fair balls with original exit speed 47.5 to under 52.5 m/s and vertical launch angle 20 to under 35 degrees. Report transitions by original band, holding direction, spin rate and axis, stadium, and flight settings fixed. Require the reconstructed baseline to match the recorded flight and recorded home-run status; all reductions use the same accepted contacts. Count fence-clearing home runs from the flight model.",
+        });
+    }
+    if args.balance_contact_launch_angle_replay {
+        output["contact_launch_angle_replay"] = json!({
+            "arm": "speed_cap_35_5",
+            "vertical_launch_angle_shifts_deg": LAUNCH_ANGLE_SHIFTS.into_iter().collect::<BTreeMap<_, _>>(),
+            "definition": "Replay counted fair balls with original exit speed 47.5 to under 52.5 m/s and vertical launch angle 20 to under 35 degrees. Report transitions by original band, holding exit speed, spray angle, spin rate and axis, stadium, and flight settings fixed. Require the reconstructed baseline to match the recorded flight and recorded home-run status; all angle shifts use the same accepted contacts. Count fence-clearing home runs from the flight model.",
         });
     }
     if let Some(reference) = flight_reference {
