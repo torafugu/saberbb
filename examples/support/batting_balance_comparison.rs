@@ -377,12 +377,15 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     let median_power_speed_tail_sweep = args.balance_live_median_power_speed_tail_sweep;
     let current_power_speed_tail_sweep = args.balance_live_current_power_speed_tail_sweep;
     let roster_speed_tail_sweep = median_power_speed_tail_sweep || current_power_speed_tail_sweep;
-    let compare_live_speeds = live_speed_swap || shared_speed_sweep || roster_speed_tail_sweep;
+    let half_power_speed_cap = args.balance_live_half_power_speed_cap;
+    let compare_live_speeds =
+        live_speed_swap || shared_speed_sweep || roster_speed_tail_sweep || half_power_speed_cap;
     let live_collision_power = collision_power_sweep
         || median_power_speed_swap
         || live_speed_swap
         || shared_speed_sweep
-        || median_power_speed_tail_sweep;
+        || median_power_speed_tail_sweep
+        || half_power_speed_cap;
     let fixed_opening_lineups = fixed_lineups || compare_live_speeds;
     let capped_zero_bonus = fast_swing_sweep
         || median_power_replay
@@ -544,7 +547,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
     };
     let roster_speed_tail_ability_trials =
         roster_speed_tail_labels.map(|label| (label, 0.0, GAME_BATTING_EYE_REDUCTION));
-    let batting_ability_trials: &[(&str, f64, f64)] = if roster_speed_tail_sweep {
+    let batting_ability_trials: &[(&str, f64, f64)] = if half_power_speed_cap {
+        &[(
+            "collision_power_half_speed_cap_34_0",
+            0.0,
+            GAME_BATTING_EYE_REDUCTION,
+        )]
+    } else if roster_speed_tail_sweep {
         &roster_speed_tail_ability_trials
     } else if shared_speed_sweep {
         &shared_speed_ability_trials
@@ -762,11 +771,14 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             _ => 1.0,
         };
         let shared_speed = shared_speed_sweep.then(|| SHARED_SPEED_TRIALS[arm_index].1);
-        let roster_speed_tail_fraction =
-            roster_speed_tail_sweep.then(|| ROSTER_SPEED_TAIL_FRACTIONS[arm_index]);
+        let roster_speed_tail_fraction = if half_power_speed_cap {
+            Some(0.0)
+        } else {
+            roster_speed_tail_sweep.then(|| ROSTER_SPEED_TAIL_FRACTIONS[arm_index])
+        };
         let retained_collision_power = match label {
             _ if shared_speed.is_some() || median_power_speed_tail_sweep => 0.0,
-            "collision_power_half" => 0.5,
+            "collision_power_half" | "collision_power_half_speed_cap_34_0" => 0.5,
             "collision_power_median" | "collision_power_median_swapped_speed" => 0.0,
             _ => 1.0,
         };
@@ -933,7 +945,10 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 };
                 let mut game = original.clone();
                 apply_abilities(&mut game, false);
-                let lineup_source = (shared_speed_sweep || (fixed_opening_lineups && arm_index > 0))
+                // Standalone trials use the same opening selection as the other speed conditions.
+                let lineup_source = (half_power_speed_cap
+                    || shared_speed_sweep
+                    || (fixed_opening_lineups && arm_index > 0))
                     .then(|| {
                         let mut control = original.clone();
                         apply_abilities(&mut control, true);
@@ -1307,7 +1322,18 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         "definition": "Replay independent regular-season games with the same original rosters, schedules and starting seeds. Later pitches and results can diverge. Qualification is evaluated separately per seed, using each batter's team game count and 3.1 PA per game rounded to the nearest whole PA. Batting averages are unrounded for banding. The batter rows and PA bands include players with at least one PA; PA bands use PA divided by the team qualification threshold. Players with no AB have no batting average. The roster angle delta applies to both batting intents, and the LineDrive delta adds to that intent’s execution angle.",
         "arms": arms,
     });
-    if roster_speed_tail_sweep {
+    if half_power_speed_cap && let Some(median) = median_power {
+        output["live_half_power_speed_cap"] = json!({
+            "batter_ids": contact_batters.keys().copied().collect::<Vec<_>>(),
+            "roster_swing_power_median": median,
+            "roster_batters": skills.len(),
+            "swing_execution_model": "mixture",
+            "swing_speed_bonus_ms": 0.0,
+            "base_swing_speed_cap_ms": COMMON_CAP_MS,
+            "swing_speed_cap_ms": ROSTER_SPEED_TAIL_START_MS,
+            "definition": "Play complete games at a roster-wide 34 m/s speed cap. At each contact depth retain half of the difference between each batter's current collision coefficient and the coefficient at roster-median swing power. Choose opening lineups with the original capped batting abilities, as in the current- and median-power endpoint runs. League and audited batter rates are pooled across seeds.",
+        });
+    } else if roster_speed_tail_sweep {
         let mut settings = json!({
             "batter_ids": contact_batters.keys().copied().collect::<Vec<_>>(),
             "roster_batters": skills.len(),
