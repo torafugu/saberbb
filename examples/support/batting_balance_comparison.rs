@@ -1,6 +1,6 @@
 use super::swing_attribute_flight::{FrozenFlightAudit, POWER_DELTA, SPEED_DELTA_MS};
 use super::{
-    Args, Counts, FairBallOutcomes, GameResult, GameSchedule, accumulate, derived_seed,
+    Args, Counts, FairBallOutcomes, GameResult, GameSchedule, accumulate, bip_audit::band, derived_seed,
     fair_launch_audit::HIGH_EV_MIN_MS, simulate_game,
 };
 use anyhow::{Context, Result, ensure};
@@ -173,12 +173,16 @@ impl AttackAngleLaunchBands {
     }
 }
 
+const CONTACT_EV_EDGES_MS: &[f64] = &[40.0, 45.0, 47.5, 50.0, 52.5, 55.0];
+const CONTACT_VLA_EDGES_DEG: &[f64] = &[15.0, 20.0, 25.0, 30.0, 35.0, 40.0];
+
 #[derive(Default)]
 struct BatterContactAudit {
     counts: Counts,
     swings: u64,
     whiffs: u64,
     fair: FairBallOutcomes,
+    fair_by_ev_and_vla: BTreeMap<String, BTreeMap<String, FairBallOutcomes>>,
     fair_contacts: Vec<Value>,
 }
 
@@ -194,6 +198,12 @@ impl BatterContactAudit {
         if self.fair.plays == prior_fair_plays {
             return;
         }
+        self.fair_by_ev_and_vla
+            .entry(band(batting.ball.launch_speed, CONTACT_EV_EDGES_MS))
+            .or_default()
+            .entry(band(batting.ball.launch_angle, CONTACT_VLA_EDGES_DEG))
+            .or_default()
+            .observe(batting.result);
         self.fair_contacts.push(json!({
             "game_id": game.id,
             "count_seq": batting.count_seq,
@@ -224,6 +234,7 @@ impl BatterContactAudit {
             "fair_outcomes": self.fair,
             "fair_per_pa": ratio(self.fair.plays, self.counts.pa),
             "hr_per_fair": ratio(self.fair.home_run, self.fair.plays),
+            "fair_outcomes_by_ev_and_vla": self.fair_by_ev_and_vla,
             "fair_contacts": self.fair_contacts,
         })
     }
@@ -516,7 +527,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
                 && arm_index == 0)
                 .then(FrozenFlightAudit::default);
             let mut contact_audit = BTreeMap::<i64, BatterContactAudit>::new();
-            if label == "batting_eye_minus_0_25" {
+            if speed_cap_sweep || label == "batting_eye_minus_0_25" {
                 contact_audit.extend(
                     contact_batters
                         .keys()
@@ -848,7 +859,9 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
                 .unwrap_or_else(|_| "legacy".into()),
             "roster_batting_abilities": contact_batters,
-            "definition": "Fair contacts use the replay's counted fair plate-appearance outcomes, including home runs. Roster abilities are reported before the arm's deltas. Each fair contact is keyed by game ID and count sequence within its seed.",
+            "exit_speed_edges_ms": CONTACT_EV_EDGES_MS,
+            "vertical_launch_angle_edges_deg": CONTACT_VLA_EDGES_DEG,
+            "definition": "Fair contacts use the replay's counted fair plate-appearance outcomes, including home runs. Joint bands are keyed by exit speed first and vertical launch angle second, with inclusive lower and exclusive upper bounds. Roster abilities are reported before the arm's deltas and speed cap. Each fair contact is keyed by game ID and count sequence within its seed.",
         });
     }
     if let Some(reference) = flight_reference {
