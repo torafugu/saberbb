@@ -157,6 +157,26 @@ Ordinary processing skips both the detailed contact calculations and their persi
 in `player_game_contact_state`; existing records are retained. Explicit-seed diagnostic
 runs continue to record contact states. Recording does not change game outcomes.
 
+To play scheduled games using the mixture model and the 35.5 m/s swing-speed
+cap used by the batting diagnostics, set these variables in Windows Command
+Prompt:
+
+```cmd
+set "SABERBB_DB=C:\path\to\saberbb.db"
+set "SABERBB_SWING_EXECUTION=mixture"
+set "SABERBB_SWING_SPEED_BONUS_MS=2.0"
+set "SABERBB_SWING_SPEED_CAP_MS=35.5"
+cargo run --release -- --process 40
+```
+
+The cap applies after adding the bonus. Try `1.0` or `0.0` for the bonus to
+compare those settings. The existing 0.25 batting-eye reduction still applies.
+These settings apply to normal processing and analysis. With the variables
+unset, the saved database path, legacy execution, +2.0 m/s bonus and uncapped
+speed are used. Processing saves the results and advances the schedule in the
+selected database. Start each comparison from a separate copy of the same
+pregame database. Use the scheduled matchups to convert rounds into games.
+
 Short flags are also available:
 
 ```sh
