@@ -83,6 +83,9 @@ mod vertical_contact_game_sweep;
 mod vertical_contact_replay;
 
 #[derive(Parser)]
+#[command(group(clap::ArgGroup::new("balance_contact_audit_mode").args([
+    "balance_batting_eye_sweep", "balance_swing_speed_cap_sweep"
+])))]
 struct Args {
     #[arg(long)]
     season: u16,
@@ -160,11 +163,13 @@ struct Args {
         "balance_batting_eye_sweep", "balance_swing_speed_upper_tail", "balance_current_only"
     ])]
     balance_swing_speed_cap_sweep: bool,
-    /// Export swing and fair-contact diagnostics for these batters in the -0.25 eye arm.
-    #[arg(long, value_delimiter = ',', requires = "balance_batting_eye_sweep")]
+    /// Export batter contact diagnostics for the -0.25 eye arm or all swing-speed cap arms.
+    #[arg(long, value_delimiter = ',', requires = "balance_contact_audit_mode")]
     balance_contact_batter_ids: Vec<i64>,
     /// Replay selected fair balls with this roster batter's speed, power, and both.
-    #[arg(long, requires = "balance_contact_batter_ids", conflicts_with = "balance_current_only")]
+    #[arg(long, requires = "balance_contact_batter_ids", conflicts_with_all = [
+        "balance_current_only", "balance_swing_speed_cap_sweep"
+    ])]
     balance_contact_flight_reference_id: Option<i64>,
     /// Report plate appearances and batting averages for the current balance arm only.
     #[arg(long, requires = "batting_balance_comparison", conflicts_with = "balance_line_drive_attack_deg")]
@@ -1756,6 +1761,32 @@ fn simulate_reports_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batter_contact_audit_accepts_eye_or_cap_sweeps() {
+        let common = [
+            "check",
+            "--season",
+            "2026",
+            "--batting-balance-comparison",
+            "--balance-swing-attributes",
+            "--balance-live-batting-abilities",
+            "--balance-contact-batter-ids",
+            "627,649",
+        ];
+        let eye = "--balance-batting-eye-sweep";
+        let cap = "--balance-swing-speed-cap-sweep";
+        let reference = ["--balance-contact-flight-reference-id", "649"];
+        assert!(Args::try_parse_from(common).is_err());
+        assert_eq!(
+            Args::try_parse_from(common.into_iter().chain([cap]))
+                .unwrap()
+                .balance_contact_batter_ids,
+            [627, 649]
+        );
+        assert!(Args::try_parse_from(common.into_iter().chain([eye]).chain(reference)).is_ok());
+        assert!(Args::try_parse_from(common.into_iter().chain([cap]).chain(reference)).is_err());
+    }
 
     #[test]
     fn ground_rule_double_trial_requires_a_vertical_contact_comparison() {
