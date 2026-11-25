@@ -1280,6 +1280,14 @@ impl GameState {
             0.5,
         )
         .ok_or(GameError::NoPitchCall)?;
+        crate::domain::strategy::pitching_strategy::audit::record(
+            pitcher_id,
+            count,
+            &context,
+            [&pitcher_preferences, &catcher_preferences],
+            [&pitcher_proposals, &catcher_proposals],
+            decision,
+        );
         let pitch_call = decision.pitch_call;
 
         let hanging_pitch_effect = calculate_hanging_pitch_effect(self.rng.as_mut(), &pitcher);

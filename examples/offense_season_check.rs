@@ -387,6 +387,9 @@ struct Args {
     /// First N scheduled games, regardless of saved completion; omit for the full season.
     #[arg(long)]
     games: Option<usize>,
+    /// Audit the regular-season pitch-call shortlists and score gaps.
+    #[arg(long)]
+    pitch_call_audit: bool,
     #[arg(long, value_delimiter = ',', default_value = "7,42,20261108")]
     seeds: Vec<u64>,
     /// Replay the same swings with ContactFirst at 100%, 97%, and 94% of player bat speed.
@@ -1055,7 +1058,7 @@ fn schedules(
             .or(args.batting_ability_batter_id)
             .or(args.paired_bat_control_batter_id)
             .or(args.paired_attack_angle_batter_id),
-        args.batting_balance_comparison
+        args.batting_balance_comparison || args.pitch_call_audit
     ])?;
     let mut teams = BTreeMap::<u16, Team>::new();
     let mut games = Vec::new();
@@ -1239,6 +1242,23 @@ fn run(args: Args) -> Result<()> {
     let games = schedules(&conn, &repo, &args)?;
     let input_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&games)?));
     I18nManager::init("en-US");
+    if args.pitch_call_audit {
+        use saberbb::domain::strategy::pitching_strategy::audit::with_pitch_call_audit;
+        let (reports, audit) = with_pitch_call_audit(|| {
+            simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)
+        });
+        let output = serde_json::json!({
+            "season": args.season,
+            "games_per_seed": games.len(),
+            "seeds": args.seeds,
+            "inputs_sha256": input_hash,
+            "engine_source_sha256": saberbb::domain::seeded_diagnostic::ENGINE,
+            "pitch_call_audit": audit,
+            "reports": reports?,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
     if let Some(batter_id) = args.swing_speed_batter_id {
         let report = swing_speed_comparison::run(&conn, &args, &games, batter_id, &input_hash)?;
         println!("{}", serde_json::to_string_pretty(&report)?);

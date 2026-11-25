@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use strum_macros::{AsRefStr, EnumIter};
 
+pub mod audit;
+
 const WIDE_AIM_FACTOR: f64 = 3.0;
 const EDGE_AIM_FACTOR: f64 = 4.0;
 const OUT_AIM_FACTOR: f64 = -5.0;
@@ -137,27 +139,67 @@ pub fn evaluate_pitch_call(
     preferences: &PitchingPreferences,
     context: &PitchEvaluationContext<'_>,
 ) -> Option<PitchCallProposal> {
+    let (proposal, _) = evaluate_pitch_call_with_terms(call, preferences, context)?;
+    Some(proposal)
+}
+
+#[derive(Clone, Copy)]
+struct CallScoreTerms {
+    pitch_usage: f64,
+    pitch_type_strategy: f64,
+    arsenal_preference: f64,
+    location_strategy: f64,
+    base_risk: f64,
+    location_preferences: f64,
+    margin_preference: f64,
+}
+
+impl CallScoreTerms {
+    fn score(self) -> f64 {
+        self.pitch_usage
+            + self.pitch_type_strategy
+            + self.arsenal_preference
+            + self.location_strategy
+            + self.base_risk
+            + self.location_preferences
+    }
+}
+
+fn evaluate_pitch_call_with_terms(
+    call: PitchCall,
+    preferences: &PitchingPreferences,
+    context: &PitchEvaluationContext<'_>,
+) -> Option<(PitchCallProposal, CallScoreTerms)> {
     let estimate = context.estimates.get(&call.pitch_type)?;
     let &(velocity, usage_weight) = context.pitch_profiles.get(&call.pitch_type)?;
     let risks = estimate_call_risks(call, estimate, context.batter);
-    let score = usage_weight.max(1e-9).ln()
-        + pitch_type_strategy_score(context.strategy, estimate)
-        + arsenal_preference_score(
+    let margin_preference = preferences
+        .margin
+        .filter(|preferred| call.margin == preferred.margin)
+        .map(|preferred| 0.5 * preferred.strength.clamp(0.0, 1.0));
+    let terms = CallScoreTerms {
+        pitch_usage: usage_weight.max(1e-9).ln(),
+        pitch_type_strategy: pitch_type_strategy_score(context.strategy, estimate),
+        arsenal_preference: arsenal_preference_score(
             preferences,
             call.pitch_type,
             usage_weight,
             context.previous_call,
-        )
-        + pitch_call_strategy_score(context.strategy, call, estimate, risks)
-        + base_call_risk_score(risks)
-        + call_preference_score(
+        ),
+        location_strategy: pitch_call_strategy_score(context.strategy, call, estimate, risks),
+        base_risk: base_call_risk_score(risks),
+        location_preferences: call_preference_score(
             preferences,
             context.pitcher,
             call,
             velocity,
             risks,
             context.previous_call,
-        );
+            margin_preference,
+        ),
+        margin_preference: margin_preference.unwrap_or_default(),
+    };
+    let score = terms.score();
     if !score.is_finite()
         || !risks.walk.is_finite()
         || !risks.hard_contact.is_finite()
@@ -165,11 +207,14 @@ pub fn evaluate_pitch_call(
     {
         return None;
     }
-    Some(PitchCallProposal {
-        pitch_call: call,
-        score,
-        risks,
-    })
+    Some((
+        PitchCallProposal {
+            pitch_call: call,
+            score,
+            risks,
+        },
+        terms,
+    ))
 }
 
 fn pitch_call_locations(pitch_type: PitchType) -> impl Iterator<Item = PitchCall> {
@@ -903,6 +948,7 @@ fn call_preference_score(
     velocity: f64,
     risks: PitchRisks,
     previous_call: Option<PitchCall>,
+    margin_preference: Option<f64>,
 ) -> f64 {
     let mut score = 0.0;
     if let Some(preferred) = preferences.target_zone {
@@ -910,10 +956,8 @@ fn call_preference_score(
             score += 0.8 * preferred.strength.clamp(0.0, 1.0);
         }
     }
-    if let Some(preferred) = preferences.margin {
-        if pitch_call.margin == preferred.margin {
-            score += 0.5 * preferred.strength.clamp(0.0, 1.0);
-        }
+    if let Some(bonus) = margin_preference {
+        score += bonus;
     }
     if let Some(preferred) = preferences.risk {
         score -= 0.5 * preferred.walk_aversion.clamp(0.0, 1.0) * risks.walk
