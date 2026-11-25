@@ -196,19 +196,19 @@ current roster assignment.
 For a paired comparison, start with two copies of the same pre-season DB with
 the 2026 roster and schedule already in place. Close the application before
 copying the DB, or use SQLite's backup API. Run the same number of rounds and
-use the same master seed on both copies. For a balanced six-team schedule with
-three games per round, 120 rounds play 360 games (120 per team).
+use the same master seed on both copies. The default six-team schedule plays three games per
+matchup in each round. Forty rounds play 360 games (120 per team).
 
 ```cmd
 set "SABERBB_SCHEDULED_GAME_SEED=20261125"
 set "SABERBB_DB=C:\path\to\saberbb_baseline.db"
 set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0"
-cargo run --release --locked -- --process 120
+cargo run --release --locked -- --process 40
 python tools/diagnostics/pitch_control_audit.py --season 2026 > pitch_control_baseline_2026.json
 
 set "SABERBB_DB=C:\path\to\saberbb_floor.db"
 set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0.20"
-cargo run --release --locked -- --process 120
+cargo run --release --locked -- --process 40
 python tools/diagnostics/pitch_control_audit.py --season 2026 > pitch_control_floor_2026.json
 ```
 
