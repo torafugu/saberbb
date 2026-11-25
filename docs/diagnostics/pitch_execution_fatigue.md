@@ -50,15 +50,20 @@ three-ball transitions as well. Bands use pitches in the current appearance
 and do not include pregame load. The band-level three-ball rate divides
 transitions to three balls by pitches thrown with two balls.
 
-## Comparing a pitch-location control cap
+## Comparing upper-end pitch-location control
 
-`SABERBB_PITCH_CONTROL_CAP` optionally limits the control value used to
-sample actual pitch locations. The cap is applied before converting control
-to location error. The error floor and fatigue multiplier then apply in
-their existing order. Roster abilities, pitch calling, rotation, and the
-batter's expected-pitch sample keep using the existing model.
+`SABERBB_PITCH_CONTROL_CAP` sets an optional threshold for the control value
+used to sample actual pitch locations. Above that threshold, the effective
+control is `cap + (control - cap) * scale`. At and below the threshold the
+sampler uses the original control. `SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE`
+accepts values from 0 to 1. It defaults to 0 (a hard cap). A value of 0.25
+retains a quarter of the control above the threshold, preserving the ordering
+of high-control pitchers. A value of 1 or an unset threshold uses full control.
+The error floor and fatigue multiplier apply after converting effective control
+to location error. Roster abilities, pitch calling, rotation, and the batter's
+expected-pitch sample keep using the existing model.
 
-Start from two copies of the same preseason DB. The following Windows
+Start from three copies of the same preseason DB. The following Windows
 Command Prompt commands hold the 0–2 strategy, fatigue, location error
 floor, and game seed fixed:
 
@@ -69,6 +74,7 @@ set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0"
 set "SABERBB_PITCH_EXECUTION_FATIGUE=1"
 set "SABERBB_DB=C:\path\to\saberbb_baseline.db"
 set "SABERBB_PITCH_CONTROL_CAP="
+set "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE="
 cargo run --release --locked -- --process 40
 python tools/diagnostics/pitch_control_audit.py --season 2026 --count-margins --require-zero-two-out > pitch_control_uncapped_2026.json
 
@@ -76,11 +82,18 @@ set "SABERBB_DB=C:\path\to\saberbb_cap.db"
 set "SABERBB_PITCH_CONTROL_CAP=1.20"
 cargo run --release --locked -- --process 40
 python tools/diagnostics/pitch_control_audit.py --season 2026 --count-margins --require-zero-two-out > pitch_control_cap_120_2026.json
+
+set "SABERBB_DB=C:\path\to\saberbb_attenuated.db"
+set "SABERBB_PITCH_CONTROL_CAP=1.20"
+set "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE=0.25"
+cargo run --release --locked -- --process 40
+python tools/diagnostics/pitch_control_audit.py --season 2026 --count-margins --require-zero-two-out > pitch_control_attenuated_120_025_2026.json
 ```
 
 For each pitcher, read `by_count_and_margin["1-2"]["Edge"]` for the
 actual zone-external rate and the 2–2 transition rate. Use the same
 pitcher IDs to compare three-ball entries and walks per batter faced
-across trials, even if qualification changes. Matching seeds fix each
-game's initial random stream. Later plate appearances and starter
-workloads can diverge when game outcomes differ.
+across trials, even if qualification changes. Compare the rates pitcher by
+pitcher above the threshold to check how much variation the trial retains.
+Matching seeds fix each game's initial random stream. Later plate appearances
+and starter workloads can diverge when game outcomes differ.

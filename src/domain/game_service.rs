@@ -143,9 +143,24 @@ impl<R: GameRoundRepository> GameService<R> {
             Err(std::env::VarError::NotPresent) => None,
             Err(error) => return Err(error).context("Reading SABERBB_PITCH_CONTROL_CAP"),
         };
+        let control_above_cap_scale = match std::env::var("SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE") {
+            Ok(value) if value.is_empty() => 0.0,
+            Ok(value) => value
+                .parse::<f64>()
+                .context("Reading SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE")?,
+            Err(std::env::VarError::NotPresent) => 0.0,
+            Err(error) => {
+                return Err(error).context("Reading SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE");
+            }
+        };
+        ensure!(
+            (0.0..=1.0).contains(&control_above_cap_scale),
+            "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE must be between 0 and 1"
+        );
         let pitch_location_settings = PitchLocationSettings {
             error_floor: pitch_location_error_floor,
             control_cap,
+            control_above_cap_scale,
         };
         let edge_scale = match std::env::var("SABERBB_PITCH_AROUND_0_2_EDGE_SCALE") {
             Ok(value) => value
@@ -177,6 +192,7 @@ impl<R: GameRoundRepository> GameService<R> {
             ?execution_model,
             pitch_location_error_floor,
             ?control_cap,
+            control_above_cap_scale,
             execution_fatigue,
             ?edge_scale,
             ?master_seed,
