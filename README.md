@@ -176,6 +176,51 @@ and analysis. The gameplay cap applies after adding the bonus. Processing
 saves the results and advances the schedule in the selected database. Start each comparison from a separate copy of the same
 pregame database. Use the scheduled matchups to convert rounds into games.
 
+### Pitch control and walk-rate comparison
+
+Audit the current saved results from Windows Command Prompt:
+
+```cmd
+set "SABERBB_DB=C:\path\to\saberbb.db"
+python tools/diagnostics/pitch_control_audit.py --season 2026 > pitch_control_saved_2026.json
+```
+
+The audit opens the database read-only. It reports league walk rate, qualified
+ERA and walk leaders, each pitcher's saved control, RMS location error by aim,
+and the three-ball count funnel. Zone rates use the geometric strike zone.
+Three-ball chase rates use only pitches with a saved swing decision and include
+the coverage count. Qualification matches the GUI's one inning per completed
+regular-season team game. Team ERA in this report groups pitchers by their
+current roster assignment.
+
+For a paired comparison, start with two copies of the same pre-season DB with
+the 2026 roster and schedule already in place. Close the application before
+copying the DB, or use SQLite's backup API. Run the same number of rounds and
+use the same master seed on both copies. For a balanced six-team schedule with
+three games per round, 120 rounds play 360 games (120 per team).
+
+```cmd
+set "SABERBB_SCHEDULED_GAME_SEED=20261125"
+set "SABERBB_DB=C:\path\to\saberbb_baseline.db"
+set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0"
+cargo run --release --locked -- --process 120
+python tools/diagnostics/pitch_control_audit.py --season 2026 > pitch_control_baseline_2026.json
+
+set "SABERBB_DB=C:\path\to\saberbb_floor.db"
+set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0.20"
+cargo run --release --locked -- --process 120
+python tools/diagnostics/pitch_control_audit.py --season 2026 > pitch_control_floor_2026.json
+```
+
+The trial floor is dimensionless. A value of `0.20` sets the minimum standard
+deviation to 20% of the target zone's width and height on the respective axes.
+The default is zero. The floor affects actual pitch execution. Called targets
+and the batter's sample of an expected pitch use the existing model.
+The seed sets each game's initial random stream from its game ID. Different
+results can change subsequent draws and roster usage. Compare the same pitcher
+IDs, qualified zero-walk counts, league BB rate, and ERA and HR rates before
+adopting a floor. Clear the two experiment variables for ordinary processing.
+
 Short flags are also available:
 
 ```sh

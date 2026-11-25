@@ -58,6 +58,24 @@ pub fn create_pitch_for_call(
     hanging_pitch_effect: Option<f64>,
     base_four_seam_speed: f64,
 ) -> Result<PitchedBall, AppError> {
+    create_pitch_for_call_with_error_floor(
+        rng,
+        pitcher,
+        pitch_call,
+        hanging_pitch_effect,
+        base_four_seam_speed,
+        0.0,
+    )
+}
+
+pub(crate) fn create_pitch_for_call_with_error_floor(
+    rng: &mut dyn RandomProvider,
+    pitcher: &PitcherInfo,
+    pitch_call: PitchCall,
+    hanging_pitch_effect: Option<f64>,
+    base_four_seam_speed: f64,
+    error_floor: f64,
+) -> Result<PitchedBall, AppError> {
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
     // Reject corrupt/legacy skills before generating a trajectory or consuming RNG.
     if !pitch_skill.spin_efficiency.is_finite()
@@ -94,6 +112,7 @@ pub fn create_pitch_for_call(
         pitcher.control,
         pitch_call.target_zone.zone(),
         aim_location,
+        error_floor,
     );
 
     Ok(PitchedBall {
@@ -110,16 +129,23 @@ pub fn create_pitch_for_call(
     })
 }
 
-// TODO: Consider pitcher's control effect.
 fn sample_ball_location(
     rng: &mut dyn RandomProvider,
     control: f64,
     zone: BallZone,
     aim: BallLocation,
+    error_floor: f64,
 ) -> BallLocation {
-    let control_modififier = 1.0 - sigmoid(control);
-    let norm_x = aim.x + zone.width() * rng.normal_std(control_modififier);
-    let norm_y = aim.y + zone.height() * rng.normal_std(control_modififier);
+    let control_error = 1.0 - sigmoid(control);
+    // A zero floor preserves the historical distribution, including invalid
+    // abilities handled by the random provider.
+    let std_dev = if error_floor > 0.0 && control_error < error_floor {
+        error_floor
+    } else {
+        control_error
+    };
+    let norm_x = aim.x + zone.width() * rng.normal_std(std_dev);
+    let norm_y = aim.y + zone.height() * rng.normal_std(std_dev);
 
     BallLocation {
         x: norm_x,
@@ -320,7 +346,7 @@ impl Default for StrikeZoneDimensions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::random_provider::FixedRng;
+    use crate::domain::random_provider::{FixedRng, RealRng};
     use crate::domain::shared::ball::BallLocation;
     use crate::domain::shared::player::PitcherCharacter;
     use crate::domain::shared::player::{
@@ -338,6 +364,28 @@ mod tests {
             (actual - expected).abs() < EPSILON,
             "expected {actual} to be near {expected}"
         );
+    }
+
+    #[test]
+    fn pitch_location_floor_only_widens_tighter_distributions() {
+        let aim = BallLocation { x: -0.6, y: -0.6 };
+        let sample = |control, floor| {
+            sample_ball_location(
+                &mut RealRng::from_seed(42),
+                control,
+                TargetZone::LowInside.zone(),
+                aim,
+                floor,
+            )
+        };
+
+        assert_eq!(sample(0.0, 0.0), sample(0.0, 0.2));
+
+        let baseline = sample(3.0, 0.0);
+        let widened = sample(3.0, 0.2);
+        let scale = 0.2 / (1.0 - sigmoid(3.0));
+        assert_near(widened.x - aim.x, (baseline.x - aim.x) * scale);
+        assert_near(widened.y - aim.y, (baseline.y - aim.y) * scale);
     }
 
     fn pitch_skill(pitch_type: PitchType, spin_angle: f64, spin_rate_rpm: f64) -> PitchSkill {
