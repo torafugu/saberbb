@@ -20,12 +20,16 @@ const AIR_DRAG_FACTOR: f64 = 0.95;
 pub(crate) struct PitchLocationSettings {
     pub(crate) error_floor: f64,
     pub(crate) control_cap: Option<f64>,
+    pub(crate) control_above_cap_scale: f64,
 }
 
 impl PitchLocationSettings {
     fn effective_control(self, control: f64) -> f64 {
         match self.control_cap {
-            Some(cap) if control > cap => cap,
+            Some(cap) if control > cap && self.control_above_cap_scale == 0.0 => cap,
+            Some(cap) if control > cap && self.control_above_cap_scale < 1.0 => {
+                cap + (control - cap) * self.control_above_cap_scale
+            }
             _ => control,
         }
     }
@@ -410,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_control_cap_only_widens_location_error_above_the_cap() {
+    fn execution_control_attenuation_only_widens_location_error_above_the_cap() {
         let pitch_type = PitchType::FourSeamFastball;
         let mut pitcher = pitcher(RL::Right, vec![pitch_skill(pitch_type, 0.0, 2200.0)]);
         let call = PitchCall {
@@ -418,7 +422,7 @@ mod tests {
             target_zone: TargetZone::LowInside,
             margin: Margin::Edge,
         };
-        let roll = |pitcher: &PitcherInfo, control_cap| {
+        let roll = |pitcher: &PitcherInfo, control_cap, control_above_cap_scale| {
             create_pitch_for_call_with_execution(
                 &mut RealRng::from_seed(42),
                 pitcher,
@@ -427,6 +431,7 @@ mod tests {
                 TEST_BASE_FOUR_SEAM_SPEED,
                 PitchLocationSettings {
                     control_cap,
+                    control_above_cap_scale,
                     ..Default::default()
                 },
                 PitchExecutionFatigue::from_load_ratio(1.0),
@@ -434,21 +439,47 @@ mod tests {
             .unwrap()
         };
         pitcher.control = 2.07;
-        let uncapped = roll(&pitcher, None);
-        let capped = roll(&pitcher, Some(1.2));
+        let uncapped = roll(&pitcher, None, 0.25);
+        let capped = roll(&pitcher, Some(1.2), 0.0);
+        let attenuated = roll(&pitcher, Some(1.2), 0.25);
         assert_eq!(pitcher.control, 2.07);
-        assert_eq!(uncapped.aim_location, capped.aim_location);
-        assert_eq!(uncapped.speed, capped.speed);
-        assert_eq!(uncapped.spin_rate, capped.spin_rate);
         let aim = uncapped.aim_location;
-        let ratio = (1.0 - sigmoid(1.2)) / (1.0 - sigmoid(2.07));
-        assert_near(capped.actual_location.x - aim.x, ratio * (uncapped.actual_location.x - aim.x));
-        assert_near(capped.actual_location.y - aim.y, ratio * (uncapped.actual_location.y - aim.y));
+        for (pitch, effective_control) in [(&capped, 1.2), (&attenuated, 1.4175)] {
+            assert_eq!(pitch.aim_location, aim);
+            assert_eq!(pitch.speed, uncapped.speed);
+            assert_eq!(pitch.spin_rate, uncapped.spin_rate);
+            let ratio = (1.0 - sigmoid(effective_control)) / (1.0 - sigmoid(2.07));
+            assert_near(
+                pitch.actual_location.x - aim.x,
+                ratio * (uncapped.actual_location.x - aim.x),
+            );
+            assert_near(
+                pitch.actual_location.y - aim.y,
+                ratio * (uncapped.actual_location.y - aim.y),
+            );
+        }
+        assert_eq!(
+            uncapped.actual_location,
+            roll(&pitcher, Some(1.2), 1.0).actual_location
+        );
+
+        pitcher.control = 1.6;
+        let intermediate = roll(&pitcher, Some(1.2), 0.25);
+        assert!(
+            (intermediate.actual_location.x - aim.x).abs()
+                > (attenuated.actual_location.x - aim.x).abs()
+        );
 
         pitcher.control = 1.2;
-        assert_eq!(capped.actual_location, roll(&pitcher, None).actual_location);
+        assert_eq!(
+            capped.actual_location,
+            roll(&pitcher, Some(1.2), 0.25).actual_location
+        );
         pitcher.control = 1.19;
-        assert_eq!(roll(&pitcher, None).actual_location, roll(&pitcher, Some(1.2)).actual_location);
+        assert_eq!(
+            roll(&pitcher, None, 0.0).actual_location,
+            roll(&pitcher, Some(1.2), 0.25).actual_location
+        );
     }
 
     #[test]
