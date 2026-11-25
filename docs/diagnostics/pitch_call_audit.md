@@ -60,3 +60,24 @@ pitcher's overall rate.
 To try this in normal scheduled games, set
 `SABERBB_PITCH_AROUND_0_2_EDGE_SCALE` to a value in `[0, 1]` before starting
 SaberBB. Its default is 1. The read-only checker uses the CLI option.
+
+## Saved-game outcomes by count and aim margin
+
+Set `SABERBB_DB` to the DB containing the completed games, then run:
+
+```cmd
+python tools/diagnostics/pitch_control_audit.py --season 2026 --count-margins > pitch_count_margin_2026.json
+```
+
+For 1–2, inspect `by_count_and_margin["1-2"]["Edge"]` under `league`
+or the matching pitcher in `pitchers`. Compare `pitches` across margins
+to see how often each aim was chosen. `actual_outside_rate` uses the
+physical pitch location. `ball_count_advances` counts balls added to the
+count, including ball four. At 1–2 this shows transitions to 2–2.
+The outcome counts for inside and outside locations distinguish called
+balls and strikes, swinging strikes and strikeouts, fouls, fair contact
+(including home runs), and other results.
+
+The diagnostic infers Center, Wide, Edge, and Out from the engine's saved
+aim coordinates. Unrecognized targets are reported as Other. Older
+strikeouts with no saved swing decision use `strikeout_unknown_swing`.

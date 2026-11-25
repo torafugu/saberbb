@@ -4,7 +4,7 @@ import argparse
 import json
 import math
 import sqlite3
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from diagnostic_db import db_from_env
 
@@ -35,6 +35,61 @@ TERMINAL_RESULTS = {
     "Strikeout", "Walk", "HitByPitch", "Single", "Double", "Triple",
     "HomeRun", "FieldersChoice", "Out", "DoublePlay",
 }
+
+
+
+# PitchCall::aim_location stores coordinates rather than the selected margin.
+CORNER_AIMS = {"Wide": 1.0 - 1.0 / 3.0, "Edge": 0.75, "Out": 1.2}
+FAIR_CONTACT_RESULTS = TERMINAL_RESULTS - {"Walk", "Strikeout", "HitByPitch"}
+
+
+def saved_aim_margin(zone, x, y):
+    if zone == "Center" and x == 0.0 and y == 0.0:
+        return "Center"
+    if zone in ("LowInside", "LowOutside", "HighInside", "HighOutside"):
+        for margin, magnitude in CORNER_AIMS.items():
+            if math.isclose(abs(x), magnitude, rel_tol=0.0, abs_tol=1e-6) and math.isclose(
+                abs(y), magnitude, rel_tol=0.0, abs_tol=1e-6
+            ):
+                return margin
+    return "Other"
+
+
+def saved_pitch_outcome(result, swung, advances_ball_count):
+    if result == "Take":
+        return "called_ball" if advances_ball_count else "called_strike"
+    if result == "StrikeSwung":
+        return "swinging_strike"
+    if result == "Strikeout":
+        if swung is None:
+            return "strikeout_unknown_swing"
+        return "swinging_strikeout" if swung else "called_strikeout"
+    if result in FAIR_CONTACT_RESULTS:
+        return "fair_contact"
+    return {
+        "Foul": "foul", "Walk": "walk", "WildPitch": "wild_pitch", "HitByPitch": "hit_by_pitch",
+    }.get(result, "unrecorded_or_other")
+
+
+def summarize_count_margins(rows):
+    counts = {}
+    for (balls, strikes, margin), series in sorted(rows.items()):
+        outcomes = {"in_zone_outcomes": Counter(), "out_of_zone_outcomes": Counter()}
+        actual_outside = advanced = 0
+        for (outside, advances_ball_count, outcome), n in sorted(series.items()):
+            outcomes["out_of_zone_outcomes" if outside else "in_zone_outcomes"][outcome] += n
+            actual_outside += n if outside else 0
+            advanced += n if advances_ball_count else 0
+        pitches = sum(series.values())
+        counts.setdefault(f"{balls}-{strikes}", {})[margin] = {
+            "pitches": pitches,
+            "actual_outside": actual_outside,
+            "actual_outside_rate": ratio(actual_outside, pitches),
+            "ball_count_advances": advanced,
+            "ball_count_advance_rate": ratio(advanced, pitches),
+            **outcomes,
+        }
+    return counts
 
 
 def pitch_count_summary(bands):
@@ -69,7 +124,7 @@ def zero_two_summary(counts):
     }
 
 
-def pitch_summary(rows):
+def pitch_summary(rows, count_margins=None):
     zero_two = dict.fromkeys(("pitches", "aimed_outside", "actual_outside"), 0)
     pitches = defaultdict(int)
     aims = defaultdict(lambda: [0, 0.0, 0.0])
@@ -91,6 +146,11 @@ def pitch_summary(rows):
         aimed_outside = abs(aim_x) > 1 or abs(aim_y) > 1
         outside = abs(x) > 1 or abs(y) > 1
         pitches["aimed_in_zone"] += not aimed_outside
+        if count_margins is not None:
+            margin = saved_aim_margin(zone, aim_x, aim_y)
+            advances = after == before + 1 or result == "Walk"
+            outcome = saved_pitch_outcome(result, swung, advances)
+            count_margins[before, strikes, margin][outside, advances, outcome] += 1
         if before == 0 and strikes == 2:
             zero_two["pitches"] += 1
             zero_two["aimed_outside"] += aimed_outside
@@ -132,7 +192,7 @@ def pitch_summary(rows):
     }
 
 
-def report(conn, season):
+def report(conn, season, include_count_margins=False):
     completed = conn.execute(COMPLETED, (season,)).fetchall()
     if not completed:
         raise ValueError(f"No completed regular-season games for {season}")
@@ -184,12 +244,18 @@ def report(conn, season):
         by_pitcher[row[0]].append(row)
 
     players = []
+    league_count_margins = defaultdict(Counter)
     teams = defaultdict(lambda: {"outs": 0, "earned_runs": 0})
     for player_id, team, first, last, control, outs, er, bb, so, hits, hr in stats:
         if team in team_games:
             teams[team]["outs"] += outs
             teams[team]["earned_runs"] += er
-        pitch = pitch_summary(by_pitcher[player_id])
+        count_margins = defaultdict(Counter) if include_count_margins else None
+        pitch = pitch_summary(by_pitcher[player_id], count_margins)
+        if count_margins is not None:
+            for key, series in count_margins.items():
+                league_count_margins[key].update(series)
+            pitch["by_count_and_margin"] = summarize_count_margins(count_margins)
         bf = pitch["batters_faced"]
         players.append({
             "player_id": player_id, "team_id": team, "name": f"{first} {last}",
@@ -205,15 +271,18 @@ def report(conn, season):
     qualified = [p for p in players if p["qualified"]]
     total_bf = sum(p["batters_faced"] for p in players)
     total_bb = sum(p["walks"] for p in players)
+    league = {
+        "bf": total_bf, "bb": total_bb, "bb_rate": ratio(total_bb, total_bf),
+        "zero_two": zero_two_summary({
+            key: sum(p["zero_two"][key] for p in players)
+            for key in ("pitches", "aimed_outside", "actual_outside")
+        }),
+    }
+    if include_count_margins:
+        league["by_count_and_margin"] = summarize_count_margins(league_count_margins)
     return {
         "season": season, "completed_games": len(completed), "team_games": dict(team_games),
-        "league": {
-            "bf": total_bf, "bb": total_bb, "bb_rate": ratio(total_bb, total_bf),
-            "zero_two": zero_two_summary({
-                key: sum(p["zero_two"][key] for p in players)
-                for key in ("pitches", "aimed_outside", "actual_outside")
-            }),
-        },
+        "league": league,
         "team_era_by_current_roster": {
             team: ratio(27 * values["earned_runs"], values["outs"])
             for team, values in teams.items()
@@ -233,12 +302,16 @@ def main():
         "--require-zero-two-out", action="store_true",
         help="Fail if no saved 0–2 pitch was aimed outside the strike zone.",
     )
+    parser.add_argument(
+        "--count-margins", action="store_true",
+        help="Report actual zone location and outcomes by pre-pitch count and saved aim margin.",
+    )
     args = parser.parse_args()
     try:
         uri = db_from_env().resolve().as_uri() + "?mode=ro"
         with sqlite3.connect(uri, uri=True) as conn:
             conn.execute("BEGIN")
-            output = report(conn, args.season)
+            output = report(conn, args.season, include_count_margins=args.count_margins)
             if args.require_zero_two_out and output["league"]["zero_two"]["aimed_outside"] == 0:
                 raise ValueError(
                     "No saved 0–2 pitch was aimed outside the strike zone. "
