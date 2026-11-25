@@ -19,7 +19,7 @@ PITCHES = """
     SELECT p.pitcher_id, p.aim_zone, p.aim_location_x, p.aim_location_y,
            p.actual_location_x, p.actual_location_y,
            c.before_balls, c.ball, b.result, b.decision_swung,
-           p.pitch_type, p.speed, p.pitch_number
+           p.pitch_type, p.speed, p.pitch_number, c.before_strikes
     FROM pitch_order AS p
     JOIN counts AS c ON c.game_id = p.game_id AND c.seq = p.count_seq
     LEFT JOIN player_game_batting AS b
@@ -61,12 +61,22 @@ def pitch_count_summary(bands):
     return summaries
 
 
+def zero_two_summary(counts):
+    return {
+        **counts,
+        "aimed_outside_rate": ratio(counts["aimed_outside"], counts["pitches"]),
+        "actual_outside_rate": ratio(counts["actual_outside"], counts["pitches"]),
+    }
+
+
 def pitch_summary(rows):
+    zero_two = dict.fromkeys(("pitches", "aimed_outside", "actual_outside"), 0)
     pitches = defaultdict(int)
     aims = defaultdict(lambda: [0, 0.0, 0.0])
     bands = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for row in rows:
-        _, zone, aim_x, aim_y, x, y, before, after, result, swung, pitch_type, speed, number = row
+        (_, zone, aim_x, aim_y, x, y, before, after, result, swung,
+         pitch_type, speed, number, strikes) = row
         reached_three = before == 2 and after == 3
         finished_appearance = result in TERMINAL_RESULTS
         band = bands[min(((number - 1) // 25) * 25, 100)][pitch_type]
@@ -78,8 +88,13 @@ def pitch_summary(rows):
         band["two_ball_pitches"] += before == 2
         band["counts_reaching_three_balls"] += reached_three
         pitches["pitches"] += 1
-        pitches["aimed_in_zone"] += abs(aim_x) <= 1 and abs(aim_y) <= 1
+        aimed_outside = abs(aim_x) > 1 or abs(aim_y) > 1
         outside = abs(x) > 1 or abs(y) > 1
+        pitches["aimed_in_zone"] += not aimed_outside
+        if before == 0 and strikes == 2:
+            zero_two["pitches"] += 1
+            zero_two["aimed_outside"] += aimed_outside
+            zero_two["actual_outside"] += outside
         pitches["in_zone"] += not outside
         pitches["counts_reaching_three_balls"] += reached_three
         pitches["batters_faced"] += finished_appearance
@@ -107,6 +122,7 @@ def pitch_summary(rows):
     )
     return {
         **pitches,
+        "zero_two": zero_two_summary(zero_two),
         "by_pitch_count": pitch_count_summary(bands),
         "by_aim": [
             {"zone": zone, "x": x, "y": y, "pitches": n,
@@ -157,7 +173,10 @@ def report(conn, season):
             SELECT c.game_id, c.seq, c.ball,
                    LAG(c.ball, 1, 0) OVER (
                        PARTITION BY c.game_id, c.inning_seq, c.inning_tb ORDER BY c.seq
-                   ) AS before_balls
+                   ) AS before_balls,
+                   LAG(c.strike, 1, 0) OVER (
+                       PARTITION BY c.game_id, c.inning_seq, c.inning_tb ORDER BY c.seq
+                   ) AS before_strikes
             FROM count AS c JOIN completed AS g ON g.id = c.game_id
         )
         {PITCHES}
@@ -188,7 +207,13 @@ def report(conn, season):
     total_bb = sum(p["walks"] for p in players)
     return {
         "season": season, "completed_games": len(completed), "team_games": dict(team_games),
-        "league": {"bf": total_bf, "bb": total_bb, "bb_rate": ratio(total_bb, total_bf)},
+        "league": {
+            "bf": total_bf, "bb": total_bb, "bb_rate": ratio(total_bb, total_bf),
+            "zero_two": zero_two_summary({
+                key: sum(p["zero_two"][key] for p in players)
+                for key in ("pitches", "aimed_outside", "actual_outside")
+            }),
+        },
         "team_era_by_current_roster": {
             team: ratio(27 * values["earned_runs"], values["outs"])
             for team, values in teams.items()
@@ -204,12 +229,22 @@ def report(conn, season):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--season", type=int, required=True)
+    parser.add_argument(
+        "--require-zero-two-out", action="store_true",
+        help="Fail if no saved 0–2 pitch was aimed outside the strike zone.",
+    )
     args = parser.parse_args()
     try:
         uri = db_from_env().resolve().as_uri() + "?mode=ro"
         with sqlite3.connect(uri, uri=True) as conn:
             conn.execute("BEGIN")
-            print(json.dumps(report(conn, args.season), ensure_ascii=True, indent=2))
+            output = report(conn, args.season)
+            if args.require_zero_two_out and output["league"]["zero_two"]["aimed_outside"] == 0:
+                raise ValueError(
+                    "No saved 0–2 pitch was aimed outside the strike zone. "
+                    "Check SABERBB_PITCH_AROUND_0_2_EDGE_SCALE=0 during game processing."
+                )
+            print(json.dumps(output, ensure_ascii=True, indent=2))
     except (sqlite3.Error, ValueError) as err:
         parser.exit(1, f"{err}\n")
 
