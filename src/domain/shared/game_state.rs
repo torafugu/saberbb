@@ -21,7 +21,8 @@ use crate::domain::resolver::fielding_resolver::{
 use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::resolver::pitching_resolver::{
     MatchupContext, PitchDisplacement, calculate_ball_movement, calculate_hanging_pitch_effect,
-    calculate_location_bias, calculate_pitch_offset, create_pitch, create_pitch_for_call,
+    calculate_location_bias, calculate_pitch_offset, create_pitch,
+    create_pitch_for_call_with_error_floor,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -536,6 +537,7 @@ pub struct GameState {
     /// Collect detailed contact diagnostics only for analysis runs.
     pub record_contact_states: bool,
     pub(crate) track_position_player_workload: bool,
+    pub(crate) pitch_location_error_floor: f64,
     pub away_manager:Option<super::batting_personnel::Manager>,
     pub home_manager:Option<super::batting_personnel::Manager>,
     pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
@@ -584,6 +586,7 @@ impl GameState {
         Ok(GameState {
             record_contact_states: false,
             track_position_player_workload: fatigue.is_some(),
+            pitch_location_error_floor: 0.0,
             away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
             batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
             batting_strategy_settings: BattingStrategySettings::player_driven(),
@@ -1281,12 +1284,13 @@ impl GameState {
 
         let hanging_pitch_effect = calculate_hanging_pitch_effect(self.rng.as_mut(), &pitcher);
 
-        let pitched_ball = create_pitch_for_call(
+        let pitched_ball = create_pitch_for_call_with_error_floor(
             self.rng.as_mut(),
             &pitcher,
             pitch_call,
             hanging_pitch_effect,
             self.base_four_seam_speed,
+            self.pitch_location_error_floor,
         )?;
         // TODO: expected_pitched_ball should be created by better logic.
         let expected_ball = create_pitch(

@@ -5,6 +5,7 @@ use crate::domain::resolver::batting_calibration::with_calibrated_batting;
 use crate::domain::resolver::batting_resolver::{
     SwingExecutionModel, with_collision_power_trial, with_swing_execution_model,
 };
+use crate::domain::seeded_diagnostic::derived_seed;
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
 use crate::domain::shared::player::Position;
 use crate::domain::shared::stats::SeasonPitchingStats;
@@ -119,11 +120,33 @@ impl<R: GameRoundRepository> GameService<R> {
             cap_ms: Some(OPENING_LINEUP_SWING_SPEED_CAP_MS),
         };
         let execution_model = swing_execution_from_env(SwingExecutionModel::Mixture)?;
+        let pitch_location_error_floor = match std::env::var("SABERBB_PITCH_LOCATION_ERROR_FLOOR") {
+            Ok(value) => value
+                .parse::<f64>()
+                .context("Reading SABERBB_PITCH_LOCATION_ERROR_FLOOR")?,
+            Err(std::env::VarError::NotPresent) => 0.0,
+            Err(error) => return Err(error).context("Reading SABERBB_PITCH_LOCATION_ERROR_FLOOR"),
+        };
+        ensure!(
+            (0.0..=0.5).contains(&pitch_location_error_floor),
+            "SABERBB_PITCH_LOCATION_ERROR_FLOOR must be between 0 and 0.5"
+        );
+        let master_seed = match std::env::var("SABERBB_SCHEDULED_GAME_SEED") {
+            Ok(value) => Some(
+                value
+                    .parse::<u64>()
+                    .context("Reading SABERBB_SCHEDULED_GAME_SEED")?,
+            ),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(error) => return Err(error).context("Reading SABERBB_SCHEDULED_GAME_SEED"),
+        };
         info!(
             swing_speed_bonus_ms = swing_speed.bonus_ms,
             swing_speed_cap_ms = ?swing_speed.cap_ms,
             collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
             ?execution_model,
+            pitch_location_error_floor,
+            ?master_seed,
             "process_game_round() started"
         );
 
@@ -154,10 +177,14 @@ impl<R: GameRoundRepository> GameService<R> {
             let mut lineup_source = game_schedule.clone();
             apply_live_batting_abilities(&mut lineup_source, &lineup_speed);
             apply_live_batting_abilities(&mut game_schedule, &swing_speed);
+            let rng = match master_seed {
+                Some(seed) => RealRng::from_seed(derived_seed(seed, game_schedule.id)),
+                None => RealRng::new(),
+            };
             let result = with_collision_power_trial(median, LIVE_COLLISION_POWER_RETAINED_FRACTION, || {
                 simulate_staffed_game(
                     game_schedule,
-                    Box::new(RealRng::new()),
+                    Box::new(rng),
                     &loads,
                     &season_stats,
                     Some(&position_fatigue),
@@ -165,6 +192,7 @@ impl<R: GameRoundRepository> GameService<R> {
                     record_contact_states,
                     Some(&lineup_source),
                     execution_model,
+                    pitch_location_error_floor,
                 )
             })?;
             if let Err(e) = self.repo.update_game_result(&result) {
@@ -244,6 +272,7 @@ pub fn simulate_game_with_pitching_and_lineup_source(
         record_contact_states,
         lineup_source,
         swing_execution_from_env(SwingExecutionModel::Legacy)?,
+        0.0,
     )
 }
 
@@ -257,6 +286,7 @@ fn simulate_staffed_game(
     record_contact_states: bool,
     lineup_source: Option<&GameSchedule>,
     execution_model: SwingExecutionModel,
+    pitch_location_error_floor: f64,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
@@ -270,6 +300,7 @@ fn simulate_staffed_game(
         [away.starter(), home.starter()],
         position_fatigue,
     )?;
+    state.pitch_location_error_floor = pitch_location_error_floor;
     if lineup_source.is_some() {
         ensure!(
             state.game_result.id == schedule.id,
