@@ -1,7 +1,7 @@
 //! Select pitchers using pregame workload, in-game pitches and an ability evaluation.
 use super::pitcher_evaluation::{PitcherAttributeRating, PitcherAttributeWeights, rotation_score};
 use crate::domain::shared::{
-    pitcher_fatigue::PitcherFatigue,
+    pitcher_fatigue::{PitchExecutionFatigue, PitcherFatigue},
     player::{Player, Position},
     stats::SeasonPitchingStats,
     team::Team,
@@ -96,6 +96,15 @@ impl<'a> PitchingStaff<'a> {
     pub(crate) fn starter(&self) -> Option<i64> {
         Self::freshest(self.candidates[..self.rotation_size].iter())
             .map(|candidate| candidate.player.info.id)
+    }
+
+    pub(crate) fn execution_fatigue(&self, pitcher_id: i64, pitches: u32) -> PitchExecutionFatigue {
+        self.candidates
+            .iter()
+            .find(|candidate| candidate.player.info.id == pitcher_id)
+            .map_or_else(PitchExecutionFatigue::default, |candidate| {
+                PitchExecutionFatigue::from_load_ratio(candidate.fatigue(pitches))
+            })
     }
 
     pub(crate) fn reliever(

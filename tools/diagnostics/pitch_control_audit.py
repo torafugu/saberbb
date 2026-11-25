@@ -18,9 +18,9 @@ COMPLETED = """
 PITCHES = """
     SELECT p.pitcher_id, p.aim_zone, p.aim_location_x, p.aim_location_y,
            p.actual_location_x, p.actual_location_y,
-           c.before_balls, c.ball, b.result, b.decision_swung
-    FROM player_game_pitching AS p
-    JOIN completed AS g ON g.id = p.game_id
+           c.before_balls, c.ball, b.result, b.decision_swung,
+           p.pitch_type, p.speed, p.pitch_number
+    FROM pitch_order AS p
     JOIN counts AS c ON c.game_id = p.game_id AND c.seq = p.count_seq
     LEFT JOIN player_game_batting AS b
         ON b.game_id = p.game_id AND b.count_seq = p.count_seq
@@ -31,20 +31,58 @@ def ratio(numerator, denominator):
     return numerator / denominator if denominator else None
 
 
+TERMINAL_RESULTS = {
+    "Strikeout", "Walk", "HitByPitch", "Single", "Double", "Triple",
+    "HomeRun", "FieldersChoice", "Out", "DoublePlay",
+}
+
+
+def pitch_count_summary(bands):
+    summaries = []
+    for band, types in sorted(bands.items()):
+        pitch_types = {}
+        for pitch_type, data in sorted(types.items()):
+            pitch_types[pitch_type] = {
+                "pitches": data["pitches"],
+                "mean_speed_ms": data["speed_sum"] / data["pitches"],
+                "rms_location_error": math.sqrt(data["error_sq_sum"] / data["pitches"]),
+            }
+        two = sum(data["two_ball_pitches"] for data in types.values())
+        three = sum(data["counts_reaching_three_balls"] for data in types.values())
+        summaries.append({
+            "pitch_number_min": band + 1,
+            "pitch_number_max": band + 25 if band < 100 else None,
+            "pitches": sum(data["pitches"] for data in types.values()),
+            "two_ball_pitches": two,
+            "counts_reaching_three_balls": three,
+            "three_ball_transitions_per_two_ball_pitch": ratio(three, two),
+            "by_pitch_type": pitch_types,
+        })
+    return summaries
+
+
 def pitch_summary(rows):
     pitches = defaultdict(int)
     aims = defaultdict(lambda: [0, 0.0, 0.0])
+    bands = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for row in rows:
-        _, zone, aim_x, aim_y, x, y, before, after, result, swung = row
+        _, zone, aim_x, aim_y, x, y, before, after, result, swung, pitch_type, speed, number = row
+        reached_three = before == 2 and after == 3
+        finished_appearance = result in TERMINAL_RESULTS
+        band = bands[min(((number - 1) // 25) * 25, 100)][pitch_type]
+        band["pitches"] += 1
+        band["speed_sum"] += speed
+        # The Center target is half the width and height of the four corner targets.
+        zone_size = 0.5 if zone == "Center" else 1.0
+        band["error_sq_sum"] += ((x - aim_x) ** 2 + (y - aim_y) ** 2) / (2.0 * zone_size ** 2)
+        band["two_ball_pitches"] += before == 2
+        band["counts_reaching_three_balls"] += reached_three
         pitches["pitches"] += 1
         pitches["aimed_in_zone"] += abs(aim_x) <= 1 and abs(aim_y) <= 1
         outside = abs(x) > 1 or abs(y) > 1
         pitches["in_zone"] += not outside
-        pitches["counts_reaching_three_balls"] += before == 2 and after == 3
-        pitches["batters_faced"] += result in {
-            "Strikeout", "Walk", "HitByPitch", "Single", "Double", "Triple",
-            "HomeRun", "FieldersChoice", "Out", "DoublePlay",
-        }
+        pitches["counts_reaching_three_balls"] += reached_three
+        pitches["batters_faced"] += finished_appearance
         three_balls = before == 3
         pitches["three_ball_pitches"] += three_balls
         pitches["three_ball_outside"] += three_balls and outside
@@ -69,6 +107,7 @@ def pitch_summary(rows):
     )
     return {
         **pitches,
+        "by_pitch_count": pitch_count_summary(bands),
         "by_aim": [
             {"zone": zone, "x": x, "y": y, "pitches": n,
              "rms_error_x": math.sqrt(dx / n), "rms_error_y": math.sqrt(dy / n)}
@@ -108,6 +147,12 @@ def report(conn, season):
     by_pitcher = defaultdict(list)
     for row in conn.execute(f"""
         WITH completed AS ({COMPLETED}),
+        pitch_order AS (
+            SELECT p.*, ROW_NUMBER() OVER (
+                PARTITION BY p.game_id, p.pitcher_id ORDER BY p.count_seq
+            ) AS pitch_number
+            FROM player_game_pitching AS p JOIN completed AS g ON g.id = p.game_id
+        ),
         counts AS (
             SELECT c.game_id, c.seq, c.ball,
                    LAG(c.ball, 1, 0) OVER (

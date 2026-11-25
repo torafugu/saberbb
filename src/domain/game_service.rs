@@ -139,6 +139,13 @@ impl<R: GameRoundRepository> GameService<R> {
             Err(std::env::VarError::NotPresent) => PitchAroundZeroTwoEdgeScale::default(),
             Err(error) => return Err(error).context("Reading SABERBB_PITCH_AROUND_0_2_EDGE_SCALE"),
         };
+        let execution_fatigue = match std::env::var("SABERBB_PITCH_EXECUTION_FATIGUE") {
+            Ok(value) if value == "1" => true,
+            Ok(value) if value == "0" => false,
+            Ok(_) => anyhow::bail!("SABERBB_PITCH_EXECUTION_FATIGUE must be 0 or 1"),
+            Err(std::env::VarError::NotPresent) => false,
+            Err(error) => return Err(error).context("Reading SABERBB_PITCH_EXECUTION_FATIGUE"),
+        };
         let master_seed = match std::env::var("SABERBB_SCHEDULED_GAME_SEED") {
             Ok(value) => Some(
                 value
@@ -154,6 +161,7 @@ impl<R: GameRoundRepository> GameService<R> {
             collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
             ?execution_model,
             pitch_location_error_floor,
+            execution_fatigue,
             ?edge_scale,
             ?master_seed,
             "process_game_round() started"
@@ -203,6 +211,7 @@ impl<R: GameRoundRepository> GameService<R> {
                         Some(&lineup_source),
                         execution_model,
                         pitch_location_error_floor,
+                        execution_fatigue,
                     )
                 })
             })?;
@@ -236,6 +245,7 @@ pub fn simulate_game(
         record_contact_states,
         None,
         None,
+        false,
     )
 }
 
@@ -284,6 +294,7 @@ pub fn simulate_game_with_pitching_and_lineup_source(
         lineup_source,
         swing_execution_from_env(SwingExecutionModel::Legacy)?,
         0.0,
+        false,
     )
 }
 
@@ -298,6 +309,7 @@ fn simulate_staffed_game(
     lineup_source: Option<&GameSchedule>,
     execution_model: SwingExecutionModel,
     pitch_location_error_floor: f64,
+    execution_fatigue: bool,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
@@ -352,6 +364,7 @@ fn simulate_staffed_game(
                         pending: None,
                     })
                 }),
+                execution_fatigue,
             )
         })
     })
@@ -364,6 +377,7 @@ fn play_game(
     record_contact_states: bool,
     staffs: Option<[PitchingStaff<'_>; 2]>,
     mut position_players: Option<[PositionPlayers<'_>; 2]>,
+    execution_fatigue: bool,
 ) -> Result<GameResult> {
     state.record_contact_states = record_contact_states;
     state.batting_strategy_settings = settings;
@@ -420,7 +434,16 @@ fn play_game(
                     !home_defending,
                 )?;
             }
-            state.process_count()?;
+            if execution_fatigue && let Some(staffs) = &staffs {
+                let staff = &staffs[usize::from(home_defending)];
+                let pitcher_id = state.current_pitcher()?.id;
+                let already_thrown = pitch_counts.get(&pitcher_id).copied().unwrap_or_default();
+                state.process_count_with_execution_fatigue(
+                    staff.execution_fatigue(pitcher_id, already_thrown),
+                )?;
+            } else {
+                state.process_count()?;
+            }
             pitches += 1;
             if staffs.is_some() && let Some(pitch) = state.game_result.player_pitchings.last() {
                 *pitch_counts.entry(pitch.pitcher_id).or_default() += 1;
