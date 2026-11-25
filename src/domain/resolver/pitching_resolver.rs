@@ -16,6 +16,21 @@ const PITCH_OFFSET_DECISION_RATIO: f64 = 0.6;
 // so the average speed during flight is approx. 95% (0.95) of initial velocity
 const AIR_DRAG_FACTOR: f64 = 0.95;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct PitchLocationSettings {
+    pub(crate) error_floor: f64,
+    pub(crate) control_cap: Option<f64>,
+}
+
+impl PitchLocationSettings {
+    fn effective_control(self, control: f64) -> f64 {
+        match self.control_cap {
+            Some(cap) if control > cap => cap,
+            _ => control,
+        }
+    }
+}
+
 pub fn calculate_hanging_pitch_effect(
     rng: &mut dyn RandomProvider,
     pitcher: &PitcherInfo,
@@ -65,7 +80,7 @@ pub fn create_pitch_for_call(
         pitch_call,
         hanging_pitch_effect,
         base_four_seam_speed,
-        0.0,
+        PitchLocationSettings::default(),
         PitchExecutionFatigue::default(),
     )
 }
@@ -76,7 +91,7 @@ pub(crate) fn create_pitch_for_call_with_execution(
     pitch_call: PitchCall,
     hanging_pitch_effect: Option<f64>,
     base_four_seam_speed: f64,
-    error_floor: f64,
+    location_settings: PitchLocationSettings,
     fatigue: PitchExecutionFatigue,
 ) -> Result<PitchedBall, AppError> {
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
@@ -112,10 +127,10 @@ pub(crate) fn create_pitch_for_call_with_execution(
     let aim_location = pitch_call.aim_location();
     let actual_location = sample_ball_location(
         rng,
-        pitcher.control,
+        location_settings.effective_control(pitcher.control),
         pitch_call.target_zone.zone(),
         aim_location,
-        error_floor,
+        location_settings.error_floor,
         fatigue.location_error_scale(),
     );
 
@@ -395,6 +410,48 @@ mod tests {
     }
 
     #[test]
+    fn execution_control_cap_only_widens_location_error_above_the_cap() {
+        let pitch_type = PitchType::FourSeamFastball;
+        let mut pitcher = pitcher(RL::Right, vec![pitch_skill(pitch_type, 0.0, 2200.0)]);
+        let call = PitchCall {
+            pitch_type,
+            target_zone: TargetZone::LowInside,
+            margin: Margin::Edge,
+        };
+        let roll = |pitcher: &PitcherInfo, control_cap| {
+            create_pitch_for_call_with_execution(
+                &mut RealRng::from_seed(42),
+                pitcher,
+                call,
+                None,
+                TEST_BASE_FOUR_SEAM_SPEED,
+                PitchLocationSettings {
+                    control_cap,
+                    ..Default::default()
+                },
+                PitchExecutionFatigue::from_load_ratio(1.0),
+            )
+            .unwrap()
+        };
+        pitcher.control = 2.07;
+        let uncapped = roll(&pitcher, None);
+        let capped = roll(&pitcher, Some(1.2));
+        assert_eq!(pitcher.control, 2.07);
+        assert_eq!(uncapped.aim_location, capped.aim_location);
+        assert_eq!(uncapped.speed, capped.speed);
+        assert_eq!(uncapped.spin_rate, capped.spin_rate);
+        let aim = uncapped.aim_location;
+        let ratio = (1.0 - sigmoid(1.2)) / (1.0 - sigmoid(2.07));
+        assert_near(capped.actual_location.x - aim.x, ratio * (uncapped.actual_location.x - aim.x));
+        assert_near(capped.actual_location.y - aim.y, ratio * (uncapped.actual_location.y - aim.y));
+
+        pitcher.control = 1.2;
+        assert_eq!(capped.actual_location, roll(&pitcher, None).actual_location);
+        pitcher.control = 1.19;
+        assert_eq!(roll(&pitcher, None).actual_location, roll(&pitcher, Some(1.2)).actual_location);
+    }
+
+    #[test]
     fn fatigue_slows_the_pitch_and_widens_location_error_around_the_same_target() {
         let pitch_type = PitchType::FourSeamFastball;
         let pitcher = pitcher(RL::Right, vec![pitch_skill(pitch_type, 0.0, 2200.0)]);
@@ -410,7 +467,7 @@ mod tests {
                 call,
                 None,
                 TEST_BASE_FOUR_SEAM_SPEED,
-                0.0,
+                PitchLocationSettings::default(),
                 fatigue,
             )
             .unwrap()
