@@ -10,6 +10,7 @@ use crate::domain::shared::game::{GameResult, GameSchedule, TB};
 use crate::domain::shared::player::Position;
 use crate::domain::shared::stats::SeasonPitchingStats;
 use crate::domain::strategy::pitcher_evaluation::PitcherAttributeWeights;
+use crate::domain::strategy::pitching_strategy::PitchAroundZeroTwoEdgeScale;
 use crate::domain::strategy::pitching_usage::PitchingStaff;
 use crate::domain::strategy::position_player_usage::PositionPlayers;
 use std::collections::BTreeMap;
@@ -131,6 +132,13 @@ impl<R: GameRoundRepository> GameService<R> {
             (0.0..=0.5).contains(&pitch_location_error_floor),
             "SABERBB_PITCH_LOCATION_ERROR_FLOOR must be between 0 and 0.5"
         );
+        let edge_scale = match std::env::var("SABERBB_PITCH_AROUND_0_2_EDGE_SCALE") {
+            Ok(value) => value
+                .parse::<PitchAroundZeroTwoEdgeScale>()
+                .map_err(|error| anyhow::anyhow!("SABERBB_PITCH_AROUND_0_2_EDGE_SCALE: {error}"))?,
+            Err(std::env::VarError::NotPresent) => PitchAroundZeroTwoEdgeScale::default(),
+            Err(error) => return Err(error).context("Reading SABERBB_PITCH_AROUND_0_2_EDGE_SCALE"),
+        };
         let master_seed = match std::env::var("SABERBB_SCHEDULED_GAME_SEED") {
             Ok(value) => Some(
                 value
@@ -146,6 +154,7 @@ impl<R: GameRoundRepository> GameService<R> {
             collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
             ?execution_model,
             pitch_location_error_floor,
+            ?edge_scale,
             ?master_seed,
             "process_game_round() started"
         );
@@ -182,18 +191,20 @@ impl<R: GameRoundRepository> GameService<R> {
                 None => RealRng::new(),
             };
             let result = with_collision_power_trial(median, LIVE_COLLISION_POWER_RETAINED_FRACTION, || {
-                simulate_staffed_game(
-                    game_schedule,
-                    Box::new(rng),
-                    &loads,
-                    &season_stats,
-                    Some(&position_fatigue),
-                    None,
-                    record_contact_states,
-                    Some(&lineup_source),
-                    execution_model,
-                    pitch_location_error_floor,
-                )
+                edge_scale.with(|| {
+                    simulate_staffed_game(
+                        game_schedule,
+                        Box::new(rng),
+                        &loads,
+                        &season_stats,
+                        Some(&position_fatigue),
+                        None,
+                        record_contact_states,
+                        Some(&lineup_source),
+                        execution_model,
+                        pitch_location_error_floor,
+                    )
+                })
             })?;
             if let Err(e) = self.repo.update_game_result(&result) {
                 eprintln!("{}:{}", t!("error", "function" => "save_game_result"), e);

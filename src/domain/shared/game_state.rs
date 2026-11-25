@@ -34,7 +34,7 @@ use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings, SwingExecution};
 use crate::domain::strategy::pitching_strategy::{
     PitchCall, PitchEvaluationContext, catcher_preferences, pitcher_preferences,
-    reconcile_pitch_call_proposals, select_pitching_strategy,
+    reconcile_pitch_call_proposals, scale_pitch_around_zero_two_edge, select_pitching_strategy,
 };
 use crate::domain::util::{PolarPosition, calculate_polar_distance};
 use crate::error::AppError;
@@ -1264,10 +1264,15 @@ impl GameState {
             i16::from(self.away_total_point) - i16::from(self.home_total_point)
         };
         let strategy = select_pitching_strategy(&self.inning_state, self.inning_seq, score_diff);
-        let pitcher_preferences =
+        let mut pitcher_preferences =
             pitcher_preferences(pitcher.pitcher_character, &batter, count, previous_call);
-        let catcher_preferences =
+        let mut catcher_preferences =
             catcher_preferences(catcher.calling_style, &batter, count, previous_call);
+        scale_pitch_around_zero_two_edge(
+            strategy,
+            count,
+            [&mut pitcher_preferences, &mut catcher_preferences],
+        );
         let context = PitchEvaluationContext::new(&pitcher, &batter, strategy, previous_call);
         let pitcher_proposals = context.pitcher_proposals(&pitcher_preferences, 3, 2);
         let catcher_proposals = context.catcher_proposals(&catcher_preferences, 4);
@@ -1446,6 +1451,14 @@ impl GameState {
 
         if let Some(record) = self.game_result.player_battings.iter_mut()
             .rev().find(|record| record.count_seq == decision_count_seq) {
+            crate::domain::strategy::pitching_strategy::audit::record_outcome(
+                count,
+                strategy,
+                pitch_call.margin,
+                pitched_ball.actual_location,
+                swing_decision.swung,
+                record,
+            );
             record.swing_decision = Some(swing_decision);
         }
 
