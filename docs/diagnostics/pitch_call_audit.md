@@ -31,3 +31,32 @@ decisions. The audit uses no additional random draws.
 - Counts are grouped by count and strategy, and by pitcher ID and count.
   For example, `C02` means zero balls and two strikes. With multiple seeds,
   the audit counts are pooled across the seeded games.
+
+## PitchAround 0–2 Edge preference trial
+
+Use the same DB, schedule, and seeds for both commands. The new outcome fields
+are available in both arms. The only policy change is a multiplier on the
+pitcher and catcher's Edge preference when the selected strategy is
+`PitchAround` and the count is 0–2. Start by comparing the original strength
+(scale 1) with zero to measure the full effect of removing the preference.
+The trial does not force the selector to choose an outside call.
+
+```cmd
+cargo run --release --locked --example offense_season_check -- --season 2026 --games 360 --seeds 20261125 --pitch-call-audit --pitch-around-0-2-edge-scale 1 > pitch_call_edge_baseline_2026.json
+cargo run --release --locked --example offense_season_check -- --season 2026 --games 360 --seeds 20261125 --pitch-call-audit --pitch-around-0-2-edge-scale 0 > pitch_call_edge_zero_2026.json
+```
+
+Compare `out_selected / pitches` in `C02` and then the outcome counts for
+those pitches. `outcomes` covers all calls with a recorded batting result.
+`selected_out_outcomes` restricts the same counts to calls intended to go
+outside the zone. Calculate the actual outside rate from
+`actual_outside / recorded_pitches`, the chase rate from
+`outside_swings / actual_outside`, and the whiff rate from
+`outside_whiffs / outside_swings`. A zero denominator means the rate is
+unavailable. The BF, K, BB, and HR counts are grouped by the count at which
+the plate appearance ended. Sum across counts before dividing for a
+pitcher's overall rate.
+
+To try this in normal scheduled games, set
+`SABERBB_PITCH_AROUND_0_2_EDGE_SCALE` to a value in `[0, 1]` before starting
+SaberBB. Its default is 1. The read-only checker uses the CLI option.

@@ -1,8 +1,11 @@
 //! Observes the live pitch-call shortlists and scores without changing decisions.
 use super::{
     CallScoreTerms, CountStatus, Margin, PitchCall, PitchCallDecision, PitchCallProposal,
-    PitchEvaluationContext, PitchingPreferences, evaluate_pitch_call_with_terms,
+    PitchEvaluationContext, PitchingPreferences, PitchingStrategy, evaluate_pitch_call_with_terms,
     pitch_call_locations,
+};
+use crate::domain::shared::{
+    ball::BallLocation, game::BattingResult, game_stats::PlayerGameBatting,
 };
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeMap};
@@ -64,14 +67,67 @@ struct Observation {
 }
 
 #[derive(Default, Serialize)]
+struct Outcomes {
+    recorded_pitches: u64,
+    actual_outside: u64,
+    outside_swings: u64,
+    outside_whiffs: u64,
+    batters_faced: u64,
+    strikeouts: u64,
+    walks: u64,
+    home_runs: u64,
+}
+
+impl Outcomes {
+    fn record(&mut self, outside: bool, swung: bool, result: BattingResult) {
+        self.recorded_pitches += 1;
+        self.actual_outside += u64::from(outside);
+        self.outside_swings += u64::from(outside && swung);
+        self.outside_whiffs += u64::from(
+            outside
+                && swung
+                && matches!(
+                    result,
+                    BattingResult::StrikeSwung | BattingResult::Strikeout
+                ),
+        );
+        self.batters_faced += u64::from(matches!(
+            result,
+            BattingResult::Strikeout
+                | BattingResult::Walk
+                | BattingResult::HitByPitch
+                | BattingResult::Single
+                | BattingResult::Double
+                | BattingResult::Triple
+                | BattingResult::HomeRun
+                | BattingResult::FieldersChoice
+                | BattingResult::Out
+                | BattingResult::DoublePlay
+        ));
+        self.strikeouts += u64::from(result == BattingResult::Strikeout);
+        self.walks += u64::from(result == BattingResult::Walk);
+        self.home_runs += u64::from(result == BattingResult::HomeRun);
+    }
+}
+
+#[derive(Default, Serialize)]
 struct Bucket {
     #[serde(flatten)]
     counts: CallCounts,
     winner_minus_best_out_score_sums: ScoreGaps,
     winner_minus_best_out_finalist_score_sums: ScoreGaps,
+    outcomes: Outcomes,
+    selected_out_outcomes: Outcomes,
 }
 
 impl Bucket {
+    fn record_outcome(&mut self, aim: Margin, outside: bool, swung: bool, result: BattingResult) {
+        self.outcomes.record(outside, swung, result);
+        if aim == Margin::Out {
+            self.selected_out_outcomes.record(outside, swung, result);
+        }
+    }
+
     fn record(&mut self, pitch: &Observation) {
         let counts = &mut self.counts;
         counts.pitches += 1;
@@ -178,5 +234,36 @@ pub(crate) fn record(
             .entry(count)
             .or_default()
             .record(&observation);
+    });
+}
+
+pub(crate) fn record_outcome(
+    count: CountStatus,
+    strategy: PitchingStrategy,
+    aim: Margin,
+    location: BallLocation,
+    swung: bool,
+    batting: &PlayerGameBatting,
+) {
+    ACTIVE.with_borrow_mut(|active| {
+        let Some(audit) = active else { return };
+        let count = count.as_ref();
+        let outside = location.distance_from_zone_edge() > 0.0;
+        let result = batting.result;
+        audit.overall.record_outcome(aim, outside, swung, result);
+        audit
+            .by_count_and_strategy
+            .get_mut(count)
+            .unwrap()
+            .get_mut(&format!("{strategy:?}"))
+            .unwrap()
+            .record_outcome(aim, outside, swung, result);
+        audit
+            .by_pitcher
+            .get_mut(&batting.pitcher_id)
+            .unwrap()
+            .get_mut(count)
+            .unwrap()
+            .record_outcome(aim, outside, swung, result);
     });
 }

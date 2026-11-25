@@ -10,7 +10,9 @@ use crate::domain::strategy::common_strategy::{
 };
 use crate::domain::util::sigmoid;
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use strum_macros::{AsRefStr, EnumIter};
 
 pub mod audit;
@@ -18,6 +20,67 @@ pub mod audit;
 const WIDE_AIM_FACTOR: f64 = 3.0;
 const EDGE_AIM_FACTOR: f64 = 4.0;
 const OUT_AIM_FACTOR: f64 = -5.0;
+
+/// Multiplier for the Edge preference when PitchAround gets ahead 0–2.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(transparent)]
+pub struct PitchAroundZeroTwoEdgeScale(f64);
+
+impl Default for PitchAroundZeroTwoEdgeScale {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+impl FromStr for PitchAroundZeroTwoEdgeScale {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let value = value
+            .parse::<f64>()
+            .map_err(|_| "expected an Edge preference scale between 0 and 1")?;
+        if (0.0..=1.0).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err("expected an Edge preference scale between 0 and 1")
+        }
+    }
+}
+
+thread_local! {
+    static PITCH_AROUND_ZERO_TWO_EDGE_SCALE: Cell<f64> = const { Cell::new(1.0) };
+}
+
+impl PitchAroundZeroTwoEdgeScale {
+    pub fn with<T>(self, run: impl FnOnce() -> T) -> T {
+        struct Restore(f64);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                PITCH_AROUND_ZERO_TWO_EDGE_SCALE.set(self.0);
+            }
+        }
+
+        let _restore = Restore(PITCH_AROUND_ZERO_TWO_EDGE_SCALE.replace(self.0));
+        run()
+    }
+}
+
+pub(crate) fn scale_pitch_around_zero_two_edge(
+    strategy: PitchingStrategy,
+    count: CountStatus,
+    preferences: [&mut PitchingPreferences; 2],
+) {
+    if strategy == PitchingStrategy::PitchAround && count == CountStatus::C02 {
+        let scale = PITCH_AROUND_ZERO_TWO_EDGE_SCALE.get();
+        for preferences in preferences {
+            if let Some(preferred) = &mut preferences.margin
+                && preferred.margin == Margin::Edge
+            {
+                preferred.strength *= scale;
+            }
+        }
+    }
+}
 
 struct PitchTypeEstimate {
     pub whiff: f64,        // Estimated ability to induce swings and misses: 0.0–1.0
@@ -1323,6 +1386,36 @@ mod pitch_call_reconciliation_tests {
 #[cfg(test)]
 mod pitch_call_shortlist_tests {
     use super::*;
+
+    #[test]
+    fn edge_scale_is_limited_to_pitch_around_at_zero_and_two() {
+        let trial: PitchAroundZeroTwoEdgeScale = "0.5".parse().unwrap();
+        let evaluate = |strategy, count, margin| {
+            let preference = PitchingPreferences {
+                margin: Some(MarginPreference { margin, strength: 0.7 }),
+                ..Default::default()
+            };
+            let mut pitcher = preference.clone();
+            let mut catcher = preference;
+            scale_pitch_around_zero_two_edge(strategy, count, [&mut pitcher, &mut catcher]);
+            [pitcher.margin.unwrap().strength, catcher.margin.unwrap().strength]
+        };
+        let pitch_around = PitchingStrategy::PitchAround;
+        trial.with(|| {
+            assert_eq!(evaluate(pitch_around, CountStatus::C02, Margin::Edge), [0.35; 2]);
+            assert_eq!(evaluate(pitch_around, CountStatus::C12, Margin::Edge), [0.7; 2]);
+            assert_eq!(evaluate(pitch_around, CountStatus::C22, Margin::Edge), [0.7; 2]);
+            assert_eq!(evaluate(pitch_around, CountStatus::C32, Margin::Wide), [0.7; 2]);
+            assert_eq!(
+                evaluate(PitchingStrategy::AttackZone, CountStatus::C02, Margin::Edge),
+                [0.7; 2]
+            );
+        });
+        assert_eq!(evaluate(pitch_around, CountStatus::C02, Margin::Edge), [0.7; 2]);
+        assert!("NaN".parse::<PitchAroundZeroTwoEdgeScale>().is_err());
+        assert!("1.01".parse::<PitchAroundZeroTwoEdgeScale>().is_err());
+    }
+
     use crate::domain::shared::player::{RL, ZoneAptitude};
     use crate::domain::test_support::{batter_info, pitcher_info};
 

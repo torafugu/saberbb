@@ -390,6 +390,10 @@ struct Args {
     /// Audit the regular-season pitch-call shortlists and score gaps.
     #[arg(long)]
     pitch_call_audit: bool,
+    /// Multiply the PitchAround Edge preference at 0–2 by this factor (0 to 1).
+    #[arg(long, requires = "pitch_call_audit")]
+    pitch_around_0_2_edge_scale:
+        Option<saberbb::domain::strategy::pitching_strategy::PitchAroundZeroTwoEdgeScale>,
     #[arg(long, value_delimiter = ',', default_value = "7,42,20261108")]
     seeds: Vec<u64>,
     /// Replay the same swings with ContactFirst at 100%, 97%, and 94% of player bat speed.
@@ -1244,8 +1248,11 @@ fn run(args: Args) -> Result<()> {
     I18nManager::init("en-US");
     if args.pitch_call_audit {
         use saberbb::domain::strategy::pitching_strategy::audit::with_pitch_call_audit;
-        let (reports, audit) = with_pitch_call_audit(|| {
-            simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)
+        let edge_scale = args.pitch_around_0_2_edge_scale.unwrap_or_default();
+        let (reports, audit) = edge_scale.with(|| {
+            with_pitch_call_audit(|| {
+                simulate_reports(&args, &games, CONTACT_TIMING_POSITION_SCALE, false, None)
+            })
         });
         let output = serde_json::json!({
             "season": args.season,
@@ -1253,6 +1260,7 @@ fn run(args: Args) -> Result<()> {
             "seeds": args.seeds,
             "inputs_sha256": input_hash,
             "engine_source_sha256": saberbb::domain::seeded_diagnostic::ENGINE,
+            "pitch_around_0_2_edge_scale": edge_scale,
             "pitch_call_audit": audit,
             "reports": reports?,
         });
