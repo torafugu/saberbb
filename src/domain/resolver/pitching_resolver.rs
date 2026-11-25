@@ -1,6 +1,7 @@
 use super::batting_calibration::{BATTING_EYE_TIMING_MIDPOINT, uncorrected_fraction};
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::{BallLocation, BallMovement, BallZone, PitchedBall};
+use crate::domain::shared::pitcher_fatigue::PitchExecutionFatigue;
 use crate::domain::shared::player::PitcherInfo;
 use crate::domain::shared::player::RL;
 use crate::domain::strategy::pitching_strategy::PitchCall;
@@ -58,23 +59,25 @@ pub fn create_pitch_for_call(
     hanging_pitch_effect: Option<f64>,
     base_four_seam_speed: f64,
 ) -> Result<PitchedBall, AppError> {
-    create_pitch_for_call_with_error_floor(
+    create_pitch_for_call_with_execution(
         rng,
         pitcher,
         pitch_call,
         hanging_pitch_effect,
         base_four_seam_speed,
         0.0,
+        PitchExecutionFatigue::default(),
     )
 }
 
-pub(crate) fn create_pitch_for_call_with_error_floor(
+pub(crate) fn create_pitch_for_call_with_execution(
     rng: &mut dyn RandomProvider,
     pitcher: &PitcherInfo,
     pitch_call: PitchCall,
     hanging_pitch_effect: Option<f64>,
     base_four_seam_speed: f64,
     error_floor: f64,
+    fatigue: PitchExecutionFatigue,
 ) -> Result<PitchedBall, AppError> {
     let pitch_skill = pitcher.select_pitch_skill(pitch_call.pitch_type);
     // Reject corrupt/legacy skills before generating a trajectory or consuming RNG.
@@ -96,7 +99,7 @@ pub(crate) fn create_pitch_for_call_with_error_floor(
         (base_spin_angle + pitch_spin_angle + 360.0) % 360.0
     };
 
-    let speed = pitcher.velocity * pitch_skill.velocity * pitch_effect;
+    let speed = pitcher.velocity * pitch_skill.velocity * pitch_effect - fatigue.speed_loss_ms();
 
     // NOTE: Speed-based correction (slower pitches have lower spin rate)
     let speed_factor = speed / base_four_seam_speed;
@@ -113,6 +116,7 @@ pub(crate) fn create_pitch_for_call_with_error_floor(
         pitch_call.target_zone.zone(),
         aim_location,
         error_floor,
+        fatigue.location_error_scale(),
     );
 
     Ok(PitchedBall {
@@ -135,6 +139,7 @@ fn sample_ball_location(
     zone: BallZone,
     aim: BallLocation,
     error_floor: f64,
+    error_scale: f64,
 ) -> BallLocation {
     let control_error = 1.0 - sigmoid(control);
     // A zero floor preserves the historical distribution, including invalid
@@ -143,7 +148,7 @@ fn sample_ball_location(
         error_floor
     } else {
         control_error
-    };
+    } * error_scale;
     let norm_x = aim.x + zone.width() * rng.normal_std(std_dev);
     let norm_y = aim.y + zone.height() * rng.normal_std(std_dev);
 
@@ -352,7 +357,7 @@ mod tests {
     use crate::domain::shared::player::{
         ArmSlot, FielderInfo, FielderType, PitchSkill, PitchType, PitcherStyle,
     };
-    use crate::domain::strategy::pitching_strategy::TargetZone;
+    use crate::domain::strategy::pitching_strategy::{Margin, TargetZone};
     use crate::domain::util::Vector3D;
 
     const EPSILON: f64 = 1e-9;
@@ -376,6 +381,7 @@ mod tests {
                 TargetZone::LowInside.zone(),
                 aim,
                 floor,
+                1.0,
             )
         };
 
@@ -386,6 +392,45 @@ mod tests {
         let scale = 0.2 / (1.0 - sigmoid(3.0));
         assert_near(widened.x - aim.x, (baseline.x - aim.x) * scale);
         assert_near(widened.y - aim.y, (baseline.y - aim.y) * scale);
+    }
+
+    #[test]
+    fn fatigue_slows_the_pitch_and_widens_location_error_around_the_same_target() {
+        let pitch_type = PitchType::FourSeamFastball;
+        let pitcher = pitcher(RL::Right, vec![pitch_skill(pitch_type, 0.0, 2200.0)]);
+        let call = PitchCall {
+            pitch_type,
+            target_zone: TargetZone::LowInside,
+            margin: Margin::Edge,
+        };
+        let roll = |fatigue| {
+            create_pitch_for_call_with_execution(
+                &mut RealRng::from_seed(42),
+                &pitcher,
+                call,
+                None,
+                TEST_BASE_FOUR_SEAM_SPEED,
+                0.0,
+                fatigue,
+            )
+            .unwrap()
+        };
+        let baseline = roll(PitchExecutionFatigue::default());
+        let tired = roll(PitchExecutionFatigue::from_load_ratio(1.0));
+        let aim = baseline.aim_location;
+
+        assert_eq!(tired.aim_location, aim);
+        assert_eq!(tired.pitch_type, baseline.pitch_type);
+        assert_near(baseline.speed - tired.speed, 1.0);
+        assert_near(
+            tired.actual_location.x - aim.x,
+            1.25 * (baseline.actual_location.x - aim.x),
+        );
+        assert_near(
+            tired.actual_location.y - aim.y,
+            1.25 * (baseline.actual_location.y - aim.y),
+        );
+        assert!(tired.flight_time > baseline.flight_time);
     }
 
     fn pitch_skill(pitch_type: PitchType, spin_angle: f64, spin_rate_rpm: f64) -> PitchSkill {

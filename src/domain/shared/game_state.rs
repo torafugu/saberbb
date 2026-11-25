@@ -22,7 +22,7 @@ use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::resolver::pitching_resolver::{
     MatchupContext, PitchDisplacement, calculate_ball_movement, calculate_hanging_pitch_effect,
     calculate_location_bias, calculate_pitch_offset, create_pitch,
-    create_pitch_for_call_with_error_floor,
+    create_pitch_for_call_with_execution,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
@@ -30,6 +30,7 @@ use crate::domain::resolver::running_resolver::{
 use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall, TrajectoryType};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stats::{PlayerGameBattingMetrics, PlayerGameFieldingCandidate};
+use crate::domain::shared::pitcher_fatigue::PitchExecutionFatigue;
 use crate::domain::shared::stadium::{Base, Stadium};
 use crate::domain::strategy::batting_strategy::{BattedBallIntent, BattingStrategySettings, SwingExecution};
 use crate::domain::strategy::pitching_strategy::{
@@ -1234,6 +1235,13 @@ impl GameState {
     }
 
     pub fn process_count(&mut self) -> Result<(), GameError> {
+        self.process_count_with_execution_fatigue(PitchExecutionFatigue::default())
+    }
+
+    pub(crate) fn process_count_with_execution_fatigue(
+        &mut self,
+        fatigue: PitchExecutionFatigue,
+    ) -> Result<(), GameError> {
         info!("new count started");
 
         let active_pitcher = self.current_pitcher()?;
@@ -1297,13 +1305,14 @@ impl GameState {
 
         let hanging_pitch_effect = calculate_hanging_pitch_effect(self.rng.as_mut(), &pitcher);
 
-        let pitched_ball = create_pitch_for_call_with_error_floor(
+        let pitched_ball = create_pitch_for_call_with_execution(
             self.rng.as_mut(),
             &pitcher,
             pitch_call,
             hanging_pitch_effect,
             self.base_four_seam_speed,
             self.pitch_location_error_floor,
+            fatigue,
         )?;
         // TODO: expected_pitched_ball should be created by better logic.
         let expected_ball = create_pitch(

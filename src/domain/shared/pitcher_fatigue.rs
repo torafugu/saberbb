@@ -39,3 +39,61 @@ impl PitcherFatigue {
         (self.entering_load + f64::from(self.pitches)) / self.reference_pitches
     }
 }
+
+/// Transient pitch execution penalties based on the load before the pitch.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct PitchExecutionFatigue {
+    severity: f64,
+}
+
+impl PitchExecutionFatigue {
+    pub(crate) fn from_load_ratio(load_ratio: f64) -> Self {
+        // A fresh pitcher has no penalty. Cap the effects if no reliever is available.
+        let ramp = ((load_ratio - 0.5) / 0.5).clamp(0.0, 1.5);
+        Self {
+            severity: ramp * ramp,
+        }
+    }
+
+    pub(crate) fn speed_loss_ms(self) -> f64 {
+        self.severity
+    }
+
+    pub(crate) fn location_error_scale(self) -> f64 {
+        1.0 + 0.25 * self.severity
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execution_effect_uses_entering_load_and_pitches_already_thrown() {
+        let fatigue = |entering_load, pitches, reference_pitches| {
+            PitchExecutionFatigue::from_load_ratio(
+                PitcherFatigue {
+                    entering_load,
+                    pitches,
+                    reference_pitches,
+                }
+                .leaving_ratio(),
+            )
+        };
+        let rested = fatigue(0.0, 50, 100.0);
+        assert_eq!(rested.speed_loss_ms(), 0.0);
+        assert_eq!(rested.location_error_scale(), 1.0);
+        let midway = fatigue(0.0, 75, 100.0);
+        assert_eq!(midway.speed_loss_ms(), 0.25);
+        assert_eq!(midway.location_error_scale(), 1.0625);
+        let tired = fatigue(25.0, 75, 100.0);
+        assert_eq!(tired.speed_loss_ms(), 1.0);
+        assert_eq!(tired.location_error_scale(), 1.25);
+        assert!(fatigue(0.0, 75, 120.0).speed_loss_ms() < midway.speed_loss_ms());
+        assert_eq!(fatigue(0.0, 160, 100.0).speed_loss_ms(), 2.25);
+        assert_eq!(
+            fatigue(75.0, 0, 100.0).speed_loss_ms(),
+            midway.speed_loss_ms()
+        );
+    }
+}
