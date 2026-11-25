@@ -5,6 +5,7 @@ use crate::domain::resolver::batting_calibration::with_calibrated_batting;
 use crate::domain::resolver::batting_resolver::{
     SwingExecutionModel, with_collision_power_trial, with_swing_execution_model,
 };
+use crate::domain::resolver::pitching_resolver::PitchLocationSettings;
 use crate::domain::seeded_diagnostic::derived_seed;
 use crate::domain::shared::game::{GameResult, GameSchedule, TB};
 use crate::domain::shared::player::Position;
@@ -132,6 +133,20 @@ impl<R: GameRoundRepository> GameService<R> {
             (0.0..=0.5).contains(&pitch_location_error_floor),
             "SABERBB_PITCH_LOCATION_ERROR_FLOOR must be between 0 and 0.5"
         );
+        let control_cap = match std::env::var("SABERBB_PITCH_CONTROL_CAP") {
+            Ok(value) if value.is_empty() => None,
+            Ok(value) => {
+                let cap: f64 = value.parse().context("Reading SABERBB_PITCH_CONTROL_CAP")?;
+                ensure!(cap.is_finite(), "SABERBB_PITCH_CONTROL_CAP must be finite");
+                Some(cap)
+            }
+            Err(std::env::VarError::NotPresent) => None,
+            Err(error) => return Err(error).context("Reading SABERBB_PITCH_CONTROL_CAP"),
+        };
+        let pitch_location_settings = PitchLocationSettings {
+            error_floor: pitch_location_error_floor,
+            control_cap,
+        };
         let edge_scale = match std::env::var("SABERBB_PITCH_AROUND_0_2_EDGE_SCALE") {
             Ok(value) => value
                 .parse::<PitchAroundZeroTwoEdgeScale>()
@@ -161,6 +176,7 @@ impl<R: GameRoundRepository> GameService<R> {
             collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
             ?execution_model,
             pitch_location_error_floor,
+            ?control_cap,
             execution_fatigue,
             ?edge_scale,
             ?master_seed,
@@ -210,7 +226,7 @@ impl<R: GameRoundRepository> GameService<R> {
                         record_contact_states,
                         Some(&lineup_source),
                         execution_model,
-                        pitch_location_error_floor,
+                        pitch_location_settings,
                         execution_fatigue,
                     )
                 })
@@ -293,7 +309,7 @@ pub fn simulate_game_with_pitching_and_lineup_source(
         record_contact_states,
         lineup_source,
         swing_execution_from_env(SwingExecutionModel::Legacy)?,
-        0.0,
+        PitchLocationSettings::default(),
         false,
     )
 }
@@ -308,7 +324,7 @@ fn simulate_staffed_game(
     record_contact_states: bool,
     lineup_source: Option<&GameSchedule>,
     execution_model: SwingExecutionModel,
-    pitch_location_error_floor: f64,
+    pitch_location_settings: PitchLocationSettings,
     execution_fatigue: bool,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
@@ -323,7 +339,7 @@ fn simulate_staffed_game(
         [away.starter(), home.starter()],
         position_fatigue,
     )?;
-    state.pitch_location_error_floor = pitch_location_error_floor;
+    state.pitch_location_settings = pitch_location_settings;
     if lineup_source.is_some() {
         ensure!(
             state.game_result.id == schedule.id,

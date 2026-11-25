@@ -235,7 +235,7 @@ impl GameState {
     ) -> Result<Play, GameError> {
         let live = self;
         let mut replay = GameState {
-            pitch_location_error_floor: self.pitch_location_error_floor,
+            pitch_location_settings: self.pitch_location_settings,
             record_contact_states: false,
             track_position_player_workload: false,
             away_manager: live.away_manager.clone(),
