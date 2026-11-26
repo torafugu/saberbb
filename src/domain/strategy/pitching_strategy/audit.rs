@@ -205,7 +205,7 @@ pub(crate) fn record(
             .pitcher
             .pitch_skills
             .iter()
-            .flat_map(|skill| pitch_call_locations(skill.pitch_type));
+            .flat_map(|skill| pitch_call_locations(skill.pitch_type, context.border_aims));
         let mut finalists = shortlists
             .iter()
             .flat_map(|list| list.iter().map(|p| p.pitch_call));

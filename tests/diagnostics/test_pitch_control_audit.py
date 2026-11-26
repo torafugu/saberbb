@@ -19,7 +19,7 @@ class PitchControlAuditTest(unittest.TestCase):
                     actual_location_x, actual_location_y, pitch_type, speed
                 );
                 CREATE TABLE count(game_id, inning_seq, inning_tb, seq, ball, strike);
-                CREATE TABLE player_game_batting(game_id, count_seq, result, decision_swung);
+                CREATE TABLE player_game_batting(game_id, count_seq, result, decision_swung, launch_speed);
                 INSERT INTO game VALUES (10, 1, 2, 2026, 'Regular', '2026-05-01');
                 INSERT INTO player_info VALUES (42, 1, 'Fixture', 'Pitcher');
                 INSERT INTO pitcher_info VALUES (42, 2.0);
@@ -35,7 +35,7 @@ class PitchControlAuditTest(unittest.TestCase):
                            CASE WHEN seq = 3 THEN -1.2 WHEN seq = 7 THEN -.9 ELSE -.75 END,
                            CASE WHEN seq IN (3, 5) THEN -1.1 ELSE -.8 END,
                            -.7, 'Cutter', 40 FROM count;
-                INSERT INTO player_game_batting VALUES
+                INSERT INTO player_game_batting(game_id, count_seq, result, decision_swung) VALUES
                     (10, 1, 'Take', 0), (10, 2, 'Take', 0), (10, 3, 'Take', 0),
                     (10, 4, 'Foul', 1), (10, 5, 'Take', 0), (10, 6, 'Strikeout', NULL);
                 INSERT INTO player_info VALUES (43, 1, 'Relief', 'Pitcher');
@@ -52,9 +52,18 @@ class PitchControlAuditTest(unittest.TestCase):
                            CASE seq WHEN 14 THEN -1.2 WHEN 13 THEN -1.1
                                     WHEN 12 THEN -1.05 ELSE -.8 END,
                            -.7, 'Cutter', 40 FROM count WHERE seq >= 8;
-                INSERT INTO player_game_batting VALUES
+                INSERT INTO player_game_batting(game_id, count_seq, result, decision_swung) VALUES
                     (10, 8, 'Take', 0), (10, 9, 'Take', 0), (10, 10, 'Take', 0),
                     (10, 11, 'Take', 0), (10, 13, 'Foul', 1), (10, 14, 'Walk', 0);
+                INSERT INTO count VALUES
+                    (10, 3, 'Top', 15, 0, 1), (10, 3, 'Top', 16, 0, 2),
+                    (10, 3, 'Top', 17, 1, 2), (10, 3, 'Top', 18, 0, 0);
+                INSERT INTO player_game_pitching
+                    SELECT game_id, seq, 43, 'LowInside', -.98, -(1.0-1.0/3.0),
+                           -.8, -.7, 'Cutter', 40 FROM count WHERE seq >= 15;
+                INSERT INTO player_game_batting VALUES
+                    (10, 15, 'Take', 0, 0), (10, 16, 'Foul', 1, 48),
+                    (10, 17, 'Take', 0, 0), (10, 18, 'Single', 1, 42.4688);
             """)
             prior = report(conn, 2026)
             audit = report(conn, 2026, include_count_margins=True)
@@ -62,10 +71,14 @@ class PitchControlAuditTest(unittest.TestCase):
             endings_audit = report(conn, 2026, include_count_endings=True)
 
         player = audit["pitchers"][0]["by_count_and_margin"]
-        self.assertEqual(player["1-2"], audit["league"]["by_count_and_margin"]["1-2"])
+        league_margins = audit["league"]["by_count_and_margin"]
+        self.assertEqual(player["1-2"]["Edge"], league_margins["1-2"]["Edge"])
+        self.assertEqual(league_margins["1-2"]["Border"]["hard_hit_fair"], 1)
+        self.assertEqual(league_margins["0-1"]["Border"]["hard_hit_fair"], 0)
         self.assertEqual(player["1-2"]["Edge"], {
             "pitches": 2, "actual_outside": 1, "actual_outside_rate": 0.5,
             "ball_count_advances": 1, "ball_count_advance_rate": 0.5,
+            "hard_hit_fair": 0,
             "in_zone_outcomes": {"foul": 1},
             "out_of_zone_outcomes": {"called_ball": 1},
         })
@@ -110,9 +123,9 @@ class PitchControlAuditTest(unittest.TestCase):
                 pitcher["batters_faced"],
             )
         self.assertEqual(endings_audit, prior)
-        self.assertEqual(league_endings["1-2"]["pitches"], 2)
+        self.assertEqual(league_endings["1-2"]["pitches"], 3)
         self.assertEqual(league_endings["1-2"]["ball_count_advances_without_walk"], 1)
-        self.assertEqual(league_endings["1-2"]["finished_appearances"], 0)
+        self.assertEqual(league_endings["1-2"]["finished_appearances"], 1)
         self.assertEqual(league_endings["2-2"]["strikeouts_unknown_swing"], 1)
         self.assertEqual(league_endings["2-2"]["finished_appearances"], 1)
         self.assertEqual(league_endings["3-2"]["pitches"], 2)
