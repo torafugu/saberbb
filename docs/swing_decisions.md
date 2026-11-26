@@ -51,3 +51,54 @@ PAはこのモデルで打席を終えるresultの件数（DoublePlayは1打席�
 従来の詳細SQLにもContact%を追加し、outside_near/farを別々に確認できる。
 見逃し三振が空振り三振へ移るだけの場合、角度・接触モデルとは切り分けて次段階で検討する。
 試合展開と乱数列は変わるため、同じシードでも球ごとの対応比較にはならない。
+
+## カウント別のゾーン際見送り試験
+
+`SABERBB_SWING_EDGE_TAKES=1` を指定した日程消化で、ゾーン際の
+スイングスコアを下げる。既定値は0。補正の大きさはゾーンの境界で最大になり、
+ゾーン内側は最も近い境界から0.20、ゾーン外側はゾーンからの距離0.50で
+線形にゼロへ戻る。距離は正規化したゾーン座標を使う。補正は
+`decision_zone_factor` に含めて記録し、元の打者方針・好みの補正に加算する。
+この試験も実コースを参照する。
+
+| 投球前カウント | 境界で引くスコア |
+| --- | ---: |
+| 3–0、3–1 | 0.80 |
+| 2–0、2–1 | 0.65 |
+| 0–0、1–0、1–1 | 0.45 |
+| 0–1 | 0.35 |
+| 2ストライク | 0.20 |
+
+Windowsのコマンドプロンプトで、同じ開幕前DBのコピー2つを使う。
+以下のDBパスは各コピーの実パスに置き換える。
+
+```cmd
+set "SABERBB_SCHEDULED_GAME_SEED=20261126"
+set "SABERBB_PITCH_AROUND_0_2_EDGE_SCALE=0"
+set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0"
+set "SABERBB_PITCH_EXECUTION_FATIGUE=1"
+set "SABERBB_PITCH_CONTROL_CAP=1.20"
+set "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE=0.25"
+
+set "SABERBB_DB=C:\path\to\edge_takes_baseline.db"
+set "SABERBB_SWING_EDGE_TAKES=0"
+cargo run --release --locked -- --process 40
+python tools/diagnostics/pitch_control_audit.py --season 2026 --count-endings --count-margins > swing_edge_takes_baseline_2026.json
+
+set "SABERBB_DB=C:\path\to\edge_takes_trial.db"
+set "SABERBB_SWING_EDGE_TAKES=1"
+cargo run --release --locked -- --process 40
+python tools/diagnostics/pitch_control_audit.py --season 2026 --count-endings --count-margins > swing_edge_takes_trial_2026.json
+```
+
+各DBに対して `sql/diagnostics/swing_decisions.sql` を実行すると、
+実コースのゾーン区分と投球前カウントごとのスイング率・三振内訳が出る。
+SQLiteのCLIを使わない場合は、それぞれの `SABERBB_DB` を指定した状態で
+次のコマンドを実行し、出力名を条件ごとに分ける。
+
+```cmd
+python -c "import csv, math, os, pathlib, sqlite3, sys; db = sqlite3.connect(pathlib.Path(os.environ['SABERBB_DB']).resolve().as_uri() + '?mode=ro', uri=True); db.create_function('sqrt', 1, math.sqrt); db.create_function('pow', 2, math.pow); rows = db.execute(pathlib.Path('sql/diagnostics/swing_decisions.sql').read_text(encoding='utf-8')); out = csv.writer(sys.stdout, lineterminator=chr(10)); out.writerow([col[0] for col in rows.description]); out.writerows(rows)" > swing_zone_bands_2026.csv
+```
+
+JSONの `by_count_endings["1-2"]` では、見逃し・空振り三振と
+2–2への進行を投球数で割って比較する。

@@ -236,6 +236,7 @@ impl GameState {
         let live = self;
         let mut replay = GameState {
             pitch_location_settings: self.pitch_location_settings,
+            swing_edge_takes: self.swing_edge_takes,
             record_contact_states: false,
             track_position_player_workload: false,
             away_manager: live.away_manager.clone(),

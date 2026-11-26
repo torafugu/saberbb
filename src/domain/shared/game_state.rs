@@ -539,6 +539,7 @@ pub struct GameState {
     pub record_contact_states: bool,
     pub(crate) track_position_player_workload: bool,
     pub(crate) pitch_location_settings: PitchLocationSettings,
+    pub(crate) swing_edge_takes: bool,
     pub away_manager:Option<super::batting_personnel::Manager>,
     pub home_manager:Option<super::batting_personnel::Manager>,
     pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
@@ -588,6 +589,7 @@ impl GameState {
             record_contact_states: false,
             track_position_player_workload: fatigue.is_some(),
             pitch_location_settings: PitchLocationSettings::default(),
+            swing_edge_takes: false,
             away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
             batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
             batting_strategy_settings: BattingStrategySettings::player_driven(),
@@ -1370,6 +1372,9 @@ impl GameState {
 
         swing_decision.location_x = pitched_ball.actual_location.x;
         swing_decision.location_y = pitched_ball.actual_location.y;
+        if self.swing_edge_takes {
+            swing_decision.apply_edge_take_trial(pitched_ball.actual_location);
+        }
         let decision_count_seq = self.count_seq;
         let swing_execution = select_swing_execution(self.rng.as_mut(), swing_decision.score);
         swing_decision.swung = swing_execution == SwingExecution::Swing;

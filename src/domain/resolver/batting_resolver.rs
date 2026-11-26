@@ -201,6 +201,29 @@ pub struct SwingDecisionDiagnostics {
     pub swung: bool,
 }
 
+impl SwingDecisionDiagnostics {
+    pub(crate) fn apply_edge_take_trial(&mut self, location: BallLocation) {
+        let depth = 1.0 - location.x.abs().max(location.y.abs());
+        // Ramp in from the zone core and fade out on the ball side of the edge.
+        let edge_weight = if depth >= 0.0 {
+            (1.0 - depth / 0.20).max(0.0)
+        } else {
+            (1.0 - location.distance_from_zone_edge() / 0.50).max(0.0)
+        };
+        let count_penalty = match self.count_status {
+            CountStatus::C30 | CountStatus::C31 => 0.80,
+            CountStatus::C20 | CountStatus::C21 => 0.65,
+            CountStatus::C00 | CountStatus::C10 | CountStatus::C11 => 0.45,
+            CountStatus::C01 => 0.35,
+            CountStatus::C02 | CountStatus::C12 | CountStatus::C22 | CountStatus::C32 => 0.20,
+        };
+        let penalty = count_penalty * edge_weight;
+        self.zone_factor -= penalty;
+        self.score -= penalty;
+        self.probability = sigmoid(self.score);
+    }
+}
+
 pub fn calculate_swing_decision(
     approach: PlateApproach,
     count_status: CountStatus,
@@ -2272,6 +2295,43 @@ mod swing_decision_tests {
         assert_eq!(early.approach_factor, -5.0);
         assert_eq!(late.approach_factor, 0.0);
         assert!(late.probability > early.probability);
+    }
+
+    #[test]
+    fn edge_take_trial_is_count_sensitive_and_local_to_the_boundary() {
+        let decision = |count, x, y| {
+            let location = BallLocation { x, y };
+            let mut baseline = calculate_swing_decision(
+                PlateApproach::Aggressive,
+                count,
+                PitchType::FourSeamFastball,
+                &factor(location.distance_from_zone_edge()),
+            );
+            let original = baseline;
+            baseline.apply_edge_take_trial(location);
+            (original, baseline)
+        };
+        for (count, expected) in [
+            (CountStatus::C31, 0.80),
+            (CountStatus::C20, 0.65),
+            (CountStatus::C11, 0.45),
+            (CountStatus::C01, 0.35),
+            (CountStatus::C12, 0.20),
+        ] {
+            let (before, after) = decision(count, -1.0, 0.6);
+            assert!((before.score - after.score - expected).abs() < 1e-12);
+            assert!((before.zone_factor - after.zone_factor - expected).abs() < 1e-12);
+            assert_eq!(before.protection_factor, after.protection_factor);
+            assert_eq!(after.probability, sigmoid(after.score));
+            assert!(after.probability < before.probability);
+            for (x, y) in [(0.79, 0.0), (1.6, 0.0)] {
+                let (before, after) = decision(count, x, y);
+                assert_eq!(before.probability, after.probability);
+            }
+            let probabilities = [0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.6]
+                .map(|y| decision(count, 0.0, y).1.probability);
+            assert!(probabilities.windows(2).all(|pair| pair[0] >= pair[1]));
+        }
     }
 }
 
