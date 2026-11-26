@@ -92,6 +92,32 @@ def summarize_count_margins(rows):
     return counts
 
 
+def summarize_count_endings(rows):
+    by_count = defaultdict(Counter)
+    for (balls, strikes, _margin), series in rows.items():
+        count = by_count[balls, strikes]
+        for (_outside, advances, outcome), n in series.items():
+            count["pitches"] += n
+            count["ball_count_advances_without_walk"] += n if advances and outcome != "walk" else 0
+            count[outcome] += n
+    report = {}
+    for (balls, strikes), count in sorted(by_count.items()):
+        strikeouts = count["called_strikeout"] + count["swinging_strikeout"] + count["strikeout_unknown_swing"]
+        report[f"{balls}-{strikes}"] = {
+            "pitches": count["pitches"],
+            "ball_count_advances_without_walk": count["ball_count_advances_without_walk"],
+            "finished_appearances": strikeouts + count["fair_contact"] + count["walk"] + count["hit_by_pitch"],
+            "strikeouts": strikeouts,
+            "called_strikeouts": count["called_strikeout"],
+            "swinging_strikeouts": count["swinging_strikeout"],
+            "strikeouts_unknown_swing": count["strikeout_unknown_swing"],
+            "fair_contact": count["fair_contact"],
+            "walks": count["walk"],
+            "hit_by_pitch": count["hit_by_pitch"],
+        }
+    return report
+
+
 def summarize_three_ball_locations(locations):
     return [
         {
@@ -230,7 +256,10 @@ def pitch_summary(rows, count_margins=None, three_ball_locations=None):
     }
 
 
-def report(conn, season, include_count_margins=False, include_three_ball_locations=False):
+def report(
+    conn, season, include_count_margins=False, include_three_ball_locations=False,
+    include_count_endings=False,
+):
     completed = conn.execute(COMPLETED, (season,)).fetchall()
     if not completed:
         raise ValueError(f"No completed regular-season games for {season}")
@@ -289,13 +318,16 @@ def report(conn, season, include_count_margins=False, include_three_ball_locatio
         if team in team_games:
             teams[team]["outs"] += outs
             teams[team]["earned_runs"] += er
-        count_margins = defaultdict(Counter) if include_count_margins else None
+        count_margins = defaultdict(Counter) if include_count_margins or include_count_endings else None
         three_ball_locations = defaultdict(Counter) if include_three_ball_locations else None
         pitch = pitch_summary(by_pitcher[player_id], count_margins, three_ball_locations)
         if count_margins is not None:
             for key, series in count_margins.items():
                 league_count_margins[key].update(series)
-            pitch["by_count_and_margin"] = summarize_count_margins(count_margins)
+            if include_count_margins:
+                pitch["by_count_and_margin"] = summarize_count_margins(count_margins)
+            if include_count_endings:
+                pitch["by_count_endings"] = summarize_count_endings(count_margins)
         if three_ball_locations is not None:
             for key, data in three_ball_locations.items():
                 league_three_ball_locations[key].update(data)
@@ -324,6 +356,8 @@ def report(conn, season, include_count_margins=False, include_three_ball_locatio
     }
     if include_count_margins:
         league["by_count_and_margin"] = summarize_count_margins(league_count_margins)
+    if include_count_endings:
+        league["by_count_endings"] = summarize_count_endings(league_count_margins)
     if include_three_ball_locations:
         league["three_ball_locations"] = summarize_three_ball_locations(league_three_ball_locations)
     return {
@@ -353,6 +387,10 @@ def main():
         help="Report actual zone location and outcomes by pre-pitch count and saved aim margin.",
     )
     parser.add_argument(
+        "--count-endings", action="store_true",
+        help="Report plate appearance endings and ball-count advances by pre-pitch count.",
+    )
+    parser.add_argument(
         "--three-ball-locations", action="store_true",
         help="Report actual location errors and batter decisions by three-ball count and exact saved aim.",
     )
@@ -364,6 +402,7 @@ def main():
             output = report(
                 conn, args.season, include_count_margins=args.count_margins,
                 include_three_ball_locations=args.three_ball_locations,
+                include_count_endings=args.count_endings,
             )
             if args.require_zero_two_out and output["league"]["zero_two"]["aimed_outside"] == 0:
                 raise ValueError(

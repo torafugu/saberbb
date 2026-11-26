@@ -59,6 +59,7 @@ class PitchControlAuditTest(unittest.TestCase):
             prior = report(conn, 2026)
             audit = report(conn, 2026, include_count_margins=True)
             location_audit = report(conn, 2026, include_three_ball_locations=True)
+            endings_audit = report(conn, 2026, include_count_endings=True)
 
         player = audit["pitchers"][0]["by_count_and_margin"]
         self.assertEqual(player["1-2"], audit["league"]["by_count_and_margin"]["1-2"])
@@ -100,6 +101,27 @@ class PitchControlAuditTest(unittest.TestCase):
         self.assertAlmostEqual(full_count["rms_error_x"], (
             ((-1.1 + 2 / 3) ** 2 + (-1.2 + 2 / 3) ** 2) / 2
         ) ** 0.5)
+
+        league_endings = endings_audit["league"].pop("by_count_endings")
+        for pitcher in endings_audit["pitchers"]:
+            endings = pitcher.pop("by_count_endings")
+            self.assertEqual(
+                sum(row["finished_appearances"] for row in endings.values()),
+                pitcher["batters_faced"],
+            )
+        self.assertEqual(endings_audit, prior)
+        self.assertEqual(league_endings["1-2"]["pitches"], 2)
+        self.assertEqual(league_endings["1-2"]["ball_count_advances_without_walk"], 1)
+        self.assertEqual(league_endings["1-2"]["finished_appearances"], 0)
+        self.assertEqual(league_endings["2-2"]["strikeouts_unknown_swing"], 1)
+        self.assertEqual(league_endings["2-2"]["finished_appearances"], 1)
+        self.assertEqual(league_endings["3-2"]["pitches"], 2)
+        self.assertEqual(league_endings["3-2"]["walks"], 1)
+        self.assertEqual(league_endings["3-2"]["ball_count_advances_without_walk"], 0)
+        self.assertEqual(
+            sum(row["finished_appearances"] for row in league_endings.values()),
+            prior["league"]["bf"],
+        )
 
 
 if __name__ == "__main__":
