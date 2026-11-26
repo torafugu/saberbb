@@ -142,3 +142,43 @@ before ball four. Sum it across the two-ball counts to count transitions to
 three balls. A count can contain multiple pitches in the same plate appearance,
 so use pitches as the denominator for pitch-level rates and finished plate
 appearances for the distribution of ending counts.
+
+## Comparing 1–2 border targets
+
+Set `SABERBB_PITCH_BORDER_1_2=1` for scheduled games to enable an additional
+aim when the count is 1–2, the strategy is `PitchAround` or
+`AvoidExtraBases`, and the batter passes the existing slugger check
+(`slugger_option() > 0.5`). The new aims inherit the `Edge` preference and
+compete with the existing calls in both shortlists. Each aim places one axis
+at magnitude 0.98 and the other at the `Wide` coordinate (2/3). The existing
+pitch execution model samples the actual position from that aim. The default
+setting is 0.
+
+In Windows Command Prompt, point the two trials at separate copies of the same
+preseason DB with an unplayed schedule. Keep any batting-side trials fixed.
+
+```cmd
+set "SABERBB_SCHEDULED_GAME_SEED=20261126"
+set "SABERBB_PITCH_AROUND_0_2_EDGE_SCALE=0"
+set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0"
+set "SABERBB_PITCH_EXECUTION_FATIGUE=1"
+set "SABERBB_PITCH_CONTROL_CAP=1.20"
+set "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE=0.25"
+
+set "SABERBB_DB=C:\path\to\border_off.db"
+set "SABERBB_PITCH_BORDER_1_2=0"
+cargo run --release --locked -- --process 40 && python tools/diagnostics/pitch_control_audit.py --season 2026 --count-endings --count-margins > pitch_border_off_2026.json
+
+set "SABERBB_DB=C:\path\to\border_on.db"
+set "SABERBB_PITCH_BORDER_1_2=1"
+cargo run --release --locked -- --process 40 && python tools/diagnostics/pitch_control_audit.py --season 2026 --count-endings --count-margins > pitch_border_on_2026.json
+```
+
+The audit recognizes both orientations as `Border` from the saved aim
+coordinates. In `by_count_and_margin["1-2"]`, compare outside pitches,
+outcomes (including called strikeouts and swings outside the zone), advances
+to 2–2, and `hard_hit_fair` per pitch. A hard-hit fair ball has a saved exit
+velocity of at least 95 mph (42.4688 m/s). For the overall 1–2 effect, sum
+across margins before dividing by the combined number of pitches. The
+`by_count_endings` and league walk totals show how the change carries through
+later counts.

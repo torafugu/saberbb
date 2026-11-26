@@ -122,6 +122,13 @@ impl<R: GameRoundRepository> GameService<R> {
             cap_ms: Some(OPENING_LINEUP_SWING_SPEED_CAP_MS),
         };
         let execution_model = swing_execution_from_env(SwingExecutionModel::Mixture)?;
+        let pitch_border_1_2 = match std::env::var("SABERBB_PITCH_BORDER_1_2") {
+            Ok(value) if value == "1" => true,
+            Ok(value) if value == "0" => false,
+            Ok(_) => anyhow::bail!("SABERBB_PITCH_BORDER_1_2 must be 0 or 1"),
+            Err(std::env::VarError::NotPresent) => false,
+            Err(error) => return Err(error).context("Reading SABERBB_PITCH_BORDER_1_2"),
+        };
         let pitch_location_error_floor = match std::env::var("SABERBB_PITCH_LOCATION_ERROR_FLOOR") {
             Ok(value) => value
                 .parse::<f64>()
@@ -190,6 +197,7 @@ impl<R: GameRoundRepository> GameService<R> {
             swing_speed_cap_ms = ?swing_speed.cap_ms,
             collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
             ?execution_model,
+            pitch_border_1_2,
             pitch_location_error_floor,
             ?control_cap,
             control_above_cap_scale,
@@ -244,6 +252,7 @@ impl<R: GameRoundRepository> GameService<R> {
                         execution_model,
                         pitch_location_settings,
                         execution_fatigue,
+                        pitch_border_1_2,
                     )
                 })
             })?;
@@ -327,6 +336,7 @@ pub fn simulate_game_with_pitching_and_lineup_source(
         swing_execution_from_env(SwingExecutionModel::Legacy)?,
         PitchLocationSettings::default(),
         false,
+        false,
     )
 }
 
@@ -342,6 +352,7 @@ fn simulate_staffed_game(
     execution_model: SwingExecutionModel,
     pitch_location_settings: PitchLocationSettings,
     execution_fatigue: bool,
+    pitch_border_1_2: bool,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
@@ -356,6 +367,7 @@ fn simulate_staffed_game(
         position_fatigue,
     )?;
     state.pitch_location_settings = pitch_location_settings;
+    state.pitch_border_1_2 = pitch_border_1_2;
     if lineup_source.is_some() {
         ensure!(
             state.game_result.id == schedule.id,

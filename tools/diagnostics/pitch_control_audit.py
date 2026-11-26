@@ -19,7 +19,7 @@ PITCHES = """
     SELECT p.pitcher_id, p.aim_zone, p.aim_location_x, p.aim_location_y,
            p.actual_location_x, p.actual_location_y,
            c.before_balls, c.ball, b.result, b.decision_swung,
-           p.pitch_type, p.speed, p.pitch_number, c.before_strikes
+           p.pitch_type, p.speed, p.pitch_number, c.before_strikes, b.launch_speed
     FROM pitch_order AS p
     JOIN counts AS c ON c.game_id = p.game_id AND c.seq = p.count_seq
     LEFT JOIN player_game_batting AS b
@@ -41,12 +41,18 @@ TERMINAL_RESULTS = {
 # PitchCall::aim_location stores coordinates rather than the selected margin.
 CORNER_AIMS = {"Wide": 1.0 - 1.0 / 3.0, "Edge": 0.75, "Out": 1.2}
 FAIR_CONTACT_RESULTS = TERMINAL_RESULTS - {"Walk", "Strikeout", "HitByPitch"}
+HARD_HIT_SPEED_MS = 42.4688  # 95 mph
 
 
 def saved_aim_margin(zone, x, y):
     if zone == "Center" and x == 0.0 and y == 0.0:
         return "Center"
     if zone in ("LowInside", "LowOutside", "HighInside", "HighOutside"):
+        near, far = sorted((abs(x), abs(y)))
+        if math.isclose(near, CORNER_AIMS["Wide"], rel_tol=0.0, abs_tol=1e-6) and math.isclose(
+            far, 0.98, rel_tol=0.0, abs_tol=1e-6
+        ):
+            return "Border"
         for margin, magnitude in CORNER_AIMS.items():
             if math.isclose(abs(x), magnitude, rel_tol=0.0, abs_tol=1e-6) and math.isclose(
                 abs(y), magnitude, rel_tol=0.0, abs_tol=1e-6
@@ -75,11 +81,12 @@ def summarize_count_margins(rows):
     counts = {}
     for (balls, strikes, margin), series in sorted(rows.items()):
         outcomes = {"in_zone_outcomes": Counter(), "out_of_zone_outcomes": Counter()}
-        actual_outside = advanced = 0
-        for (outside, advances_ball_count, outcome), n in sorted(series.items()):
+        actual_outside = advanced = hard_hit = 0
+        for (outside, advances_ball_count, outcome, hard_hit_fair), n in sorted(series.items()):
             outcomes["out_of_zone_outcomes" if outside else "in_zone_outcomes"][outcome] += n
             actual_outside += n if outside else 0
             advanced += n if advances_ball_count else 0
+            hard_hit += n if hard_hit_fair else 0
         pitches = sum(series.values())
         counts.setdefault(f"{balls}-{strikes}", {})[margin] = {
             "pitches": pitches,
@@ -87,6 +94,7 @@ def summarize_count_margins(rows):
             "actual_outside_rate": ratio(actual_outside, pitches),
             "ball_count_advances": advanced,
             "ball_count_advance_rate": ratio(advanced, pitches),
+            "hard_hit_fair": hard_hit,
             **outcomes,
         }
     return counts
@@ -96,7 +104,7 @@ def summarize_count_endings(rows):
     by_count = defaultdict(Counter)
     for (balls, strikes, _margin), series in rows.items():
         count = by_count[balls, strikes]
-        for (_outside, advances, outcome), n in series.items():
+        for (_outside, advances, outcome, _hard_hit_fair), n in series.items():
             count["pitches"] += n
             count["ball_count_advances_without_walk"] += n if advances and outcome != "walk" else 0
             count[outcome] += n
@@ -182,7 +190,7 @@ def pitch_summary(rows, count_margins=None, three_ball_locations=None):
     bands = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for row in rows:
         (_, zone, aim_x, aim_y, x, y, before, after, result, swung,
-         pitch_type, speed, number, strikes) = row
+         pitch_type, speed, number, strikes, launch_speed) = row
         reached_three = before == 2 and after == 3
         finished_appearance = result in TERMINAL_RESULTS
         band = bands[min(((number - 1) // 25) * 25, 100)][pitch_type]
@@ -201,7 +209,8 @@ def pitch_summary(rows, count_margins=None, three_ball_locations=None):
             margin = saved_aim_margin(zone, aim_x, aim_y)
             advances = after == before + 1 or result == "Walk"
             outcome = saved_pitch_outcome(result, swung, advances)
-            count_margins[before, strikes, margin][outside, advances, outcome] += 1
+            hard_hit = outcome == "fair_contact" and launch_speed is not None and launch_speed >= HARD_HIT_SPEED_MS
+            count_margins[before, strikes, margin][outside, advances, outcome, hard_hit] += 1
         if before == 0 and strikes == 2:
             zero_two["pitches"] += 1
             zero_two["aimed_outside"] += aimed_outside

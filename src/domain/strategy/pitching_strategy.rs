@@ -20,6 +20,7 @@ pub mod audit;
 const WIDE_AIM_FACTOR: f64 = 3.0;
 const EDGE_AIM_FACTOR: f64 = 4.0;
 const OUT_AIM_FACTOR: f64 = -5.0;
+const BORDER_AIM_OFFSET: f64 = 0.02;
 
 /// Multiplier for the Edge preference when PitchAround gets ahead 0–2.
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -142,6 +143,7 @@ pub struct PitchEvaluationContext<'a> {
     batter: &'a BatterInfo,
     strategy: PitchingStrategy,
     previous_call: Option<PitchCall>,
+    border_aims: bool,
     estimates: HashMap<PitchType, PitchTypeEstimate>,
     pitch_profiles: HashMap<PitchType, (f64, f64)>, // velocity, usage weight
 }
@@ -158,6 +160,7 @@ impl<'a> PitchEvaluationContext<'a> {
             batter,
             strategy,
             previous_call,
+            border_aims: false,
             estimates: estimate_pitch_types(pitcher, batter),
             pitch_profiles: pitcher
                 .pitch_skill_distribution()
@@ -165,6 +168,17 @@ impl<'a> PitchEvaluationContext<'a> {
                 .map(|item| (item.name.pitch_type, (item.name.velocity, item.weight)))
                 .collect(),
         }
+    }
+
+    pub(crate) fn with_one_two_border_aims(mut self, enabled: bool, count: CountStatus) -> Self {
+        self.border_aims = enabled
+            && count == CountStatus::C12
+            && matches!(
+                self.strategy,
+                PitchingStrategy::PitchAround | PitchingStrategy::AvoidExtraBases
+            )
+            && self.batter.slugger_option() > 0.5;
+        self
     }
 
     pub fn pitcher_proposals(
@@ -184,7 +198,7 @@ impl<'a> PitchEvaluationContext<'a> {
     ) -> Vec<PitchCallProposal> {
         let mut proposals = Vec::new();
         for skill in &self.pitcher.pitch_skills {
-            for call in pitch_call_locations(skill.pitch_type) {
+            for call in pitch_call_locations(skill.pitch_type, self.border_aims) {
                 if let Some(proposal) = evaluate_pitch_call(call, preferences, self) {
                     proposals.push(proposal);
                 }
@@ -238,7 +252,10 @@ fn evaluate_pitch_call_with_terms(
     let risks = estimate_call_risks(call, estimate, context.batter);
     let margin_preference = preferences
         .margin
-        .filter(|preferred| call.margin == preferred.margin)
+        .filter(|preferred| {
+            call.margin == preferred.margin
+                || (preferred.margin == Margin::Edge && call.margin.is_border())
+        })
         .map(|preferred| 0.5 * preferred.strength.clamp(0.0, 1.0));
     let terms = CallScoreTerms {
         pitch_usage: usage_weight.max(1e-9).ln(),
@@ -280,7 +297,7 @@ fn evaluate_pitch_call_with_terms(
     ))
 }
 
-fn pitch_call_locations(pitch_type: PitchType) -> impl Iterator<Item = PitchCall> {
+fn pitch_call_locations(pitch_type: PitchType, border_aims: bool) -> impl Iterator<Item = PitchCall> {
     const ZONES: [TargetZone; 5] = [
         TargetZone::Center,
         TargetZone::LowInside,
@@ -288,10 +305,18 @@ fn pitch_call_locations(pitch_type: PitchType) -> impl Iterator<Item = PitchCall
         TargetZone::HighInside,
         TargetZone::HighOutside,
     ];
-    const MARGINS: [Margin; 3] = [Margin::Wide, Margin::Edge, Margin::Out];
+    const MARGINS: [Margin; 5] = [
+        Margin::Wide,
+        Margin::Edge,
+        Margin::Out,
+        Margin::BorderX,
+        Margin::BorderY,
+    ];
     ZONES.into_iter().flat_map(move |target_zone| {
         MARGINS.into_iter().filter_map(move |margin| {
-            if target_zone == TargetZone::Center && margin != Margin::Wide {
+            if (target_zone == TargetZone::Center && margin != Margin::Wide)
+                || (margin.is_border() && !border_aims)
+            {
                 None
             } else {
                 Some(PitchCall {
@@ -574,7 +599,7 @@ fn shortlist_locations_for_pitch_types(
 ) -> Vec<PitchCallProposal> {
     let mut shortlisted = Vec::new();
     for pitch in pitch_types {
-        let mut proposals: Vec<_> = pitch_call_locations(pitch.pitch_type)
+        let mut proposals: Vec<_> = pitch_call_locations(pitch.pitch_type, context.border_aims)
             .filter_map(|call| evaluate_pitch_call(call, preferences, context))
             .collect();
         proposals.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -1053,14 +1078,20 @@ pub enum Margin {
     Wide,
     Edge,
     Out,
+    BorderX,
+    BorderY,
 }
 impl Margin {
     pub fn factor(&self) -> f64 {
         match self {
-            Margin::Wide => WIDE_AIM_FACTOR,
+            Margin::Wide | Margin::BorderX | Margin::BorderY => WIDE_AIM_FACTOR,
             Margin::Edge => EDGE_AIM_FACTOR,
             Margin::Out => OUT_AIM_FACTOR,
         }
+    }
+
+    fn is_border(self) -> bool {
+        matches!(self, Self::BorderX | Self::BorderY)
     }
 }
 
@@ -1137,7 +1168,7 @@ pub struct PitchCall {
 }
 impl PitchCall {
     pub fn aim_location(&self) -> BallLocation {
-        match self.target_zone {
+        let mut aim = match self.target_zone {
             TargetZone::Center => BallLocation { x: 0.0, y: 0.0 },
             TargetZone::LowInside => BallLocation {
                 x: self.target_zone.zone().x1
@@ -1163,7 +1194,15 @@ impl PitchCall {
                 y: self.target_zone.zone().y1
                     - self.target_zone.zone().height() / self.margin.factor(),
             },
+        };
+        if self.target_zone != TargetZone::Center {
+            match self.margin {
+                Margin::BorderX => aim.x = (1.0 - BORDER_AIM_OFFSET).copysign(aim.x),
+                Margin::BorderY => aim.y = (1.0 - BORDER_AIM_OFFSET).copysign(aim.y),
+                _ => {}
+            }
         }
+        aim
     }
 }
 
@@ -1213,6 +1252,94 @@ mod pitch_call_reconciliation_tests {
         PitchingPreferences {
             target_zone: Some(TargetZonePreference { zone, strength }),
             ..PitchingPreferences::default()
+        }
+    }
+
+    #[test]
+    fn border_aims_move_only_one_axis_in_each_corner() {
+        for zone in [
+            TargetZone::LowInside,
+            TargetZone::LowOutside,
+            TargetZone::HighInside,
+            TargetZone::HighOutside,
+        ] {
+            let mut call = call(zone);
+            call.margin = Margin::Wide;
+            let wide = call.aim_location();
+            call.margin = Margin::BorderX;
+            let x = call.aim_location();
+            call.margin = Margin::BorderY;
+            let y = call.aim_location();
+            assert_eq!(x.x, 0.98_f64.copysign(wide.x));
+            assert_eq!(x.y, wide.y);
+            assert_eq!(y.x, wide.x);
+            assert_eq!(y.y, 0.98_f64.copysign(wide.y));
+        }
+    }
+
+    #[test]
+    fn border_candidates_enter_both_shortlists_only_for_eligible_one_two_calls() {
+        let pitcher = pitcher_info();
+        let slugger = batter_info(RL::Right);
+        let mut other = slugger.clone();
+        other.swing_power = -3.0;
+        let mut preferences = PitchingPreferences::default();
+        apply_count_preferences(&mut preferences, CountStatus::C12, None);
+        for (batter, strategy, count, enabled, eligible) in [
+            (
+                &slugger,
+                PitchingStrategy::PitchAround,
+                CountStatus::C12,
+                true,
+                true,
+            ),
+            (
+                &slugger,
+                PitchingStrategy::AvoidExtraBases,
+                CountStatus::C12,
+                true,
+                true,
+            ),
+            (
+                &slugger,
+                PitchingStrategy::PitchAround,
+                CountStatus::C12,
+                false,
+                false,
+            ),
+            (
+                &slugger,
+                PitchingStrategy::PitchAround,
+                CountStatus::C22,
+                true,
+                false,
+            ),
+            (
+                &slugger,
+                PitchingStrategy::AttackZone,
+                CountStatus::C12,
+                true,
+                false,
+            ),
+            (
+                &other,
+                PitchingStrategy::PitchAround,
+                CountStatus::C12,
+                true,
+                false,
+            ),
+        ] {
+            let context = PitchEvaluationContext::new(&pitcher, batter, strategy, None)
+                .with_one_two_border_aims(enabled, count);
+            for shortlist in [
+                context.pitcher_proposals(&preferences, 3, 2),
+                context.catcher_proposals(&preferences, 4),
+            ] {
+                assert_eq!(
+                    shortlist.iter().any(|p| p.pitch_call.margin.is_border()),
+                    eligible
+                );
+            }
         }
     }
 
