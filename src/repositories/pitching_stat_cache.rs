@@ -131,7 +131,7 @@ impl GamePitching {
         result: &str,
         at_bat: bool,
         hit: bool,
-        wild_ball_four: bool,
+        scored_wild_pitch: bool,
         replaced_runner: Option<i64>,
     ) {
         let line = self.lines.entry(pitcher).or_default();
@@ -141,7 +141,7 @@ impl GamePitching {
         line.so += u32::from(result == "Strikeout");
         line.bb += u32::from(result == "Walk");
         line.hbp += u32::from(result == "HitByPitch");
-        line.wild_pitches += u32::from(result == "WildPitch" || wild_ball_four);
+        line.wild_pitches += u32::from(scored_wild_pitch);
 
         if hit
             || matches!(

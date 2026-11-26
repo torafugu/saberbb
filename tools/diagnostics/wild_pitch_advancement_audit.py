@@ -134,17 +134,26 @@ def report(conn, season, pitcher_id):
     for pitcher in pitchers:
         counts = Counter(event["advancement"] for event in pitcher["events"])
         season_totals.update(counts)
+        scored = counts["runner_advanced"] + counts["extra_advance_beyond_walk"]
+        cached = pitcher["cached_wild_pitches"]
+        scored_cache_difference = (
+            cached - scored
+            if (source["cache_version"] or 0) >= 7 and cached is not None and not counts["unknown"]
+            else None
+        )
         results.append({
             "player_id": pitcher["player_id"], "name": pitcher["name"], "outs": pitcher["outs"],
             "recorded_wild_pitches": pitcher["wild_pitches"],
-            "cached_wild_pitches": pitcher["cached_wild_pitches"],
+            "cached_wild_pitches": cached,
             "cache_difference": pitcher["cache_difference"],
+            "scored_cache_difference": scored_cache_difference,
             "advancement": {key: counts[key] for key in categories},
-            "with_wild_pitch_advancement": counts["runner_advanced"] + counts["extra_advance_beyond_walk"],
+            "with_wild_pitch_advancement": scored,
             "events": pitcher["events"],
         })
     return {
         "season": season, "completed_games": source["completed_games"], "pitcher_filter": pitcher_id,
+        "cache_version": source["cache_version"],
         "advancement": {key: season_totals[key] for key in categories}, "pitchers": results,
     }
 

@@ -117,8 +117,15 @@ def report(conn, season):
     league = Counter()
     for totals in pitches.values():
         league.update(totals)
+    cache_state_exists = conn.execute("""
+        SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'stat_cache_state'
+    """).fetchone()
+    cache_state = conn.execute(
+        "SELECT version FROM stat_cache_state WHERE id = 1 AND ready = 1"
+    ).fetchone() if cache_state_exists else None
     return {
         "season": season, "completed_games": len(games),
+        "cache_version": cache_state[0] if cache_state else None,
         "league": summarize_groups({"total": league})["total"], "pitchers": players,
     }
 

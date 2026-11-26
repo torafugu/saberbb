@@ -163,6 +163,13 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
                 (row.get::<_, Option<f64>>(18)?, row.get::<_, Option<f64>>(19)?),
                 (Some(x), Some(y)) if matches!((BallLocation { x, y }).call(RL::Right), PitchResult::WildPitch)
             );
+        let [first, second, third] = before.map(|runner| runner.is_some());
+        let scored_wild_pitch = if wild_ball_four {
+            // Count only advancement beyond the bases awarded on a normal walk.
+            (second && !first) || (third && !(first && second))
+        } else {
+            result == "WildPitch" && (first || second || third)
+        };
         let mut scorers = Vec::new();
         match (result, event) {
             ("HomeRun", _) => {
@@ -245,7 +252,7 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
                     result,
                     at_bat,
                     hit,
-                    wild_ball_four,
+                    scored_wild_pitch,
                     replaced_runner,
                 );
             }

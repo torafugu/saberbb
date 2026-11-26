@@ -9,7 +9,7 @@ use std::sync::Mutex;
 // Serialize cold backfills across repositories so switching tabs cannot start
 // another writer that times out while the first backfill is still running.
 static CACHE_BUILD: Mutex<()> = Mutex::new(());
-const CACHE_VERSION: u32 = 6;
+const CACHE_VERSION: u32 = 7;
 
 pub fn ensure_schema(conn:&Connection)->Result<()> {
     // Version 5 counted each touched half-inning as a full inning. Replace only derived tables.
@@ -280,7 +280,7 @@ mod tests {
             ).unwrap()
         };
         assert_eq!(counts(10, "starts,outs,complete_games,quality_starts,bb,runs,earned_runs"), [1, 19, 0, 1, 1, 1, 1]);
-        assert_eq!(counts(20, "starts,outs,relief_wins,hits,home_runs,so,bb,hbp,wild_pitches,runs"), [0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(counts(20, "starts,outs,relief_wins,hits,home_runs,so,bb,hbp,wild_pitches,runs"), [0, 1, 1, 1, 1, 1, 1, 1, 0, 1]);
         assert_eq!(counts(30, "starts,complete_games,shutouts"), [1, 1, 1]);
         assert!(is_ready(&conn).unwrap());
 
@@ -290,6 +290,57 @@ mod tests {
         refresh_game(&conn, 1).unwrap();
         assert_eq!(counts(10, "earned_runs,unclassified_runs,quality_starts"), [0, 1, 1]);
         assert_eq!(counts(20, "earned_runs,unclassified_runs"), [0, 1]);
+    }
+
+    #[test]
+    fn version_six_wild_pitch_totals_rebuild_using_runner_advancement() {
+        let conn = fixture();
+        conn.execute_batch(
+            "DELETE FROM count;
+             DELETE FROM player_game_batting;
+             DELETE FROM player_game_pitching;
+             INSERT INTO count VALUES
+                (1,1,1,'Top',0,0),(1,2,1,'Top',0,0),(1,3,1,'Top',0,0),
+                (1,4,2,'Top',0,0),(1,5,2,'Top',0,0),
+                (1,6,3,'Top',0,0),(1,7,3,'Top',0,0),(1,8,3,'Top',0,0),
+                (1,9,4,'Top',0,0),(1,10,4,'Top',0,0);
+             INSERT INTO player_game_batting VALUES
+                (1,1,11,10,'WildPitch'),(1,2,11,10,'Walk'),(1,3,12,10,'WildPitch'),
+                (1,4,13,10,'Walk'),(1,5,14,10,'Walk'),
+                (1,6,15,10,'Walk'),(1,7,16,10,'WildPitch'),(1,8,16,10,'Walk'),
+                (1,9,17,10,'Walk'),(1,10,18,10,'Strikeout');
+             INSERT INTO player_game_pitching(game_id,count_seq,pitcher_id,actual_location_y)
+                SELECT 1,seq,10,CASE WHEN seq IN (1,3,5,7,8,9) THEN -2.4 ELSE 0 END
+                FROM count;",
+        )
+        .unwrap();
+        refresh_game(&conn, 1).unwrap();
+        let counts = || {
+            conn.query_row(
+                "SELECT wild_pitches,bb,runs,so FROM pitching_stat_totals WHERE player_id=10",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, u32>(0)?, row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?, row.get::<_, u32>(3)?,
+                    ))
+                },
+            )
+            .unwrap()
+        };
+        // 3 and 7 advance a runner; ball four at 8 advances a non-forced runner.
+        assert_eq!(counts(), (3, 6, 0, 1));
+
+        conn.execute_batch(
+            "UPDATE stat_cache_state SET version=6,ready=1;
+             UPDATE game_pitching_stat_cache SET wild_pitches=6;
+             UPDATE pitching_stat_totals SET wild_pitches=6;",
+        )
+        .unwrap();
+        assert!(!is_ready(&conn).unwrap());
+        rebuild_in_transaction(&conn).unwrap();
+        assert!(is_ready(&conn).unwrap());
+        assert_eq!(counts(), (3, 6, 0, 1));
     }
 
     #[test]

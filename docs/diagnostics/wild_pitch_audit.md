@@ -11,9 +11,11 @@ python tools/diagnostics/wild_pitch_audit.py --season 2026 > wild_pitch_audit_20
 The script reads the saved DB without changing it. The JSON starts with
 league totals, followed by pitchers ordered by wild pitch count. Find the
 pitcher by name or player ID. For example, 156 innings appear as 468 outs.
-Check `cached_wild_pitches` against `wild_pitches` and use `cache_difference`
-to identify any disagreement between the pitching stat cache and the saved
-pitch results.
+`wild_pitches` in the audit counts raw play events, including empty-base
+events and wild ball fours. `cache_difference` subtracts this raw count
+from `cached_wild_pitches`. A version 7 cache uses the advancement rule
+below, so a difference is expected when some raw events caused no
+additional advancement.
 
 Use the rates per 1,000 pitches in `by_aim_zone_and_margin`, `by_pitch_type`,
 and `by_appearance_pitch_number` to account for how often the pitcher used
@@ -26,8 +28,8 @@ In normalized zone coordinates, wild pitch limits are `abs(x) > 3.2`,
 `y > 3.5`, and `y < -2.2`. The game checks these limits on takes and
 can record a wild pitch with empty bases. An extreme pitch on which the
 batter swings can contribute to `extreme_locations` without increasing
-`wild_pitches`. A wild ball four is stored as `Walk` and contributes to
-both the walk and wild pitch counters.
+`wild_pitches`. A wild ball four is stored as `Walk` and contributes to the
+audit's raw count.
 
 ## Runner advancement
 
@@ -48,8 +50,17 @@ events are reported separately. The database is read-only.
 
 `with_wild_pitch_advancement` counts pitches on which at least one runner
 advanced because of the pitch. On ball four it counts only advancement
-beyond a normal walk. `forced_by_walk_only` and `bases_empty` are events
-that the current statistics count as wild pitches without any such
-advancement. The report begins with events already recorded as wild
-pitches, including the wild ball fours inferred by the existing audit.
-It does not infer new uncaught-third-strike plays or change the stat cache.
+beyond a normal walk. The version 7 pitching cache counts these
+advancement events as wild pitches. `forced_by_walk_only` and
+`bases_empty` are excluded from pitching totals. When all events were
+classified, `scored_cache_difference` compares the version 7 cache with the
+advancement count. The audit does not infer new uncaught-third-strike
+plays or write to the stat cache.
+
+Opening the pitching statistics screen with the updated build refreshes
+an older cache from the saved games. To refresh it from the command line
+using the same `SABERBB_DB`, run:
+
+```cmd
+cargo run --release --locked -- --rebuild-stats
+```
