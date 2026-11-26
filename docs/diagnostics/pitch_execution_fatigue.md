@@ -212,3 +212,41 @@ across aims before calculating an overall rate for a distance band, or match
 on exact aim as well as distance band to control for the target. Subtract the
 pitcher's swings and takes from the league counts for a comparison with the
 other pitchers.
+
+## Comparing irreducible pitch location error
+
+`SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR` adds a control-independent component
+to the standard deviation of actual pitch location in scheduled games, in
+the same normalized units as the existing location error. The default is 0
+and the accepted range is 0 to 0.5. For a positive value, the sampler uses
+`sqrt(base_error^2 + irreducible_error^2)` before multiplying by fatigue.
+`base_error` includes any upper-end control attenuation and the existing
+hard error floor. Combining variances preserves the ordering of distinct
+base errors and requires the same number of random draws. The pitch caller,
+stored control, and expected-pitch sampler keep their existing inputs.
+
+In Windows Command Prompt, use two copies of the same preseason DB with an
+unplayed schedule. Keep batting settings fixed in both runs.
+
+```cmd
+set "SABERBB_SCHEDULED_GAME_SEED=20261126"
+set "SABERBB_PITCH_AROUND_0_2_EDGE_SCALE=0"
+set "SABERBB_PITCH_LOCATION_ERROR_FLOOR=0"
+set "SABERBB_PITCH_EXECUTION_FATIGUE=1"
+set "SABERBB_PITCH_CONTROL_CAP=1.20"
+set "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE=0.25"
+set "SABERBB_PITCH_BORDER_1_2=1"
+
+set "SABERBB_DB=C:\path\to\location_error_baseline.db"
+set "SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR=0"
+cargo run --release --locked -- --process 40 && python tools/diagnostics/pitch_control_audit.py --season 2026 --count-margins --two-two-locations > pitch_location_error_baseline_2026.json
+
+set "SABERBB_DB=C:\path\to\location_error_trial.db"
+set "SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR=0.20"
+cargo run --release --locked -- --process 40 && python tools/diagnostics/pitch_control_audit.py --season 2026 --count-margins --two-two-locations > pitch_location_error_trial_020_2026.json
+```
+
+Compare league walk rates and the number of qualified pitchers with zero
+or one walk. Also compare pitchers who qualified in both runs to control
+for changes in playing time. For the change in execution, compare RMS error,
+outside rate and advances to 3–2 within the same pitcher's 2–2 aim groups.

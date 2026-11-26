@@ -19,6 +19,7 @@ const AIR_DRAG_FACTOR: f64 = 0.95;
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PitchLocationSettings {
     pub(crate) error_floor: f64,
+    pub(crate) irreducible_error: f64,
     pub(crate) control_cap: Option<f64>,
     pub(crate) control_above_cap_scale: f64,
 }
@@ -31,6 +32,21 @@ impl PitchLocationSettings {
                 cap + (control - cap) * self.control_above_cap_scale
             }
             _ => control,
+        }
+    }
+
+    fn error_std_dev(self, control: f64) -> f64 {
+        let control_error = 1.0 - sigmoid(self.effective_control(control));
+        // Preserve the handling of invalid abilities by the random provider.
+        let base_error = if self.error_floor > 0.0 && control_error < self.error_floor {
+            self.error_floor
+        } else {
+            control_error
+        };
+        if self.irreducible_error > 0.0 {
+            base_error.hypot(self.irreducible_error)
+        } else {
+            base_error
         }
     }
 }
@@ -131,11 +147,9 @@ pub(crate) fn create_pitch_for_call_with_execution(
     let aim_location = pitch_call.aim_location();
     let actual_location = sample_ball_location(
         rng,
-        location_settings.effective_control(pitcher.control),
         pitch_call.target_zone.zone(),
         aim_location,
-        location_settings.error_floor,
-        fatigue.location_error_scale(),
+        location_settings.error_std_dev(pitcher.control) * fatigue.location_error_scale(),
     );
 
     Ok(PitchedBall {
@@ -154,20 +168,10 @@ pub(crate) fn create_pitch_for_call_with_execution(
 
 fn sample_ball_location(
     rng: &mut dyn RandomProvider,
-    control: f64,
     zone: BallZone,
     aim: BallLocation,
-    error_floor: f64,
-    error_scale: f64,
+    std_dev: f64,
 ) -> BallLocation {
-    let control_error = 1.0 - sigmoid(control);
-    // A zero floor preserves the historical distribution, including invalid
-    // abilities handled by the random provider.
-    let std_dev = if error_floor > 0.0 && control_error < error_floor {
-        error_floor
-    } else {
-        control_error
-    } * error_scale;
     let norm_x = aim.x + zone.width() * rng.normal_std(std_dev);
     let norm_y = aim.y + zone.height() * rng.normal_std(std_dev);
 
@@ -394,13 +398,15 @@ mod tests {
     fn pitch_location_floor_only_widens_tighter_distributions() {
         let aim = BallLocation { x: -0.6, y: -0.6 };
         let sample = |control, floor| {
+            let settings = PitchLocationSettings {
+                error_floor: floor,
+                ..Default::default()
+            };
             sample_ball_location(
                 &mut RealRng::from_seed(42),
-                control,
                 TargetZone::LowInside.zone(),
                 aim,
-                floor,
-                1.0,
+                settings.error_std_dev(control),
             )
         };
 
@@ -411,6 +417,27 @@ mod tests {
         let scale = 0.2 / (1.0 - sigmoid(3.0));
         assert_near(widened.x - aim.x, (baseline.x - aim.x) * scale);
         assert_near(widened.y - aim.y, (baseline.y - aim.y) * scale);
+    }
+
+    #[test]
+    fn irreducible_pitch_error_preserves_order_and_combines_variances() {
+        let baseline = PitchLocationSettings::default();
+        let trial = PitchLocationSettings {
+            irreducible_error: 0.20,
+            ..baseline
+        };
+        let low = trial.error_std_dev(0.0);
+        let high = trial.error_std_dev(2.0);
+        assert_near(low.powi(2), baseline.error_std_dev(0.0).powi(2) + 0.04);
+        assert_near(high.powi(2), baseline.error_std_dev(2.0).powi(2) + 0.04);
+        assert!(high > 0.20 && high < low);
+        assert!(high / baseline.error_std_dev(2.0) > low / baseline.error_std_dev(0.0));
+
+        let floored = PitchLocationSettings {
+            error_floor: 0.25,
+            ..trial
+        };
+        assert_near(floored.error_std_dev(2.0), 0.25_f64.hypot(0.20));
     }
 
     #[test]
@@ -491,25 +518,44 @@ mod tests {
             target_zone: TargetZone::LowInside,
             margin: Margin::Edge,
         };
-        let roll = |fatigue| {
+        let roll = |fatigue, settings| {
             create_pitch_for_call_with_execution(
                 &mut RealRng::from_seed(42),
                 &pitcher,
                 call,
                 None,
                 TEST_BASE_FOUR_SEAM_SPEED,
-                PitchLocationSettings::default(),
+                settings,
                 fatigue,
             )
             .unwrap()
         };
-        let baseline = roll(PitchExecutionFatigue::default());
-        let tired = roll(PitchExecutionFatigue::from_load_ratio(1.0));
+        let settings = PitchLocationSettings::default();
+        let fatigue = PitchExecutionFatigue::from_load_ratio(1.0);
+        let baseline = roll(PitchExecutionFatigue::default(), settings);
+        let tired = roll(fatigue, settings);
         let aim = baseline.aim_location;
 
         assert_eq!(tired.aim_location, aim);
         assert_eq!(tired.pitch_type, baseline.pitch_type);
         assert_near(baseline.speed - tired.speed, 1.0);
+        let trial = PitchLocationSettings {
+            irreducible_error: 0.20,
+            ..settings
+        };
+        let widened = roll(fatigue, trial);
+        let scale = trial.error_std_dev(pitcher.control) / settings.error_std_dev(pitcher.control);
+        assert_eq!(widened.aim_location, aim);
+        assert_eq!(widened.speed, tired.speed);
+        assert_eq!(widened.spin_rate, tired.spin_rate);
+        assert_near(
+            widened.actual_location.x - aim.x,
+            scale * (tired.actual_location.x - aim.x),
+        );
+        assert_near(
+            widened.actual_location.y - aim.y,
+            scale * (tired.actual_location.y - aim.y),
+        );
         assert_near(
             tired.actual_location.x - aim.x,
             1.25 * (baseline.actual_location.x - aim.x),
