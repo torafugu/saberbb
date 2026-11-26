@@ -140,6 +140,20 @@ impl<R: GameRoundRepository> GameService<R> {
             (0.0..=0.5).contains(&pitch_location_error_floor),
             "SABERBB_PITCH_LOCATION_ERROR_FLOOR must be between 0 and 0.5"
         );
+        let pitch_location_irreducible_error =
+            match std::env::var("SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR") {
+                Ok(value) => value
+                    .parse::<f64>()
+                    .context("Reading SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR")?,
+                Err(std::env::VarError::NotPresent) => 0.0,
+                Err(error) => {
+                    return Err(error).context("Reading SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR");
+                }
+            };
+        ensure!(
+            (0.0..=0.5).contains(&pitch_location_irreducible_error),
+            "SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR must be between 0 and 0.5"
+        );
         let control_cap = match std::env::var("SABERBB_PITCH_CONTROL_CAP") {
             Ok(value) if value.is_empty() => None,
             Ok(value) => {
@@ -166,6 +180,7 @@ impl<R: GameRoundRepository> GameService<R> {
         );
         let pitch_location_settings = PitchLocationSettings {
             error_floor: pitch_location_error_floor,
+            irreducible_error: pitch_location_irreducible_error,
             control_cap,
             control_above_cap_scale,
         };
@@ -199,6 +214,7 @@ impl<R: GameRoundRepository> GameService<R> {
             ?execution_model,
             pitch_border_1_2,
             pitch_location_error_floor,
+            pitch_location_irreducible_error,
             ?control_cap,
             control_above_cap_scale,
             execution_fatigue,
