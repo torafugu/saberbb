@@ -145,7 +145,7 @@ impl<R: GameRoundRepository> GameService<R> {
                 Ok(value) => value
                     .parse::<f64>()
                     .context("Reading SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR")?,
-                Err(std::env::VarError::NotPresent) => 0.0,
+                Err(std::env::VarError::NotPresent) => 0.20,
                 Err(error) => {
                     return Err(error).context("Reading SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR");
                 }

@@ -217,13 +217,27 @@ other pitchers.
 
 `SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR` adds a control-independent component
 to the standard deviation of actual pitch location in scheduled games, in
-the same normalized units as the existing location error. The default is 0
+the same normalized units as the existing location error. The default is 0.20
 and the accepted range is 0 to 0.5. For a positive value, the sampler uses
 `sqrt(base_error^2 + irreducible_error^2)` before multiplying by fatigue.
 `base_error` includes any upper-end control attenuation and the existing
 hard error floor. Combining variances preserves the ordering of distinct
 base errors and requires the same number of random draws. The pitch caller,
 stored control, and expected-pitch sampler keep their existing inputs.
+
+The GUI and TUI management actions and the CLI `--process` command use
+this default for newly played scheduled games in existing or new DBs. Played
+games retain their saved pitches and results. If a previous trial left an
+explicit override in your Windows Command Prompt session, clear it before
+starting the GUI or processing games:
+
+```cmd
+set "SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR="
+```
+
+Set the value explicitly to 0 for a comparison using the old behavior.
+
+### Running a paired comparison
 
 In Windows Command Prompt, use two copies of the same preseason DB with an
 unplayed schedule. Keep batting settings fixed in both runs.
