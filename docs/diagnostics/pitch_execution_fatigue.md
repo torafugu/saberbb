@@ -189,7 +189,7 @@ Point `SABERBB_DB` at the completed trial DB. In Windows Command Prompt:
 
 ```cmd
 set "SABERBB_DB=C:\path\to\border_on.db"
-python tools/diagnostics/pitch_control_audit.py --season 2026 --two-two-locations > pitch_two_two_locations_2026.json
+python tools/diagnostics/pitch_control_audit.py --season 2026 --two-two-locations > pitch_two_two_distances_2026.json
 ```
 
 Compare the `two_two_locations` arrays for the pitcher and league. Match on
@@ -201,3 +201,14 @@ The league includes the pitcher being compared. To compare with the rest of
 the league, subtract the pitcher's counts and squared-error sums first.
 Each squared-error sum is the squared RMS multiplied by the pitch count.
 The audit reads the saved games and does not require a replay.
+
+Each aim row's `outside_by_distance` groups actual pitches outside the zone
+into (0, 0.05], (0.05, 0.10], (0.10, 0.25], (0.25, 0.50], and above 0.50 in
+normalized zone units. The distance is measured from the nearest point on the
+strike zone to the actual pitch location. A pitch beyond a corner uses both
+axes. Empty bands are omitted. Each band records swings, takes, unknown
+decisions, swing rate among known decisions, and advances to 3–2. Sum counts
+across aims before calculating an overall rate for a distance band, or match
+on exact aim as well as distance band to control for the target. Subtract the
+pitcher's swings and takes from the league counts for a comparison with the
+other pitchers.

@@ -67,13 +67,16 @@ class PitchControlAuditTest(unittest.TestCase):
                 INSERT INTO count VALUES
                     (10, 4, 'Top', 19, 1, 0), (10, 4, 'Top', 20, 2, 0),
                     (10, 4, 'Top', 21, 2, 1), (10, 4, 'Top', 22, 2, 2),
-                    (10, 4, 'Top', 23, 2, 2), (10, 4, 'Top', 24, 3, 2);
+                    (10, 4, 'Top', 23, 2, 2), (10, 4, 'Top', 24, 2, 2),
+                    (10, 4, 'Top', 25, 3, 2);
                 INSERT INTO player_game_pitching
                     SELECT game_id, seq, 43, 'LowInside', -.75, -.75,
-                           CASE WHEN seq >= 23 THEN -1.25 ELSE -.8 END,
-                           -.75, 'Cutter', 40 FROM count WHERE seq >= 19;
+                           CASE seq WHEN 23 THEN -1.04 WHEN 24 THEN -1.08
+                                    WHEN 25 THEN -1.2 ELSE -.8 END,
+                           CASE WHEN seq = 25 THEN -1.2 ELSE -.75 END,
+                           'Cutter', 40 FROM count WHERE seq >= 19;
                 INSERT INTO player_game_batting VALUES
-                    (10, 23, 'Foul', 1, 22), (10, 24, 'Take', 0, 0);
+                    (10, 23, 'Foul', 1, 22), (10, 25, 'Take', 0, 0);
             """)
             prior = report(conn, 2026)
             audit = report(conn, 2026, include_count_margins=True)
@@ -107,16 +110,24 @@ class PitchControlAuditTest(unittest.TestCase):
         self.assertEqual(len(two_two), 1)
         row = two_two[0]
         self.assertEqual((row["count"], row["aim_x"], row["aim_y"]), ("2-2", -.75, -.75))
-        self.assertEqual(row["pitches"], 3)
-        self.assertEqual(row["actual_outside"], 2)
+        self.assertEqual(row["pitches"], 4)
+        self.assertEqual(row["actual_outside"], 3)
         self.assertEqual(row["outside_swings"], 1)
         self.assertEqual(row["outside_takes"], 1)
         self.assertEqual(row["advances_to_three_balls"], 1)
-        self.assertAlmostEqual(row["advance_to_three_balls_rate"], 1 / 3)
-        self.assertAlmostEqual(row["rms_error_x"], (((-.80 + .75) ** 2 + 2 * .50 ** 2) / 3) ** .5)
+        self.assertAlmostEqual(row["advance_to_three_balls_rate"], 1 / 4)
+        self.assertAlmostEqual(row["rms_error_x"], ((.05 ** 2 + .29 ** 2 + .33 ** 2 + .45 ** 2) / 4) ** .5)
+        near, unknown, diagonal = row["outside_by_distance"]
+        self.assertEqual((near["distance_min_exclusive"], near["distance_max_inclusive"]), (0.0, 0.05))
+        self.assertEqual((near["swings"], near["swing_rate"]), (1, 1.0))
+        self.assertEqual((unknown["distance_max_inclusive"], unknown["unknown_decisions"]), (0.10, 1))
+        self.assertIsNone(unknown["swing_rate"])
+        self.assertEqual((diagonal["distance_min_exclusive"], diagonal["distance_max_inclusive"]), (0.25, 0.50))
+        self.assertEqual((diagonal["takes"], diagonal["swing_rate"], diagonal["advances_to_three_balls"]), (1, 0.0, 1))
+        self.assertEqual(sum(band["pitches"] for band in row["outside_by_distance"]), row["actual_outside"])
         for pitcher in both_locations["pitchers"]:
             locations = pitcher.pop("two_two_locations")
-            self.assertEqual(locations[0]["pitches"], 1 if pitcher["player_id"] == 42 else 2)
+            self.assertEqual(locations[0]["pitches"], 1 if pitcher["player_id"] == 42 else 3)
         self.assertEqual(both_locations, location_audit)
 
         league_locations = location_audit["league"].pop("three_ball_locations")
