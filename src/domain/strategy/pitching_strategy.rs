@@ -144,6 +144,7 @@ pub struct PitchEvaluationContext<'a> {
     strategy: PitchingStrategy,
     previous_call: Option<PitchCall>,
     border_aims: bool,
+    third_base_risk: Option<(f64, f64)>, // (score weight, location error std dev)
     estimates: HashMap<PitchType, PitchTypeEstimate>,
     pitch_profiles: HashMap<PitchType, (f64, f64)>, // velocity, usage weight
 }
@@ -161,6 +162,7 @@ impl<'a> PitchEvaluationContext<'a> {
             strategy,
             previous_call,
             border_aims: false,
+            third_base_risk: None,
             estimates: estimate_pitch_types(pitcher, batter),
             pitch_profiles: pitcher
                 .pitch_skill_distribution()
@@ -179,6 +181,33 @@ impl<'a> PitchEvaluationContext<'a> {
             )
             && self.batter.slugger_option() > 0.5;
         self
+    }
+
+    pub(crate) fn with_third_base_risk(
+        mut self,
+        runner_on_third: bool,
+        weight: f64,
+        location_std: f64,
+    ) -> Self {
+        if runner_on_third && weight > 0.0 && location_std > 0.0 && location_std.is_finite() {
+            self.third_base_risk = Some((weight, location_std));
+        }
+        self
+    }
+
+    fn third_base_penalty(&self, call: PitchCall) -> f64 {
+        let Some((weight, location_std)) = self.third_base_risk else {
+            return 0.0;
+        };
+        let aim_y = call.aim_location().y;
+        if aim_y >= 0.0 {
+            return 0.0;
+        }
+        let distance = aim_y - BallLocation::WILD_PITCH_LOW_Y;
+        let z = distance / (call.target_zone.zone().height() * location_std);
+        // Relative normal density at the cutoff gives a bounded score penalty
+        // that increases as the aim gets closer or execution gets less precise.
+        weight * (-0.5 * z * z).exp()
     }
 
     pub fn pitcher_proposals(
@@ -267,7 +296,7 @@ fn evaluate_pitch_call_with_terms(
             context.previous_call,
         ),
         location_strategy: pitch_call_strategy_score(context.strategy, call, estimate, risks),
-        base_risk: base_call_risk_score(risks),
+        base_risk: base_call_risk_score(risks) - context.third_base_penalty(call),
         location_preferences: call_preference_score(
             preferences,
             context.pitcher,
@@ -1234,6 +1263,39 @@ mod pitch_call_reconciliation_tests {
             target_zone: zone,
             margin: Margin::Edge,
         }
+    }
+
+    #[test]
+    fn third_base_risk_prefers_safer_aims_without_removing_calls() {
+        let pitcher = pitcher_info();
+        let batter = batter_info(RL::Right);
+        let context = |runner, weight, std| {
+            PitchEvaluationContext::new(&pitcher, &batter, PitchingStrategy::AttackZone, None)
+                .with_third_base_risk(runner, weight, std)
+        };
+        let edge = call(TargetZone::LowInside);
+        let out = PitchCall {
+            margin: Margin::Out,
+            ..edge
+        };
+        let wide = PitchCall {
+            margin: Margin::Wide,
+            ..edge
+        };
+        let high = call(TargetZone::HighInside);
+        let enabled = context(true, 3.0, 0.6);
+        assert!(enabled.third_base_penalty(out) > enabled.third_base_penalty(edge));
+        assert!(enabled.third_base_penalty(edge) > enabled.third_base_penalty(wide));
+        assert_eq!(enabled.third_base_penalty(high), 0.0);
+        assert_eq!(context(false, 3.0, 0.6).third_base_penalty(out), 0.0);
+        assert_eq!(context(true, 0.0, 0.6).third_base_penalty(out), 0.0);
+        assert!(
+            enabled.third_base_penalty(edge) > context(true, 3.0, 0.4).third_base_penalty(edge)
+        );
+        let preferences = PitchingPreferences::default();
+        let baseline = evaluate_pitch_call(edge, &preferences, &context(false, 3.0, 0.6)).unwrap();
+        let trial = evaluate_pitch_call(edge, &preferences, &enabled).unwrap();
+        assert!((baseline.score - trial.score - enabled.third_base_penalty(edge)).abs() < 1e-12);
     }
 
     fn proposal(call: PitchCall, score: f64) -> PitchCallProposal {

@@ -35,7 +35,7 @@ impl PitchLocationSettings {
         }
     }
 
-    fn error_std_dev(self, control: f64) -> f64 {
+    pub(crate) fn error_std_dev(self, control: f64) -> f64 {
         let control_error = 1.0 - sigmoid(self.effective_control(control));
         // Preserve the handling of invalid abilities by the random provider.
         let base_error = if self.error_floor > 0.0 && control_error < self.error_floor {

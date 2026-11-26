@@ -237,6 +237,7 @@ impl GameState {
         let mut replay = GameState {
             pitch_location_settings: self.pitch_location_settings,
             pitch_border_1_2: self.pitch_border_1_2,
+            third_base_pitch_risk_weight: self.third_base_pitch_risk_weight,
             record_contact_states: false,
             track_position_player_workload: false,
             away_manager: live.away_manager.clone(),

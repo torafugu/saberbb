@@ -195,10 +195,12 @@ pub struct BallLocation {
     pub y: f64,
 }
 impl BallLocation {
+    pub(crate) const WILD_PITCH_LOW_Y: f64 = -2.2;
+
     // Determine whether this is a ball (outside the strike zone)
     pub fn call(&self, batting_side: RL) -> PitchResult {
         // 1. Wild pitch (area well beyond the catcher's catchable frame)
-        if self.x.abs() > 3.2 || self.y > 3.5 || self.y < -2.2 {
+        if self.x.abs() > 3.2 || self.y > 3.5 || self.y < Self::WILD_PITCH_LOW_Y {
             return PitchResult::WildPitch;
         }
 

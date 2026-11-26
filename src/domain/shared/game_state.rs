@@ -540,6 +540,7 @@ pub struct GameState {
     pub(crate) track_position_player_workload: bool,
     pub(crate) pitch_location_settings: PitchLocationSettings,
     pub(crate) pitch_border_1_2: bool,
+    pub(crate) third_base_pitch_risk_weight: f64,
     pub away_manager:Option<super::batting_personnel::Manager>,
     pub home_manager:Option<super::batting_personnel::Manager>,
     pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
@@ -590,6 +591,7 @@ impl GameState {
             track_position_player_workload: fatigue.is_some(),
             pitch_location_settings: PitchLocationSettings::default(),
             pitch_border_1_2: false,
+            third_base_pitch_risk_weight: 0.0,
             away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
             batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
             batting_strategy_settings: BattingStrategySettings::player_driven(),
@@ -1284,7 +1286,13 @@ impl GameState {
             [&mut pitcher_preferences, &mut catcher_preferences],
         );
         let context = PitchEvaluationContext::new(&pitcher, &batter, strategy, previous_call)
-            .with_one_two_border_aims(self.pitch_border_1_2, count);
+            .with_one_two_border_aims(self.pitch_border_1_2, count)
+            .with_third_base_risk(
+                self.inning_state.runners.has_runner_on(Base::Third),
+                self.third_base_pitch_risk_weight,
+                self.pitch_location_settings.error_std_dev(pitcher.control)
+                    * fatigue.location_error_scale(),
+            );
         let pitcher_proposals = context.pitcher_proposals(&pitcher_preferences, 3, 2);
         let catcher_proposals = context.catcher_proposals(&catcher_preferences, 4);
         let decision = reconcile_pitch_call_proposals(
