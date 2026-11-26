@@ -1,6 +1,7 @@
 """Report saved regular-season pitching control and walk rates as JSON."""
 
 import argparse
+from bisect import bisect_left
 import json
 import math
 import sqlite3
@@ -42,6 +43,7 @@ TERMINAL_RESULTS = {
 CORNER_AIMS = {"Wide": 1.0 - 1.0 / 3.0, "Edge": 0.75, "Out": 1.2}
 FAIR_CONTACT_RESULTS = TERMINAL_RESULTS - {"Walk", "Strikeout", "HitByPitch"}
 HARD_HIT_SPEED_MS = 42.4688  # 95 mph
+OUTSIDE_DISTANCE_LIMITS = (0.05, 0.10, 0.25, 0.50)
 
 
 def saved_aim_margin(zone, x, y):
@@ -126,6 +128,29 @@ def summarize_count_endings(rows):
     return report
 
 
+def summarize_outside_distances(data):
+    rows = []
+    lower_limits = (0.0, *OUTSIDE_DISTANCE_LIMITS)
+    upper_limits = (*OUTSIDE_DISTANCE_LIMITS, None)
+    for band, (lower, upper) in enumerate(zip(lower_limits, upper_limits)):
+        swings = data[band, "swings"]
+        takes = data[band, "takes"]
+        unknown = data[band, "unknown_decisions"]
+        pitches = swings + takes + unknown
+        if pitches:
+            rows.append({
+                "distance_min_exclusive": lower,
+                "distance_max_inclusive": upper,
+                "pitches": pitches,
+                "swings": swings,
+                "takes": takes,
+                "unknown_decisions": unknown,
+                "swing_rate": ratio(swings, swings + takes),
+                "advances_to_three_balls": data[band, "advances_to_three_balls"],
+            })
+    return rows
+
+
 def summarize_count_locations(locations):
     rows = []
     for (balls, strikes, zone, aim_x, aim_y), data in sorted(locations.items()):
@@ -153,6 +178,7 @@ def summarize_count_locations(locations):
             advances = data["advances_to_three_balls"]
             row["advances_to_three_balls"] = advances
             row["advance_to_three_balls_rate"] = ratio(advances, data["pitches"])
+            row["outside_by_distance"] = summarize_outside_distances(data)
         rows.append(row)
     return rows
 
@@ -241,6 +267,13 @@ def pitch_summary(rows, count_margins=None, count_locations=None):
             data["outside_unknown_decisions"] += outside and swung is None
             data["walks"] += result == "Walk"
             data["advances_to_three_balls"] += reached_three
+            if outside and before == 2 and strikes == 2:
+                # Match BallLocation::distance_from_zone_edge at the sides and corners.
+                distance = math.hypot(max(abs(x) - 1.0, 0.0), max(abs(y) - 1.0, 0.0))
+                band = bisect_left(OUTSIDE_DISTANCE_LIMITS, distance)
+                decision = {1: "swings", 0: "takes"}.get(swung, "unknown_decisions")
+                data[band, decision] += 1
+                data[band, "advances_to_three_balls"] += reached_three
             data["error_x"] += dx
             data["error_y"] += dy
             data["error_sq_x"] += dx ** 2
