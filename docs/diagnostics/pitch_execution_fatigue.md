@@ -97,3 +97,28 @@ across trials, even if qualification changes. Compare the rates pitcher by
 pitcher above the threshold to check how much variation the trial retains.
 Matching seeds fix each game's initial random stream. Later plate appearances
 and starter workloads can diverge when game outcomes differ.
+
+## Inspecting saved three-ball pitch locations
+
+Point `SABERBB_DB` at a completed simulation DB and run the audit in
+Windows Command Prompt:
+
+```cmd
+set "SABERBB_DB=C:\path\to\saberbb_attenuated.db"
+python tools/diagnostics/pitch_control_audit.py --season 2026 --three-ball-locations > pitch_three_ball_locations_2026.json
+```
+
+The read-only audit uses saved pitches. The `three_ball_locations` arrays in
+the league and pitcher blocks group pitches by pre-pitch count, target zone,
+and exact saved aim coordinates. `aim_depth` is the signed distance to the
+nearest strike-zone limit along an axis in the saved coordinates. Positive
+values are inside, zero is on the limit, and negative values are outside.
+Standard `Wide` targets are at approximately ±2/3 on both axes, so their
+depth is 1/3 regardless of which corner was selected.
+
+Compare the number of pitches at each aim, then compare outside rates and
+per-axis RMS error for the same saved aim and count. Signed mean errors
+use actual location minus aim. The outside counts record swings, takes, and
+missing decisions separately, along with walks for the aim group. Interpret
+the rates alongside the sample size. The league groups include the pitcher
+being compared.
