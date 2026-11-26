@@ -129,6 +129,20 @@ impl<R: GameRoundRepository> GameService<R> {
             Err(std::env::VarError::NotPresent) => false,
             Err(error) => return Err(error).context("Reading SABERBB_PITCH_BORDER_1_2"),
         };
+        let third_base_pitch_risk_weight =
+            match std::env::var("SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT") {
+                Ok(value) => value
+                    .parse::<f64>()
+                    .context("Reading SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT")?,
+                Err(std::env::VarError::NotPresent) => 0.0,
+                Err(error) => {
+                    return Err(error).context("Reading SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT");
+                }
+            };
+        ensure!(
+            (0.0..=10.0).contains(&third_base_pitch_risk_weight),
+            "SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT must be between 0 and 10"
+        );
         let pitch_location_error_floor = match std::env::var("SABERBB_PITCH_LOCATION_ERROR_FLOOR") {
             Ok(value) => value
                 .parse::<f64>()
@@ -213,6 +227,7 @@ impl<R: GameRoundRepository> GameService<R> {
             collision_power_retained_fraction = LIVE_COLLISION_POWER_RETAINED_FRACTION,
             ?execution_model,
             pitch_border_1_2,
+            third_base_pitch_risk_weight,
             pitch_location_error_floor,
             pitch_location_irreducible_error,
             ?control_cap,
@@ -269,6 +284,7 @@ impl<R: GameRoundRepository> GameService<R> {
                         pitch_location_settings,
                         execution_fatigue,
                         pitch_border_1_2,
+                        third_base_pitch_risk_weight,
                     )
                 })
             })?;
@@ -353,6 +369,7 @@ pub fn simulate_game_with_pitching_and_lineup_source(
         PitchLocationSettings::default(),
         false,
         false,
+        0.0,
     )
 }
 
@@ -369,6 +386,7 @@ fn simulate_staffed_game(
     pitch_location_settings: PitchLocationSettings,
     execution_fatigue: bool,
     pitch_border_1_2: bool,
+    third_base_pitch_risk_weight: f64,
 ) -> Result<GameResult> {
     let weights = PitcherAttributeWeights::default();
     let staff = |team| {
@@ -384,6 +402,7 @@ fn simulate_staffed_game(
     )?;
     state.pitch_location_settings = pitch_location_settings;
     state.pitch_border_1_2 = pitch_border_1_2;
+    state.third_base_pitch_risk_weight = third_base_pitch_risk_weight;
     if lineup_source.is_some() {
         ensure!(
             state.game_result.id == schedule.id,

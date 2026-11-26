@@ -50,7 +50,7 @@ def wild_pitch_advancement(bases, batter, event, points):
     }
 
 
-def replay_game(conn, game, events):
+def replay_game(conn, game, events, observe_before_pitch=None):
     """Follow the saved plays using the same transitions as the batting stat cache."""
     bases = None
     half = None
@@ -79,6 +79,8 @@ def replay_game(conn, game, events):
         if last_seq is not None and seq != last_seq + 1:
             bases = None
         last_seq = seq
+        if observe_before_pitch is not None:
+            observe_before_pitch(seq, bases)
         if steal:
             # The steal snapshot precedes any batted-ball outcome on the same count.
             # Failed steals leave the runner in place in the current simulator.
