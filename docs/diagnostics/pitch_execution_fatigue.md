@@ -182,3 +182,22 @@ velocity of at least 95 mph (42.4688 m/s). For the overall 1–2 effect, sum
 across margins before dividing by the combined number of pitches. The
 `by_count_endings` and league walk totals show how the change carries through
 later counts.
+
+## Inspecting the 2–2 transition
+
+Point `SABERBB_DB` at the completed trial DB. In Windows Command Prompt:
+
+```cmd
+set "SABERBB_DB=C:\path\to\border_on.db"
+python tools/diagnostics/pitch_control_audit.py --season 2026 --two-two-locations > pitch_two_two_locations_2026.json
+```
+
+Compare the `two_two_locations` arrays for the pitcher and league. Match on
+zone and exact aim coordinates to compare RMS error and outside rate without
+mixing different aims. The array also includes actual outside swings, takes,
+unknown decisions, and advances to 3–2. The advance rate uses all pitches at
+that aim. For the outside swing rate, divide swings by swings plus takes.
+The league includes the pitcher being compared. To compare with the rest of
+the league, subtract the pitcher's counts and squared-error sums first.
+Each squared-error sum is the squared RMS multiplied by the pitch count.
+The audit reads the saved games and does not require a replay.

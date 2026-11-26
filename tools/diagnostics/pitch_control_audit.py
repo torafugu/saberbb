@@ -126,10 +126,11 @@ def summarize_count_endings(rows):
     return report
 
 
-def summarize_three_ball_locations(locations):
-    return [
-        {
-            "count": f"3-{strikes}",
+def summarize_count_locations(locations):
+    rows = []
+    for (balls, strikes, zone, aim_x, aim_y), data in sorted(locations.items()):
+        row = {
+            "count": f"{balls}-{strikes}",
             "zone": zone,
             "margin": saved_aim_margin(zone, aim_x, aim_y),
             "aim_x": aim_x,
@@ -141,14 +142,19 @@ def summarize_three_ball_locations(locations):
             "outside_swings": data["outside_swings"],
             "outside_takes": data["outside_takes"],
             "outside_unknown_decisions": data["outside_unknown_decisions"],
-            "walks": data["walks"],
             "mean_error_x": data["error_x"] / data["pitches"],
             "mean_error_y": data["error_y"] / data["pitches"],
             "rms_error_x": math.sqrt(data["error_sq_x"] / data["pitches"]),
             "rms_error_y": math.sqrt(data["error_sq_y"] / data["pitches"]),
         }
-        for (strikes, zone, aim_x, aim_y), data in sorted(locations.items())
-    ]
+        if balls == 3:
+            row["walks"] = data["walks"]
+        else:
+            advances = data["advances_to_three_balls"]
+            row["advances_to_three_balls"] = advances
+            row["advance_to_three_balls_rate"] = ratio(advances, data["pitches"])
+        rows.append(row)
+    return rows
 
 
 def pitch_count_summary(bands):
@@ -183,7 +189,7 @@ def zero_two_summary(counts):
     }
 
 
-def pitch_summary(rows, count_margins=None, three_ball_locations=None):
+def pitch_summary(rows, count_margins=None, count_locations=None):
     zero_two = dict.fromkeys(("pitches", "aimed_outside", "actual_outside"), 0)
     pitches = defaultdict(int)
     aims = defaultdict(lambda: [0, 0.0, 0.0])
@@ -225,8 +231,8 @@ def pitch_summary(rows, count_margins=None, three_ball_locations=None):
             three_balls and outside and swung is not None
         )
         pitches["three_ball_outside_swings"] += three_balls and outside and swung == 1
-        if three_balls and three_ball_locations is not None:
-            data = three_ball_locations[strikes, zone, aim_x, aim_y]
+        if count_locations and (before, strikes) in count_locations:
+            data = count_locations[before, strikes][before, strikes, zone, aim_x, aim_y]
             dx, dy = x - aim_x, y - aim_y
             data["pitches"] += 1
             data["actual_outside"] += outside
@@ -234,6 +240,7 @@ def pitch_summary(rows, count_margins=None, three_ball_locations=None):
             data["outside_takes"] += outside and swung == 0
             data["outside_unknown_decisions"] += outside and swung is None
             data["walks"] += result == "Walk"
+            data["advances_to_three_balls"] += reached_three
             data["error_x"] += dx
             data["error_y"] += dy
             data["error_sq_x"] += dx ** 2
@@ -267,7 +274,7 @@ def pitch_summary(rows, count_margins=None, three_ball_locations=None):
 
 def report(
     conn, season, include_count_margins=False, include_three_ball_locations=False,
-    include_count_endings=False,
+    include_count_endings=False, include_two_two_locations=False,
 ):
     completed = conn.execute(COMPLETED, (season,)).fetchall()
     if not completed:
@@ -321,15 +328,25 @@ def report(
 
     players = []
     league_count_margins = defaultdict(Counter)
-    league_three_ball_locations = defaultdict(Counter)
+    location_sections = {}
+    if include_three_ball_locations:
+        location_sections["three_ball_locations"] = ((3, 0), (3, 1), (3, 2))
+    if include_two_two_locations:
+        location_sections["two_two_locations"] = ((2, 2),)
+    league_locations = {section: defaultdict(Counter) for section in location_sections}
     teams = defaultdict(lambda: {"outs": 0, "earned_runs": 0})
     for player_id, team, first, last, control, outs, er, bb, so, hits, hr in stats:
         if team in team_games:
             teams[team]["outs"] += outs
             teams[team]["earned_runs"] += er
         count_margins = defaultdict(Counter) if include_count_margins or include_count_endings else None
-        three_ball_locations = defaultdict(Counter) if include_three_ball_locations else None
-        pitch = pitch_summary(by_pitcher[player_id], count_margins, three_ball_locations)
+        locations = {section: defaultdict(Counter) for section in location_sections}
+        count_locations = {
+            count: locations[section]
+            for section, counts in location_sections.items()
+            for count in counts
+        }
+        pitch = pitch_summary(by_pitcher[player_id], count_margins, count_locations)
         if count_margins is not None:
             for key, series in count_margins.items():
                 league_count_margins[key].update(series)
@@ -337,10 +354,10 @@ def report(
                 pitch["by_count_and_margin"] = summarize_count_margins(count_margins)
             if include_count_endings:
                 pitch["by_count_endings"] = summarize_count_endings(count_margins)
-        if three_ball_locations is not None:
-            for key, data in three_ball_locations.items():
-                league_three_ball_locations[key].update(data)
-            pitch["three_ball_locations"] = summarize_three_ball_locations(three_ball_locations)
+        for section, rows in locations.items():
+            for key, data in rows.items():
+                league_locations[section][key].update(data)
+            pitch[section] = summarize_count_locations(rows)
         bf = pitch["batters_faced"]
         players.append({
             "player_id": player_id, "team_id": team, "name": f"{first} {last}",
@@ -367,8 +384,8 @@ def report(
         league["by_count_and_margin"] = summarize_count_margins(league_count_margins)
     if include_count_endings:
         league["by_count_endings"] = summarize_count_endings(league_count_margins)
-    if include_three_ball_locations:
-        league["three_ball_locations"] = summarize_three_ball_locations(league_three_ball_locations)
+    for section, rows in league_locations.items():
+        league[section] = summarize_count_locations(rows)
     return {
         "season": season, "completed_games": len(completed), "team_games": dict(team_games),
         "league": league,
@@ -403,6 +420,10 @@ def main():
         "--three-ball-locations", action="store_true",
         help="Report actual location errors and batter decisions by three-ball count and exact saved aim.",
     )
+    parser.add_argument(
+        "--two-two-locations", action="store_true",
+        help="Report 2–2 location errors, batter decisions, and advances to 3–2 by exact saved aim.",
+    )
     args = parser.parse_args()
     try:
         uri = db_from_env().resolve().as_uri() + "?mode=ro"
@@ -412,6 +433,7 @@ def main():
                 conn, args.season, include_count_margins=args.count_margins,
                 include_three_ball_locations=args.three_ball_locations,
                 include_count_endings=args.count_endings,
+                include_two_two_locations=args.two_two_locations,
             )
             if args.require_zero_two_out and output["league"]["zero_two"]["aimed_outside"] == 0:
                 raise ValueError(
