@@ -122,3 +122,23 @@ use actual location minus aim. The outside counts record swings, takes, and
 missing decisions separately, along with walks for the aim group. Interpret
 the rates alongside the sample size. The league groups include the pitcher
 being compared.
+
+## Inspecting how plate appearances end
+
+Use a completed simulation DB in Windows Command Prompt:
+
+```cmd
+set "SABERBB_DB=C:\path\to\saberbb_attenuated.db"
+python tools/diagnostics/pitch_control_audit.py --season 2026 --count-endings > pitch_count_endings_2026.json
+```
+
+Read `by_count_endings` in the pitcher and league blocks. Counts are measured
+before the pitch. The report shows total pitches and completed plate
+appearances by outcome: strikeout, fair contact, walk, or hit by pitch.
+Strikeouts include separate swinging, called, and unknown-decision counts.
+Fouls and runner outs that do not finish a plate appearance do not count as
+endings. `ball_count_advances_without_walk` counts recorded ball increments
+before ball four. Sum it across the two-ball counts to count transitions to
+three balls. A count can contain multiple pitches in the same plate appearance,
+so use pitches as the denominator for pitch-level rates and finished plate
+appearances for the distribution of ending counts.
