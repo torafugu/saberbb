@@ -28,3 +28,28 @@ can record a wild pitch with empty bases. An extreme pitch on which the
 batter swings can contribute to `extreme_locations` without increasing
 `wild_pitches`. A wild ball four is stored as `Walk` and contributes to
 both the walk and wild pitch counters.
+
+## Runner advancement
+
+After running a season, use the saved DB to audit whether recorded wild
+pitches produced any advancement attributable to the pitch. For example:
+
+```cmd
+set "SABERBB_DB=C:\path\to\saberbb.db"
+python tools/diagnostics/wild_pitch_advancement_audit.py --season 2026 --pitcher-id 423 > wild_pitch_advancement_423_2026.json
+```
+
+Omit `--pitcher-id` to audit the whole season. The script reconstructs bases
+from the inning counts, batting outcomes, and available running snapshots.
+It follows the current simulator's transitions, including its handling of
+failed steals and tag-ups. It checks the reconstructed third-base occupancy
+against runs scored on each recorded wild pitch. Unknown or inconsistent
+events are reported separately. The database is read-only.
+
+`with_wild_pitch_advancement` counts pitches on which at least one runner
+advanced because of the pitch. On ball four it counts only advancement
+beyond a normal walk. `forced_by_walk_only` and `bases_empty` are events
+that the current statistics count as wild pitches without any such
+advancement. The report begins with events already recorded as wild
+pitches, including the wild ball fours inferred by the existing audit.
+It does not infer new uncaught-third-strike plays or change the stat cache.
