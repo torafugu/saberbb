@@ -273,7 +273,7 @@ pub fn replay(run_dir:&Path,game_id:u32)->Result<String> {
 mod tests {
     use super::*;
     #[test]
-    fn player_context_case_replays_and_only_changes_diagnostic_logs() {
+    fn player_context_case_replays_and_recording_preserves_live_results() {
         use crate::domain::shared::batting_personnel::{BatterCharacter,Manager,ManagerBattingPolicy};
         let path=folder();let mut run=RunRecorder::start(path.clone(),2026110602,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
         run.set_batting_profile("player-context-v1").unwrap();
@@ -293,9 +293,8 @@ mod tests {
                 seen+=1;
             }
         }
-        assert!(seen>0);let mut fixed=case.clone();fixed.batting_settings=BattingStrategySettings::default();
-        let mut a=serde_json::to_value(&result).unwrap();let mut b=serde_json::to_value(simulate_case(&fixed).unwrap()).unwrap();
-        a.as_object_mut().unwrap().remove("player_contact_states");b.as_object_mut().unwrap().remove("player_contact_states");assert_eq!(a,b);
+        assert!(seen>0);
+        assert_recording_preserves_live_results(&case, &result);
         run.saved(&result).unwrap();run.manifest.completed_rounds=1;run.complete().unwrap();
         assert_eq!(replay(&path,schedule.id).unwrap(),sha(&canonical(&result).unwrap()));fs::remove_dir_all(path).unwrap();
     }
@@ -333,7 +332,7 @@ mod tests {
         assert!(settings_for("mixed-id-v1",&schedule).is_err());
     }
     #[test]
-    fn mixed_case_replays_and_does_not_change_live_results_or_rng() {
+    fn mixed_case_replays_and_recording_preserves_live_results() {
         let path=folder();let mut run=RunRecorder::start(path.clone(),2026110503,1,0,2000,"test.db".into(),"en-US".into()).unwrap();
         run.set_batting_profile("mixed-id-v1").unwrap();
         let mut schedule=crate::domain::test_support::game_schedule();schedule.max_inning=1;
@@ -350,13 +349,28 @@ mod tests {
                 }
             }
         }
-        let mut baseline=case.clone();baseline.batting_settings=BattingStrategySettings::default();
-        let mut a=serde_json::to_value(&mixed).unwrap();let mut b=serde_json::to_value(simulate_case(&baseline).unwrap()).unwrap();
-        a.as_object_mut().unwrap().remove("player_contact_states");b.as_object_mut().unwrap().remove("player_contact_states");
-        assert_eq!(a,b);
+        assert_recording_preserves_live_results(&case, &mixed);
         run.saved(&mixed).unwrap();run.manifest.completed_rounds=1;run.complete().unwrap();
         assert_eq!(replay(&path,schedule.id).unwrap(),sha(&canonical(&mixed).unwrap()));
         fs::remove_dir_all(path).unwrap();
+    }
+    fn assert_recording_preserves_live_results(case: &GameCase, recorded: &GameResult) {
+        // Intent affects live contact geometry, so keep the profile identical and
+        // vary only recording when checking that diagnostics do not affect play.
+        let unrecorded = crate::domain::game_service::simulate_game(
+            case.schedule.clone(),
+            Box::new(RealRng::from_seed(case.game_seed.parse().unwrap())),
+            case.batting_settings.clone(),
+            Some(case.max_pitches),
+            false,
+        )
+        .unwrap();
+        assert!(unrecorded.player_contact_states.is_empty());
+        let mut a = serde_json::to_value(recorded).unwrap();
+        let mut b = serde_json::to_value(unrecorded).unwrap();
+        a.as_object_mut().unwrap().remove("player_contact_states");
+        b.as_object_mut().unwrap().remove("player_contact_states");
+        assert_eq!(a, b);
     }
     fn folder()->PathBuf {
         let id=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();

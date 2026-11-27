@@ -576,11 +576,11 @@ mod tests {
             ..SwingExecutionError::default()
         };
         let record = |changed: SwingExecutionError| {
-            Ok(PopupZonePlay {
-                z_m: baseline.z_m + changed.additional_z_m,
-                x_m: baseline.x_m + changed.additional_x_m,
-                ..baseline
-            })
+            // Copy the whole play to avoid a rustc 1.95 ICE on closure field captures.
+            let mut play = baseline;
+            play.z_m += changed.additional_z_m;
+            play.x_m += changed.additional_x_m;
+            Ok(play)
         };
         let HighVlaSamples(samples) = fixed_horizontal_scan(baseline, error, record).unwrap()
         else {
@@ -595,10 +595,9 @@ mod tests {
         );
         assert!(samples.iter().all(|play| play.x_m == baseline.x_m));
         let classify = |x_m| {
-            fixed_horizontal_scan(PopupZonePlay { x_m, ..baseline }, error, |_| {
-                panic!("unexpected replay")
-            })
-            .unwrap()
+            let mut play = baseline;
+            play.x_m = x_m;
+            fixed_horizontal_scan(play, error, |_| panic!("unexpected replay")).unwrap()
         };
         assert!(matches!(classify(-0.05), ThicknessEndsBeforeHighVla));
         assert!(matches!(classify(0.165), LengthEndsBeforeHighVla));

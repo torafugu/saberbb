@@ -987,12 +987,17 @@ mod tests {
     }
 
     #[test]
-    fn calculate_location_bias_converts_pitch_location_to_timing_and_spatial_biases() {
-        let bias = calculate_location_bias(BallLocation { x: -0.5, y: 0.4 });
-
-        assert_near(bias.timing_bias_sec, 0.007);
-        assert_near(bias.spatial_bias_x, -0.1);
-        assert_near(bias.spatial_bias_y, 0.06);
+    fn calculate_location_bias_is_disabled() {
+        for location in [
+            BallLocation { x: -0.5, y: 0.4 },
+            BallLocation { x: 0.5, y: -0.4 },
+            BallLocation { x: 0.0, y: 0.0 },
+        ] {
+            let bias = calculate_location_bias(location);
+            assert_near(bias.timing_bias_sec, 0.0);
+            assert_near(bias.spatial_bias_x, 0.0);
+            assert_near(bias.spatial_bias_y, 0.0);
+        }
     }
 
     #[test]
@@ -1000,7 +1005,11 @@ mod tests {
         let mut rng = FixedRng::new(0.0);
         let ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
         let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 16.64, 0.42);
-        let location_bias = calculate_location_bias(BallLocation { x: 0.5, y: -0.4 });
+        let location_bias = LocationBias {
+            timing_bias_sec: 0.007,
+            spatial_bias_x: -0.1,
+            spatial_bias_y: 0.06,
+        };
 
         let displacement = calculate_pitch_offset(
             &mut rng,
@@ -1027,7 +1036,7 @@ mod tests {
     }
 
     #[test]
-    fn calculate_timing_offset_is_positive_for_slower_than_expected_pitch() {
+    fn calculate_timing_offset_is_negative_for_slower_than_expected_pitch() {
         let mut rng = FixedRng::new(0.0);
         let ball = pitched_ball(37.5, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
@@ -1039,12 +1048,12 @@ mod tests {
                 &expected_ball,
                 TEST_BATTING_EYE,
                 TEST_BASE_FOUR_SEAM_SPEED,
-            ) > 0.0
+            ) < 0.0
         );
     }
 
     #[test]
-    fn calculate_timing_offset_is_negative_for_faster_than_expected_pitch() {
+    fn calculate_timing_offset_is_positive_for_faster_than_expected_pitch() {
         let mut rng = FixedRng::new(0.0);
         let ball = pitched_ball(44.44, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
         let expected_ball = pitched_ball(41.67, 2300.0, 0.0, 1.0, 0.0, 1.75, 0.42);
@@ -1056,7 +1065,7 @@ mod tests {
                 &expected_ball,
                 TEST_BATTING_EYE,
                 TEST_BASE_FOUR_SEAM_SPEED,
-            ) < 0.0
+            ) > 0.0
         );
     }
 }
