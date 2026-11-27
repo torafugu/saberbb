@@ -140,6 +140,8 @@ pub struct PlayerGamePitching {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingMetrics {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catcher_blocked: Option<bool>,
     #[serde(default)]
     pub signed_length_offset_m: Option<f64>,
     #[serde(default)]
@@ -204,6 +206,7 @@ impl PlayerGameBattingMetrics {
 impl Default for PlayerGameBattingMetrics {
     fn default() -> Self {
         Self {
+            catcher_blocked: None,
             signed_length_offset_m: None,
             signed_thickness_offset_m: None,
             hla_model_version: None,
@@ -235,6 +238,9 @@ impl Default for PlayerGameBattingMetrics {
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBatting {
+    /// None when no block was attempted or the game predates blocking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catcher_blocked: Option<bool>,
     #[serde(default)]
     pub signed_length_offset_m: Option<f64>,
     #[serde(default)]

@@ -31,6 +31,23 @@ struct Line {
 
 type Bases = [Option<i64>; 3];
 
+fn has_catcher_block_column(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('player_game_batting') WHERE name='catcher_blocked')",
+        [],
+        |row| row.get(0),
+    )
+}
+
+pub(super) fn ensure_catcher_block_column(conn: &Connection) -> rusqlite::Result<()> {
+    if !has_catcher_block_column(conn)? {
+        conn.execute_batch(
+            "ALTER TABLE player_game_batting ADD COLUMN catcher_blocked INTEGER CHECK (catcher_blocked IN (0,1));",
+        )?;
+    }
+    Ok(())
+}
+
 pub(super) fn fill(conn: &Connection, game: Option<u32>) -> Result<()> {
     if let Some(game) = game {
         return fill_game(conn, game);
@@ -84,7 +101,12 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
         }
     }
 
-    let mut plays = conn.prepare_cached(
+    let blocked = if has_catcher_block_column(conn)? {
+        "b.catcher_blocked"
+    } else {
+        "NULL"
+    };
+    let mut plays = conn.prepare_cached(&format!(
         "WITH counts AS MATERIALIZED (
             SELECT seq,inning_seq,inning_tb,point,out FROM count WHERE game_id=?1
          ), pitch AS (
@@ -103,7 +125,8 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
                 first.target_runner_id,first.ruling,p.actual_location_x,p.actual_location_y,
                 COALESCE(p.pitcher_id,b.pitcher_id),c.out,
                 EXISTS(SELECT 1 FROM player_game_fielding f WHERE f.game_id=?1 AND f.count_seq=k.seq
-                       AND f.error_type IS NOT NULL AND f.error_type NOT IN ('','None'))
+                       AND f.error_type IS NOT NULL AND f.error_type NOT IN ('','None')),
+                {blocked}
          FROM pitch k
          LEFT JOIN counts c ON c.seq=k.seq
          LEFT JOIN player_game_batting b ON b.game_id=?1 AND b.count_seq=k.seq
@@ -112,7 +135,7 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
          LEFT JOIN running s ON s.count_seq=k.seq AND s.event='BaseSteal'
          LEFT JOIN running first ON first.count_seq=k.seq AND first.event='GrounderPlay' AND r.event='DoublePlay'
          ORDER BY k.seq",
-    )?;
+    ))?;
     let mut pitches = plays.query([game])?;
     let mut half = (None, None);
     let mut bases: Bases = [None; 3];
@@ -159,6 +182,7 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
         let before = bases;
         let sacrifice_fly = result == "Out" && event == "TagUp" && points > 0;
         let wild_ball_four = result == "Walk"
+            && row.get::<_, Option<bool>>(23)? != Some(true)
             && matches!(
                 (row.get::<_, Option<f64>>(18)?, row.get::<_, Option<f64>>(19)?),
                 (Some(x), Some(y)) if matches!((BallLocation { x, y }).call(RL::Right), PitchResult::WildPitch)
