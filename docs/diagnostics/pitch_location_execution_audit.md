@@ -41,3 +41,27 @@ appearance records leave those pitches out of the model. Check
 `model.pitches` before comparing modeled and observed totals. The result
 assumes the workload history was complete, ordered as scheduled, and
 applicable to the pitcher at game time. This is a read-only audit.
+
+## Compare low targets with no runner on third
+
+Run against the saved trial DB with the same `SABERBB_DB` convention. For
+example, compare player 427's four-seam fastball with the league:
+
+```cmd
+python tools/diagnostics/pitch_location_execution_audit.py --season 2026 --pitcher-id 427 --pitch-type FourSeamFastball --base-state no-third > pitch_location_427_no_third_2026.json
+```
+
+Use `by_aim_zone_and_margin` to compare `usage_rate` and
+`below_wild_limit_per_1000` at both LowInside/Edge and LowOutside/Edge.
+Usage divides by all pitches of the selected type and base state for the
+subject or peers. Use `matched_by_aim_and_pitch_number` to compare the same
+aim and 25-pitch workload band.
+
+Change the filter to `first-or-second` for pitches with a runner on first
+or second and third empty, or use `third` for third occupied. Filtered
+reports include advancement-based `scored_wild_pitches`. The existing
+`wild_pitches` field counts raw events, including those without additional
+advancement. Lower-limit crossings are counted even on swings. Filtered
+reports exclude pitches whose starting base state cannot be reconstructed
+and report them in `pitches_excluded_unknown_base_state`. The default
+`any` retains the unfiltered pitch population.
