@@ -1,5 +1,11 @@
 # Catcher blocking
 
+> Configuration update: gameplay settings now live under `[simulation]` in
+> `default-config.toml` (see the [template](../../default-config.toml)).
+> Historical `SABERBB_*` commands below no longer configure gameplay. Use the
+> lowercase name without `SABERBB_` as the TOML key, with `true`/`false` for
+> boolean switches instead of `1`/`0`. Keep `SABERBB_DB` for the database path.
+
 Catcher blocking is enabled by default in scheduled games, including
 scheduled games with contact diagnostics. Set `SABERBB_CATCHER_BLOCKING=0`
 for the off comparison. Setting it explicitly to `1` is equivalent to

@@ -410,8 +410,8 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
         || current_power_speed_tail_sweep;
     if capped_zero_bonus {
         ensure!(
-            std::env::var("SABERBB_SWING_EXECUTION").as_deref() == Ok("mixture"),
-            "the zero-bonus capped comparison requires SABERBB_SWING_EXECUTION=mixture"
+            saberbb::config::load_app_config()?.simulation.swing_execution == "mixture",
+            "the zero-bonus capped comparison requires simulation.swing_execution = mixture in default-config.toml"
         );
     }
     let speed_distribution_sweep =
@@ -1451,8 +1451,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "roster_swing_power_p90": power.threshold,
             "uncapped_roster_swing_speed_p90_ms": speed.threshold,
             "roster_batters": skills.len(),
-            "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
-                .unwrap_or_else(|_| "legacy".into()),
+            "swing_execution_model": saberbb::config::load_app_config()?.simulation.swing_execution,
             "definition": "Keep the same effective swing-speed cap of 35.5 m/s and the live batting-eye reduction in every arm. Use one nearest-rank swing-power P90 from the unique scheduled roster batters for all arms and seeds. Keep values at or below P90 and multiply the excess above it by each arm's retained fraction.",
         });
         if fixed_lineups {
@@ -1469,8 +1468,7 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "uncapped_roster_swing_speed_p90_ms": speed.threshold,
             "power_excess_retained_fraction": POWER_EXCESS_RETAINED,
             "roster_batters": skills.len(),
-            "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
-                .unwrap_or_else(|_| "legacy".into()),
+            "swing_execution_model": saberbb::config::load_app_config()?.simulation.swing_execution,
             "definition": "Start from the same 35.5 m/s cap after the live speed bonus in every arm. The speed arm retains half of capped speed above 35.0 m/s. The power arm retains three quarters of swing power above the nearest-rank P90 of unique scheduled roster batters. Only one attribute changes per trial. The baseline-qualified speed cohort uses uncapped roster-speed P90.",
         });
     } else if let Some(tail) = speed_tail {
@@ -1484,15 +1482,13 @@ pub(super) fn run(conn: &Connection, args: &Args, games: &[GameSchedule]) -> Res
             "live_p90_ms": tail.threshold + GAME_SWING_SPEED_BONUS_MS,
             "roster_batters": skills.len(),
             "players_above_threshold": tail.players_above_threshold,
-            "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
-                .unwrap_or_else(|_| "legacy".into()),
+            "swing_execution_model": saberbb::config::load_app_config()?.simulation.swing_execution,
             "definition": definition,
         });
     }
     if !contact_batters.is_empty() {
         output["contact_audit"] = json!({
-            "swing_execution_model": std::env::var("SABERBB_SWING_EXECUTION")
-                .unwrap_or_else(|_| "legacy".into()),
+            "swing_execution_model": saberbb::config::load_app_config()?.simulation.swing_execution,
             "roster_batting_abilities": contact_batters,
             "exit_speed_edges_ms": CONTACT_EV_EDGES_MS,
             "vertical_launch_angle_edges_deg": CONTACT_VLA_EDGES_DEG,

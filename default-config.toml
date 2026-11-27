@@ -1,0 +1,16 @@
+# Copy this section into the application's default-config.toml.
+# Existing language, database_path, and keybindings settings can be retained.
+[simulation]
+swing_speed_bonus_ms = 0.0
+swing_speed_cap_ms = 34.0
+swing_execution = "mixture" # legacy, gaussian, or mixture
+catcher_blocking = true
+pitch_border_1_2 = false
+pitch_third_base_risk_weight = 0.0 # 0..10
+pitch_location_error_floor = 0.0 # 0..0.5
+pitch_location_irreducible_error = 0.20 # 0..0.5
+# pitch_control_cap = 1.0 # Omit to disable; any finite value is allowed.
+pitch_control_above_cap_scale = 0.0 # 0..1
+pitch_around_0_2_edge_scale = 1.0 # 0..1
+pitch_execution_fatigue = false
+# scheduled_game_seed = 20261125 # Omit for a fresh random seed.

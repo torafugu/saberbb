@@ -471,7 +471,7 @@ def main():
             if args.require_zero_two_out and output["league"]["zero_two"]["aimed_outside"] == 0:
                 raise ValueError(
                     "No saved 0–2 pitch was aimed outside the strike zone. "
-                    "Check SABERBB_PITCH_AROUND_0_2_EDGE_SCALE=0 during game processing."
+                    "Check simulation.pitch_around_0_2_edge_scale = 0.0 in default-config.toml during game processing."
                 )
             print(json.dumps(output, ensure_ascii=True, indent=2))
     except (sqlite3.Error, ValueError) as err:

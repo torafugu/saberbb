@@ -5,6 +5,9 @@ import json
 import math
 import os
 import sqlite3
+import sys
+import tomllib
+from pathlib import Path
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
@@ -24,26 +27,36 @@ class Settings:
     fatigue: bool
 
     @classmethod
-    def from_env(cls):
+    def from_config(cls, path=None):
+        if path is None:
+            if sys.platform == "darwin":
+                directory = Path.home() / "Library/Application Support/jp.cosmi.saberbb"
+            elif sys.platform == "win32":
+                directory = Path(os.environ["APPDATA"]) / "cosmi/saberbb/config"
+            else:
+                directory = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "saberbb"
+            path = directory / "default-config.toml"
+        path = Path(path)
+        settings = tomllib.loads(path.read_text(encoding="utf-8")).get("simulation", {}) if path.exists() else {}
         def bounded(key, default, limit):
-            value = float(os.environ.get(key, default))
+            value = float(settings.get(key, default))
             if not 0 <= value <= limit:
                 raise ValueError(f"{key} must be between 0 and {limit}")
             return value
 
-        cap = os.environ.get("SABERBB_PITCH_CONTROL_CAP")
-        cap = float(cap) if cap else None
+        cap = settings.get("pitch_control_cap")
+        cap = float(cap) if cap is not None else None
         if cap is not None and not math.isfinite(cap):
-            raise ValueError("SABERBB_PITCH_CONTROL_CAP must be finite")
-        fatigue = os.environ.get("SABERBB_PITCH_EXECUTION_FATIGUE", "0")
-        if fatigue not in {"0", "1"}:
-            raise ValueError("SABERBB_PITCH_EXECUTION_FATIGUE must be 0 or 1")
+            raise ValueError("pitch_control_cap must be finite")
+        fatigue = settings.get("pitch_execution_fatigue", False)
+        if not isinstance(fatigue, bool):
+            raise ValueError("pitch_execution_fatigue must be true or false")
         return cls(
-            bounded("SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR", 0.20, 0.5),
-            bounded("SABERBB_PITCH_LOCATION_ERROR_FLOOR", 0.0, 0.5),
+            bounded("pitch_location_irreducible_error", 0.20, 0.5),
+            bounded("pitch_location_error_floor", 0.0, 0.5),
             cap,
-            bounded("SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE", 0.0, 1.0),
-            fatigue == "1",
+            bounded("pitch_control_above_cap_scale", 0.0, 1.0),
+            fatigue,
         )
 
     def control_components(self, control):
@@ -296,7 +309,7 @@ def main():
     parser.add_argument("--model", action="store_true", help="Use the current scheduled-game settings as assumptions")
     args = parser.parse_args()
     try:
-        settings = Settings.from_env() if args.model else None
+        settings = Settings.from_config() if args.model else None
         uri = db_from_env().resolve().as_uri() + "?mode=ro"
         with sqlite3.connect(uri, uri=True) as conn:
             conn.execute("BEGIN")

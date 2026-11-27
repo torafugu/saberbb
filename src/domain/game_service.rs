@@ -24,7 +24,6 @@ use tracing::info;
 /// Legacy swing-speed bonus used as the reference in diagnostic sweeps.
 pub const GAME_SWING_SPEED_BONUS_MS: f64 = 2.0;
 pub const GAME_BATTING_EYE_REDUCTION: f64 = 0.25;
-const LIVE_SWING_SPEED_CAP_MS: f64 = 34.0;
 const OPENING_LINEUP_SWING_SPEED_CAP_MS: f64 = 35.5;
 const LIVE_COLLISION_POWER_RETAINED_FRACTION: f64 = 0.25;
 
@@ -34,31 +33,6 @@ struct LiveSwingSpeed {
 }
 
 impl LiveSwingSpeed {
-    fn from_env() -> Result<Self> {
-        let read = |name| -> Result<Option<f64>> {
-            match std::env::var(name) {
-                Ok(value) => {
-                    let value: f64 = value.parse().with_context(|| format!("Reading {name}"))?;
-                    ensure!(value.is_finite(), "{name} must be finite");
-                    Ok(Some(value))
-                }
-                Err(std::env::VarError::NotPresent) => Ok(None),
-                Err(error) => Err(error).with_context(|| format!("Reading {name}")),
-            }
-        };
-        let bonus_ms = read("SABERBB_SWING_SPEED_BONUS_MS")?.unwrap_or(0.0);
-        let cap_ms = read("SABERBB_SWING_SPEED_CAP_MS")?.unwrap_or(LIVE_SWING_SPEED_CAP_MS);
-        ensure!(
-            bonus_ms >= 0.0,
-            "SABERBB_SWING_SPEED_BONUS_MS must be nonnegative"
-        );
-        ensure!(
-            cap_ms > 0.0,
-            "SABERBB_SWING_SPEED_CAP_MS must be positive"
-        );
-        Ok(Self { bonus_ms, cap_ms: Some(cap_ms) })
-    }
-
     fn apply(&self, roster_speed_ms: f64) -> f64 {
         let live_speed = roster_speed_ms + self.bonus_ms;
         self.cap_ms.map_or(live_speed, |cap| live_speed.min(cap))
@@ -76,31 +50,6 @@ fn apply_live_batting_abilities(schedule: &mut GameSchedule, speed: &LiveSwingSp
             batter.swing_speed = speed.apply(batter.swing_speed);
             batter.batting_eye -= GAME_BATTING_EYE_REDUCTION;
         }
-    }
-}
-
-fn swing_execution_from_env(default: SwingExecutionModel) -> Result<SwingExecutionModel> {
-    match std::env::var("SABERBB_SWING_EXECUTION") {
-        Err(std::env::VarError::NotPresent) => Ok(default),
-        Ok(value) => match value.as_str() {
-            "legacy" => Ok(SwingExecutionModel::Legacy),
-            "gaussian" => Ok(SwingExecutionModel::Gaussian),
-            "mixture" => Ok(SwingExecutionModel::Mixture),
-            _ => anyhow::bail!("SABERBB_SWING_EXECUTION must be legacy, gaussian, or mixture"),
-        },
-        Err(err) => Err(err).context("Reading SABERBB_SWING_EXECUTION"),
-    }
-}
-
-fn catcher_blocking_from_setting(setting: Result<String, std::env::VarError>) -> Result<bool> {
-    match setting {
-        Err(std::env::VarError::NotPresent) => Ok(true),
-        Ok(value) => match value.as_str() {
-            "1" => Ok(true),
-            "0" => Ok(false),
-            _ => anyhow::bail!("SABERBB_CATCHER_BLOCKING must be 0 or 1"),
-        },
-        Err(error) => Err(error).context("Reading SABERBB_CATCHER_BLOCKING"),
     }
 }
 
@@ -128,113 +77,34 @@ impl<R: GameRoundRepository> GameService<R> {
     }
 
     fn run_game_round(&mut self, record_contact_states: bool) -> Result<()> {
-        let swing_speed = LiveSwingSpeed::from_env()?;
+        let settings = crate::config::load_app_config()?.simulation;
+        let swing_speed = LiveSwingSpeed {
+            bonus_ms: settings.swing_speed_bonus_ms,
+            cap_ms: Some(settings.swing_speed_cap_ms),
+        };
         let lineup_speed = LiveSwingSpeed {
             bonus_ms: swing_speed.bonus_ms,
             cap_ms: Some(OPENING_LINEUP_SWING_SPEED_CAP_MS),
         };
-        let execution_model = swing_execution_from_env(SwingExecutionModel::Mixture)?;
-        let catcher_blocking =
-            catcher_blocking_from_setting(std::env::var("SABERBB_CATCHER_BLOCKING"))?;
-        let pitch_border_1_2 = match std::env::var("SABERBB_PITCH_BORDER_1_2") {
-            Ok(value) if value == "1" => true,
-            Ok(value) if value == "0" => false,
-            Ok(_) => anyhow::bail!("SABERBB_PITCH_BORDER_1_2 must be 0 or 1"),
-            Err(std::env::VarError::NotPresent) => false,
-            Err(error) => return Err(error).context("Reading SABERBB_PITCH_BORDER_1_2"),
-        };
-        let third_base_pitch_risk_weight =
-            match std::env::var("SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT") {
-                Ok(value) => value
-                    .parse::<f64>()
-                    .context("Reading SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT")?,
-                Err(std::env::VarError::NotPresent) => 0.0,
-                Err(error) => {
-                    return Err(error).context("Reading SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT");
-                }
-            };
-        ensure!(
-            (0.0..=10.0).contains(&third_base_pitch_risk_weight),
-            "SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT must be between 0 and 10"
-        );
-        let pitch_location_error_floor = match std::env::var("SABERBB_PITCH_LOCATION_ERROR_FLOOR") {
-            Ok(value) => value
-                .parse::<f64>()
-                .context("Reading SABERBB_PITCH_LOCATION_ERROR_FLOOR")?,
-            Err(std::env::VarError::NotPresent) => 0.0,
-            Err(error) => return Err(error).context("Reading SABERBB_PITCH_LOCATION_ERROR_FLOOR"),
-        };
-        ensure!(
-            (0.0..=0.5).contains(&pitch_location_error_floor),
-            "SABERBB_PITCH_LOCATION_ERROR_FLOOR must be between 0 and 0.5"
-        );
-        let pitch_location_irreducible_error =
-            match std::env::var("SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR") {
-                Ok(value) => value
-                    .parse::<f64>()
-                    .context("Reading SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR")?,
-                Err(std::env::VarError::NotPresent) => 0.20,
-                Err(error) => {
-                    return Err(error).context("Reading SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR");
-                }
-            };
-        ensure!(
-            (0.0..=0.5).contains(&pitch_location_irreducible_error),
-            "SABERBB_PITCH_LOCATION_IRREDUCIBLE_ERROR must be between 0 and 0.5"
-        );
-        let control_cap = match std::env::var("SABERBB_PITCH_CONTROL_CAP") {
-            Ok(value) if value.is_empty() => None,
-            Ok(value) => {
-                let cap: f64 = value.parse().context("Reading SABERBB_PITCH_CONTROL_CAP")?;
-                ensure!(cap.is_finite(), "SABERBB_PITCH_CONTROL_CAP must be finite");
-                Some(cap)
-            }
-            Err(std::env::VarError::NotPresent) => None,
-            Err(error) => return Err(error).context("Reading SABERBB_PITCH_CONTROL_CAP"),
-        };
-        let control_above_cap_scale = match std::env::var("SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE") {
-            Ok(value) if value.is_empty() => 0.0,
-            Ok(value) => value
-                .parse::<f64>()
-                .context("Reading SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE")?,
-            Err(std::env::VarError::NotPresent) => 0.0,
-            Err(error) => {
-                return Err(error).context("Reading SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE");
-            }
-        };
-        ensure!(
-            (0.0..=1.0).contains(&control_above_cap_scale),
-            "SABERBB_PITCH_CONTROL_ABOVE_CAP_SCALE must be between 0 and 1"
-        );
+        let execution_model = settings.swing_execution_model()?;
+        let catcher_blocking = settings.catcher_blocking;
+        let pitch_border_1_2 = settings.pitch_border_1_2;
+        let third_base_pitch_risk_weight = settings.pitch_third_base_risk_weight;
+        let pitch_location_error_floor = settings.pitch_location_error_floor;
+        let pitch_location_irreducible_error = settings.pitch_location_irreducible_error;
+        let control_cap = settings.pitch_control_cap;
+        let control_above_cap_scale = settings.pitch_control_above_cap_scale;
         let pitch_location_settings = PitchLocationSettings {
             error_floor: pitch_location_error_floor,
             irreducible_error: pitch_location_irreducible_error,
             control_cap,
             control_above_cap_scale,
         };
-        let edge_scale = match std::env::var("SABERBB_PITCH_AROUND_0_2_EDGE_SCALE") {
-            Ok(value) => value
-                .parse::<PitchAroundZeroTwoEdgeScale>()
-                .map_err(|error| anyhow::anyhow!("SABERBB_PITCH_AROUND_0_2_EDGE_SCALE: {error}"))?,
-            Err(std::env::VarError::NotPresent) => PitchAroundZeroTwoEdgeScale::default(),
-            Err(error) => return Err(error).context("Reading SABERBB_PITCH_AROUND_0_2_EDGE_SCALE"),
-        };
-        let execution_fatigue = match std::env::var("SABERBB_PITCH_EXECUTION_FATIGUE") {
-            Ok(value) if value == "1" => true,
-            Ok(value) if value == "0" => false,
-            Ok(_) => anyhow::bail!("SABERBB_PITCH_EXECUTION_FATIGUE must be 0 or 1"),
-            Err(std::env::VarError::NotPresent) => false,
-            Err(error) => return Err(error).context("Reading SABERBB_PITCH_EXECUTION_FATIGUE"),
-        };
-        let master_seed = match std::env::var("SABERBB_SCHEDULED_GAME_SEED") {
-            Ok(value) => Some(
-                value
-                    .parse::<u64>()
-                    .context("Reading SABERBB_SCHEDULED_GAME_SEED")?,
-            ),
-            Err(std::env::VarError::NotPresent) => None,
-            Err(error) => return Err(error).context("Reading SABERBB_SCHEDULED_GAME_SEED"),
-        };
+        let edge_scale = settings.pitch_around_0_2_edge_scale.to_string()
+            .parse::<PitchAroundZeroTwoEdgeScale>()
+            .map_err(anyhow::Error::msg)?;
+        let execution_fatigue = settings.pitch_execution_fatigue;
+        let master_seed = settings.scheduled_game_seed;
         info!(
             swing_speed_bonus_ms = swing_speed.bonus_ms,
             swing_speed_cap_ms = ?swing_speed.cap_ms,
@@ -381,7 +251,7 @@ pub fn simulate_game_with_pitching_and_lineup_source(
         pitch_budget,
         record_contact_states,
         lineup_source,
-        swing_execution_from_env(SwingExecutionModel::Legacy)?,
+        crate::config::load_app_config()?.simulation.swing_execution_model()?,
         PitchLocationSettings::default(),
         false,
         false,
@@ -812,17 +682,6 @@ mod tests {
                 .map(player)
                 .collect(),
         }
-    }
-
-    #[test]
-    fn scheduled_catcher_blocking_defaults_on_and_accepts_overrides() {
-        use std::env::VarError;
-
-        assert!(catcher_blocking_from_setting(Err(VarError::NotPresent)).unwrap());
-        assert!(catcher_blocking_from_setting(Ok("1".into())).unwrap());
-        assert!(!catcher_blocking_from_setting(Ok("0".into())).unwrap());
-        assert!(catcher_blocking_from_setting(Ok("".into())).is_err());
-        assert!(catcher_blocking_from_setting(Ok("true".into())).is_err());
     }
 
     #[test]

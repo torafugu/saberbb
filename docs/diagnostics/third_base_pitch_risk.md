@@ -1,5 +1,11 @@
 # Third-base pitch risk trial
 
+> Configuration update: gameplay settings now live under `[simulation]` in
+> `default-config.toml` (see the [template](../../default-config.toml)).
+> Historical `SABERBB_*` commands below no longer configure gameplay. Use the
+> lowercase name without `SABERBB_` as the TOML key, with `true`/`false` for
+> boolean switches instead of `1`/`0`. Keep `SABERBB_DB` for the database path.
+
 Scheduled games can penalize low targets when a runner is on third base.
 Set `SABERBB_PITCH_THIRD_BASE_RISK_WEIGHT` to a number from 0 through 10.
 The default is 0. The score penalty is the weight multiplied by

@@ -1,5 +1,11 @@
 # Pitch execution fatigue trial
 
+> Configuration update: gameplay settings now live under `[simulation]` in
+> `default-config.toml` (see the [template](../../default-config.toml)).
+> Historical `SABERBB_*` commands below no longer configure gameplay. Use the
+> lowercase name without `SABERBB_` as the TOML key, with `true`/`false` for
+> boolean switches instead of `1`/`0`. Keep `SABERBB_DB` for the database path.
+
 Scheduled games can apply fatigue to each pitch with
 `SABERBB_PITCH_EXECUTION_FATIGUE=1`. The default is 0. The trial uses the
 existing pregame residual workload and the pitcher's own pitches already

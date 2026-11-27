@@ -1,5 +1,11 @@
 # Pitch-call shortlist audit
 
+> Configuration update: gameplay settings now live under `[simulation]` in
+> `default-config.toml` (see the [template](../../default-config.toml)).
+> Historical `SABERBB_*` commands below no longer configure gameplay. Use the
+> lowercase name without `SABERBB_` as the TOML key, with `true`/`false` for
+> boolean switches instead of `1`/`0`. Keep `SABERBB_DB` for the database path.
+
 Use the following command from Windows Command Prompt. Set `SABERBB_DB` to
 the roster and schedule database.
 
