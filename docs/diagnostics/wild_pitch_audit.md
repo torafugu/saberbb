@@ -31,7 +31,7 @@ can record a wild pitch with empty bases. An extreme pitch on which the
 batter swings can contribute to `extreme_locations` without increasing
 `wild_pitches`. A wild ball four is stored as `Walk` and contributes to the
 audit's raw count if the catcher did not block the ball. See the
-[catcher blocking trial](catcher_blocking_trial.md) for the recorded block counts.
+[catcher blocking](catcher_blocking_trial.md) for the recorded block counts.
 
 ## Runner advancement
 

@@ -1,8 +1,13 @@
-# Catcher blocking trial
+# Catcher blocking
 
-Set `SABERBB_CATCHER_BLOCKING=1` to enable blocking in scheduled games.
-The default is 0. The trial applies to taken pitches below the existing
-low wild-pitch limit. With an ordinary catcher, a near-center pitch just
+Catcher blocking is enabled by default in scheduled games, including
+scheduled games with contact diagnostics. Set `SABERBB_CATCHER_BLOCKING=0`
+for the off comparison. Setting it explicitly to `1` is equivalent to
+leaving it unset. On macOS or Linux, use
+`export SABERBB_CATCHER_BLOCKING=0` before running the game, or
+`unset SABERBB_CATCHER_BLOCKING` to return to the default.
+
+Blocking applies to taken pitches below the existing low wild-pitch limit. With an ordinary catcher, a near-center pitch just
 below the limit is usually stopped. The chance decreases smoothly with
 additional depth and lateral displacement, and increases with
 `CatcherInfo.pitch_blocking`. Existing database rows and older serialized
@@ -21,7 +26,7 @@ both the blocking result and any passed-ball charge. Runs from the passed ball o
 half-inning use the existing uncertain earned-run treatment because
 the log cannot replay the inning without the passed ball. Legacy rows
 retain their historical scoring.
-The trial uses the game RNG after the decision to take, so game paths can
+Blocking uses the game RNG after the decision to take, so game paths can
 diverge even when the seed and initial DB match.
 
 ## Compare saved seasons
