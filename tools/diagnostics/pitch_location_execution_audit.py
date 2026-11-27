@@ -11,6 +11,7 @@ from datetime import date
 
 from diagnostic_db import db_from_env
 from pitch_control_audit import COMPLETED, ratio, saved_aim_margin
+from wild_pitch_advancement_audit import replay_game, wild_pitch_advancement
 from wild_pitch_audit import crossed_wild_pitch_limits
 
 
@@ -149,7 +150,13 @@ def summarize(totals, model):
     return summary
 
 
-def report(conn, season, subject, pitch_type, settings):
+def matches_base_state(runners, base_state):
+    if base_state == "third":
+        return runners[2] is not None
+    return runners[2] is None and (base_state == "no-third" or any(runner is not None for runner in runners))
+
+
+def report(conn, season, subject, pitch_type, settings, base_state="any"):
     abilities = {
         player: (name, control, skill_control)
         for player, name, control, skill_control in conn.execute("""
@@ -165,19 +172,48 @@ def report(conn, season, subject, pitch_type, settings):
     workloads = workload_by_appearance(conn) if settings and settings.fatigue else {}
     by_stratum = defaultdict(lambda: defaultdict(Counter))
     by_player = defaultdict(Counter)
-    for player, game, number, pitch_count, zone, ax, ay, x, y, result in conn.execute(f"""
+    by_aim = defaultdict(lambda: defaultdict(Counter))
+    population = Counter()
+    unknown_base_state = Counter()
+    current_game = None
+    runners_by_pitch = {}
+    for row in conn.execute(f"""
         WITH completed AS ({COMPLETED}), ordered AS (
             SELECT p.*, ROW_NUMBER() OVER appearance AS pitch_number,
                    COUNT(*) OVER (PARTITION BY p.game_id, p.pitcher_id) AS pitch_count
             FROM player_game_pitching p JOIN completed g ON g.id = p.game_id
             WINDOW appearance AS (PARTITION BY p.game_id, p.pitcher_id ORDER BY p.count_seq)
         )
-        SELECT p.pitcher_id, p.game_id, p.pitch_number, p.pitch_count, p.aim_zone,
-               p.aim_location_x, p.aim_location_y, p.actual_location_x, p.actual_location_y, b.result
+        SELECT p.pitcher_id, p.game_id, p.count_seq, p.pitch_number, p.pitch_count, p.aim_zone,
+               p.aim_location_x, p.aim_location_y, p.actual_location_x, p.actual_location_y,
+               b.result, b.batter_id, c.point
         FROM ordered p
         LEFT JOIN player_game_batting b ON b.game_id = p.game_id AND b.count_seq = p.count_seq
+        LEFT JOIN count c ON c.game_id = p.game_id AND c.seq = p.count_seq
         WHERE p.pitch_type = ?
+        ORDER BY p.game_id, p.count_seq
     """, (season, pitch_type)):
+        player, game, seq, number, pitch_count, zone, ax, ay, x, y, result, batter, points = row
+        side = "subject" if player == subject else "peers"
+        scored = 0
+        if base_state != "any":
+            if game != current_game:
+                current_game = game
+                runners_by_pitch.clear()
+                replay_game(conn, game, {}, runners_by_pitch.__setitem__)
+            runners = runners_by_pitch.get(seq)
+            if runners is None:
+                unknown_base_state[side] += 1
+                continue
+            if not matches_base_state(runners, base_state):
+                continue
+            ball_four = result == "Walk" and bool(crossed_wild_pitch_limits(x, y))
+            if result == "WildPitch" or ball_four:
+                advance = wild_pitch_advancement(runners, batter, {"ball_four": ball_four}, points)
+                scored = int(advance["advancement"] in {
+                    "runner_advanced", "extra_advance_beyond_walk",
+                })
+        population[side] += 1
         base = bases.get(player)
         modeled = (base, 1.0) if base is not None else None
         if modeled is not None and settings.fatigue:
@@ -190,18 +226,42 @@ def report(conn, season, subject, pitch_type, settings):
                 modeled = (base, 1.0 + 0.25 * ramp * ramp)
         band = (number - 1) // 25 * 25 + 1
         key = (zone, ax, ay, band)
-        group = by_stratum[key]["subject" if player == subject else "peers"]
-        for totals in (by_player[player], group):
+        margin = saved_aim_margin(zone, ax, ay)
+        for totals in (by_player[player], by_stratum[key][side], by_aim[zone, margin][side]):
             observe(totals, zone, ax, ay, x, y, result, modeled)
+            totals["scored_wild_pitches"] += scored
 
     if subject not in by_player:
-        raise ValueError(f"No {pitch_type} pitches for player {subject} in regular season {season}")
+        raise ValueError(
+            f"No {pitch_type} pitches for player {subject} in regular season {season}"
+            f" with base state {base_state}"
+        )
+
+    def detail(totals):
+        result = summarize(totals, settings)
+        if base_state != "any":
+            result["scored_wild_pitches"] = totals["scored_wild_pitches"]
+        return result
+
+    aim_usage = [
+        {
+            "aim_zone": zone, "aim_margin": margin,
+            **{
+                side: {
+                    **detail(rows[side]),
+                    "usage_rate": ratio(rows[side]["pitches"], population[side]),
+                }
+                for side in ("subject", "peers")
+            },
+        }
+        for (zone, margin), rows in sorted(by_aim.items())
+    ]
     groups = [
         {
             "aim_zone": zone, "aim_margin": saved_aim_margin(zone, ax, ay),
             "aim_x": ax, "aim_y": ay, "pitch_numbers": [band, band + 24],
-            "subject": summarize(rows["subject"], settings),
-            "peers": summarize(rows["peers"], settings),
+            "subject": detail(rows["subject"]),
+            "peers": detail(rows["peers"]),
         }
         for (zone, ax, ay, band), rows in sorted(by_stratum.items())
         if rows["subject"]["pitches"]
@@ -212,11 +272,14 @@ def report(conn, season, subject, pitch_type, settings):
         players.append({
             "player_id": player, "name": name, "pitcher_control": control,
             "pitch_skill_control": skill_control, "control_components": bases.get(player),
-            **summarize(totals, settings),
+            **detail(totals),
         })
     return {
         "season": season, "pitch_type": pitch_type, "subject_player_id": subject,
         "assumed_settings": vars(settings) if settings else None,
+        "base_state": base_state,
+        "pitches_excluded_unknown_base_state": {side: unknown_base_state[side] for side in ("subject", "peers")},
+        "by_aim_zone_and_margin": aim_usage,
         "matched_by_aim_and_pitch_number": groups, "pitchers": players,
     }
 
@@ -226,6 +289,8 @@ def main():
     parser.add_argument("--season", type=int, required=True)
     parser.add_argument("--pitcher-id", type=int, required=True)
     parser.add_argument("--pitch-type", required=True)
+    parser.add_argument("--base-state", choices=("any", "no-third", "first-or-second", "third"),
+                        default="any", help="Filter on reconstructed pre-pitch running state")
     parser.add_argument("--model", action="store_true", help="Use the current scheduled-game settings as assumptions")
     args = parser.parse_args()
     try:
@@ -233,7 +298,7 @@ def main():
         uri = db_from_env().resolve().as_uri() + "?mode=ro"
         with sqlite3.connect(uri, uri=True) as conn:
             conn.execute("BEGIN")
-            result = report(conn, args.season, args.pitcher_id, args.pitch_type, settings)
+            result = report(conn, args.season, args.pitcher_id, args.pitch_type, settings, args.base_state)
         print(json.dumps(result, indent=2, allow_nan=False))
     except (sqlite3.Error, ValueError) as err:
         parser.exit(1, f"{err}\n")
