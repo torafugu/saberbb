@@ -314,8 +314,10 @@ and team filters, processed-season game lists, scoreboards, game summaries,
 per-game batting/pitching tables, pitch-by-pitch navigation and pitch-zone/runner
 SVGs, cumulative standings and player statistics, team schedules, player abilities,
 pitch repertoires, and manager information. Tables support search, numeric sorting,
-and pagination. Statistics retain the existing cumulative aggregation definitions;
-the season selector on the game list only filters that list. Refresh reloads the
+and pagination. Games, Standings, Batting and Pitching each show a season selector
+built from the processed seasons. Each statistics screen keeps its own selection and
+opens on the latest processed season; choosing **全シーズン / All seasons** restores
+the cumulative aggregation over all saved games. Refresh reloads the
 catalog and active data after management operations. Database work runs off the UI
 thread. Viewing screens do not read `player_game_contact_state`.
 
@@ -350,8 +352,10 @@ Batting/pitching displays read `batting_stat_totals` and `pitching_stat_totals`.
 At game-result save time, the same database transaction updates per-game rows in
 `game_batting_stat_cache` / `game_pitching_stat_cache`, then refreshes totals for
 only the affected players. Display queries never aggregate pitch logs or per-game
-rows. The batting table shows the player's current team and career totals from
-all saved games. Batting rates use saved counts, with scoring tag-ups counted
+rows. The batting table shows the player's current team and either the totals of the
+selected season or, on **全シーズン / All seasons**, the career totals from all saved
+games; a selected season sums the same per-game rows as one year of that career.
+Batting rates use saved counts, with scoring tag-ups counted
 as sacrifice flies and excluded from at-bats. A rate with no qualifying
 opportunities displays an em dash. Sacrifice bunts display zero because the
 simulator has no bunt outcome. Fielding errors count the recorded fielding

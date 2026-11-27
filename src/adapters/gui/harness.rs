@@ -38,7 +38,7 @@ impl Harness {
     async fn language(&mut self,code:&str,tab:&str)->anyhow::Result<()> {
         self.click("nav-5").await?;
         self.click(&format!("language-{code}")).await?;
-        anyhow::ensure!(!self.html().contains("loading"),"management screen did not load");
+        anyhow::ensure!(!self.html().contains("class=\"loading\""),"management screen did not load");
         self.click(tab).await
     }
     fn html(&self)->String {dioxus_ssr::render(&self.dom)}
@@ -91,22 +91,29 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     for label in ["残試合","得点","失点","本塁打","盗塁","打率","防御率","失策"] {anyhow::ensure!(h.html().contains(label),"missing standings column: {label}");}
     anyhow::ensure!(!h.html().contains("id=\"table-page-next\"") && !h.html().contains("class=\"pagination\""),"standings must omit pagination and row counts");
     anyhow::ensure!(!h.html().contains("class=\"scope-note\""),"standings must omit the scope note");
-    let career=h.html().split("<tbody>").nth(1).unwrap().split("</tbody>").next().unwrap().to_owned();
-    anyhow::ensure!(!catalog.standing_seasons.is_empty(),"test DB needs a season");
-    for year in &catalog.standing_seasons {
-        h.input("standings-season-filter","change",&year.to_string()).await?;
-        anyhow::ensure!(!h.html().contains("class=\"scope-note\""),"season selection must not add a scope note");
-        let expected=viewing::season_standings(*year,0,&catalog)?;
+    anyhow::ensure!(!catalog.seasons.is_empty(),"test DB needs a processed season");
+    let stats_season=*catalog.seasons.last().unwrap();
+    let expected_standings=|h:&Harness,year:u16|->anyhow::Result<()> {
+        let expected=viewing::season_standings(year,0,&catalog)?;
         for row in &expected.rows {
             let cells=row[2..].iter().map(|cell|format!("<td title=\"{cell}\">{cell}</td>")).collect::<String>();
-            anyhow::ensure!(h.html().contains(&cells),"displayed season metrics differ from the selected year");
+            anyhow::ensure!(h.html().contains(&cells),"displayed standings for season {year} differ from the expected rows");
         }
+        Ok(())
+    };
+    // Every statistics screen opens on the latest processed season, so standings must
+    // render that season before any selector change.
+    expected_standings(&h,stats_season)?;
+    for year in &catalog.seasons {
+        h.input("standings-season-filter","change",&year.to_string()).await?;
+        anyhow::ensure!(!h.html().contains("class=\"scope-note\""),"season selection must not add a scope note");
+        expected_standings(&h,*year)?;
         h.save(output,&format!("standings-{year}"))?;
     }
     h.click("sort-6").await?;
     anyhow::ensure!(h.html().contains("aria-sort=\"ascending\""),"standings sorting must remain interactive");
     h.input("standings-season-filter","change","0").await?;
-    anyhow::ensure!(h.html().split("<tbody>").nth(1).unwrap().starts_with(&career),"all-season selection did not restore career standings");
+    expected_standings(&h,0)?;
     h.save(output,"standings")?;
     anyhow::ensure!(!h.html().contains("id=\"language-en-US\""),"language switch must not render outside Management");
     h.language("en-US","nav-1").await?;
@@ -121,7 +128,8 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     anyhow::ensure!(h.html().contains("Qualified pitchers only"), "pitching checkbox English label missing");
     h.language("ja-JP","nav-3").await?;
     // Batting and pitching no longer annotate a statistics scope, so the qualification
-    // filter state is verified through the reported row counts.
+    // filter state is verified through the reported row counts. Qualification is measured
+    // in the season selected in the filter row, which opens on the latest processed year.
     let qualification_tabs = [
         ("nav-2", 2, "qualified-batting-filter"),
         ("nav-3", 3, "qualified-pitching-filter"),
@@ -130,7 +138,7 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
         h.click(tab).await?;
         anyhow::ensure!(!h.html().contains("class=\"scope-note\""), "{id} must not render a scope note");
         h.input(id, "change", "true").await?;
-        let expected = viewing::statistics_with_filter(kind, 0, 0, &catalog, true)?;
+        let expected = viewing::statistics_with_filter(kind, 0, 0, &catalog, true, stats_season)?;
         let html = h.html();
         anyhow::ensure!(!html.contains("class=\"scope-note\""), "{id} must not render a scope note");
         anyhow::ensure!(
@@ -140,17 +148,42 @@ pub async fn snapshot_database(output:&Path)->anyhow::Result<()> {
     }
     for (tab, kind, id) in qualification_tabs {
         h.click(tab).await?;
-        let filtered = viewing::statistics_with_filter(kind, 0, 0, &catalog, true)?;
+        let filtered = viewing::statistics_with_filter(kind, 0, 0, &catalog, true, stats_season)?;
         anyhow::ensure!(!h.html().contains("class=\"scope-note\""), "{id} must not render a scope note");
         anyhow::ensure!(
             h.html().contains(&format!("<span>{} 件</span>", filtered.rows.len())),
             "{id} did not retain its qualification filter",
         );
         h.input(id, "change", "false").await?;
-        let career = viewing::statistics_with_filter(kind, 0, 0, &catalog, false)?;
+        let unfiltered = viewing::statistics_with_filter(kind, 0, 0, &catalog, false, stats_season)?;
+        anyhow::ensure!(
+            h.html().contains(&format!("<span>{} 件</span>", unfiltered.rows.len())),
+            "{id} did not restore the unfiltered rows",
+        );
+    }
+    // Each statistics screen owns its season selector: it opens on the latest processed
+    // season and 0 restores the career totals. Both screens are left on the career scope.
+    for (tab, kind, id) in [("nav-2", 2, "batting-season-filter"), ("nav-3", 3, "pitching-season-filter")] {
+        h.click(tab).await?;
+        anyhow::ensure!(h.html().contains(&format!("id=\"{id}\"")), "missing season selector: {id}");
+        let opening = viewing::statistics_with_filter(kind, 0, 0, &catalog, false, stats_season)?;
+        anyhow::ensure!(
+            h.html().contains(&format!("<span>{} 件</span>", opening.rows.len())),
+            "{id} did not open on the latest processed season",
+        );
+        for year in &catalog.seasons {
+            h.input(id, "change", &year.to_string()).await?;
+            let season = viewing::statistics_with_filter(kind, 0, 0, &catalog, false, *year)?;
+            anyhow::ensure!(
+                h.html().contains(&format!("<span>{} 件</span>", season.rows.len())),
+                "{id} did not scope the rows to {year}",
+            );
+        }
+        h.input(id, "change", "0").await?;
+        let career = viewing::statistics_with_filter(kind, 0, 0, &catalog, false, 0)?;
         anyhow::ensure!(
             h.html().contains(&format!("<span>{} 件</span>", career.rows.len())),
-            "{id} did not restore the unfiltered rows",
+            "{id} did not restore the career totals",
         );
     }
     h.click("nav-3").await?;

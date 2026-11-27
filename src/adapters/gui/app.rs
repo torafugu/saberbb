@@ -27,12 +27,28 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
     let mut view = use_signal(|| 0u8);
     let mut league = use_signal(|| 0u16);
     let mut team = use_signal(|| 0u16);
-    let mut season = use_signal(|| 0u16);
     // The Games screen keeps its own season/search/page state so those filters can
     // share the League/Team row rendered here.
     let mut games_season = use_signal(|| catalog.seasons.first().copied().unwrap_or(0));
     let mut games_query = use_signal(String::new);
     let mut games_page = use_signal(|| 0usize);
+    // Standings, Batting and Pitching each remember their own season and start on the
+    // latest processed season, matching the Games list. 0 keeps the career total.
+    let stats_default_season = catalog.seasons.last().copied().unwrap_or(0);
+    let standings_season = use_signal(|| stats_default_season);
+    let batting_season = use_signal(|| stats_default_season);
+    let pitching_season = use_signal(|| stats_default_season);
+    let season_filter = match view() {
+        1 => Some((standings_season, "standings-season-filter")),
+        2 => Some((batting_season, "batting-season-filter")),
+        3 => Some((pitching_season, "pitching-season-filter")),
+        _ => None,
+    };
+    let stats_season = match view() {
+        2 => batting_season(),
+        3 => pitching_season(),
+        _ => standings_season(),
+    };
     let qualified_batters = use_signal(|| false);
     let qualified_pitchers = use_signal(|| false);
     let qualification_filter = match view() {
@@ -68,14 +84,14 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                     if catalog.seasons.is_empty() { option {value:"0",{tr("完了試合なし")}} }
                     for year in &catalog.seasons { option {value:year.to_string(),selected:games_season()==*year,"{year}"} }
                 } } }
+                if let Some((mut selected, id)) = season_filter { label { {tr("シーズン")} select { id: id, value:selected().to_string(), onchange:move |e|selected.set(e.value().parse().unwrap_or(0)),
+                    option {value:"0",selected:selected()==0,{tr("全シーズン")}}
+                    for year in &catalog.seasons { option {value:year.to_string(),selected:selected()==*year,"{year}"} }
+                } } }
                 label { {tr("リーグ")} select { id:format!("league-filter"), value:league().to_string(), onchange:move |e|{league.set(e.value().parse().unwrap_or(0));team.set(0);},
                     option { value:"0",{tr("全リーグ")} }
                     for l in &catalog.leagues { option {value:l.id.to_string(),"{l.name}"} }
                 } }
-                if view()==1 { label { {tr("シーズン")} select { id:format!("standings-season-filter"), value:season().to_string(), onchange:move |e|season.set(e.value().parse().unwrap_or(0)),
-                    option {value:"0",selected:season()==0,{tr("全シーズン")}}
-                    for year in &catalog.standing_seasons { option {value:year.to_string(),selected:season()==*year,"{year}"} }
-                } } }
                 if view()!=1 { label { {tr("チーム")} select { id:format!("team-filter"), value:team().to_string(), onchange:move |e|team.set(e.value().parse().unwrap_or(0)),
                     option {value:"0",{tr("全チーム")}}
                     for t in catalog.teams.iter().filter(|t|league()==0 || t.league==league()) { option {value:t.id.to_string(),"{t.name}"} }
@@ -102,9 +118,9 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                     onpage:move |next|games_page.set(next),
                 } },
                 1..=3 => rsx!{ Statistics {
-                    key: "stats-{view()}-{league()}-{stats_team}-{season()}-{qualified_only}-{locale:?}",
+                    key: "stats-{view()}-{league()}-{stats_team}-{stats_season}-{qualified_only}-{locale:?}",
                     kind: view(), catalog: catalog.clone(), league: league(), team: stats_team,
-                    season: if view()==1 {season()} else {0}, qualified_only, refresh
+                    season: stats_season, qualified_only, refresh
                 } },
                 4 => rsx!{ Teams {key:"team-{team()}",team:team(),refresh} },
                 _ => rsx!{ super::management::Management {} },
@@ -130,7 +146,7 @@ fn Statistics(
                 if kind == 1 {
                     viewing::season_standings(season, league, &catalog)
                 } else {
-                    viewing::statistics_with_filter(kind, league, team, &catalog, qualified_only)
+                    viewing::statistics_with_filter(kind, league, team, &catalog, qualified_only, season)
                 }
             })
             .await

@@ -91,6 +91,44 @@ impl SqlStatRepository {
         )
     }
 
+    /// One season of totals. Every season sums the same per-game cache as the career
+    /// totals, so adding all of them reproduces those totals.
+    pub(crate) fn load_season_batting_stats(
+        &self,
+        season: u16,
+        team: Option<u16>,
+    ) -> Result<Vec<BattingStats>, AppError> {
+        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        self.db_client.query_rows(
+            &season_stats_query(
+                "game_batting_stat_cache",
+                super::batting_stat_cache::COUNTS,
+                BATTING_COLUMNS,
+                false,
+                None,
+            ),
+            params![season, team],
+        )
+    }
+
+    pub(crate) fn load_season_pitching_stats(
+        &self,
+        season: u16,
+        team: Option<u16>,
+    ) -> Result<Vec<PitchingStats>, AppError> {
+        crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
+        self.db_client.query_rows(
+            &season_stats_query(
+                "game_pitching_stat_cache",
+                super::pitching_stat_cache::COUNTS,
+                PITCHING_COLUMNS,
+                false,
+                None,
+            ),
+            params![season, team],
+        )
+    }
+
     pub(crate) fn load_qualified_batting_stats(
         &self,
         season: u16,
@@ -98,12 +136,13 @@ impl SqlStatRepository {
     ) -> Result<Vec<BattingStats>, AppError> {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
-            &qualified_stats_query(
+            &season_stats_query(
                 "game_batting_stat_cache",
                 super::batting_stat_cache::COUNTS,
                 BATTING_COLUMNS,
+                true,
                 // 3.1 PA per team game, rounded to the nearest whole PA.
-                "s.pa >= (31 * t.games + 5) / 10",
+                Some("s.pa >= (31 * t.games + 5) / 10"),
             ),
             params![season, team],
         )
@@ -116,46 +155,64 @@ impl SqlStatRepository {
     ) -> Result<Vec<PitchingStats>, AppError> {
         crate::repositories::stat_cache::ensure_ready(&self.db_client).map_err(AppError::Internal)?;
         self.db_client.query_rows(
-            &qualified_stats_query(
+            &season_stats_query(
                 "game_pitching_stat_cache",
                 super::pitching_stat_cache::COUNTS,
                 PITCHING_COLUMNS,
-                "s.outs >= 3 * t.games",
+                true,
+                Some("s.outs >= 3 * t.games"),
             ),
             params![season, team],
         )
     }
 }
 
-fn qualified_stats_query(
+/// `regular_only` restricts the games to completed regular-season games, and the
+/// optional `threshold` adds a qualification rule with the team-game count it needs.
+fn season_stats_query(
     cache: &str,
     counts: &str,
     columns: &str,
-    threshold: &str,
+    regular_only: bool,
+    threshold: Option<&str>,
 ) -> String {
     let sums = counts
         .split(',')
         .map(|name| format!("SUM(c.{name}) AS {name}"))
         .collect::<Vec<_>>()
         .join(", ");
+    let games = if regular_only {
+        format!(" AND {COMPLETED_REGULAR_GAME}")
+    } else {
+        String::new()
+    };
+    let (team_games, join, qualification) = threshold.map_or_else(
+        || (String::new(), String::new(), String::new()),
+        |threshold| {
+            (
+                ", team_games AS (
+                    SELECT team_id, COUNT(*) AS games FROM (
+                        SELECT away_team_id AS team_id FROM completed
+                        UNION ALL SELECT home_team_id AS team_id FROM completed
+                    ) GROUP BY team_id
+                )"
+                .to_string(),
+                " JOIN team_games t ON t.team_id=pi.team_id".to_string(),
+                format!(" AND {threshold}"),
+            )
+        },
+    );
     format!(
         "WITH completed AS (
-            SELECT id, away_team_id, home_team_id
-            FROM game WHERE season=?1 AND {COMPLETED_REGULAR_GAME}
-        ), team_games AS (
-            SELECT team_id, COUNT(*) AS games FROM (
-                SELECT away_team_id AS team_id FROM completed
-                UNION ALL SELECT home_team_id AS team_id FROM completed
-            ) GROUP BY team_id
-        ), season_totals AS (
+            SELECT id, away_team_id, home_team_id FROM game WHERE season=?1{games}
+        ){team_games}, season_totals AS (
             SELECT c.player_id, {sums} FROM {cache} c
             JOIN completed g ON g.id=c.game_id
             GROUP BY c.player_id
         )
         SELECT {columns} FROM season_totals s
-        JOIN player_info pi ON pi.id=s.player_id
-        JOIN team_games t ON t.team_id=pi.team_id
-        WHERE (?2 IS NULL OR pi.team_id=?2) AND {threshold} ORDER BY s.player_id"
+        JOIN player_info pi ON pi.id=s.player_id{join}
+        WHERE (?2 IS NULL OR pi.team_id=?2){qualification} ORDER BY s.player_id"
     )
 }
 
@@ -581,6 +638,59 @@ mod tests {
         let pitching = repo.load_qualified_pitching_stats(2026, Some(1)).unwrap();
         assert_eq!(pitching.len(), 1);
         assert_eq!(pitching[0].batter.info.id, 10);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn season_batting_and_pitching_stats_scope_the_cache_to_one_year() {
+        let (repo, path) = setup_repo();
+        seed_team(&repo, 1, "Aces");
+        seed_team(&repo, 2, "Bees");
+        seed_game(&repo, 1, 1, 2, Some(2), Some(1), Some("2026-04-01"));
+        seed_game(&repo, 2, 1, 2, Some(1), Some(3), Some("2027-04-01"));
+        seed_team_player_info(&repo, 10, 1, "A", "One");
+        seed_team_player_info(&repo, 20, 2, "B", "One");
+        conn(&repo)
+            .execute_batch("UPDATE game SET season=2027 WHERE id=2;")
+            .unwrap();
+        crate::repositories::stat_cache::ensure_ready(&repo.db_client).unwrap();
+        let conn = conn(&repo);
+        conn.execute(
+            "INSERT INTO game_batting_stat_cache
+                 (game_id, player_id, ab, single, double, triple, homerun, rbi, games, pa)
+             VALUES (1, 10, 3, 2, 0, 0, 1, 2, 1, 4), (2, 10, 4, 1, 0, 0, 0, 1, 1, 4),
+                    (2, 20, 2, 2, 0, 0, 0, 0, 1, 2)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO game_pitching_stat_cache
+                 (game_id, player_id, games, outs, runs, wins, losses, saves, holds, so, bb,
+                  starts, complete_games, shutouts, quality_starts, uncertain_starts, relief_wins,
+                  hits, home_runs, hbp, wild_pitches, earned_runs, unclassified_runs, at_bats)
+             VALUES (1, 10, 1, 3, 1, 1, 0, 0, 0, 2, 0, 1, 0, 0, 1, 0, 0, 2, 0, 0, 0, 1, 0, 12),
+                    (2, 10, 1, 6, 2, 0, 1, 0, 0, 4, 1, 1, 0, 0, 1, 0, 0, 4, 1, 0, 0, 2, 0, 24)",
+            [],
+        )
+        .unwrap();
+
+        let batting = repo.load_season_batting_stats(2026, None).unwrap();
+        let rows: Vec<_> = batting.iter().map(|s| (s.batter.info.id, s.ab, s.homerun, s.pa)).collect();
+        assert_eq!(rows, [(10, 3, 1, 4)]);
+        let batting = repo.load_season_batting_stats(2027, None).unwrap();
+        let rows: Vec<_> = batting.iter().map(|s| (s.batter.info.id, s.ab, s.single)).collect();
+        assert_eq!(rows, [(10, 4, 1), (20, 2, 2)]);
+        let batting = repo.load_season_batting_stats(2027, Some(2)).unwrap();
+        assert_eq!(batting.len(), 1);
+        assert_eq!(batting[0].batter.info.id, 20);
+
+        let pitching = repo.load_season_pitching_stats(2026, None).unwrap();
+        assert_eq!(pitching.len(), 1);
+        assert_eq!((pitching[0].outs, pitching[0].so), (3, 2));
+        let pitching = repo.load_season_pitching_stats(2027, None).unwrap();
+        assert_eq!(pitching.len(), 1);
+        assert_eq!((pitching[0].outs, pitching[0].so, pitching[0].losses), (6, 4, 1));
+        assert!(repo.load_season_pitching_stats(2028, None).unwrap().is_empty());
         std::fs::remove_file(path).ok();
     }
 

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 pub struct Choice { pub id: u16, pub name: String, pub league: u16 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Catalog {
-    pub leagues: Vec<Choice>, pub teams: Vec<Choice>, pub seasons: Vec<u16>, pub standing_seasons: Vec<u16>,
+    pub leagues: Vec<Choice>, pub teams: Vec<Choice>, pub seasons: Vec<u16>,
     pub latest_completed_regular_season: Option<u16>,
     pub player_teams: HashMap<i64, u16>,
 }
@@ -29,17 +29,17 @@ impl TableData {
 
 pub fn catalog() -> Result<Catalog> {
     let leagues = app_context().schedule_repository.load_all_leagues()?;
+    // Processed seasons are the only selectable years: the Games screen and every
+    // statistics screen share this list.
     let seasons = app_context().game_repository.load_processed_seasons()?;
     let conn = SqlDb::new()?.get_conn()?;
-    let standing_seasons = conn.prepare("SELECT DISTINCT season FROM game WHERE season IS NOT NULL ORDER BY season DESC")?
-        .query_map([], |r| r.get(0))?.collect::<rusqlite::Result<Vec<u16>>>()?;
     let latest_completed_regular_season = latest_completed_regular_season(&conn)?;
     let mut query = conn.prepare("SELECT id,team_id FROM player_info")?;
     let player_teams = query.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<HashMap<i64,u16>>>()?;
     Ok(Catalog {
         teams: leagues.iter().flat_map(|l| l.teams.iter().map(move |t| Choice { id:t.id, name:t.name.to_string(), league:l.id })).collect(),
         leagues: leagues.iter().map(|l| Choice { id:l.id, name:l.name.to_string(), league:l.id }).collect(),
-        seasons, standing_seasons, latest_completed_regular_season, player_teams,
+        seasons, latest_completed_regular_season, player_teams,
     })
 }
 
@@ -58,9 +58,9 @@ pub fn manager(team: u16) -> Result<Option<crate::domain::shared::batting_person
     crate::repositories::batting_personnel_repository::load_team_manager(&conn, team)
 }
 
-/// Statistics retain the existing repository's all-saved-games aggregation scope.
+/// Statistics default to the all-games aggregation; a season scopes them to one year.
 pub fn statistics(kind: u8, league: u16, team: u16, catalog: &Catalog) -> Result<TableData> {
-    statistics_with_filter(kind, league, team, catalog, false)
+    statistics_with_filter(kind, league, team, catalog, false, 0)
 }
 
 pub(crate) fn statistics_with_filter(
@@ -69,6 +69,7 @@ pub(crate) fn statistics_with_filter(
     team: u16,
     catalog: &Catalog,
     qualified_only: bool,
+    season: u16,
 ) -> Result<TableData> {
     let repo = &app_context().statistics_repository;
     let team_filter = (team != 0).then_some(team);
@@ -85,11 +86,14 @@ pub(crate) fn statistics_with_filter(
         }
 
         2 => {
-            let stats = match (qualified_only, catalog.latest_completed_regular_season, team_filter) {
-                (true, Some(season), _) => repo.load_qualified_batting_stats(season, team_filter)?,
-                (true, None, _) => Vec::new(),
-                (false, _, Some(team)) => repo.load_team_batting_stats(team)?,
-                (false, _, None) => repo.load_batting_stats()?,
+            let stats = if qualified_only {
+                qualified_season(season, catalog).map(|season| repo.load_qualified_batting_stats(season, team_filter)).transpose()?.unwrap_or_default()
+            } else if season != 0 {
+                repo.load_season_batting_stats(season, team_filter)?
+            } else if let Some(team) = team_filter {
+                repo.load_team_batting_stats(team)?
+            } else {
+                repo.load_batting_stats()?
             };
             let rows = stats.into_iter()
                 .filter_map(|s| player_team_name(s.batter.info.id).map(|team| batting_row(&s, team)))
@@ -97,11 +101,14 @@ pub(crate) fn statistics_with_filter(
             Ok(TableData::new("打撃成績", BATTING_COLUMNS, rows))
         }
         _ => {
-            let stats = match (qualified_only, catalog.latest_completed_regular_season, team_filter) {
-                (true, Some(season), _) => repo.load_qualified_pitching_stats(season, team_filter)?,
-                (true, None, _) => Vec::new(),
-                (false, _, Some(team)) => repo.load_team_pitching_stats(team)?,
-                (false, _, None) => repo.load_pitching_stats()?,
+            let stats = if qualified_only {
+                qualified_season(season, catalog).map(|season| repo.load_qualified_pitching_stats(season, team_filter)).transpose()?.unwrap_or_default()
+            } else if season != 0 {
+                repo.load_season_pitching_stats(season, team_filter)?
+            } else if let Some(team) = team_filter {
+                repo.load_team_pitching_stats(team)?
+            } else {
+                repo.load_pitching_stats()?
             };
             let rows = stats.into_iter()
                 .filter_map(|s| player_team_name(s.batter.info.id).map(|team| pitching_row(&s, team)))
@@ -109,6 +116,12 @@ pub(crate) fn statistics_with_filter(
             Ok(TableData::new("投手成績", PITCHING_COLUMNS, rows))
         }
     }
+}
+
+/// Qualification is measured against one regular season, so the career scope falls
+/// back to the latest completed regular season.
+fn qualified_season(season: u16, catalog: &Catalog) -> Option<u16> {
+    (season != 0).then_some(season).or(catalog.latest_completed_regular_season)
 }
 
 const BATTING_COLUMNS: &[&str] = &[
@@ -301,7 +314,7 @@ mod tests {
     use super::*;
     #[test]
     fn catalog_filters_teams_without_leaking_other_leagues() {
-        let c = Catalog { leagues:vec![], teams:vec![Choice {id:1,name:"A".into(),league:7},Choice {id:2,name:"B".into(),league:8}],seasons:vec![],standing_seasons:vec![],latest_completed_regular_season:None,player_teams:HashMap::new() };
+        let c = Catalog { leagues:vec![], teams:vec![Choice {id:1,name:"A".into(),league:7},Choice {id:2,name:"B".into(),league:8}],seasons:vec![],latest_completed_regular_season:None,player_teams:HashMap::new() };
         assert!(c.includes_team(1,7,0)); assert!(!c.includes_team(2,7,0));
         assert!(!c.includes_team(1,0,2)); assert!(c.includes_team(2,0,2));
     }
@@ -359,7 +372,7 @@ mod tests {
     #[test]
     fn standings_keep_rank_and_gap_when_filtering_a_team() {
         use crate::domain::shared::{stats::Standing,team::Team};
-        let catalog=Catalog {leagues:vec![],teams:vec![Choice{id:1,name:"A".into(),league:1},Choice{id:2,name:"B".into(),league:1}],seasons:vec![],standing_seasons:vec![],latest_completed_regular_season:None,player_teams:HashMap::new()};
+        let catalog=Catalog {leagues:vec![],teams:vec![Choice{id:1,name:"A".into(),league:1},Choice{id:2,name:"B".into(),league:1}],seasons:vec![],latest_completed_regular_season:None,player_teams:HashMap::new()};
         let standing=|id,wins,losses| Standing {team:Team::min(id,"Team"),games:wins+losses,wins,losses,draws:0,pct:wins as f32/(wins+losses) as f32,gb:0.0,
             r:10,ra:5,remaining:3,homeruns:1,steals:2,ba:Some(0.25),era:Some(2.5),errors:1};
         let table=standings_table(vec![standing(1,8,2),standing(2,6,4)],1,2,&catalog);
