@@ -92,6 +92,18 @@ fn swing_execution_from_env(default: SwingExecutionModel) -> Result<SwingExecuti
     }
 }
 
+fn catcher_blocking_from_setting(setting: Result<String, std::env::VarError>) -> Result<bool> {
+    match setting {
+        Err(std::env::VarError::NotPresent) => Ok(true),
+        Ok(value) => match value.as_str() {
+            "1" => Ok(true),
+            "0" => Ok(false),
+            _ => anyhow::bail!("SABERBB_CATCHER_BLOCKING must be 0 or 1"),
+        },
+        Err(error) => Err(error).context("Reading SABERBB_CATCHER_BLOCKING"),
+    }
+}
+
 /// Median calculated with one swing-power value per roster batter.
 pub fn roster_swing_power_median(mut powers: Vec<f64>) -> Result<f64> {
     ensure!(!powers.is_empty(), "no roster batters for the collision power median");
@@ -122,13 +134,8 @@ impl<R: GameRoundRepository> GameService<R> {
             cap_ms: Some(OPENING_LINEUP_SWING_SPEED_CAP_MS),
         };
         let execution_model = swing_execution_from_env(SwingExecutionModel::Mixture)?;
-        let catcher_blocking = match std::env::var("SABERBB_CATCHER_BLOCKING") {
-            Ok(value) if value == "1" => true,
-            Ok(value) if value == "0" => false,
-            Ok(_) => anyhow::bail!("SABERBB_CATCHER_BLOCKING must be 0 or 1"),
-            Err(std::env::VarError::NotPresent) => false,
-            Err(error) => return Err(error).context("Reading SABERBB_CATCHER_BLOCKING"),
-        };
+        let catcher_blocking =
+            catcher_blocking_from_setting(std::env::var("SABERBB_CATCHER_BLOCKING"))?;
         let pitch_border_1_2 = match std::env::var("SABERBB_PITCH_BORDER_1_2") {
             Ok(value) if value == "1" => true,
             Ok(value) if value == "0" => false,
@@ -805,6 +812,17 @@ mod tests {
                 .map(player)
                 .collect(),
         }
+    }
+
+    #[test]
+    fn scheduled_catcher_blocking_defaults_on_and_accepts_overrides() {
+        use std::env::VarError;
+
+        assert!(catcher_blocking_from_setting(Err(VarError::NotPresent)).unwrap());
+        assert!(catcher_blocking_from_setting(Ok("1".into())).unwrap());
+        assert!(!catcher_blocking_from_setting(Ok("0".into())).unwrap());
+        assert!(catcher_blocking_from_setting(Ok("".into())).is_err());
+        assert!(catcher_blocking_from_setting(Ok("true".into())).is_err());
     }
 
     #[test]
