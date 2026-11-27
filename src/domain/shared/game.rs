@@ -244,6 +244,7 @@ impl GameResult {
     ) {
         let player_batting = PlayerGameBatting {
             catcher_blocked: metrics.catcher_blocked,
+            catcher_passed_ball: metrics.catcher_passed_ball,
             signed_length_offset_m: metrics.signed_length_offset_m,
             signed_thickness_offset_m: metrics.signed_thickness_offset_m,
             hla_model_version: metrics.hla_model_version,

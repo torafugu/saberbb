@@ -945,6 +945,7 @@ mod tests {
 
     fn batting_view(count_seq: u16, batter_id: i64) -> PlayerGameBattingView {
         PlayerGameBattingView {
+            catcher_passed_ball: false,
             count_seq,
             pitcher_id: 1,
             batter: PlayerInfo::new_min(
@@ -965,6 +966,7 @@ mod tests {
         result: BattingResult,
     ) -> PlayerGameBattingView {
         PlayerGameBattingView {
+            catcher_passed_ball: false,
             count_seq,
             pitcher_id,
             batter: PlayerInfo::new_min(

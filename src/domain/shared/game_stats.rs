@@ -8,6 +8,7 @@ use crate::domain::shared::ball::{BallMovement, BattedBall, PitchedBall};
 use crate::domain::shared::game_state::{GameError, Ruling};
 use crate::domain::shared::player::{PlayerInfo, Position};
 use crate::domain::shared::stadium::Base;
+use crate::t;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -31,6 +32,8 @@ impl PlayerGameEntryView {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Validate)]
 pub struct PlayerGameBattingView {
+    #[serde(default)]
+    pub catcher_passed_ball: bool,
     pub count_seq: u16,
     pub pitcher_id: i64,
     pub batter: PlayerInfo,
@@ -44,6 +47,14 @@ impl PlayerGameBattingView {
     }
 
     pub fn outcome(&self) -> Result<String, GameError> {
+        if self.catcher_passed_ball {
+            let passed_ball = t!("passed_ball");
+            return Ok(if self.result == BattingResult::Walk {
+                format!("{} / {}", self.result, passed_ball)
+            } else {
+                passed_ball.to_string()
+            });
+        }
         match self.result {
             BattingResult::Out => {
                 if let Some(position) = self.fielder_position {
@@ -142,6 +153,8 @@ pub struct PlayerGamePitching {
 pub struct PlayerGameBattingMetrics {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catcher_blocked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catcher_passed_ball: Option<bool>,
     #[serde(default)]
     pub signed_length_offset_m: Option<f64>,
     #[serde(default)]
@@ -207,6 +220,7 @@ impl Default for PlayerGameBattingMetrics {
     fn default() -> Self {
         Self {
             catcher_blocked: None,
+            catcher_passed_ball: None,
             signed_length_offset_m: None,
             signed_thickness_offset_m: None,
             hla_model_version: None,
@@ -241,6 +255,8 @@ pub struct PlayerGameBatting {
     /// None when no block was attempted or the game predates blocking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catcher_blocked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catcher_passed_ball: Option<bool>,
     #[serde(default)]
     pub signed_length_offset_m: Option<f64>,
     #[serde(default)]

@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from diagnostic_db import db_from_env
 from pitch_control_audit import COMPLETED, TERMINAL_RESULTS, ratio, saved_aim_margin
 from wild_pitch_advancement_audit import replay_game, wild_pitch_advancement
-from wild_pitch_audit import catcher_blocked_column, crossed_wild_pitch_limits, is_wild_ball_four
+from wild_pitch_audit import crossed_wild_pitch_limits, is_wild_ball_four, optional_batting_column
 
 
 HITS = {"Single", "Double", "Triple", "HomeRun"}
@@ -20,13 +20,14 @@ def report(conn, season, pitcher):
     if not games:
         raise ValueError(f"No completed regular-season games for {season}")
     groups = defaultdict(Counter)
-    blocked_column = catcher_blocked_column(conn)
+    blocked_column = optional_batting_column(conn, "catcher_blocked")
+    passed_column = optional_batting_column(conn, "catcher_passed_ball")
     for game, *_ in games:
         pitches = {
-            seq: (zone, ax, ay, x, y, batter, result, points, blocked)
-            for seq, zone, ax, ay, x, y, batter, result, points, blocked in conn.execute(f"""
+            seq: (zone, ax, ay, x, y, batter, result, points, blocked, passed)
+            for seq, zone, ax, ay, x, y, batter, result, points, blocked, passed in conn.execute(f"""
                 SELECT p.count_seq, p.aim_zone, p.aim_location_x, p.aim_location_y,
-                       p.actual_location_x, p.actual_location_y, b.batter_id, b.result, c.point, {blocked_column}
+                       p.actual_location_x, p.actual_location_y, b.batter_id, b.result, c.point, {blocked_column}, {passed_column}
                 FROM player_game_pitching p
                 LEFT JOIN player_game_batting b ON b.game_id=p.game_id AND b.count_seq=p.count_seq
                 LEFT JOIN count c ON c.game_id=p.game_id AND c.seq=p.count_seq
@@ -40,7 +41,7 @@ def report(conn, season, pitcher):
             pitch = pitches.pop(seq, None)
             if pitch is None:
                 return
-            zone, ax, ay, x, y, batter, result, points, blocked = pitch
+            zone, ax, ay, x, y, batter, result, points, blocked, passed = pitch
             if bases is None:
                 key = "unknown"
             else:
@@ -60,9 +61,13 @@ def report(conn, season, pitcher):
             if result == "WildPitch" or ball_four:
                 advance = wild_pitch_advancement(bases, batter, {"ball_four": ball_four}, points)
                 if advance["advancement"] in {"runner_advanced", "extra_advance_beyond_walk"}:
-                    n["scored_wild_pitches"] += 1
                     forced_run = ball_four and all(r is not None for r in bases)
-                    n["runs_on_wild_pitches"] += points - int(forced_run)
+                    if passed:
+                        n["scored_passed_balls"] += 1
+                        n["runs_on_passed_balls"] += points - int(forced_run)
+                    else:
+                        n["scored_wild_pitches"] += 1
+                        n["runs_on_wild_pitches"] += points - int(forced_run)
 
         replay_game(conn, game, {}, observe)
         groups["unknown"]["pitches"] += len(pitches)
@@ -73,6 +78,7 @@ def report(conn, season, pitcher):
         n = groups[label]
         summary[label] = {key: n[key] for key in (
             "pitches", *LOW_AIMS, "below_wild_limit", "scored_wild_pitches", "runs_on_wild_pitches",
+            "scored_passed_balls", "runs_on_passed_balls",
             "plate_appearances", "walks", "strikeouts", "hits", "home_runs",
         )}
         for key in LOW_AIMS:

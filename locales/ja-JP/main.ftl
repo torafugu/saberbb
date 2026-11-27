@@ -224,6 +224,7 @@ velocity = 球速
 walk = フォアボール
 whip = WHIP
 wild_pitch = ワイルドピッチ
+passed_ball = 捕逸
 win = 勝利
 wins = 勝利
 zone_aptitude = ゾーン適正

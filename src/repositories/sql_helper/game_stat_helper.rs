@@ -49,10 +49,10 @@ const INSERT_PLAYER_GAME_BATTING_SQL: &str = "INSERT INTO player_game_batting (
         fence_impact_distance, fence_impact_angle, fence_impact_time, outbound_result,
         fielder_position, result,
         adapted_horizontal_offset_m, adapted_vertical_offset_m, adapted_timing_offset_sec, timing_impact_x_m, swing_error_x_m, swing_error_z_m, contact_offset_x_m, contact_offset_z_m, thickness_offset_m,
-        decision_count_status, decision_location_x, decision_location_y, decision_count_factor, decision_approach_factor, decision_protection_factor, decision_zone_factor, decision_pitch_factor, decision_anticipation_factor, decision_aptitude_factor, decision_score, decision_probability, decision_swung, actual_bat_angle_deg, timing_position_scale, hla_handedness_sign, signed_length_offset_m, signed_thickness_offset_m, hla_model_version, catcher_blocked
+        decision_count_status, decision_location_x, decision_location_y, decision_count_factor, decision_approach_factor, decision_protection_factor, decision_zone_factor, decision_pitch_factor, decision_anticipation_factor, decision_aptitude_factor, decision_score, decision_probability, decision_swung, actual_bat_angle_deg, timing_position_scale, hla_handedness_sign, signed_length_offset_m, signed_thickness_offset_m, hla_model_version, catcher_blocked, catcher_passed_ball
     ) VALUES (
         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57
+        ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58
     )";
 
 const INSERT_PLAYER_GAME_FIELDING_SQL: &str = "INSERT INTO player_game_fielding (
@@ -469,6 +469,7 @@ pub fn insert_player_game_batting(
             player_game_batting.signed_thickness_offset_m,
             player_game_batting.hla_model_version,
             player_game_batting.catcher_blocked,
+            player_game_batting.catcher_passed_ball,
 
 
         ],
@@ -895,6 +896,11 @@ impl FromRow for PlayerGameBattingView {
             .map(|(distance, angle)| PolarPosition::new(distance, angle));
 
         let batting_result_view = PlayerGameBattingView {
+            catcher_passed_ball: match row.as_ref().column_index("catcher_passed_ball") {
+                Ok(index) => row.get::<_, Option<bool>>(index)?.unwrap_or(false),
+                Err(rusqlite::Error::InvalidColumnName(_)) => false,
+                Err(error) => return Err(error.into()),
+            },
             count_seq: row.get("count_seq")?,
             pitcher_id: row.get("pitcher_id")?,
             batter: batter_info,

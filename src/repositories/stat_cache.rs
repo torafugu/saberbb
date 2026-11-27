@@ -346,16 +346,17 @@ mod tests {
     #[test]
     fn blocked_ball_four_is_rebuilt_as_an_ordinary_walk() {
         let conn = fixture();
-        super::batting_stat_cache::ensure_catcher_block_column(&conn).unwrap();
-        super::batting_stat_cache::ensure_catcher_block_column(&conn).unwrap();
+        super::batting_stat_cache::ensure_catcher_pitch_columns(&conn).unwrap();
+        super::batting_stat_cache::ensure_catcher_pitch_columns(&conn).unwrap();
         conn.execute_batch(
             "DELETE FROM count;
              DELETE FROM player_game_batting;
              DELETE FROM player_game_pitching;
              INSERT INTO count VALUES
                 (1,1,1,'Top',0,0),(1,2,1,'Top',0,0),(1,3,1,'Top',0,0);
-             INSERT INTO player_game_batting VALUES
-                (1,1,11,10,'Double',NULL),(1,2,12,10,'Walk',1),(1,3,13,10,'WildPitch',0);
+             INSERT INTO player_game_batting(game_id,count_seq,batter_id,pitcher_id,result,catcher_blocked,catcher_passed_ball) VALUES
+                (1,1,11,10,'Double',NULL,NULL),(1,2,12,10,'Walk',1,NULL),
+                (1,3,13,10,'WildPitch',0,1);
              INSERT INTO player_game_pitching(game_id,count_seq,pitcher_id,actual_location_y)
                 VALUES (1,1,10,0),(1,2,10,-2.5),(1,3,10,-2.5);",
         ).unwrap();
@@ -365,7 +366,13 @@ mod tests {
             [],
             |r| Ok((r.get::<_, u32>(0)?, r.get::<_, u32>(1)?, r.get::<_, u32>(2)?)),
         ).unwrap();
-        assert_eq!(totals, (1, 1, 0));
+        assert_eq!(totals, (1, 0, 0));
+        conn.execute("UPDATE player_game_batting SET catcher_passed_ball=NULL WHERE count_seq=3", []).unwrap();
+        rebuild_in_transaction(&conn).unwrap();
+        assert_eq!(conn.query_row(
+            "SELECT wild_pitches FROM pitching_stat_totals WHERE player_id=10",
+            [], |r| r.get::<_, u32>(0),
+        ).unwrap(), 1);
     }
 
     #[test]

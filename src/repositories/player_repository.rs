@@ -284,10 +284,21 @@ impl PlayerRepository for SqlPlayerRepository {
         player_id: i64,
         catcher_info: &CatcherInfo,
     ) -> Result<usize, AppError> {
+        let has_blocking: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('catcher_info') WHERE name='pitch_blocking')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_blocking {
+            tx.execute_batch(
+                "ALTER TABLE catcher_info ADD COLUMN pitch_blocking REAL NOT NULL DEFAULT 0.8
+                 CHECK (pitch_blocking BETWEEN 0 AND 1.6);",
+            )?;
+        }
         self.db_client.execute_tx(
             tx,
-            "INSERT INTO catcher_info (player_id, calling_style) VALUES (?1, ?2)",
-            params![player_id, catcher_info.calling_style],
+            "INSERT INTO catcher_info (player_id, calling_style, pitch_blocking) VALUES (?1, ?2, ?3)",
+            params![player_id, catcher_info.calling_style, catcher_info.pitch_blocking],
         )
     }
 
@@ -975,18 +986,20 @@ mod tests {
             player.defense_skills.catcher = Some(CatcherInfo {
                 fielder_info: fielder_info(FielderType::Catcher),
                 calling_style: style,
+                pitch_blocking: 1.2,
             });
             repo.insert_player(1, &player).unwrap();
             let restored = repo
                 .db_client
                 .query_row::<CatcherInfo>(
-                    "SELECT c.calling_style, f.* FROM catcher_info c
+                    "SELECT c.*, f.* FROM catcher_info c
                  JOIN fielder_info f ON f.player_id = c.player_id
                  WHERE f.fielder_type = 'Catcher' ORDER BY c.player_id DESC LIMIT 1",
                     &[],
                 )
                 .unwrap();
             assert_eq!(restored.calling_style, style);
+            assert_eq!(restored.pitch_blocking, 1.2);
             assert_eq!(restored.fielder_info.fielder_type, FielderType::Catcher);
             assert_eq!(
                 restored.fielder_info.throw_speed,
