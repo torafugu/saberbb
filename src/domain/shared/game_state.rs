@@ -25,7 +25,7 @@ use crate::domain::resolver::pitching_resolver::{
     create_pitch_for_call_with_execution, low_pitch_block_probability,
 };
 use crate::domain::resolver::running_resolver::{
-    RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
+    RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent, loose_pitch_advances_runner,
 };
 use crate::domain::shared::ball::{BallLocation, BattedBall, OutboundResult, PitchedBall, TrajectoryType};
 use crate::domain::shared::game::{GameResult, GameSchedule};
@@ -1510,7 +1510,7 @@ impl GameState {
             && location.y < BallLocation::WILD_PITCH_LOW_Y
         {
             let blocked = self.rng.random()
-                < low_pitch_block_probability(location, catcher.fielder_info.catching);
+                < low_pitch_block_probability(location, catcher.pitch_blocking);
             if blocked {
                 pitch_result = PitchResult::Ball;
             }
@@ -1518,6 +1518,17 @@ impl GameState {
         } else {
             None
         };
+
+        // A failure on a pitch an average catcher would usually stop is charged
+        // to the catcher only when it caused additional runner advancement.
+        let ball_four = self.inning_state.ball + 1 >= MAX_BALL;
+        let catcher_passed_ball = catcher_blocked == Some(false)
+            && low_pitch_block_probability(location, CatcherInfo::standard_pitch_blocking()) >= 0.5
+            && loose_pitch_advances_runner(
+                [Base::First, Base::Second, Base::Third]
+                    .map(|base| self.inning_state.runners.has_runner_on(base)),
+                ball_four,
+            );
 
         let batting_result = match pitch_result {
             PitchResult::Ball if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
@@ -1536,6 +1547,7 @@ impl GameState {
             batter_id,
             PlayerGameBattingMetrics {
                 catcher_blocked,
+                catcher_passed_ball: catcher_passed_ball.then_some(true),
                 ..Default::default()
             },
             BattedBall::default(),
@@ -2719,7 +2731,7 @@ mod tests {
 
     #[test]
     fn catcher_block_trial_preserves_ordinary_ball_four() {
-        let play = |x, y, enabled| {
+        let play = |x, y, enabled, skill| {
             let mut game = game_state();
             game.advance_half_inning().unwrap();
             let batter = game.active_batter_for_count().unwrap();
@@ -2727,7 +2739,8 @@ mod tests {
             game.inning_state.ball = MAX_BALL - 1;
             game.inning_state.runners.runner_2nd = Some(runner(20));
             game.catcher_blocking = enabled;
-            let catcher = game.current_catcher().unwrap().catcher;
+            let mut catcher = game.current_catcher().unwrap().catcher;
+            catcher.pitch_blocking = skill;
             let pitcher = crate::domain::test_support::pitcher_info();
             let mut pitch = create_pitch(game.rng.as_mut(), &pitcher, None, 40.833).unwrap();
             pitch.actual_location = BallLocation { x, y };
@@ -2739,7 +2752,7 @@ mod tests {
             assert_eq!(game.inning_state.runners.runner_1st.unwrap().id, batter.id);
             game
         };
-        let blocked = play(0.0, -2.25, true);
+        let blocked = play(0.0, -2.25, true, 0.8);
         assert_eq!(
             blocked.game_result.player_battings[0].catcher_blocked,
             Some(true)
@@ -2748,12 +2761,20 @@ mod tests {
         assert!(blocked.inning_state.runners.runner_3rd.is_none());
 
         for (miss, attempted) in [
-            (play(2.0, -2.9, true), Some(false)),
-            (play(0.0, -2.25, false), None),
+            (play(2.0, -2.9, true, 0.8), Some(false)),
+            (play(0.0, -2.25, false, 0.8), None),
         ] {
             assert_eq!(miss.game_result.player_battings[0].catcher_blocked, attempted);
             assert_eq!(miss.inning_state.runners.runner_3rd.unwrap().id, 20);
+            assert_eq!(miss.game_result.player_battings[0].catcher_passed_ball, None);
         }
+        let weak = play(0.0, -2.75, true, 0.3);
+        assert_eq!(weak.game_result.player_battings[0].catcher_passed_ball, Some(true));
+        assert_eq!(weak.inning_state.runners.runner_3rd.unwrap().id, 20);
+        let strong = play(0.0, -2.75, true, 1.3);
+        assert_eq!(strong.game_result.player_battings[0].catcher_blocked, Some(true));
+        assert_eq!(strong.inning_state.runners.runner_2nd.unwrap().id, 20);
+
         let near = BallLocation { x: 0.5, y: -2.25 };
         assert!(low_pitch_block_probability(near, 1.0) > low_pitch_block_probability(near, 0.5));
     }

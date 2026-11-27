@@ -1,5 +1,6 @@
 //! Replay the saved play log for batting and pitching statistics.
 use super::pitching_stat_cache::GamePitching;
+use crate::domain::resolver::running_resolver::loose_pitch_advances_runner;
 use crate::domain::shared::{ball::BallLocation, game::PitchResult, player::RL};
 use anyhow::Result;
 use rusqlite::{Connection, params};
@@ -31,18 +32,23 @@ struct Line {
 
 type Bases = [Option<i64>; 3];
 
-fn has_catcher_block_column(conn: &Connection) -> rusqlite::Result<bool> {
+fn has_batting_column(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
     conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('player_game_batting') WHERE name='catcher_blocked')",
-        [],
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('player_game_batting') WHERE name=?1)",
+        [name],
         |row| row.get(0),
     )
 }
 
-pub(super) fn ensure_catcher_block_column(conn: &Connection) -> rusqlite::Result<()> {
-    if !has_catcher_block_column(conn)? {
+pub(super) fn ensure_catcher_pitch_columns(conn: &Connection) -> rusqlite::Result<()> {
+    if !has_batting_column(conn, "catcher_blocked")? {
         conn.execute_batch(
             "ALTER TABLE player_game_batting ADD COLUMN catcher_blocked INTEGER CHECK (catcher_blocked IN (0,1));",
+        )?;
+    }
+    if !has_batting_column(conn, "catcher_passed_ball")? {
+        conn.execute_batch(
+            "ALTER TABLE player_game_batting ADD COLUMN catcher_passed_ball INTEGER CHECK (catcher_passed_ball IN (0,1));",
         )?;
     }
     Ok(())
@@ -101,8 +107,13 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
         }
     }
 
-    let blocked = if has_catcher_block_column(conn)? {
+    let blocked = if has_batting_column(conn, "catcher_blocked")? {
         "b.catcher_blocked"
+    } else {
+        "NULL"
+    };
+    let passed = if has_batting_column(conn, "catcher_passed_ball")? {
+        "b.catcher_passed_ball"
     } else {
         "NULL"
     };
@@ -126,7 +137,7 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
                 COALESCE(p.pitcher_id,b.pitcher_id),c.out,
                 EXISTS(SELECT 1 FROM player_game_fielding f WHERE f.game_id=?1 AND f.count_seq=k.seq
                        AND f.error_type IS NOT NULL AND f.error_type NOT IN ('','None')),
-                {blocked}
+                {blocked}, {passed}
          FROM pitch k
          LEFT JOIN counts c ON c.seq=k.seq
          LEFT JOIN player_game_batting b ON b.game_id=?1 AND b.count_seq=k.seq
@@ -154,7 +165,7 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
             half.0,
             half.1.as_deref(),
             row.get(21)?,
-            row.get(22)?,
+            row.get::<_, bool>(22)? || row.get::<_, Option<bool>>(24)? == Some(true),
         );
         let points: u32 = row.get(2)?;
         let batter: Option<i64> = row.get(3)?;
@@ -187,13 +198,9 @@ fn fill_game(conn: &Connection, game: u32) -> Result<()> {
                 (row.get::<_, Option<f64>>(18)?, row.get::<_, Option<f64>>(19)?),
                 (Some(x), Some(y)) if matches!((BallLocation { x, y }).call(RL::Right), PitchResult::WildPitch)
             );
-        let [first, second, third] = before.map(|runner| runner.is_some());
-        let scored_wild_pitch = if wild_ball_four {
-            // Count only advancement beyond the bases awarded on a normal walk.
-            (second && !first) || (third && !(first && second))
-        } else {
-            result == "WildPitch" && (first || second || third)
-        };
+        let scored_wild_pitch = row.get::<_, Option<bool>>(24)? != Some(true)
+            && (wild_ball_four || result == "WildPitch")
+            && loose_pitch_advances_runner(before.map(|runner| runner.is_some()), wild_ball_four);
         let mut scorers = Vec::new();
         match (result, event) {
             ("HomeRun", _) => {

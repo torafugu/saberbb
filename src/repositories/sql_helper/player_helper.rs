@@ -222,6 +222,11 @@ impl FromRow for CatcherInfo {
         Ok(Self {
             fielder_info: FielderInfo::from_row(row)?,
             calling_style: row.get("calling_style")?,
+            pitch_blocking: match row.as_ref().column_index("pitch_blocking") {
+                Ok(index) => row.get(index)?,
+                Err(rusqlite::Error::InvalidColumnName(_)) => Self::standard_pitch_blocking(),
+                Err(error) => return Err(error.into()),
+            },
         })
     }
 }

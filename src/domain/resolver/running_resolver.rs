@@ -11,6 +11,15 @@ use serde::{Deserialize, Serialize};
 use strum_macros::{AsRefStr, EnumString};
 use tracing::info;
 
+/// Whether a loose pitch can add advancement beyond the ordinary pitch result.
+pub(crate) fn loose_pitch_advances_runner([first, second, third]: [bool; 3], ball_four: bool) -> bool {
+    if ball_four {
+        (second && !first) || (third && !(first && second))
+    } else {
+        first || second || third
+    }
+}
+
 pub const ACCELERATION_LAG_TO_FIRST_BASE: f64 = 0.5;
 pub const ACCELERATION_LAG_AFTER_FIRST_BASE: f64 = 0.2;
 pub const ACCELERATION_LAG_FROM_FIRST_TO_SECOND_BASE: f64 = 0.7;

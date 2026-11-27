@@ -13,7 +13,8 @@ league totals, followed by pitchers ordered by wild pitch count. Find the
 pitcher by name or player ID. For example, 156 innings appear as 468 outs.
 `wild_pitches` in the audit counts raw play events, including empty-base
 events and wild ball fours. `cache_difference` subtracts this raw count
-from `cached_wild_pitches`. A version 7 cache uses the advancement rule
+from `cached_wild_pitches`. Passed balls have their own count and are
+marked by `passed_ball` in the event list. A version 7 cache uses the advancement rule
 below, so a difference is expected when some raw events caused no
 additional advancement.
 
@@ -49,7 +50,8 @@ failed steals and tag-ups. It checks the reconstructed third-base occupancy
 against runs scored on each recorded wild pitch. Unknown or inconsistent
 events are reported separately. The database is read-only.
 
-`with_wild_pitch_advancement` counts pitches on which at least one runner
+`with_passed_ball_advancement` counts scored passed balls.
+`with_wild_pitch_advancement` counts wild pitches on which at least one runner
 advanced because of the pitch. On ball four it counts only advancement
 beyond a normal walk. The version 7 pitching cache counts these
 advancement events as wild pitches. `forced_by_walk_only` and

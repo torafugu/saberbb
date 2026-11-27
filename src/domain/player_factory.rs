@@ -273,6 +273,8 @@ impl<R: PlayerRepository> PlayerFactory<R> {
                 self.rng.as_mut(),
                 &self.catcher_info_probs.calling_style,
             )?,
+            pitch_blocking: (CatcherInfo::standard_pitch_blocking() + self.rng.normal_std(0.25))
+                .clamp(0.0, 1.6),
         })
     }
 

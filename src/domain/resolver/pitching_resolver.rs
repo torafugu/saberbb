@@ -2,8 +2,7 @@ use super::batting_calibration::{BATTING_EYE_TIMING_MIDPOINT, uncorrected_fracti
 use crate::domain::random_provider::RandomProvider;
 use crate::domain::shared::ball::{BallLocation, BallMovement, BallZone, PitchedBall};
 use crate::domain::shared::pitcher_fatigue::PitchExecutionFatigue;
-use crate::domain::shared::player::PitcherInfo;
-use crate::domain::shared::player::RL;
+use crate::domain::shared::player::{CatcherInfo, PitcherInfo, RL};
 use crate::domain::strategy::pitching_strategy::PitchCall;
 use crate::domain::util::GRAVITY;
 use crate::domain::util::sigmoid;
@@ -52,10 +51,11 @@ impl PitchLocationSettings {
 }
 
 /// Provisional blocking model for takes below the low wild-pitch limit.
-pub(crate) fn low_pitch_block_probability(location: BallLocation, catching: f64) -> f64 {
+pub(crate) fn low_pitch_block_probability(location: BallLocation, pitch_blocking: f64) -> f64 {
     let depth = (BallLocation::WILD_PITCH_LOW_Y - location.y).max(0.0);
     let lateral = location.x.abs();
-    sigmoid(2.2 - 3.5 * depth - lateral - 0.35 * lateral * lateral + 0.6 * (catching - 0.8))
+    let skill = pitch_blocking - CatcherInfo::standard_pitch_blocking();
+    sigmoid(2.2 - 3.5 * depth - lateral - 0.35 * lateral * lateral + 1.5 * skill)
 }
 
 pub fn calculate_hanging_pitch_effect(

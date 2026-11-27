@@ -58,5 +58,6 @@ CREATE TABLE player_game_batting (
     signed_thickness_offset_m REAL,
     hla_model_version INTEGER CHECK (hla_model_version IN (1,2)),
     catcher_blocked INTEGER CHECK (catcher_blocked IN (0,1)),
+    catcher_passed_ball INTEGER CHECK (catcher_passed_ball IN (0,1)),
     PRIMARY KEY (game_id, count_seq)
 );

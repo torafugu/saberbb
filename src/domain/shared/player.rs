@@ -531,12 +531,19 @@ pub struct CatcherInfo {
     pub fielder_info: FielderInfo,
     #[serde(default)]
     pub calling_style: CatcherCallingStyle,
+    #[serde(default = "CatcherInfo::standard_pitch_blocking")]
+    pub pitch_blocking: f64,
 }
 impl CatcherInfo {
+    pub const fn standard_pitch_blocking() -> f64 {
+        0.8
+    }
+
     pub fn from_fielder_info(fielder_info: FielderInfo) -> Self {
         Self {
             fielder_info,
             calling_style: CatcherCallingStyle::default(),
+            pitch_blocking: Self::standard_pitch_blocking(),
         }
     }
 }
@@ -937,8 +944,10 @@ mod tests {
 
         let mut legacy = serde_json::to_value(catcher).unwrap();
         legacy.as_object_mut().unwrap().remove("calling_style");
+        legacy.as_object_mut().unwrap().remove("pitch_blocking");
         let restored: CatcherInfo = serde_json::from_value(legacy).unwrap();
         assert_eq!(restored.calling_style, CatcherCallingStyle::Balanced);
+        assert_eq!(restored.pitch_blocking, 0.8);
         assert_eq!(restored.fielder_info.fielder_type, FielderType::Catcher);
     }
 

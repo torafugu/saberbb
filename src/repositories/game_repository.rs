@@ -183,7 +183,7 @@ impl GameResultWriter for SqlGameRepository {
         info!("save_game_result() started");
         self.db_client.transaction(|tx| {
             update_game_result_header(&self.db_client, tx, game)?;
-            super::batting_stat_cache::ensure_catcher_block_column(tx)?;
+            super::batting_stat_cache::ensure_catcher_pitch_columns(tx)?;
 
             for inning in &game.innings {
                 insert_inning_with_counts(&self.db_client, tx, game.id, inning)?;
@@ -561,7 +561,7 @@ impl GamePlayerReader for SqlGameRepository {
     #[tracing::instrument(skip(self), fields(player_id = %player_id), err)]
     fn load_catcher_info(&self, player_id: i64) -> Result<CatcherInfo, AppError> {
         self.db_client.query_row::<CatcherInfo>(
-            "SELECT c.calling_style, f.fielder_type, f.throw_speed, f.running_speed,
+            "SELECT c.*, f.fielder_type, f.throw_speed, f.running_speed,
                     f.reaction, f.prep_time, f.catching, f.reach_height, f.reach_range
              FROM catcher_info c JOIN fielder_info f ON f.player_id = c.player_id
              WHERE c.player_id = ?1 AND f.fielder_type = ?2",
@@ -658,28 +658,11 @@ impl GamePlayByPlayReader for SqlGameRepository {
         game_id: u32,
     ) -> Result<Vec<PlayerGameBattingView>, AppError> {
         info!("load_batting_result_histories() started");
-        let query = "SELECT 
-                pgb.count_seq,
-                pgb.pitcher_id,
-                pgb.batter_id,
+        let query = "SELECT pgb.*,
                 bi.first_name AS batter_first_name,
                 bi.last_name AS batter_last_name,
                 bi.age AS batter_age,
-                bi.uniform_number AS batter_uniform_number,
-                pgb.launch_speed,
-                pgb.launch_angle,
-                pgb.polar_distance,
-                pgb.polar_angle,
-                pgb.total_time,
-                pgb.first_bounce_distance,
-                pgb.first_bounce_angle,
-                pgb.first_bounce_time,
-                pgb.fence_impact_distance,
-                pgb.fence_impact_angle,
-                pgb.fence_impact_time,
-                pgb.outbound_result,
-                pgb.fielder_position,
-                pgb.result
+                bi.uniform_number AS batter_uniform_number
             FROM player_game_batting pgb
             LEFT JOIN 
                 player_info bi ON pgb.batter_id = bi.id
@@ -1522,6 +1505,7 @@ mod tests {
         seed_players(&repo);
         seed_player_skills(&repo);
         let catcher = repo.load_catcher_info(2).unwrap();
+        assert_eq!(catcher.pitch_blocking, CatcherInfo::standard_pitch_blocking());
         assert_eq!(
             catcher.calling_style,
             crate::domain::shared::player::CatcherCallingStyle::Adaptive
@@ -2573,6 +2557,7 @@ mod tests {
             player_pitchings: Vec::new(),
             player_battings: vec![crate::domain::shared::game_stats::PlayerGameBatting {
                 catcher_blocked: None,
+                catcher_passed_ball: None,
                 signed_length_offset_m: None,
                 signed_thickness_offset_m: None,
                 hla_model_version: None,

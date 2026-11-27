@@ -224,6 +224,7 @@ velocity = Velocity
 walk = Walk
 whip = WHIP
 wild_pitch = Wild Pitch
+passed_ball = Passed ball
 win = Win
 wins = Wins
 zone_aptitude = Zone Aptitude

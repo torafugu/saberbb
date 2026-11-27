@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 
 from diagnostic_db import db_from_env
 from wild_pitch_audit import (
-    catcher_blocked_column, crossed_wild_pitch_limits, is_wild_ball_four,
+    crossed_wild_pitch_limits, is_wild_ball_four, optional_batting_column,
     report as wild_pitch_report,
 )
 
@@ -58,7 +58,7 @@ def replay_game(conn, game, events, observe_before_pitch=None):
     bases = None
     half = None
     last_seq = None
-    blocked_column = catcher_blocked_column(conn)
+    blocked_column = optional_batting_column(conn, "catcher_blocked")
     for row in conn.execute(f"""
         SELECT c.seq, c.inning_seq, c.inning_tb, c.point, b.batter_id, b.result,
                p.actual_location_x, p.actual_location_y,
@@ -138,7 +138,15 @@ def report(conn, season, pitcher_id):
     categories = ("runner_advanced", "extra_advance_beyond_walk", "forced_by_walk_only",
                   "bases_empty", "unknown")
     for pitcher in pitchers:
-        counts = Counter(event["advancement"] for event in pitcher["events"])
+        counts = Counter(
+            event["advancement"] for event in pitcher["events"] if not event["passed_ball"]
+        )
+        passed = sum(
+            event["passed_ball"] and event["advancement"] in {
+                "runner_advanced", "extra_advance_beyond_walk",
+            }
+            for event in pitcher["events"]
+        )
         season_totals.update(counts)
         scored = counts["runner_advanced"] + counts["extra_advance_beyond_walk"]
         cached = pitcher["cached_wild_pitches"]
@@ -155,6 +163,7 @@ def report(conn, season, pitcher_id):
             "scored_cache_difference": scored_cache_difference,
             "advancement": {key: counts[key] for key in categories},
             "with_wild_pitch_advancement": scored,
+            "with_passed_ball_advancement": passed,
             "events": pitcher["events"],
         })
     return {

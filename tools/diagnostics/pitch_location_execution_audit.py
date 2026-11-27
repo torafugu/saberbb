@@ -12,7 +12,7 @@ from datetime import date
 from diagnostic_db import db_from_env
 from pitch_control_audit import COMPLETED, ratio, saved_aim_margin
 from wild_pitch_advancement_audit import replay_game, wild_pitch_advancement
-from wild_pitch_audit import catcher_blocked_column, crossed_wild_pitch_limits, is_wild_ball_four
+from wild_pitch_audit import crossed_wild_pitch_limits, is_wild_ball_four, optional_batting_column
 
 
 @dataclass(frozen=True)
@@ -101,7 +101,7 @@ def low_tail_probability(aim_y, axis_size, std):
     return math.erfc(-cutoff / (math.sqrt(2) * std)) / 2 if std else float(cutoff > 0)
 
 
-def observe(totals, zone, aim_x, aim_y, x, y, result, blocked, modeled):
+def observe(totals, zone, aim_x, aim_y, x, y, result, blocked, passed, modeled):
     axis_size = 0.5 if zone == "Center" else 1.0
     dx, dy = (x - aim_x) / axis_size, (y - aim_y) / axis_size
     limits = crossed_wild_pitch_limits(x, y)
@@ -110,7 +110,7 @@ def observe(totals, zone, aim_x, aim_y, x, y, result, blocked, modeled):
     totals["sum_x_squared"] += dx * dx
     totals["sum_y_squared"] += dy * dy
     totals["below_wild_limit"] += "low" in limits
-    totals["wild_pitches"] += result == "WildPitch" or is_wild_ball_four(result, limits, blocked)
+    totals["wild_pitches"] += not passed and (result == "WildPitch" or is_wild_ball_four(result, limits, blocked))
     if modeled is None:
         return
     base, fatigue_scale = modeled
@@ -177,7 +177,8 @@ def report(conn, season, subject, pitch_type, settings, base_state="any"):
     unknown_base_state = Counter()
     current_game = None
     runners_by_pitch = {}
-    blocked_column = catcher_blocked_column(conn)
+    blocked_column = optional_batting_column(conn, "catcher_blocked")
+    passed_column = optional_batting_column(conn, "catcher_passed_ball")
     for row in conn.execute(f"""
         WITH completed AS ({COMPLETED}), ordered AS (
             SELECT p.*, ROW_NUMBER() OVER appearance AS pitch_number,
@@ -187,14 +188,14 @@ def report(conn, season, subject, pitch_type, settings, base_state="any"):
         )
         SELECT p.pitcher_id, p.game_id, p.count_seq, p.pitch_number, p.pitch_count, p.aim_zone,
                p.aim_location_x, p.aim_location_y, p.actual_location_x, p.actual_location_y,
-               b.result, b.batter_id, c.point, {blocked_column}
+               b.result, b.batter_id, c.point, {blocked_column}, {passed_column}
         FROM ordered p
         LEFT JOIN player_game_batting b ON b.game_id = p.game_id AND b.count_seq = p.count_seq
         LEFT JOIN count c ON c.game_id = p.game_id AND c.seq = p.count_seq
         WHERE p.pitch_type = ?
         ORDER BY p.game_id, p.count_seq
     """, (season, pitch_type)):
-        player, game, seq, number, pitch_count, zone, ax, ay, x, y, result, batter, points, blocked = row
+        player, game, seq, number, pitch_count, zone, ax, ay, x, y, result, batter, points, blocked, passed = row
         side = "subject" if player == subject else "peers"
         scored = 0
         if base_state != "any":
@@ -209,7 +210,7 @@ def report(conn, season, subject, pitch_type, settings, base_state="any"):
             if not matches_base_state(runners, base_state):
                 continue
             ball_four = is_wild_ball_four(result, crossed_wild_pitch_limits(x, y), blocked)
-            if result == "WildPitch" or ball_four:
+            if not passed and (result == "WildPitch" or ball_four):
                 advance = wild_pitch_advancement(runners, batter, {"ball_four": ball_four}, points)
                 scored = int(advance["advancement"] in {
                     "runner_advanced", "extra_advance_beyond_walk",
@@ -229,7 +230,7 @@ def report(conn, season, subject, pitch_type, settings, base_state="any"):
         key = (zone, ax, ay, band)
         margin = saved_aim_margin(zone, ax, ay)
         for totals in (by_player[player], by_stratum[key][side], by_aim[zone, margin][side]):
-            observe(totals, zone, ax, ay, x, y, result, blocked, modeled)
+            observe(totals, zone, ax, ay, x, y, result, blocked, passed, modeled)
             totals["scored_wild_pitches"] += scored
 
     if subject not in by_player:
