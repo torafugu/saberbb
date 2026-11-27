@@ -51,6 +51,13 @@ impl PitchLocationSettings {
     }
 }
 
+/// Provisional blocking model for takes below the low wild-pitch limit.
+pub(crate) fn low_pitch_block_probability(location: BallLocation, catching: f64) -> f64 {
+    let depth = (BallLocation::WILD_PITCH_LOW_Y - location.y).max(0.0);
+    let lateral = location.x.abs();
+    sigmoid(2.2 - 3.5 * depth - lateral - 0.35 * lateral * lateral + 0.6 * (catching - 0.8))
+}
+
 pub fn calculate_hanging_pitch_effect(
     rng: &mut dyn RandomProvider,
     pitcher: &PitcherInfo,

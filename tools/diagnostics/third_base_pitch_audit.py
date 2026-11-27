@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from diagnostic_db import db_from_env
 from pitch_control_audit import COMPLETED, TERMINAL_RESULTS, ratio, saved_aim_margin
 from wild_pitch_advancement_audit import replay_game, wild_pitch_advancement
-from wild_pitch_audit import crossed_wild_pitch_limits
+from wild_pitch_audit import catcher_blocked_column, crossed_wild_pitch_limits, is_wild_ball_four
 
 
 HITS = {"Single", "Double", "Triple", "HomeRun"}
@@ -20,12 +20,13 @@ def report(conn, season, pitcher):
     if not games:
         raise ValueError(f"No completed regular-season games for {season}")
     groups = defaultdict(Counter)
+    blocked_column = catcher_blocked_column(conn)
     for game, *_ in games:
         pitches = {
-            seq: (zone, ax, ay, x, y, batter, result, points)
-            for seq, zone, ax, ay, x, y, batter, result, points in conn.execute("""
+            seq: (zone, ax, ay, x, y, batter, result, points, blocked)
+            for seq, zone, ax, ay, x, y, batter, result, points, blocked in conn.execute(f"""
                 SELECT p.count_seq, p.aim_zone, p.aim_location_x, p.aim_location_y,
-                       p.actual_location_x, p.actual_location_y, b.batter_id, b.result, c.point
+                       p.actual_location_x, p.actual_location_y, b.batter_id, b.result, c.point, {blocked_column}
                 FROM player_game_pitching p
                 LEFT JOIN player_game_batting b ON b.game_id=p.game_id AND b.count_seq=p.count_seq
                 LEFT JOIN count c ON c.game_id=p.game_id AND c.seq=p.count_seq
@@ -39,7 +40,7 @@ def report(conn, season, pitcher):
             pitch = pitches.pop(seq, None)
             if pitch is None:
                 return
-            zone, ax, ay, x, y, batter, result, points = pitch
+            zone, ax, ay, x, y, batter, result, points, blocked = pitch
             if bases is None:
                 key = "unknown"
             else:
@@ -55,7 +56,7 @@ def report(conn, season, pitcher):
             n["home_runs"] += result == "HomeRun"
             limits = crossed_wild_pitch_limits(x, y)
             n["below_wild_limit"] += "low" in limits
-            ball_four = result == "Walk" and bool(limits)
+            ball_four = is_wild_ball_four(result, limits, blocked)
             if result == "WildPitch" or ball_four:
                 advance = wild_pitch_advancement(bases, batter, {"ball_four": ball_four}, points)
                 if advance["advancement"] in {"runner_advanced", "extra_advance_beyond_walk"}:

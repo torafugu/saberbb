@@ -20,11 +20,22 @@ def crossed_wild_pitch_limits(x, y):
     ]
 
 
+def catcher_blocked_column(conn):
+    columns = conn.execute("PRAGMA table_info(player_game_batting)")
+    return "b.catcher_blocked" if any(row[1] == "catcher_blocked" for row in columns) else "NULL"
+
+
+def is_wild_ball_four(result, limits, blocked):
+    return result == "Walk" and bool(limits) and not blocked
+
+
 def summarize_groups(groups):
     return {
         label: {
             "pitches": n["pitches"],
             "extreme_locations": n["extreme_locations"],
+            "catcher_block_attempts": n["catcher_block_attempts"],
+            "catcher_blocks": n["catcher_blocks"],
             "wild_pitches": n["wild_pitches"],
             "wild_pitches_per_1000": ratio(1000 * n["wild_pitches"], n["pitches"]),
         }
@@ -41,6 +52,7 @@ def report(conn, season):
     by_aim = defaultdict(lambda: defaultdict(Counter))
     by_workload = defaultdict(lambda: defaultdict(Counter))
     events = defaultdict(list)
+    blocked_column = catcher_blocked_column(conn)
     for row in conn.execute(f"""
         WITH completed AS ({COMPLETED}), pitch_order AS (
             SELECT p.*, ROW_NUMBER() OVER (
@@ -59,16 +71,16 @@ def report(conn, season):
         SELECT p.pitcher_id, p.game_id, p.count_seq, p.pitch_type, p.pitch_number,
                p.aim_zone, p.aim_location_x, p.aim_location_y,
                p.actual_location_x, p.actual_location_y, b.result, b.decision_swung,
-               c.inning_seq, c.inning_tb, c.before_balls, c.before_strikes, c.point
+               c.inning_seq, c.inning_tb, c.before_balls, c.before_strikes, c.point, {blocked_column}
         FROM pitch_order p
         LEFT JOIN player_game_batting b ON b.game_id = p.game_id AND b.count_seq = p.count_seq
         LEFT JOIN counts c ON c.game_id = p.game_id AND c.seq = p.count_seq
         ORDER BY p.game_id, p.count_seq
     """, (season,)):
         (pitcher, game, seq, pitch_type, number, zone, aim_x, aim_y, x, y,
-         result, swung, inning, half, balls, strikes, runs) = row
+         result, swung, inning, half, balls, strikes, runs, blocked) = row
         limits = crossed_wild_pitch_limits(x, y)
-        wild_ball_four = result == "Walk" and bool(limits)
+        wild_ball_four = is_wild_ball_four(result, limits, blocked)
         recorded = result == "WildPitch" or wild_ball_four
         margin = saved_aim_margin(zone, aim_x, aim_y)
         band_start = (number - 1) // 25 * 25 + 1
@@ -76,6 +88,8 @@ def report(conn, season):
         for group in (pitches[pitcher], by_type[pitcher][pitch_type],
                       by_aim[pitcher][f"{zone}/{margin}"], by_workload[pitcher][workload]):
             group["pitches"] += 1
+            group["catcher_block_attempts"] += blocked is not None
+            group["catcher_blocks"] += bool(blocked)
             group["extreme_locations"] += bool(limits)
             group["wild_pitches"] += recorded
         if recorded:

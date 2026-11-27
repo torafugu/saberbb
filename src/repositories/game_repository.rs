@@ -183,6 +183,7 @@ impl GameResultWriter for SqlGameRepository {
         info!("save_game_result() started");
         self.db_client.transaction(|tx| {
             update_game_result_header(&self.db_client, tx, game)?;
+            super::batting_stat_cache::ensure_catcher_block_column(tx)?;
 
             for inning in &game.innings {
                 insert_inning_with_counts(&self.db_client, tx, game.id, inning)?;
@@ -2571,6 +2572,7 @@ mod tests {
             ],
             player_pitchings: Vec::new(),
             player_battings: vec![crate::domain::shared::game_stats::PlayerGameBatting {
+                catcher_blocked: None,
                 signed_length_offset_m: None,
                 signed_thickness_offset_m: None,
                 hla_model_version: None,

@@ -6,7 +6,10 @@ import sqlite3
 from collections import Counter, defaultdict
 
 from diagnostic_db import db_from_env
-from wild_pitch_audit import crossed_wild_pitch_limits, report as wild_pitch_report
+from wild_pitch_audit import (
+    catcher_blocked_column, crossed_wild_pitch_limits, is_wild_ball_four,
+    report as wild_pitch_report,
+)
 
 
 EMPTY_BASES = (None, None, None)
@@ -55,11 +58,12 @@ def replay_game(conn, game, events, observe_before_pitch=None):
     bases = None
     half = None
     last_seq = None
-    for row in conn.execute("""
+    blocked_column = catcher_blocked_column(conn)
+    for row in conn.execute(f"""
         SELECT c.seq, c.inning_seq, c.inning_tb, c.point, b.batter_id, b.result,
                p.actual_location_x, p.actual_location_y,
                s.event, s.runner_1st_id, s.runner_2nd_id, s.runner_3rd_id,
-               r.event, r.runner_1st_id, r.runner_2nd_id, r.runner_3rd_id
+               r.event, r.runner_1st_id, r.runner_2nd_id, r.runner_3rd_id, {blocked_column}
         FROM count c
         LEFT JOIN player_game_batting b ON b.game_id = c.game_id AND b.count_seq = c.seq
         LEFT JOIN player_game_pitching p ON p.game_id = c.game_id AND p.count_seq = c.seq
@@ -72,7 +76,7 @@ def replay_game(conn, game, events, observe_before_pitch=None):
         ORDER BY c.seq
     """, (game,)):
         (seq, inning, side, points, batter, result, x, y,
-         steal, s_first, s_second, s_third, running, r_first, r_second, r_third) = row
+         steal, s_first, s_second, s_third, running, r_first, r_second, r_third, blocked) = row
         if (inning, side) != half:
             bases = EMPTY_BASES
             half = (inning, side)
@@ -85,7 +89,7 @@ def replay_game(conn, game, events, observe_before_pitch=None):
             # The steal snapshot precedes any batted-ball outcome on the same count.
             # Failed steals leave the runner in place in the current simulator.
             bases = (s_first, s_second, s_third)
-        ball_four = result == "Walk" and x is not None and bool(crossed_wild_pitch_limits(x, y))
+        ball_four = x is not None and is_wild_ball_four(result, crossed_wild_pitch_limits(x, y), blocked)
         if seq in events:
             events[seq].update(wild_pitch_advancement(bases, batter, events[seq], points))
 

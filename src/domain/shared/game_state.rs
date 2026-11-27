@@ -22,12 +22,12 @@ use crate::domain::resolver::fielding_timing::DefenseTimeCalculator;
 use crate::domain::resolver::pitching_resolver::{
     MatchupContext, PitchDisplacement, PitchLocationSettings, calculate_ball_movement, calculate_hanging_pitch_effect,
     calculate_location_bias, calculate_pitch_offset, create_pitch,
-    create_pitch_for_call_with_execution,
+    create_pitch_for_call_with_execution, low_pitch_block_probability,
 };
 use crate::domain::resolver::running_resolver::{
     RunnerAdvanceResult, RunnersOnBase, RunnersUnsaved, RunningEvent,
 };
-use crate::domain::shared::ball::{BattedBall, OutboundResult, PitchedBall, TrajectoryType};
+use crate::domain::shared::ball::{BallLocation, BattedBall, OutboundResult, PitchedBall, TrajectoryType};
 use crate::domain::shared::game::{GameResult, GameSchedule};
 use crate::domain::shared::game_stats::{PlayerGameBattingMetrics, PlayerGameFieldingCandidate};
 use crate::domain::shared::pitcher_fatigue::PitchExecutionFatigue;
@@ -541,6 +541,7 @@ pub struct GameState {
     pub(crate) pitch_location_settings: PitchLocationSettings,
     pub(crate) pitch_border_1_2: bool,
     pub(crate) third_base_pitch_risk_weight: f64,
+    pub(crate) catcher_blocking: bool,
     pub away_manager:Option<super::batting_personnel::Manager>,
     pub home_manager:Option<super::batting_personnel::Manager>,
     pub batter_characters:std::collections::BTreeMap<i64,super::batting_personnel::BatterCharacter>,
@@ -592,6 +593,7 @@ impl GameState {
             pitch_location_settings: PitchLocationSettings::default(),
             pitch_border_1_2: false,
             third_base_pitch_risk_weight: 0.0,
+            catcher_blocking: false,
             away_manager:game_schedule.away_team.manager.clone(),home_manager:game_schedule.home_team.manager.clone(),
             batter_characters:game_schedule.away_team.players.iter().chain(&game_schedule.home_team.players).map(|p|(p.info.id,p.batting_character)).collect(),
             batting_strategy_settings: BattingStrategySettings::player_driven(),
@@ -1426,7 +1428,13 @@ impl GameState {
         }
 
         if swing_execution == SwingExecution::Take {
-            self.resolve_take(pitcher_id, batter_id, &pitched_ball, batter.batting_side);
+            self.resolve_take(
+                pitcher_id,
+                batter_id,
+                &pitched_ball,
+                batter.batting_side,
+                &catcher,
+            );
         } else {
             let batting_intent_decision = batting_intent_decision();
             let intent = batting_intent_decision.selected_intent;
@@ -1491,10 +1499,25 @@ impl GameState {
         batter_id: i64,
         pitched_ball: &PitchedBall,
         batting_side: RL,
+        catcher: &CatcherInfo,
     ) {
         info!("Take");
 
-        let pitch_result = pitched_ball.actual_location.call(batting_side);
+        let location = pitched_ball.actual_location;
+        let mut pitch_result = location.call(batting_side);
+        let catcher_blocked = if self.catcher_blocking
+            && pitch_result == PitchResult::WildPitch
+            && location.y < BallLocation::WILD_PITCH_LOW_Y
+        {
+            let blocked = self.rng.random()
+                < low_pitch_block_probability(location, catcher.fielder_info.catching);
+            if blocked {
+                pitch_result = PitchResult::Ball;
+            }
+            Some(blocked)
+        } else {
+            None
+        };
 
         let batting_result = match pitch_result {
             PitchResult::Ball if self.inning_state.ball + 1 >= MAX_BALL => BattingResult::Walk,
@@ -1511,7 +1534,10 @@ impl GameState {
             self.count_seq,
             pitcher_id,
             batter_id,
-            PlayerGameBattingMetrics::default(),
+            PlayerGameBattingMetrics {
+                catcher_blocked,
+                ..Default::default()
+            },
             BattedBall::default(),
             None,
             batting_result,
@@ -2689,6 +2715,47 @@ mod tests {
         assert_eq!(game.inning_state.runners.runner_3rd.unwrap().id, 20);
         assert!(game.inning_state.active_batter.is_none());
         assert!(game.inning_state.runners.batter_runner.is_none());
+    }
+
+    #[test]
+    fn catcher_block_trial_preserves_ordinary_ball_four() {
+        let play = |x, y, enabled| {
+            let mut game = game_state();
+            game.advance_half_inning().unwrap();
+            let batter = game.active_batter_for_count().unwrap();
+            game.prepare_plate_appearance(batter.runner());
+            game.inning_state.ball = MAX_BALL - 1;
+            game.inning_state.runners.runner_2nd = Some(runner(20));
+            game.catcher_blocking = enabled;
+            let catcher = game.current_catcher().unwrap().catcher;
+            let pitcher = crate::domain::test_support::pitcher_info();
+            let mut pitch = create_pitch(game.rng.as_mut(), &pitcher, None, 40.833).unwrap();
+            pitch.actual_location = BallLocation { x, y };
+            game.resolve_take(101, batter.id, &pitch, RL::Right, &catcher);
+            assert_eq!(
+                game.game_result.player_battings[0].result,
+                BattingResult::Walk
+            );
+            assert_eq!(game.inning_state.runners.runner_1st.unwrap().id, batter.id);
+            game
+        };
+        let blocked = play(0.0, -2.25, true);
+        assert_eq!(
+            blocked.game_result.player_battings[0].catcher_blocked,
+            Some(true)
+        );
+        assert_eq!(blocked.inning_state.runners.runner_2nd.unwrap().id, 20);
+        assert!(blocked.inning_state.runners.runner_3rd.is_none());
+
+        for (miss, attempted) in [
+            (play(2.0, -2.9, true), Some(false)),
+            (play(0.0, -2.25, false), None),
+        ] {
+            assert_eq!(miss.game_result.player_battings[0].catcher_blocked, attempted);
+            assert_eq!(miss.inning_state.runners.runner_3rd.unwrap().id, 20);
+        }
+        let near = BallLocation { x: 0.5, y: -2.25 };
+        assert!(low_pitch_block_probability(near, 1.0) > low_pitch_block_probability(near, 0.5));
     }
 
     #[test]

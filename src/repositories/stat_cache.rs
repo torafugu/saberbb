@@ -344,6 +344,31 @@ mod tests {
     }
 
     #[test]
+    fn blocked_ball_four_is_rebuilt_as_an_ordinary_walk() {
+        let conn = fixture();
+        super::batting_stat_cache::ensure_catcher_block_column(&conn).unwrap();
+        super::batting_stat_cache::ensure_catcher_block_column(&conn).unwrap();
+        conn.execute_batch(
+            "DELETE FROM count;
+             DELETE FROM player_game_batting;
+             DELETE FROM player_game_pitching;
+             INSERT INTO count VALUES
+                (1,1,1,'Top',0,0),(1,2,1,'Top',0,0),(1,3,1,'Top',0,0);
+             INSERT INTO player_game_batting VALUES
+                (1,1,11,10,'Double',NULL),(1,2,12,10,'Walk',1),(1,3,13,10,'WildPitch',0);
+             INSERT INTO player_game_pitching(game_id,count_seq,pitcher_id,actual_location_y)
+                VALUES (1,1,10,0),(1,2,10,-2.5),(1,3,10,-2.5);",
+        ).unwrap();
+        rebuild_in_transaction(&conn).unwrap();
+        let totals = conn.query_row(
+            "SELECT bb,wild_pitches,runs FROM pitching_stat_totals WHERE player_id=10",
+            [],
+            |r| Ok((r.get::<_, u32>(0)?, r.get::<_, u32>(1)?, r.get::<_, u32>(2)?)),
+        ).unwrap();
+        assert_eq!(totals, (1, 1, 0));
+    }
+
+    #[test]
     fn failed_cache_update_rolls_back_logs_and_previous_cache() {
         let mut conn=fixture();refresh_game(&conn,1).unwrap();
         conn.execute_batch("CREATE TRIGGER reject_cache BEFORE INSERT ON game_pitching_stat_cache BEGIN SELECT RAISE(ABORT,'test rejection');END;").unwrap();
