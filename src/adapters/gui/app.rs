@@ -28,6 +28,11 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
     let mut league = use_signal(|| 0u16);
     let mut team = use_signal(|| 0u16);
     let mut season = use_signal(|| 0u16);
+    // The Games screen keeps its own season/search/page state so those filters can
+    // share the League/Team row rendered here.
+    let mut games_season = use_signal(|| catalog.seasons.first().copied().unwrap_or(0));
+    let mut games_query = use_signal(String::new);
+    let mut games_page = use_signal(|| 0usize);
     let qualified_batters = use_signal(|| false);
     let qualified_pitchers = use_signal(|| false);
     let qualification_filter = match view() {
@@ -36,41 +41,33 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
         _ => None,
     };
     let qualified_only = qualification_filter.is_some_and(|(checked, _, _)| checked());
-    let scope = match (view(), qualified_only, catalog.latest_completed_regular_season) {
-        (1, _, _) if season() != 0 => tr("集計範囲：選択シーズン"),
-        (2 | 3, true, Some(year)) => super::locale::bilingual(
-            format!("集計範囲：{year}年 レギュラーシーズン"),
-            format!("Scope: {year} regular season"),
-        ),
-        (2 | 3, true, None) => tr("完了試合なし"),
-        (1..=3, _, _) => tr("集計範囲：保存済み全試合（通算）"),
-        _ => tr("同じローカルDBから表示"),
-    };
     let locale=super::locale::language();
     let stats_team=if view()==1 {0} else {team()};
     let controller=use_context::<super::management::Controller>();
     let busy=controller.state.read().busy;
     let headings = [{tr("試合結果")}, {tr("順位表")}, {tr("打撃成績")}, {tr("投手成績")}, {tr("チーム・選手")}, {tr("管理")}];
-    let labels = ["Games", "Standings", "Batting", "Pitching", "Teams", "Manage"];
     rsx! {
         aside { class:"sidebar",
             div { class:"brand", span { class:"brand-mark","S" } div { strong {"SABERBB"} small {"BASEBALL LAB"} } }
-            p { class:"nav-label","BROWSE" }
             nav {
                 for (i,label) in headings.iter().enumerate() {
                     button { id:format!("nav-{i}"), class:if view()==i as u8 {"nav-item selected"} else {"nav-item"},
-                        onclick:move |_|view.set(i as u8), span {"{labels[i]}"} strong {"{label}"} }
+                        onclick:move |_|view.set(i as u8), strong {"{label}"} }
                 }
             }
-            div { class:"sidebar-note", {tr("閲覧も管理もこの画面から")} }
         }
         main {
             header { class:"topbar", div { p {class:"eyebrow","SEASON ARCHIVE / LIVE DATABASE"} h1 {"{headings[view() as usize]}"} }
-                super::locale::LanguageSwitch {disabled:busy}
+                // The language switch is only offered on the Management screen.
+                if view()==5 { super::locale::LanguageSwitch {disabled:busy} }
                 button {id:format!("refresh"),class:"refresh",disabled:busy,onclick:move |_|onrefresh.call(()),{tr("↻ 再読み込み")}} }
             if busy { button {class:"job-banner",onclick:move |_|view.set(5),{tr("管理処理を実行中… 進捗を見る")}} }
             if view()!=5 {
             div { class:"filters",
+                if view()==0 { label { {tr("シーズン")} select { id:format!("season-filter"), value:games_season().to_string(), onchange:move |e|{games_season.set(e.value().parse().unwrap_or(0));games_page.set(0);},
+                    if catalog.seasons.is_empty() { option {value:"0",{tr("完了試合なし")}} }
+                    for year in &catalog.seasons { option {value:year.to_string(),selected:games_season()==*year,"{year}"} }
+                } } }
                 label { {tr("リーグ")} select { id:format!("league-filter"), value:league().to_string(), onchange:move |e|{league.set(e.value().parse().unwrap_or(0));team.set(0);},
                     option { value:"0",{tr("全リーグ")} }
                     for l in &catalog.leagues { option {value:l.id.to_string(),"{l.name}"} }
@@ -84,6 +81,10 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                     for t in catalog.teams.iter().filter(|t|league()==0 || t.league==league()) { option {value:t.id.to_string(),"{t.name}"} }
                 } }
                 }
+                if view()==0 {
+                    input { id:format!("game-search"), class:"game-search", r#type:"search", "aria-label":tr("試合を検索"), placeholder:tr("日付・チームを検索…"), value:games_query,
+                        oninput:move |e|{games_query.set(e.value());games_page.set(0);} }
+                }
                 if let Some((mut checked, id, label)) = qualification_filter {
                     label { class: "qualification-filter",
                         input { id: id, r#type: "checkbox", checked: checked(),
@@ -92,11 +93,14 @@ pub(super) fn Browser(catalog: Catalog, refresh:u32, onrefresh: EventHandler<()>
                         {tr(label)}
                     }
                 }
-                span { class: "scope-note", "{scope}" }
             }
             }
             match view() {
-                0 => rsx!{ Games {key:"games-{league()}-{team()}-{refresh}",catalog:catalog.clone(),league:league(),team:team(),refresh} },
+                0 => rsx!{ Games {
+                    key:"games-{league()}-{team()}-{refresh}", catalog:catalog.clone(), league:league(), team:team(), refresh,
+                    season:games_season(), query:games_query(), page:games_page(),
+                    onpage:move |next|games_page.set(next),
+                } },
                 1..=3 => rsx!{ Statistics {
                     key: "stats-{view()}-{league()}-{stats_team}-{season()}-{qualified_only}-{locale:?}",
                     kind: view(), catalog: catalog.clone(), league: league(), team: stats_team,
@@ -136,8 +140,6 @@ fn Statistics(
         None=>rsx!{p {class:"loading",{tr("成績を読み込み中…（初回のみ集計します）")}}},
         Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
         Some(Ok(table))=>rsx!{
-            if kind==1 {p {class:"small-note",{tr("防御率は失点と記録アウト数による参考値です（自責点は未記録）。")}}}
-            if kind==3 {p {class:"small-note",{tr("失策の影響で確定できない自責点と関連指標は「—」で表示します。ボークはシミュレーション上発生しません。")}}}
             DataTable {
                 data: table.clone(),
                 searchable: kind!=1,

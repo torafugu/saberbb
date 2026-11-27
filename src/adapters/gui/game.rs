@@ -6,34 +6,31 @@ use crate::domain::shared::{game::GameDetail,game_cursor::GameCursor};
 use super::{blocking,tables::{DataTable,ErrorPanel}};
 
 #[component]
-pub(super) fn Games(catalog:Catalog,league:u16,team:u16,refresh:u32)->Element {
-    let mut season=use_signal(||catalog.seasons.first().copied().unwrap_or(0));
+pub(super) fn Games(
+    catalog:Catalog,
+    league:u16,
+    team:u16,
+    season:u16,
+    query:String,
+    page:usize,
+    refresh:u32,
+    onpage:EventHandler<usize>,
+)->Element {
     let mut selected=use_signal(||None::<u32>);
-    let mut query=use_signal(String::new);
-    let mut page=use_signal(||0usize);
-    let catalog_for_load=catalog.clone();
-    let data=use_resource(move || {
-        let season=season();let catalog=catalog_for_load.clone();
-        // Manual refresh is propagated through the component's key.
+    // Season, search text and the current page live in the filter row so they can
+    // sit next to the League/Team selectors; manual refresh arrives via the key.
+    let data=use_resource(use_reactive((&season,&league,&team,&catalog),move |(season,league,team,catalog)| {
         async move {blocking(move ||viewing::games(season,league,team,&catalog)).await}
-    });
+    }));
     if let Some(id)=selected() {return rsx!{GamePanel {key:"game-{id}-{refresh}",id,refresh,onclose:move |_|selected.set(None)}};}
     rsx!{
-        div {class:"toolbar",
-            label {{tr("シーズン")} select {id:format!("season-filter"),value:season().to_string(),onchange:move |e|{season.set(e.value().parse().unwrap_or(0));page.set(0);},
-                if catalog.seasons.is_empty(){option {value:"0",{tr("完了試合なし")}}}
-                for year in &catalog.seasons {option {value:year.to_string(),"{year}"}}
-            }}
-            input {r#type:"search","aria-label":tr("試合を検索"),placeholder:tr("日付・チームを検索…"),value:query,oninput:move |e|{query.set(e.value());page.set(0);}}
-        }
         match data.read().as_ref() {
             None=>rsx!{p {class:"loading",{tr("試合を読み込み中…")}}},Some(Err(e))=>rsx!{ErrorPanel {message:e.clone()}},
             Some(Ok(games))=>{
-                let q=query().to_lowercase();
+                let q=query.to_lowercase();
                 let filtered:Vec<_>=games.iter().filter(|g|format!("{} {} {}",g.actual_date,g.away_team.name,g.home_team.name).to_lowercase().contains(&q)).collect();
-                let pages=filtered.len().div_ceil(50).max(1);let current=page().min(pages-1);
+                let pages=filtered.len().div_ceil(50).max(1);let current=page.min(pages-1);
                 rsx!{
-                    p {class:"muted",{bilingual(format!("{} 試合 · 試合を選ぶと詳細を表示します",filtered.len()),format!("{} games · Select a game to view details",filtered.len()))}}
                     if filtered.is_empty(){p {class:"empty",{tr("条件に一致する完了試合はありません。")}}}
                     div {class:"game-list",for game in filtered.iter().skip(current*50).take(50) {
                         button {id:format!("game-card-{}",game.id),class:"game-card",onclick:{let id=game.id;move |_|selected.set(Some(id))},
@@ -42,8 +39,8 @@ pub(super) fn Games(catalog:Catalog,league:u16,team:u16,refresh:u32)->Element {
                             strong {class:"home","{game.home_team.name}"} span {class:"tag",{tr("詳細 →")}}
                         }
                     }}
-                    div {class:"pagination",button {disabled:current==0,onclick:move |_|page.set(current.saturating_sub(1)),{tr("前へ")}}
-                        span {"{current+1} / {pages}"} button {disabled:current+1>=pages,onclick:move |_|page.set((current+1).min(pages-1)),{tr("次へ")}}}
+                    div {class:"pagination",button {disabled:current==0,onclick:move |_|onpage.call(current.saturating_sub(1)),{tr("前へ")}}
+                        span {"{current+1} / {pages}"} button {disabled:current+1>=pages,onclick:move |_|onpage.call((current+1).min(pages-1)),{tr("次へ")}}}
                 }
             },
         }

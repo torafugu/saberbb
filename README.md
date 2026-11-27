@@ -339,11 +339,12 @@ cargo run --features gui-tests --example gui_snapshots -- /tmp/saberbb-gui-snaps
 
 ### GUI language and saved statistics
 
-Use the **日本語 / English** buttons in the GUI header to switch labels and player
-name order immediately. Japanese uses family name followed by given name; English
-uses given name followed by family name. The preference is saved in the existing
-configuration file, retaining the database path and keybindings. Startup language
-initialization now overrides any earlier lazy default initialization.
+Use the **日本語 / English** buttons in the header of the **管理 / Management**
+screen to switch labels and player name order immediately. Japanese uses family
+name followed by given name; English uses given name followed by family name. The
+preference is saved in the existing configuration file, retaining the database path
+and keybindings. Startup language initialization now overrides any earlier lazy
+default initialization.
 
 Batting/pitching displays read `batting_stat_totals` and `pitching_stat_totals`.
 At game-result save time, the same database transaction updates per-game rows in
